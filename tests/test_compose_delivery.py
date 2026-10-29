@@ -27,7 +27,7 @@ def test_compose_preserves_text_image_order_and_sends_one_enter(client, monkeypa
     monkeypatch.setattr(tmux, "_run", typed(events.append))
     monkeypatch.setattr(server, "_deliver_image", lambda *a: events.append("IMAGE"))
     response = client.post("/api/panes/alias/compose", files=[
-        ("text", (None, "before")), ("image", ("test.png", b"image", "image/png")),
+        ("text", (None, "before")), ("file", ("test.png", b"image", "image/png")),
         ("text", (None, "after")),
     ])
     assert response.status_code == 200
@@ -42,15 +42,26 @@ def test_compose_text_is_a_bracketed_paste(client, monkeypatch):
     assert [c[:3] for c in calls if c[0] == "paste-buffer"] == [["paste-buffer", "-r", "-p"]]
 
 
-def test_all_segments_are_validated_before_typing(client, monkeypatch):
+@pytest.mark.parametrize(("filename", "mime", "ext"), [
+    ("../../x.C", "application/pdf", ".C"),  # the client's extension (case kept), never its path
+    ("report", "application/pdf", ".pdf"),  # no extension: the mime's
+    ("a.b/c..", "application/octet-stream", ".bin"),  # no plain word: the mime's again
+])
+def test_any_file_stages_under_a_generated_name(client, monkeypatch, tmp_path, filename, mime, ext):
+    """A non-image lands in the message as a path the agent opens, in the staging dir
+    under a name of our own (mode 0600), typed between the text segments around it."""
     events = []
-    monkeypatch.setattr(tmux, "_run", lambda args: events.append(args))
+    monkeypatch.setattr(tmux, "_run", typed(events.append))
+    monkeypatch.setattr(server, "_deliver_image", lambda pane, data, path, pid:
+                        events.append((data, path)))
     response = client.post("/api/panes/%1/compose", files=[
-        ("text", (None, "must not be typed")),
-        ("image", ("bad.txt", b"not an image", "text/plain")),
+        ("text", (None, "read this")), ("file", (filename, b"%PDF-1.4 x", mime)),
     ])
-    assert response.status_code == 415
-    assert events == []
+    assert response.status_code == 200
+    staged, = tmp_path.iterdir()
+    assert staged.name.startswith("file-") and staged.suffix == ext
+    assert staged.stat().st_mode & 0o777 == 0o600 and staged.read_bytes() == b"%PDF-1.4 x"
+    assert events == ["read this", (b"", str(staged)), "Enter"]  # no copy of the bytes rides along
 
 
 def test_composer_identity_failure_returns_conflict(client, monkeypatch):
@@ -134,7 +145,7 @@ def test_image_failure_never_submits_partial_draft(client, monkeypatch):
     monkeypatch.setattr(server, "_deliver_image", fail)
     with pytest.raises(RuntimeError, match="clipboard failed"):
         client.post("/api/panes/%1/compose", files=[
-            ("text", (None, "before")), ("image", ("test.png", b"image", "image/png")),
+            ("text", (None, "before")), ("file", ("test.png", b"image", "image/png")),
         ])
     assert events == ["before"]
 
@@ -149,10 +160,9 @@ def test_staging_failure_is_audited(client, monkeypatch, endpoint):
     def refused(*args):
         raise HTTPException(500, "unsafe staging directory")
 
-    monkeypatch.setattr(server, "_stage_image", refused)
-    field = "file" if endpoint == "image" else "image"
+    monkeypatch.setattr(server, "_stage_file", refused)
     response = client.post(f"/api/panes/%1/{endpoint}",
-                           files=[(field, ("test.png", b"image", "image/png"))])
+                           files=[("file", ("test.png", b"image", "image/png"))])
     assert response.status_code == 500
     assert len(audits) == 1
     assert audits[0]["outcome"].startswith("error:")
@@ -207,7 +217,7 @@ def test_captioned_image_is_one_draft_under_one_lock(monkeypatch):
     import asyncio
 
     events = []
-    monkeypatch.setattr(server, "_stage_image", lambda data, mime: "/tmp/x")
+    monkeypatch.setattr(server, "_stage_file", lambda data, mime: "/tmp/x")
     monkeypatch.setattr(server, "_deliver_image", lambda *a: events.append("IMAGE") or "path")
     monkeypatch.setattr(tmux, "pane_pid", lambda p: "1234")
     monkeypatch.setattr(tmux, "_run", typed(events.append))
