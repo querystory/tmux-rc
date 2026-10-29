@@ -1,0 +1,17 @@
+{
+  "description": "Synthetic: a finished auto-mode turn hands over `! ~/bin/approve-runs`, then Claude Code compacts the idle conversation and prints background-task completions, restored skills and an update notice below it. Those rows are Claude Code's own housekeeping, not the user acting, so the hand-over still stands: the command is the offer (else the card shows the ask with no Send button).",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ get #212 merged\n\n● #212 is green except two test runs that wait\n  for a maintainer to approve them, and my\n  permission check blocked me from doing that.\n  - #211: still ready to merge.\n\n  The script below approves #212's two runs and\n  resolves the last review thread. Tap Send it:\n\n  ! ~/bin/approve-runs\n\n✻ Worked for 31s · done 9:12 AM · 2 shells still\n  running\n  ⎿  Read ../../tmp/demo/tasks/a1b2c3.output (5\n     lines)\n  ⎿  Referenced file ../../tmp/demo/notes.json\n● Task \"Tidy the changelog\" completed in\n  background\n● Task \"Retry the flaky upload test\" completed in\n  background\n  ⎿  Skills restored (release-notes)\n● Compacted while idle, before the prompt\n  cache expired · turn off with\n  \"idleCompaction\": false in settings.json\n          ✔ Update installed · /restart to apply\n──────────────────── demo ─\n❯\n──────────────────────────────────────────────────\n  ⏵⏵ auto mode on · 2 shells · ↓ to manage",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "text"
+    },
+    "headline": "User must run the script that approves #212's test runs",
+    "offers": [
+      "! ~/bin/approve-runs"
+    ]
+  }
+}

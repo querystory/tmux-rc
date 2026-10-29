@@ -1,0 +1,11 @@
+{
+  "description": "Synthetic: a finished auto-mode turn that explains another pane's greyed button and tells the user to type \"send it\" into THAT pane's message box. The quoted words are for a different pane, not a reply this agent asks for, so there is no offer; the message asks nothing of the user here: idle.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ why is the reply button greyed out on the other pane\n\n● The Reply button on the other pane's card is greyed because that pane still holds\n  the answer you tapped a minute ago; it clears once that pane's next read lands. For\n  now, type \"send it\" into that pane's message box; that still works. Nothing is\n  waiting on you here.\n\n✻ Worked for 12s · done 11:30 AM\n\n────────────────────────────────────────────────── demo ─\n❯\n──────────────────────────────────────────────────\n  ~/src/acme/app on main | Opus 5.5 | dev@example.com\n  session: +3/-1 lines · 11% ctx · 22m · $0.80\n  ⏵⏵ auto mode on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "idle",
+    "offers": null,
+    "headline": "Explained why the other pane's Reply button is greyed out"
+  }
+}

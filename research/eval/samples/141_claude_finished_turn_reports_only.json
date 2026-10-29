@@ -1,0 +1,11 @@
+{
+  "description": "Synthetic: a finished auto-mode turn that only reports what it did and asks nothing: idle, no question, no offers. The control for sample 140.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ cut the 2.6 release\n\n● Done. The changelog and version bump are merged (#214), the tag v2.6.0 is\n  signed and pushed, and the release workflow published the archives and the\n  notes. The announcement PR is #215, merged after Copilot came back clean.\n\n✻ Worked for 18s · done 10:12 AM\n\n──────────────────────────────────────────────────────────────────── demo ─\n❯\n──────────────────────────────────────────────────────────────────────────\n  ~/src/acme/app on main | Opus 5.5 | dev@example.com\n  session: +40/-6 lines · 12% ctx · 48m · $2.10\n  ⏵⏵ auto mode on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "idle",
+    "headline": "Release 2.6 is cut and announced",
+    "offers": null
+  }
+}
