@@ -601,7 +601,8 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   }
   $("voice-switch").onchange = () => {
     if (!run?.text || $("voice-switch").value === run.model) return;
-    $("voice-model").value = $("voice-switch").value; stop(); start();
+    const pending = run.pending; $("voice-model").value = $("voice-switch").value; stop(); start();
+    run.pending.push(...pending); // a first turn queued for the old model goes to the new one
   };
   $("voice-close").onclick = hide;
   dialog.addEventListener("cancel", minimize); // Escape, modal only
