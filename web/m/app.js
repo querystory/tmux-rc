@@ -472,9 +472,10 @@ function renderList() {
   $("list-nav").querySelectorAll("[data-filter]").forEach((button) => button.setAttribute("aria-pressed", !dashboard && tab === button.dataset.filter));
   // Restore rides the dashboard's view machinery but is its own screen: its row is the one pressed.
   $("dashboard-tab").setAttribute("aria-pressed", String(dashboard && page !== "restore"));
-  $("dash-nav").setAttribute("aria-pressed", String(dashboardVisible() && !["restore", "scratch", "graph"].includes(page)));
-  $("dash-nav").href = `#${hashFor(null, "dashboard")}`; // the places are links: their hrefs carry the filters, as a click would
-  for (const nav of ["scratch", "graph"]) { $(`${nav}-nav`).setAttribute("aria-pressed", String(page === nav)); $(`${nav}-nav`).href = `#${hashFor(null, nav)}`; }
+  // The places are links: their hrefs carry the filters, as a click would. The one you are at is
+  // pressed (style.css draws it, the drawer reads it) and, as a link, current for assistive tech.
+  for (const [id, nav, at] of [["dash-nav", "dashboard", dashboardVisible() && !["restore", "scratch", "graph"].includes(page)], ["scratch-nav", "scratch", page === "scratch"], ["graph-nav", "graph", page === "graph"]])
+    Object.assign($(id), { href: `#${hashFor(null, nav)}`, ariaCurrent: at ? "page" : null }).setAttribute("aria-pressed", String(at));
   $("restore").setAttribute("aria-pressed", String(page === "restore"));
   // The filter button counts each filter on, and its tooltip names them.
   const on = [filter.map((f) => SHOW[f]).join(", "), scope.tools.join(", "), accounts.on().join(", "), scope.session, $("search").value.trim() && `"${$("search").value.trim()}"`].filter(Boolean);
