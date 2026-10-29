@@ -208,6 +208,7 @@ def install() -> None:
 def main() -> None:
     install()
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 18039
+    os.environ["TMUXRC_PORT"] = str(port)  # browser policy must trust the demo's chosen port
     uvicorn.run(server.app, host="127.0.0.1", port=port, log_level="warning")
 
 

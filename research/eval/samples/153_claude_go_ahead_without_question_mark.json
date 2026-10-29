@@ -1,0 +1,15 @@
+{
+  "description": "Synthetic: a finished auto-mode turn in a 50-column pane reports what was done and closes with 'waiting for your go-ahead to push', no question mark; the empty input box shows Claude Code's greyed suggestion 'push it'. The turn waits on the user: a text question (the closing paragraph) they can answer. The suggestion is nobody's words, so it is no offer by itself.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ Delete the old user and log out\n\n  Ran 1 shell command\n\n● The old dana IAM user is deleted. A lookup now\n  returns NoSuchEntity. I also logged out of the\n  console root session here.\n\n  Three leftovers showed up in the user list:\n  - ModelKey-a1b2, -c3d4 and -e5f6: these look\n    like API keys created from the console. I\n    haven't looked at them, so I don't know who\n    made them or whether they're still in use.\n  - erin, jules and sam: older plain user names\n    alongside their model-* users. I haven't\n    checked what they hold.\n\n  The secrets commit 7f3e2a1 is still local,\n  waiting for your go-ahead to push.\n\n✻ Sautéed for 13s · done 6:38 PM\n          ✔ Update installed · Restart to update\n──────────────────────────────────────────────────\n❯ ⟪placeholder⟫push it⟪/placeholder⟫\n──────────────────────────────────────────────────\n  ~/src/acme | Sonnet 5.5 | dana@example.com …\n  session: +0/-0 lines · 9% ctx · 138h30m · $10…\n  ⏵⏵ auto mode on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "model": "Sonnet 5.5",
+    "question": {
+      "answer_style": "text"
+    },
+    "headline": "Old IAM user deleted; waiting for the go-ahead to push the secrets commit"
+  }
+}

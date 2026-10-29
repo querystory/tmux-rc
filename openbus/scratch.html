@@ -79,7 +79,9 @@ a { color: var(--accent); }
 @media (pointer: coarse) { .framed #select:not(:focus-visible) { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); } }
 /* A long press selects (/long-press.js): no link preview, callout or text selection under the finger. */
 .framed article { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
-</style></head><body><main>
+</style><script>// In <head>, so the first paint has it: a script ahead of the body's waits on the network.
+// Sandboxed like every /scratch/ page, so no localStorage: the system theme.
+document.documentElement.classList.toggle("light", matchMedia("(prefers-color-scheme: light)").matches);</script></head><body><main>
 <header><h1>Scratch</h1><input type="search" placeholder="Filter Scratch" aria-label="Filter"><button type="button" class="act" id="select" data-icon="select" title="Select"><span>Select</span></button><a class="act" id="shelf" href="?archived" target="_self" data-icon="archive" title="Archived"><span>Archived</span></a><span class="seg" role="group" aria-label="View"><button type="button" data-view="grid" aria-label="Grid" title="Grid"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg><span>Grid</span></button><button type="button" data-view="list" aria-label="List" title="List"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h.01M3 12h.01M3 18h.01M8 6h13M8 12h13M8 18h13"/></svg><span>List</span></button></span><a href="DOCS_URL">About</a><a href="/m/">tmux-rc</a></header>
 <div id="bar" hidden><button type="button" id="cancel" data-icon="x" aria-label="Cancel" title="Cancel"></button><b id="count"></b><button type="button" id="all">All</button><button type="button" data-act="archive" data-icon="archive">Archive</button><button type="button" data-act="unarchive" data-icon="restore">Restore</button><button type="button" data-act="delete" data-icon="trash">Delete</button></div>
 <section id="cards"><!--cards--></section>
@@ -92,8 +94,6 @@ a { color: var(--accent); }
 </section></main>
 <script src="/long-press.js"></script>
 <script>
-// Sandboxed like every /scratch/ page, so there is no localStorage: follow the system theme.
-document.documentElement.classList.toggle("light", matchMedia("(prefers-color-scheme: light)").matches);
 const framed = window.top !== window;
 document.documentElement.classList.toggle("framed", framed);
 const ago = (s) => { const d = Date.now() / 1000 - s;
