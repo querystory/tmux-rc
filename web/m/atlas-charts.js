@@ -1,8 +1,9 @@
-// Local, pinned distributions: the mobile list never downloads chart libraries.
+// Local, pinned distributions: the mobile list never downloads chart libraries. src is
+// relative to this module, so it lands under the same /v/<version>/ and caches for good.
 function loadScript(src) {
   return new Promise((resolve, reject) => {
     const script = document.createElement('script');
-    script.src = src;
+    script.src = new URL(src, import.meta.url);
     script.onload = resolve;
     script.onerror = () => { script.remove(); reject(new Error('Could not load charts')); };
     document.head.append(script);
@@ -26,7 +27,7 @@ export function atlasCharts() {
   let latest, wordSignature;
   const paint = async () => {
     if (!latest || !cloud.clientWidth) return;
-    try { await load('WordCloud', '/m/vendor/wordcloud.js'); } catch { cloud.textContent = 'Chart unavailable. Choose a topic below.'; return; }
+    try { await load('WordCloud', 'vendor/wordcloud.js'); } catch { cloud.textContent = 'Chart unavailable. Choose a topic below.'; return; }
     if (!cloud.clientWidth) return;
     if (canvas.parentNode !== cloud) cloud.replaceChildren(canvas);
     const { words } = latest;
@@ -100,7 +101,7 @@ export function fleetChart(withAxis) {
     if (!el.clientWidth) return chart?.dispatchAction({ type: 'hideTip' }); // a view change hid it
     if (!latest) return;
     let echarts;
-    try { echarts = await load('echarts', '/m/vendor/echarts.min.js'); } catch { el.textContent = 'Chart unavailable. Reload to retry.'; return; }
+    try { echarts = await load('echarts', 'vendor/echarts.min.js'); } catch { el.textContent = 'Chart unavailable. Reload to retry.'; return; }
     if (!el.clientWidth) return;
     if (!chart) {
       el.replaceChildren();
