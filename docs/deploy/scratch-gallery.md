@@ -230,7 +230,10 @@ tmux-rc fills in the rest in the background, so the gallery never waits for it:
   one sentence, written into its `meta.json` and marked `"generated": ["description"]`.
   A description already there is never replaced.
 - **Who made it.** While the pane named in `meta.json` is open, the card shows its
-  session and window, its agent and its account, and links to it. Otherwise tmux-rc asks
+  session and window, its agent and its account, and links to it. A Codex pane is the
+  exception: Codex's shared app-server daemon stamps every session's `meta.json` with the
+  first Codex pane, so the transcript is asked and the named pane is kept only when it
+  has no answer. Otherwise tmux-rc asks
   [agent-history](https://github.com/querystory/tmux-rc/tree/main/agent-history) which
   session was active when the folder appeared and mentioned its path. If several were,
   it picks the most recently started one, since a long-running session that only passed
