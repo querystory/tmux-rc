@@ -316,11 +316,12 @@ const stayPut = (opts) => navigate(active, active ? view : dashboard ? page || "
 // Clear all: every filter (the states, the accounts and the search), not the grouping or the
 // sort, which are not filters; focus goes to the search box, else (a phone's dashboard or
 // pane, where it is hidden) the tab bar's pressed tab or Back; in the rail, to the filter
-// button, since focusing search would expand it.
+// button, since focusing search would expand it; under the graph's full screen, which leaves
+// the page inert, to that button seated in the graph (placePill).
 function clearFilters() {
   filter = []; scope.tools = []; scope.session = ""; $("search").value = ""; renderSidebar.picker.open = false; stayPut({ acct: [] });
-  ($("app").classList.contains("rail") ? [renderSidebar.picker.firstChild] : [$("search"), document.querySelector('#list-nav [aria-pressed="true"]'), $("back")])
-    .find((el) => el?.getClientRects().length)?.focus();
+  ($("app").classList.contains("rail") ? [renderSidebar.picker.firstChild] : [$("search"), document.querySelector('#list-nav [aria-pressed="true"]'), $("back"), renderSidebar.picker.firstChild])
+    .find((el) => el?.getClientRects().length && !el.closest("[inert]"))?.focus();
 }
 
 // Leaving a pane the user did not choose to leave: it closed under them, or a deep link
