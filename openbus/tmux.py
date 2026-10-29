@@ -43,6 +43,9 @@ OMP_TITLE_RE = re.compile(r"^π(?::|$| (?P<state>\S)(?: |$))")
 # probe ("Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA") lands there — a payload, not a title.
 _TITLE_ESCAPE_PAYLOAD = re.compile(r"^G[a-zA-Z]=[^,;]*(?:,[a-zA-Z]=[^,;]*)*;")
 
+# The name the user gave a pane from the phone (rename). A pane option, so it lives in
+# tmux with the pane: it survives a daemon restart and goes when the pane closes.
+NAME = "@tmuxrc-name"
 # Format string for `list-panes -F`. Fields are tab-separated so pane titles /
 # commands containing spaces don't break parsing.
 # FLY002 is suppressed below: keep fields individually searchable and ordered to
@@ -64,6 +67,7 @@ _PANE_FMT = "\t".join(  # noqa: FLY002
         "#{session_attached}",
         "#{pane_tty}",
         "#{@tmuxrc-fit}",
+        "#{@tmuxrc-name}",  # NAME
     ]
 )
 # The row the cursor sits on asks for a secret: "[sudo] password for x:", "x@host's
@@ -139,6 +143,7 @@ class Pane:
     session_attached: str = "0"
     tty: str = ""  # the pane's pts, read for `secret`
     fit: str = ""  # the width tmux-rc fitted the window to (openbus/fit.py), if it did
+    name: str = ""  # the user's own name for the pane (rename), if they gave one
 
     @cached_property  # once per listing, i.e. per watcher tick; the send path rereads
     def secret(self) -> bool:
@@ -162,7 +167,10 @@ class Pane:
         """The title the pane's own app set (agents publish their state here: Claude
         Code writes '<glyph> <task summary>' — free, accurate, no LLM needed). tmux
         defaults the title to the hostname, and stores APC payloads (Kitty graphics
-        probes) as the title — both noise -> None."""
+        probes) as the title — both noise -> None. A name the user gave the pane beats
+        all of it: an agent rewrites its title as it works, and a task outgrows a name."""
+        if name := self.name.strip():
+            return name
         if _TITLE_ESCAPE_PAYLOAD.match(self.title):
             return None
         t = _TITLE_GLYPHS.sub("", OMP_TITLE_RE.sub("", self.title)).strip()
@@ -512,6 +520,32 @@ def kill_window(pane_id: str, pid: str | None = None) -> list[tuple[str, str]]:
     return [tuple(line.split(" ", 1)) for line in out.splitlines() if line not in ("", "kept")]
 
 
+def _literal(arg: str) -> str:
+    """tmux ends a command at an argument ending in ';' (after `--` too): escape that ';' as
+    tmux's literal one."""
+    return arg[:-1] + "\\;" if arg.endswith(";") else arg
+
+
+def rename(pane: Pane, session: str | None, name: str | None) -> bool:
+    """Rename the pane's session, then name the pane (Pane.display_title; "" gives it back to
+    its app's title); None leaves that name alone. False, renaming nothing, when the pane at
+    session:window.pane is no longer this one (tmux reuses %N): that address also pins the
+    member of a session group the pane was listed under.
+
+    Plain argv calls: a pid-guarded if-shell would be one atomic command, but its commands
+    are text tmux re-reads, and tmux 3.4 keeps a backslash it adds before `$` there."""
+    at = f"={pane.session}:{pane.window_index}.{pane.pane_index}"
+    if _run(["display-message", "-p", "-t", at, "#{pane_id} #{pane_pid}"]).split() != [
+            pane.id, pane.pid]:
+        return False
+    if session:
+        _run(["rename-session", "-t", _literal(at), "--", session])
+    if name is not None:
+        _run(["set-option", "-p", "-t", pane.id, "--", NAME, _literal(name)] if name
+             else ["set-option", "-pu", "-t", pane.id, NAME])
+    return True
+
+
 def server_path() -> str | None:
     """PATH from the tmux SERVER's global environment — the list a new window's command is
     actually looked up in — or None if tmux can't say.
@@ -550,10 +584,8 @@ def new_window(session: str, name: str, command: str | list[str], cwd: str | Non
     `cwd` overrides it for a command that must start somewhere specific (a resumed
     agent session only exists in the directory it was started in).
     A `command` given as a list is executed directly by tmux, with no shell, so its
-    arguments are never parsed as shell syntax. tmux still ends a command at an argument
-    ending in ';' (after `--` too), so that ';' goes escaped as tmux's literal one."""
-    argv = [a[:-1] + "\\;" if a.endswith(";") else a
-            for a in (command if isinstance(command, list) else [command])]
+    arguments are never parsed as shell syntax, but each still goes through _literal."""
+    argv = [_literal(a) for a in (command if isinstance(command, list) else [command])]
     return _run(
         ["new-window", "-d", "-P", "-F", "#{pane_id}", "-c", cwd or "#{session_path}",
          "-t", f"{session}:", "-n", name, "--", *argv]

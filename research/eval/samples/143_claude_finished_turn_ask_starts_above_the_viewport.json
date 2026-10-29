@@ -1,0 +1,14 @@
+{
+  "description": "Synthetic: a finished auto-mode turn whose final message is long: the parser's visible-screen boundary falls inside it, so the ask (\"What I need from you: the owner for svc-04 and svc-11\") starts above the viewport and only its last row is below. The ask still stands: waiting on the user, question kept.",
+  "current_command": "claude",
+  "capture": "❯ summarise what the audit found\n\n● The audit covered the eleven services in the platform group. Findings, by service:\n  - svc-01: no findings\n  - svc-02: one expired TLS certificate on the internal listener\n  - svc-03: no findings\n  - svc-04: debug logging left on in production\n  - svc-05: no findings\n  - svc-06: an unpinned base image\n  - svc-07: no findings\n  - svc-08: a secret in an environment variable, rotated during the audit\n  - svc-09: no findings\n  - svc-10: no findings\n  - svc-11: an admin endpoint without rate limiting\n\n  What I need from you: the owner for svc-04 and svc-11, since neither has one in\n  the service catalogue. With those two names I'll file the four tickets and post the\n\u001e[visible screen]\u001f\n  summary in #platform.\n\n✻ Worked for 21s · done 4:40 PM\n\n────────────────────────────────────────────────── demo ─\n❯\n──────────────────────────────────────────────────\n  ~/src/acme/app on main | Opus 5.5 | dev@example.com\n  session: +12/-3 lines · 9% ctx · 41m · $1.90\n  ⏵⏵ auto mode on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "text"
+    },
+    "headline": "Audit done; asking who owns svc-04 and svc-11 before filing the tickets"
+  }
+}
