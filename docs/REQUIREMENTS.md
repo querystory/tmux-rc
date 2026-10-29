@@ -45,6 +45,8 @@ Source of truth for what the project owner asked for. `[x]` done+verified, `[ ]`
       When no clipboard tool works, falls back to TYPING the staged file's path into
       the pane (agents read files from disk) — degraded but working, never a silent
       200. Stagings live under /tmp/tmux-rc-images (0700, owned-dir enforced, day-pruned).
+      Any other file (a PDF, say) attaches too: staged the same way under a generated
+      name with the client's extension, and typed into the draft as its path.
 - [x] Special-key buttons: Enter/Esc/↑/↓/Ctrl-O/Ctrl-B/Ctrl-C.
 - [x] **Persistent bottom input bar** (76a22ee). Single bar with special keys + text
       input + attach. Tap a card to target it (input goes to that pane). Tapping also

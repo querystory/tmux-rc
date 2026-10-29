@@ -257,8 +257,8 @@ export function setupSidebar(ctx) {
   // /compose like its footer. A question about a link leads with Open link.
   function replies(node, p) {
     const answered = ctx.answered(p), busy = ctx.sending() || !!answered;
-    const options = needsYou(p) ? ctx.answers(p.question) : [], link = needsYou(p) && askLink(p);
-    // A finished turn's first offer rides every card, Needs you or not (app.js render shows all).
+    const options = ctx.answers(needsYou(p) ? p.question : null, p), link = needsYou(p) && askLink(p);
+    // A finished turn's first command offer rides every card, Needs you or not (app.js render shows all).
     const offers = ctx.offers(p).slice(0, 1).flatMap((offer) => ["text", "send", "copy"].map((part) => ({ offer, part, option: offer, index: -1 })));
     const items = [...(link ? [{ link }] : []), ...options, ...offers, ...(answered ? [{ note: answered.note }] : needsYou(p) ? [{ reply: true }] : [])];
     reconcile(node.querySelector(".sb-replies"), items, (o) => o.note != null ? "note" : o.reply ? "reply" : o.link ? `link:${o.link.href}` : o.part ? `${o.part}:${o.offer}` : `${o.index}:${o.option}`, (o) => {
@@ -267,7 +267,7 @@ export function setupSidebar(ctx) {
       if (o.link) return ctx.linkPair(o.link.href);
       const button = document.createElement("button");
       button.type = "button";
-      button.onclick = () => o.reply ? openReply(node._p.pane_id, node._p.secret) : o.part === "copy" ? ctx.copy(o.offer) : ctx.answer(node._p.pane_id, o.option, o.index, !!o.part);
+      button.onclick = () => o.reply ? openReply(node._p.pane_id, node._p.secret) : o.part === "copy" ? ctx.copy(o.offer) : ctx.answer(node._p.pane_id, o.option, o.index, !!o.part || !!o.offer);
       return button;
     }, (el, o) => {
       if (o.note != null) return text(el, o.note);

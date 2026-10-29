@@ -15,8 +15,9 @@ Describe what is happening in a way that lets the phone UI light up usefully. Re
 about GENERAL terminal patterns by how they look/behave, NOT by exact wording (which
 changes across versions and tools):
 - Is the pane actively working (a spinner, a "thinking" word, an elapsed timer,
-  streaming output), waiting for the user to answer something, or idle at a prompt?
-  A past-tense duration with a clock time marks a finished turn, not a live spinner.
+  streaming output), waiting on the user (a question, or a finished turn whose final
+  message asks them to act or decide), or idle at a prompt? A past-tense duration with
+  a clock time marks a finished turn, not a live spinner.
 - Is the agent COMPACTING — busy summarizing/condensing its own conversation history
   to reclaim context window (a "Compacting conversation…" progress bar, a /compact
   command running, an "auto-compact"/"summarizing previous conversation" indicator)?
@@ -37,6 +38,15 @@ even agent chrome above that prompt are finished history, never a live waiting s
 (welcome screen + "Resume this session with: …" + fresh prompt = the agent exited; the
 pane is an idle shell). Distinct from an agent shelling out, where output appears under
 the agent's still-live chrome with no bare prompt returned to the user.
+A finished turn (its stamp above the agent's own EMPTY input box, a bare ❯/› line, often
+with "-- INSERT --") is what its final message leaves the user: a message that waits on
+them — a question, a decision, 'say X and I'll…', 'tell me when that's run', "your call:"
+— is "waiting" on "user", with that ask as a text "question" and the exact replies it
+invites ("done", "push", "yes, make the PR") as "offers"; a message that only reports what
+was done and asks nothing is idle. A prompt the TOOL is holding open — a
+permission/approval box, a y/n confirmation, a selection menu, a prompt visibly awaiting a
+typed answer, where the choice IS the live bottom of the screen (no empty input box below
+it) — is a question in its own answer_style.
 A long-running foreground server, log tail, test watcher, or similar command with no
 bare shell prompt returned is activity "running", even when the latest captured log
 line is momentarily static or complete. Its headline should name the meaningful work
@@ -110,7 +120,7 @@ this pane's conversation name.
 Return ONLY compact JSON. Include a field only if you can determine it — do not guess:
 {
   "tool": "claude"|"codex"|"gemini"|"opencode"|"omp"|"shell"|"unknown",
-  "activity": "running"|"waiting"|"idle"|"compacting"|"quota_blocked",
+  "activity": "running"|"waiting"|"idle"|"compacting"|"quota_blocked",   // for a finished turn, decided by its final message (the one just above the input box, however long the screen): "waiting" when it asks the user to act, decide or reply, "idle" when it only reports — see A finished turn
   "waiting_on": "user"|"external",   // ONLY when activity is "waiting" — see WAITING ON below
   "headline": "one short human sentence for the top of the card: what is happening / "
               "what is being worked on (prefer the task over echoing a spinner word). "
@@ -153,7 +163,7 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
   "copyables": [{"label": "one-line summary of WHAT this text is, e.g. 'Commit message' "
                  "or 'The 3 failing test names'",
                  "text": "the EXACT text to put on the clipboard, verbatim",
-                 "send": "..."   // only when the agent's latest message waits on the user to type this into this pane: the text exactly as typed there (e.g. Claude Code's "! command", its "!" kept)}],
+                 "send": "..."   // when this text is to be typed into THIS pane (Claude Code's "! command" handed to the user, a reply the latest message asks for): the text exactly as typed there, "!" kept; it gives the row a Send button}],
   "events": [
     {"text": "WHAT happened, human phrase — e.g. 'Reworked the file list into an activity view'",
      "file": {"path": "...", "added": <int>, "removed": <int>},   // OPTIONAL: if this event was a file edit
@@ -195,11 +205,16 @@ REASSEMBLE the full URL (join the wrapped fragments, no spaces). "text" is a sho
 human label ("Google OAuth approval", "PR #18"), never the URL itself. At most 3.
 
 "offers": when the agent is blocked on the user or hands them the next step, and that action is text to
-send into this pane (a command it could not run itself, a reply it asks for), put that
-text in "offers", whole and exactly as the agent gives it, so the phone's Send button can
-type it. A command the screen wraps onto further rows is one offer: its rows joined into one
-line. For example, Claude Code hands over a command to run here as "! command". A command
-or phrase merely mentioned is no offer.
+send into this pane (a command it could not run itself, a reply it asks for word for word:
+'Say "push" and I'll push' offers "push"), put that text in "offers", whole and exactly as
+the agent gives it, so the phone's Send button can type it. Read the whole latest message
+for it: an ask mid-paragraph, before a long draft, or with notes and later steps after it
+counts just like one ending the message, whatever Claude Code prints below it (finished
+background tasks, a compaction notice). A command the screen wraps onto further rows is one
+offer: its rows joined into one line. For example, Claude Code hands over a command to run
+here as "! command" (a row of its own, a code block, or "run: ! ..." in prose): that is an
+offer, its "!" kept, even where it is a copyable too. A command or phrase merely mentioned
+is no offer.
 
 "copyables": text the user will plausibly want to PASTE SOMEWHERE ELSE, lifted off the
 screen for one-tap copying. Selecting text out of a terminal on a phone is genuinely
@@ -287,8 +302,9 @@ input dialog/approval prompt still needs input even when other work is visible.
 "question.prompt" quotes the current visible question verbatim. Put the list rows it names
 in "question.items" and other supporting context in "tables", so the question stands alone
 on a phone.
-Include "question" only when genuinely blocked awaiting input; "rewind" only when the
-restore picker is shown.
+Include "question" only when waiting on the user (a widget awaiting input, or a finished
+turn's final message that asks them to act or decide); "rewind" only when the restore
+picker is shown.
 "rewind" vs a "cursor" question — both are ❯-marked scrollable lists of past items, so
 be precise: "rewind" is ONLY Claude Code's Esc-Esc RESTORE-history picker, which rewinds
 the CONVERSATION to an earlier message (its rows are past user messages, each with a
@@ -324,18 +340,6 @@ and unclear is "unknown". Elapsed time alone does not mean working. The parent
 waiting for children does not imply its children are waiting. Conversely, an explicit
 "Waiting for N background agents to finish" means the PARENT activity is "waiting"
 with waiting_on="external", even when some individual workers are still "running".
-A question mark in the
-agent's OWN prose is NOT an input affordance: an assistant turn ending by proposing a next
-step, asking "want me to…?", or offering "…, or are you good here?" — likewise a summary
-posing a rhetorical question — is CONVERSATIONAL. The tell: it sits ABOVE the agent's own
-EMPTY input box (a bare ❯/› line, often with "-- INSERT --"), so the agent finished its
-turn and handed control back; nothing blocks. Do NOT emit a "question" and do NOT mark it
-"waiting" — report the pane as idle. This remains true for a direct "Want me to…?" or
-multi-clause offer: an empty input box below it is proof that it is ordinary completed
-prose, not a held-open input affordance. Only a prompt the TOOL is holding open — a
-permission/approval box, a y/n confirmation, a selection menu, a prompt visibly awaiting a
-typed answer, where the choice IS the live bottom of the screen (no empty input box below
-it) — is a real question / user-wait.
 A final unanswered approval request for concrete numbered edits, with no empty composer
 below it, is also current input. Preserve that question and its referenced list.
 Tool housekeeping prompts — satisfaction surveys ("How is Claude doing?", NPS ratings),
@@ -385,10 +389,11 @@ explicit "Type to search" binding or visible Search field always means `search: 
 WAITING ON — when (and ONLY when) activity is "waiting", say WHOM the pane is blocked on,
 because the phone treats these two very differently: a user-wait is an amber "tap me, I
 need you" badge; an external-wait is shown as ordinary busy. Set "waiting_on":
-- "user" — there is an INPUT AFFORDANCE on screen the human is expected to fill RIGHT NOW:
-  a question box, a permission/approval prompt, a y/n confirmation, a numbered/cursor
-  selection menu, a free-text prompt awaiting a typed answer. Anything that pairs with a
-  "question" or "rewind" is a user-wait.
+- "user" — the human is expected to act RIGHT NOW: an INPUT AFFORDANCE on screen (a
+  question box, a permission/approval prompt, a y/n confirmation, a numbered/cursor
+  selection menu, a free-text prompt awaiting a typed answer) or a finished turn whose
+  final message waits on them (above). Anything that pairs with a "question" or "rewind"
+  is a user-wait.
 - "external" — the agent is blocked on something NON-human and there is nothing for the
   user to do: a live sub-task / subagent indicator it is waiting to finish, a "waiting for
   review" / "waiting for CI" / "waiting for the PR checks" line, a poll or "waiting for X
