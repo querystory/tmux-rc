@@ -19,7 +19,8 @@ const { fleetChart } = await import("../web/m/atlas-charts.js");
 const states = ["Idle", "Running", "Needs you", "Done", "Compacting", "External"];
 const rows = () => [{ t: 0, n: [1, 2, 0, 0, 0, 0], ma: null }, { t: 60000, n: [0, 3, 0, 0, 0, 0], ma: 2.5 }];
 const data = (r, extra) => ({ rows: r, states, step: 60000, unit: "Panes", goal: 3, average: "1d", zoomKey: "k", ...extra });
-const painted = () => new Promise((resolve) => setTimeout(resolve)); // paint awaits the library, then a timer queued before this one
+const turn = () => new Promise((resolve) => setTimeout(resolve));
+const painted = async () => { await turn(); await turn(); }; // paint awaits the library (microtasks), then a timer: queued after the first turn's, before the second's
 
 test("the same rows again draw nothing; a new size alone resizes; new rows or a theme draw again", async () => {
   const chart = fleetChart(true), r = rows();
