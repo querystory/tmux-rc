@@ -94,6 +94,7 @@ from . import (  # noqa: E402
 )
 from .classify import picker_digest, picker_read, prompt_gone  # noqa: E402
 from .history import History, default_path, pane_key  # noqa: E402
+from .host_security import TrustedHostMiddleware  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
 from .open_loops import OpenLoops  # noqa: E402
 from .plan_usage import ENV, PlanUsage, canonical  # noqa: E402
@@ -561,6 +562,7 @@ app = FastAPI(
 from starlette.middleware import gzip  # noqa: E402
 
 app.add_middleware(gzip.GZipMiddleware, minimum_size=512)
+app.add_middleware(TrustedHostMiddleware)
 # Video and audio come compressed already, and gzip over a 206 garbles its Content-Range.
 # The responder reads this tuple on every response, so extending it is the hook.
 gzip.DEFAULT_EXCLUDED_CONTENT_TYPES += ("video/", "audio/", "application/gzip")

@@ -19,6 +19,20 @@ the daemon *is* the access-control system — see [docs/deploy/](docs/deploy/). 
 amount to "the API is unauthenticated" will be closed as working-as-documented; reports
 that it can be reached in a way the docs say is safe are very much in scope.
 
+## Trusted hosts
+
+HTTP and WebSocket requests must address a known Host. By default these are `localhost`,
+`127.0.0.1`, `[::1]`, and the specific `TMUXRC_HOST` bind address or hostname. A wildcard
+bind (`0.0.0.0` or `::`) does not allow arbitrary hostnames. Set
+`TMUXRC_ALLOWED_HOSTS=console.example.com` to add exact tunnel or LAN hostnames/IPs;
+multiple entries are comma-separated. Ports are validated but ignored for hostname
+matching. Schemes, paths, credentials and wildcard suffixes are not accepted.
+
+Configure the Host the tunnel forwards upstream, which may differ from the public
+hostname. Forwarded and X-Forwarded-Host headers cannot authorize a request. Unknown,
+missing, malformed or repeated Host headers are refused before API dispatch. This is
+a DNS-rebinding defense, not user authentication; direct local callers can set Host.
+
 ## Tunnel identity (`X-Tunnel-User`)
 
 The tunnel relay authenticates the phone through IAP and the tunnel client forwards the
