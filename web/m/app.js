@@ -810,7 +810,7 @@ const paintUsage = steady(() => {
   if (focused) $("usage-more")?.focus({ preventScroll: true });
   $("usage-handle").hidden = $("usage").hidden;
   // The dashboard's card draws every meter as a trend whatever the mode; its view (#view=usage)
-  // draws them over time (usage-view.js). The dashboard's tool chips filter both, and a
+  // draws them over time (usage-view.js). The dashboard's tool chips filter the card, and a
   // tool with no plan meters hides the card. Several accounts: a labelled group each when
   // wide, the strip on a phone.
   const tools = scope.tools, board = tools.length ? all.filter((a) => tools.includes(a.provider)) : all;
@@ -822,10 +822,9 @@ const paintUsage = steady(() => {
   accounts.strip(el, several); // grouped too: a line too narrow for its charts scrolls rather than wraps
   if (page !== "usage") return;
   if (usagePast !== usageDays()) refreshCached(true); // past windows: only this view asks for them
-  // Every account's meters, whatever the list's account filter: the view picks its own
-  // (usage-view.js). Named and chipped as the list names them; a tool filter with no meters
-  // (reached by Forward, say) shows them all rather than a blank view.
-  const scoped = usage.filter((a) => tools.includes(a.provider)), list = (scoped.length ? scoped : usage).map((a) => {
+  // Every account's meters, whatever the list's filters: the view picks its own (usage-view.js).
+  // Named and chipped as the list names them.
+  const list = usage.map((a) => {
     const p = (a.dirs || []).map(accounts.profile).find((p) => p?.signed_in);
     return { ...a, acct: p, chip: p ? accounts.chip(p) : "" };
   }).filter((a) => a.acct || !accounts.list().length); // a removed account drops out, as in accounts.usage()
@@ -2681,9 +2680,12 @@ function placeChrome() {
 // too, beside New window: the dashboard's filter row folds behind it (style.css). A card's own
 // view follows the same filters, and on a phone its head is the bar: the button and the chips go
 // in it, which a view's rebuild keeps (atlas.js renderHeatView), so neither loses focus.
+// Plan usage follows none of them: it charts its own pick of accounts (usage-view.js), so its
+// head holds that pick's button instead, the one funnel there, and wide it sits by the range.
 function placePill() {
-  const phone = !WIDE.matches, bar = phone && $("dash-page").querySelector(":scope > .landing-head");
-  const head = CARDS[page] && bar, dash = phone && dashboard;
+  const phone = !WIDE.matches, bar = phone && $("dash-page").querySelector(":scope > .landing-head"), dash = phone && dashboard;
+  const own = page === "usage" && (usageView._filter ||= usageView.querySelector(".uv-filter")), to = own && (bar || usageView.firstChild), head = !own && CARDS[page] && bar;
+  if (own && own.parentElement !== to) to.append(own); // held by the view: another view drops the head it sat in
   const picker = renderSidebar.picker, at = head ? picker : bar ? $("find") : dash ? document.querySelector(".app-header") : $("find");
   if (head) { if (picker.parentElement !== head) head.append(picker); }
   else if (dash && picker.nextElementSibling !== $("new-window")) $("new-window").before(picker);

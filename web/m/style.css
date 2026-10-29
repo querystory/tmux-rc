@@ -1386,7 +1386,7 @@ button.picked:is(:disabled, [aria-disabled="true"]) { opacity: 1; }
 @media (max-width: 699px) { #dash-page:has(> .usage-view) { height: auto; } }
 @container dash-page (max-width: 699px) {
   /* A phone: the charts stacked to scroll, each landscape, 5-hour and Weekly on the first screen. */
-  #landing .usage-view { flex: none; min-height: 0; gap: 8px; padding: 10px 6px 4px; }
+  #landing .usage-view { flex: none; min-height: 0; gap: 8px; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; } /* edge to edge under the head: no card */
   .uv-bar { justify-content: space-between; gap: 6px 8px; }
   .uv-bar .fleet-seg button { min-width: 0; padding: 2px 8px; }
   .uv-span { order: 2; flex-basis: 100%; font-size: 12px; }
