@@ -289,12 +289,21 @@ const accounts = setupAccounts({ request, post, licon, notice, repaint: () => { 
   clearChip: (k) => { filter = filter.filter((f) => f !== k); scope.tools = scope.tools.filter((t) => `agent:${t}` !== k); stayPut(); renderSidebar.picker.firstChild.focus(); }, clearAll: clearFilters });
 
 const writeHash = (next, how = "replace", state = history.state) => history[`${how}State`](state, "", next ? `#${next}` : location.pathname + location.search);
+// The hash a move writes, so a row's or a nav item's href is the view it opens: a middle or
+// modified click (new tab, new window) is the browser's, and lands on the same view.
+const hashFor = (id = null, nextView = "summary", acct = accounts.key()) => {
+  const nextPage = PAGES.includes(nextView) ? nextView : null;
+  return formatHash({ pane: id, view: nextView, dashboard: nextView === "dashboard" || !!nextPage, page: nextPage, filter, acct, agent: scope.tools, q: $("search").value });
+};
+// Such a link's plain click routes in place instead.
+const inApp = (go) => (e) => { if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; e.preventDefault(); go(); };
+// A pane's row (either layout's) or rail icon, as its link.
+const paneLink = (a, id) => { a.href = `#${hashFor(id)}`; a.onclick = inApp(() => navigate(id)); };
 // Every user-driven move goes through here: the URL is written first, then the view is
 // routed synchronously (pushState/replaceState fire no hashchange). Back/Forward and edits
 // by hand reach route() through hashchange instead. Never call this from a poll.
 function navigate(id = null, nextView = "summary", { mode, acct = accounts.key() } = {}) {
-  const nextPage = PAGES.includes(nextView) ? nextView : null;
-  const next = formatHash({ pane: id, view: nextView, dashboard: nextView === "dashboard" || !!nextPage, page: nextPage, filter, acct, agent: scope.tools, q: $("search").value });
+  const next = hashFor(id, nextView, acct);
   const current = location.hash.slice(1);
   if (next !== current) {
     // A replaced entry keeps its state (a card's view stays "from its card"); a new screen starts bare.
@@ -385,13 +394,13 @@ function route() {
 }
 
 function makeRow(pane) {
-  const button = document.createElement("button");
+  const button = document.createElement("a");
   button.className = "pane-row";
   button.innerHTML = `<span class="pane-icon"><img alt=""></span><span class="row-body"><span class="row-title"><strong></strong><span class="row-age"></span>${licon("chevron", 14)}</span><span class="row-status"></span><span class="row-meta"><span class="session-chip" hidden></span><span class="row-acct"></span><span class="row-details"></span><span class="badge"></span></span></span>`;
-  button.onclick = () => navigate(pane.pane_id);
   return button;
 }
 function updateRow(button, pane) {
+  paneLink(button, pane.pane_id);
   if (pane.pane_id === active) button.setAttribute("aria-current", "true");
   else button.removeAttribute("aria-current");
   button.classList.toggle("needs-you", asks(pane));
@@ -413,7 +422,7 @@ function updateRow(button, pane) {
   html(button.querySelector(".row-acct"), accounts.badge(pane.pane_id));
   text(button.querySelector(".row-details"), [pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
 }
-const renderSidebar = setupSidebar({ licon, reconcile, text, html, renderItems, logos: LOGOS, navigate, notice, badge: accounts.badge,
+const renderSidebar = setupSidebar({ licon, reconcile, text, html, renderItems, logos: LOGOS, navigate, paneLink, notice, badge: accounts.badge,
   active: () => active, wide: () => WIDE.matches, sending: () => sending, answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, compose, offers: (p) => offersOf(p).filter(isCommand), copy: copyText, linkPair,
   setFilter: (value) => { filter = value; stayPut(); }, setAgents: scope.pick,
   setSession: scope.pickSession, clearAll: clearFilters, outside: (p) => outside.has(p.pane_id), sort: () => sort, setSort, repaint: () => renderList() });
@@ -464,7 +473,8 @@ function renderList() {
   // Restore rides the dashboard's view machinery but is its own screen: its row is the one pressed.
   $("dashboard-tab").setAttribute("aria-pressed", String(dashboard && page !== "restore"));
   $("dash-nav").setAttribute("aria-pressed", String(dashboardVisible() && !["restore", "scratch", "graph"].includes(page)));
-  for (const nav of ["scratch", "graph"]) $(`${nav}-nav`).setAttribute("aria-pressed", String(page === nav));
+  $("dash-nav").href = `#${hashFor(null, "dashboard")}`; // the places are links: their hrefs carry the filters, as a click would
+  for (const nav of ["scratch", "graph"]) { $(`${nav}-nav`).setAttribute("aria-pressed", String(page === nav)); $(`${nav}-nav`).href = `#${hashFor(null, nav)}`; }
   $("restore").setAttribute("aria-pressed", String(page === "restore"));
   // The filter button counts each filter on, and its tooltip names them.
   const on = [filter.map((f) => SHOW[f]).join(", "), scope.tools.join(", "), accounts.on().join(", "), scope.session, $("search").value.trim() && `"${$("search").value.trim()}"`].filter(Boolean);
@@ -1837,7 +1847,8 @@ function fadeKeys() {
 $("keys").addEventListener("scroll", fadeKeys, { passive: true });
 new ResizeObserver(fadeKeys).observe($("keys"));
 $("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); if (open) fadeKeys(); };
-$("dashboard-tab").onclick = $("dash-nav").onclick = () => openDashboard();
+$("dashboard-tab").onclick = () => openDashboard();
+$("dash-nav").onclick = inApp(openDashboard);
 // A phone's ☰ drawer: each row presses the control that already goes there (a tab, Scratch,
 // Settings, the docs link), shown when it is and current while it is pressed. A modal
 // dialog, so focus stays in it and returns to ☰; a tap off it, Escape or a drag left closes it.
@@ -1910,7 +1921,7 @@ addEventListener("touchmove", (e) => {
   drag.v = (t.clientX - drag.at) / Math.max(1, e.timeStamp - drag.t); drag.at = t.clientX; drag.t = e.timeStamp;
   slide(Math.min(0, Math.max(-drawer.offsetWidth, drag.base + dx)));
 }, { passive: true });
-for (const nav of ["scratch", "graph"]) $(`${nav}-nav`).onclick = (e) => { e.preventDefault(); openPage(nav); };
+for (const nav of ["scratch", "graph"]) $(`${nav}-nav`).onclick = inApp(() => openPage(nav));
 $("empty-needs").onclick = () => { const needs = $("empty-needs").dataset.all === "needs"; if (needs) $("search").value = ""; filter = needs ? ["attention"] : []; scope.tools = []; stayPut({ acct: [] }); };
 // Close only leaves the pane, exactly like Back (which stands in for it on a narrow screen).
 $("back").onclick = $("close-pane").onclick = () => navigate();
