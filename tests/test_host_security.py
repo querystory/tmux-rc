@@ -75,3 +75,14 @@ def test_server_installs_host_policy():
     from openbus import server
 
     assert any(m.cls is TrustedHostMiddleware for m in server.app.user_middleware)
+
+
+@pytest.mark.parametrize("host", ["[::1", "localhost:bad", "other.example.com"])
+def test_real_app_rejects_host_before_url_parsing(host):
+    from fastapi.testclient import TestClient
+
+    from openbus import server
+
+    client = TestClient(server.app, raise_server_exceptions=False)
+    assert client.get("/api/version", headers={"host": host}).status_code == 400
+    assert client.get("/api/version").status_code == 200

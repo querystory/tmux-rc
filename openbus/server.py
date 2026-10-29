@@ -562,7 +562,6 @@ app = FastAPI(
 from starlette.middleware import gzip  # noqa: E402
 
 app.add_middleware(gzip.GZipMiddleware, minimum_size=512)
-app.add_middleware(TrustedHostMiddleware)
 # Video and audio come compressed already, and gzip over a 206 garbles its Content-Range.
 # The responder reads this tuple on every response, so extending it is the hook.
 gzip.DEFAULT_EXCLUDED_CONTENT_TYPES += ("video/", "audio/", "application/gzip")
@@ -626,6 +625,10 @@ async def no_cache(request, call_next):
     if cl and request.url.path.endswith("/live"):
         logger.debug("%s -> %s bytes", request.url.path, cl)
     return resp
+
+
+# Later registrations run first: refuse malformed authorities before no_cache parses URLs.
+app.add_middleware(TrustedHostMiddleware)
 
 
 def _web_version() -> str:
