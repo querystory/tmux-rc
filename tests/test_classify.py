@@ -396,6 +396,37 @@ def test_omp_ask_radios_do_not_become_tasks(checked, unchecked):
     ]
 
 
+@pytest.mark.parametrize("tabs", [" ☐ Fruit ", "←  ☒ Beds  ☐ Fruit  ✔ Submit  →", " ☐ API → UI"])
+def test_claude_picker_header_tabs_are_not_tasks(tabs):
+    screen = (
+        "  ⎿  ☐ Plant the seedlings\n" + "─" * 40 + f"\n{tabs}\n\nWhich fruit should we plant?"
+        "\n\n❯ 1. Apple\n  2. Pear\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n"
+    )
+    label = "API → UI" if "API" in tabs else "Fruit"
+    tasks = [{"text": text, "done": False} for text in ("Plant the seedlings", label)]
+    result = classify(_pane("claude"), screen, _llm({
+        "tool": "claude", "activity": "waiting", "tasks": tasks,
+    }))
+    assert result["tasks"] == tasks[:1]
+    assert "tasks" not in classify(_pane("claude"), screen, _llm({
+        "tool": "claude", "activity": "waiting", "tasks": tasks[1:],
+    }))
+    # A real task with the tab's label stays, barred (│ … │) or not.
+    for row in [f"  ⎿  {box} {label}" for box in ("☐", "☒", "☑", "✓", "•", "[x]", "[X]", "[ ]")] + [
+            f"│ ⎿  ☐ {label}      │"]:
+        assert classify(_pane("claude"), f"{row}\n" + screen, _llm({
+            "tool": "claude", "activity": "waiting", "tasks": tasks[1:],
+        }))["tasks"] == tasks[1:]
+    for row in (f"❯ {label}", f"│ {label}"):  # the label in prose is no checkbox row
+        assert "tasks" not in classify(_pane("claude"), f"{row}\n" + screen, _llm({
+            "tool": "claude", "activity": "waiting", "tasks": tasks[1:],
+        }))
+    plan = "─" * 40 + f"\n☐ {label}\nOpenCode 1.18.32"  # another agent's plan under a rule
+    assert classify(_pane(cmd="opencode"), plan, _llm({
+        "tool": "opencode", "activity": "running", "tasks": tasks[1:],
+    }))["tasks"] == tasks[1:]
+
+
 def test_opencode_stale_interrupt_row_does_not_override_idle_footer():
     r = classify(
         _pane(cmd="opencode"),
