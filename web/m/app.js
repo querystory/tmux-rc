@@ -9,6 +9,7 @@ import { linkGroups, askLink } from "/pr-links.js";
 import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf, tabTitle, tabIconKey, isRunning } from "/m/pane-model.js";
 import { tabIcon } from "/tab-icon.js";
 import { parseHash, formatHash, historyMode, PAGES, scratchUrl } from "/m/url-state.js";
+import "/long-press.js"; // globalThis.longPress: a classic script, so the scratch gallery shares it
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { dragToDismiss } from "/m/drag-dismiss.js";
 import { tmuxKey, inputQueue } from "/m/keys.js";
@@ -879,12 +880,25 @@ scratchFrame.addEventListener("load", tellScratch);
 // in progress links the pane making it) may open a pane, with a draft for its composer, and nothing else: its origin is opaque,
 // so the placeholder can't be told from another page, and a pane opened is only navigation.
 addEventListener("message", (e) => {
-  const { pane, view, open, title, draft: offered } = e.data || {}, href = scratchUrl(open, location.href);
+  const { pane, view, open, title, scratch, names, draft: offered } = e.data || {}, href = scratchUrl(open, location.href);
   if (/^%\d+$/.test(pane) && [scratchFrame, viewer.querySelector("iframe")].some((f) => f?.contentWindow === e.source)) navigate(pane, "summary", { draft: offered });
   if (e.source !== scratchFrame.contentWindow) return;
   if (["grid", "list"].includes(view)) { scratchView = view; try { localStorage.setItem("tmuxrc-scratch-view", view); } catch {} }
   if (href) viewScratch(href, title);
+  if (["archive", "unarchive", "delete"].includes(scratch) && Array.isArray(names)) scratchAct(scratch, names);
 });
+// The gallery's Archive, Restore and Delete, which its sandbox can't: Delete (only ever from
+// the archive) asks first, here where no page can click it; Archive offers an Undo.
+async function scratchAct(action, names) {
+  const what = (n) => (n === 1 ? "1 page" : `${n} pages`);
+  const idle = () => scratchFrame.contentWindow?.postMessage({ idle: true }, "*"); // its bar, usable again
+  if (action === "delete" && !confirm(`Delete ${what(names.length)} for good? This cannot be undone.`)) return idle();
+  let done;
+  try { ({ done } = await post("/api/scratch", { action, names }, NO_TIMEOUT)); } catch (err) { idle(); return notice(`Could not change Scratch: ${err.message}`, 6000); }
+  scratchFrame.contentWindow?.postMessage({ reload: true }, "*");
+  notice(`${{ archive: "Archived", unarchive: "Restored", delete: "Deleted" }[action]} ${what(done.length)}.`, 8000,
+    action === "archive" && done.length ? ["Undo", () => scratchAct("unarchive", done)] : null);
+}
 // The pane whose pages it shows (?pane=, scratch.html), opened from that pane's Links.
 let scratchFrom = null;
 function scratchPage() {
@@ -1151,25 +1165,13 @@ function copyHere(el, value, icon) {
 
 // One tappable link row: the Links list's, and the one leading a question's card. A tap opens
 // it; a long press copies it instead (to open in another browser), and the click after is not
-// a tap. The hold only arms the copy: it runs on release, where iOS grants the gesture that a
-// clipboard write needs. Scrolling, a second finger or a cancel disarms it.
+// a tap (/long-press.js). The copy runs on release, where iOS grants the gesture a clipboard write needs.
 function renderLinks(el, links) {
   reconcile(el, links, (link) => link.href, () => {
     const anchor = document.createElement("a");
-    let timer, held = false;
     anchor.target = "_blank"; anchor.rel = "noopener noreferrer";
     anchor.innerHTML = '<span></span><small></small>' + licon("chevron", 16);
-    const disarm = () => { clearTimeout(timer); held = false; };
-    anchor.addEventListener("touchstart", (event) => {
-      disarm();
-      if (event.touches.length > 1) return;
-      timer = setTimeout(() => { held = true; }, 500);
-      document.addEventListener("touchstart", disarm, { capture: true, once: true, passive: true }); // the next finger anywhere (this one's capture has passed)
-    }, { passive: true });
-    for (const type of ["touchmove", "touchcancel"]) anchor.addEventListener(type, disarm, { passive: true });
-    anchor.addEventListener("touchend", () => { clearTimeout(timer); if (held) copyHere(anchor, anchor.href, "chevron"); }, { passive: true });
-    anchor.addEventListener("click", (event) => { if (held) event.preventDefault(); held = false; });
-    anchor.addEventListener("contextmenu", (event) => { if (held || event.pointerType === "touch") event.preventDefault(); }); // Android's link menu
+    longPress(anchor, { released: () => copyHere(anchor, anchor.href, "chevron") });
     return anchor;
   }, (anchor, link) => {
     const host = new URL(link.href).host;
