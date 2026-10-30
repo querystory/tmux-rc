@@ -15,7 +15,11 @@ to narrow the list. Grid and List switch between cards across the full width and
 rows with a small thumbnail. The app shows the gallery as Scratch, in the wide sidebar
 and in a phone's ☰ menu. There a card opens full screen over the app. Back, Escape or a
 swipe from the left edge returns to the gallery, and "Open in browser" opens the page in
-a tab of its own. Settings links to the gallery's own page under More.
+a tab of its own. While the pane its `meta.json` names is still open, a box at the
+bottom messages that agent ("Message qs:0 (Triage recent bugs)"), the way the pane's own
+composer does, opening with `Re scratch <folder>: ` so the agent knows which page it is
+about. The box is the app's, not the page's: a page cannot send to a pane.
+Settings links to the gallery's own page under More.
 
 A pane's overview lists only the few links that matter: its pages still In progress, its
 newest page, and the PR it was last seen working on (the watcher's own order; there is no
@@ -25,6 +29,27 @@ cards raised and a "From this pane" chip to drop the filter, and "More pull requ
 unfolds the rest in place. A pane's pages go to the gallery rather than a longer list
 because the gallery already has thumbnails, search and the viewer; PRs stay in place
 because the gallery cannot list them and a pane rarely has more than a few.
+
+An open gallery keeps itself current: every five seconds while it is on screen, it asks
+whether anything changed and reloads if so. That covers a new folder, a page or a
+thumbnail landing, and a folder archived. It holds off while a filter is typed or cards
+are selected.
+
+## Cleaning up
+
+In the app's Scratch, a long press on a card starts selecting with that card ticked, as in
+a phone's photo gallery or mail; with a mouse, Select (shown only for a mouse) does the same. Tap more to tick or
+untick them (All takes every card the filter shows; unticking the last ends it), then
+Archive. On a phone the bar sits at the bottom, in reach however far the list scrolls. Archived folders leave the gallery but
+are not gone. Their links keep working until a new folder takes the name, and Archived
+lists them at links of their own, where Restore brings
+them back and Delete removes them for good, after asking. Archive offers an Undo for a
+few seconds. Delete is only offered in Archived, so nothing is deleted in one step.
+
+On disk, archiving moves the folder into `.archive/` in the scratch directory, which the
+gallery skips like any hidden folder; Restore moves it back. A folder whose name has been
+taken meanwhile stays where it is. The gallery's own page, opened in a tab, can't change
+files (it is sandboxed like every scratch page), so there Select opens the app's Scratch.
 
 ## Setting it up
 
@@ -120,10 +145,8 @@ crashes, and it survives a daemon restart, since the state is read from the fold
   session's prompt looks idle. Once the pane is closed, or idle for 30 minutes, it says
   the agent stopped without publishing (without a pane, 30 minutes after `created`).
 - **The gallery** and the drawer's Recent show the folder with a spinner while its agent
-  works (once stopped, the gallery says so). Once the page lands, its thumbnail is queued and the spinner
-  turns into it (it stops asking after about 18 minutes); while one spins, the gallery also
-  reloads every 30 seconds (not while a filter is being typed), since the thumbnail never
-  comes without a browser to shoot it.
+  works (once stopped, the gallery says so). The gallery lists pages still in progress
+  first. Once the page lands, its thumbnail is queued and the spinner turns into it.
 - **When the page lands** (the daemon looks every ten seconds), every subscribed device gets one push, `Ready: <title>`, whose
   tap opens the page in the app's scratch viewer. A page made faster than that, its
   `meta.json` and page arriving between two looks, was never seen pending but was promised

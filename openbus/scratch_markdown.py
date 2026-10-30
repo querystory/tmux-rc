@@ -113,12 +113,7 @@ def page(path: Path, web: Path, notice: tuple[str, str] | None = None) -> str:
             .replace("<!--body-->", body))
 
 
-# A 1x1 and a 2x1 GIF: a placeholder's ask answered "no change" and "reload" (Files).
-PIXEL = bytes.fromhex("47494638396101000100800000000000ffffff21f90401000000002c"
-                      "00000000010001000002024401003b")
-WIDE = PIXEL[:6] + b"\x02" + PIXEL[7:]
-
-
+ARCHIVE = ".archive"  # scratch's archived folders: hidden, like any dot folder
 # A 1x1 and a 2x1 GIF: a placeholder's ask answered "no change" and "reload" (Files).
 PIXEL = bytes.fromhex("47494638396101000100800000000000ffffff21f90401000000002c"
                       "00000000010001000002024401003b")
@@ -131,7 +126,11 @@ class Files(StaticFiles):
     what `pending` makes of the folder's name (scratch.placeholder), as 202 Accepted:
     an agent checking for a 200 is not told its page is there; while `updating` says the
     folder is being revised (scratch.bar), its .md pages wear that bar. Anything hidden (a .git,
-    an .env) is not part of the page, as in the gallery, and is not served."""
+    an .env) is not part of the page, as in the gallery, and is not served. An archived
+    folder (in ARCHIVE) is served at ARCHIVE/<name>/, where the Archived gallery links it,
+    and at its old link while no folder has taken that name since, so links handed out keep
+    working. Which tree answers is decided by the folder alone: a page never mixes files of
+    an archived folder and a new one of the same name."""
 
     def __init__(self, *, web: Path, pending=lambda _name: None, updating=lambda _name: None,
                  **kwargs):
@@ -139,8 +138,12 @@ class Files(StaticFiles):
         self.web, self.pending, self.updating = web, pending, updating
 
     def lookup_path(self, path):
-        if any(part.startswith(".") for part in Path(path).parts):
+        parts = Path(path).parts
+        archived = parts[:1] == (ARCHIVE,)
+        if any(part.startswith(".") for part in parts[archived:]):
             return "", None
+        if parts and not archived and not os.path.lexists(Path(self.directory, parts[0])):
+            path = f"{ARCHIVE}/{path}"  # archived, or nothing: its old link still serves
         full, st = super().lookup_path(path)
         if st is None and Path(path).name == "index.html":
             return super().lookup_path(path.removesuffix("html") + "md")
@@ -156,8 +159,8 @@ class Files(StaticFiles):
         try:
             response = await super().get_response(path, scope)
         except HTTPException as e:
-            wait = e.status_code == 404 and "/" not in path and await anyio.to_thread.run_sync(
-                self.pending, path)
+            wait = e.status_code == 404 and "/" not in path.removeprefix(
+                ARCHIVE + "/") and await anyio.to_thread.run_sync(self.pending, path)
             if not wait:
                 raise
             return HTMLResponse(wait, status_code=202,  # `curl -f` and .ok pass a 202

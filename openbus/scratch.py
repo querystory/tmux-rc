@@ -8,14 +8,19 @@ never changes, so its session id goes into the folder's meta.json (marked genera
 a description) and is never searched for again; a miss is retried after a while, since
 agent-history indexes a session only some time after it starts."""
 
+import ctypes
+import errno
 import json
 import logging
 import os
 import re
+import shutil
+import stat
 import subprocess
 import threading
 import time
 from collections import defaultdict
+from contextlib import suppress
 from datetime import datetime
 from html import escape, unescape
 from itertools import islice
@@ -32,6 +37,7 @@ _TITLE = re.compile(r"<title[^>]*>([^<]*)", re.IGNORECASE)
 _MENTION = r"(scratch|SCRATCH_[A-Z_]+)/[^]/\"'\\<>()[{}`,;:*|?#[:space:]]+"
 _RETRY = 600
 _LOCK = threading.Lock()
+_ACT = threading.Lock()  # one Archive, Restore or Delete batch at a time
 _META = threading.Lock()  # one meta.json read-merge-replace at a time (authors, descriptions)
 _missed: dict[tuple[str, int], float] = {}  # when each (name, inode) was last not found
 _found: dict[tuple[str, int], str] = {}  # for a refusing meta.json, or a listing older than it
@@ -170,8 +176,113 @@ def read(root: Path, folder: Path, files: list | None = None) -> dict | None:
     return None
 
 
+def archive(root: Path) -> Path:
+    """Where archived folders go: a real folder of scratch, never a link planted out of it.
+    Reading it is checked, then read, as every live folder is (read, _item): a link swapped
+    in between could only come from a process writing to scratch, which runs as the user and
+    reads those files anyway. What can't be undone is guarded harder: act works on opened
+    folders, so no swap can take a move or a delete out of scratch."""
+    path = root / scratch_markdown.ARCHIVE
+    if path.is_symlink() or (os.path.lexists(path) and not path.is_dir()):
+        raise PermissionError(f"{path} is not a folder of scratch")
+    return path
+
+
+def act(root: Path, action: str, names: list[str]) -> list[str]:
+    """Archive, unarchive or delete these folders, returning those done. A name is only
+    ever a folder directly in scratch (or its archive): anything else (a path, a dot name,
+    a link) fails the whole request. Delete only empties the archive, so nothing is lost
+    in one step; a folder whose name is taken where it goes is left where it is. All of it
+    works on scratch and its archive as opened, never their paths again, so a link swapped
+    in meanwhile (for `.archive`, say) can't take a move or a delete out of scratch."""
+    if not all(n and n == Path(n).name and n[0] != "." and "\0" not in n for n in names):
+        raise ValueError("a name is one folder of scratch")
+    archive_dir = scratch_markdown.ARCHIVE
+    with _ACT:  # overlapping batches (a Delete and a Restore) never share a folder midway
+        return _act(root, action, names, archive_dir)
+
+
+def _act(root: Path, action: str, names: list[str], archive_dir: str) -> list[str]:
+    top = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        if action == "archive":
+            with suppress(FileExistsError):
+                os.mkdir(archive_dir, dir_fd=top)
+        try:
+            shelf = os.open(archive_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=top)
+        except FileNotFoundError:
+            return []  # nothing archived yet
+        except OSError as e:  # a link (ELOOP) or a file
+            raise PermissionError(f"{archive_dir} is not a folder of scratch") from e
+        try:
+            src, dst = (top, shelf) if action == "archive" else (shelf, top)
+            done = []
+            for name in dict.fromkeys(names):
+                try:  # one folder failing (changed under it) leaves the rest of the batch done
+                    if _move(name, src, dst, action):
+                        done.append(name)
+                except OSError as e:
+                    logger.warning("scratch: could not %s %s: %s", action, name, e)
+            return done
+        finally:
+            os.close(shelf)
+    finally:
+        os.close(top)
+
+
+def _move(name: str, src: int, dst: int, action: str) -> bool:
+    """One folder of `act`, between the folders open as `src` and `dst`. A move never
+    replaces what is there, even a folder an agent makes that instant (renameat2's
+    RENAME_NOREPLACE; where libc lacks it, the name is checked just before)."""
+    try:  # the entry itself, never what a link points at
+        if not stat.S_ISDIR(os.stat(name, dir_fd=src, follow_symlinks=False).st_mode):
+            return False
+    except FileNotFoundError:
+        return False
+    if action == "delete":
+        shutil.rmtree(name, dir_fd=src)
+        return True
+    raw = os.fsencode(name)
+    if _RENAMEAT2:
+        if _RENAMEAT2(src, raw, dst, raw, 1) == 0:  # 1: RENAME_NOREPLACE
+            return True
+        err = ctypes.get_errno()
+        if err == errno.EEXIST:
+            return False  # its name is taken there
+        if err not in (errno.ENOSYS, errno.EINVAL):
+            raise OSError(err, os.strerror(err), name)
+    try:  # without renameat2 (or on a filesystem that refuses it)
+        os.stat(name, dir_fd=dst, follow_symlinks=False)
+    except FileNotFoundError:
+        os.rename(name, name, src_dir_fd=src, dst_dir_fd=dst)
+        return True
+    return False
+
+
+_RENAMEAT2 = getattr(ctypes.CDLL(None, use_errno=True), "renameat2", None)
+
+
+def listing(root: Path, *, archived: bool = False) -> list[dict]:
+    """The gallery's folders, or the archive's."""
+    return items(archive(root)) if archived else items(root)
+
+
+def tag(listed: list[dict]) -> str:
+    """What the open gallery compares to see that it changed: a folder came, went or
+    changed (its page too, say renamed to its index), its thumbnail, title or description
+    landed, an update began or ended, or (by the minute) a page in progress or being
+    updated may have stopped. In no particular order,
+    as the gallery sorts after listing."""
+    return str(hash((*sorted((i["name"], i["href"], i["updated"], i["pending"], i["thumb"],
+                              i["title"], i["description"], i["updating"]) for i in listed),
+                     any(i["pending"] or i["updating"] for i in listed)
+                     and int(time.time() // 60))))
+
+
 def items(root: Path) -> list[dict]:
     """Every folder of scratch, most recently updated first."""
+    if not root.is_dir():  # an archive not made yet
+        return []
     files = _files(root, root)
     return sorted(filter(None, (read(root, f, files[f.name]) for f in root.iterdir())),
                   key=lambda i: -i["updated"])
@@ -193,6 +304,29 @@ def _link(i: dict, at: float) -> dict:
     made (not stopped)."""
     return {"title": i["title"], "href": i["href"], "at": at,
             "pending": i["pending"] and i["state"] != "stopped"}
+
+
+def named(root: Path, name: str) -> dict | None:
+    """The card of the folder of scratch called `name`, None for any name that is not one
+    folder directly in it (a path, absolute or climbing out)."""
+    return read(root, root / name) if name and Path(name).name == name else None
+
+
+def maker(root: Path, name: str, states: list[dict]) -> dict | None:
+    """The pane (its state) folder `name`'s meta.json says made it, while that very pane is
+    still open (never another under a recycled id): where the scratch viewer's composer sends."""
+    if not (item := named(root, name)):
+        return None
+    return _progress([item], states).get(item["pane"])
+
+
+def about(root: Path, name: str) -> str | None:
+    """What a message sent from the scratch viewer opens with, so its agent knows the page:
+    one line naming the folder. None for no folder of scratch, or one whose name a shell
+    would read specially (the pane may be a shell)."""
+    if not (re.fullmatch(r"[\w.-]+", name) and named(root, name)):
+        return None
+    return f"Re scratch {name}: "
 
 
 def _writers(todo: list[dict]) -> None:
@@ -376,16 +510,25 @@ def made_by(root: Path, pane: str, *who) -> list[dict]:
 
 
 def page(root: Path, states: list[dict], profiles: list[dict], style: Path,
-         pane_of=lambda _entry: None, sidecars=lambda _listed: None, docs: str = DOCS) -> str:
+         pane_of=lambda _entry: None, sidecars=lambda _listed: None, docs: str = DOCS,
+         *, archived: bool = False) -> str:
     """The gallery, with `style` the app's stylesheet, `pane_of` the pane a running
     agent-history entry is in (live.running_pane), `sidecars` what queues the missing
-    thumbnails and descriptions (scratch_sidecars.queue) and `docs` its documentation."""
-    listed = items(root)
-    sidecars([i for i in listed if not i["pending"]])  # nothing to shoot or describe yet
+    thumbnails and descriptions (scratch_sidecars.queue) and `docs` its documentation;
+    `archived`, the archive's instead (an archived page is still served at its link)."""
+    listed = listing(root, archived=archived)
+    seen = tag(listed)  # as the open gallery's check lists it: before the links are dressed
+    sidecars([i for i in listed if not (i["pending"] or archived)])  # nothing to shoot yet
     resolve(listed, states, profiles, pane_of)
+    for i in listed if archived else ():  # its own link: the name may be taken again since
+        i["under"] = f"{scratch_markdown.ARCHIVE}/"
+        i["href"] = i["under"] + i["href"]
+    listed.sort(key=lambda i: not i["pending"] or i["state"] == "stopped")  # in progress: first
     out = _PAGE.read_text().replace("/*tokens*/", scratch_markdown.tokens(style)).replace(
-        "DOCS_URL", docs)
-    if not listed:  # what scratch is, and how agents come to publish here
+        "DOCS_URL", docs).replace("LISTING_TAG", seen)
+    if archived:
+        out = out.replace("<html>", '<html class="archived">')
+    elif not listed:  # what scratch is, and how agents come to publish here
         out = out.replace('<section id="empty" hidden>', '<section id="empty">').replace(
             '<input type="search"', '<input hidden type="search"').replace(
             '<span class="seg"', '<span hidden class="seg"')
@@ -425,18 +568,17 @@ def _card(i: dict) -> str:
     e = {k: escape(str(v)) for k, v in i.items() if v is not None}
     label = status(i)
     wait = label if i["pending"] else i.get("shot") == "pending" and "Making a preview…"
-    # A pending folder's thumbnail is an earlier page's: its state shows instead, and once
-    # the page lands and is shot, the poll swaps in the new thumbnail.
-    stopped = i["pending"] and i.get("state") == "stopped"  # nothing coming to poll for
-    poll = "" if i["thumb"] or stopped else (
-        f' data-pending="{quote(i["name"])}/thumb.webp"')
-    thumb = (f'<img src="{quote(i["name"])}/thumb.webp" alt="" loading="lazy">'
+    # A pending folder's thumbnail is an earlier page's: its state shows instead, until the
+    # page lands and is shot, which the open gallery sees (its tag) and reloads to show.
+    src = f'{i.get("under", "")}{quote(i["name"])}/thumb.webp'
+    thumb = (f'<img src="{src}" alt="" loading="lazy">'
              if i["thumb"] and not i["pending"]
-             else f'<span class="{i["state"] if i["pending"] else ""}"{poll}>{wait}</span>'
+             else f'<span class="{i["state"] if i["pending"] else ""}">{wait}</span>'
              if wait else "No preview") + (  # an update: the page so far, with a badge
         f'<span class="badge {i["state"]}">{label}</span>' if i.get("updating") else "")
     words = " ".join([i["title"], i["description"], i["who"], i["where"]]).lower()
-    return (f'<article data-q="{escape(words)}" data-pane="{e.get("pane", "")}">'
+    return (f'<article data-q="{escape(words)}" data-name="{e["name"]}"'
+            f' data-pane="{e.get("pane", "")}">'
             f'<a class="thumb" href="{e["href"]}" tabindex="-1" aria-hidden="true">{thumb}</a>'
             f'<h2><a href="{e["href"]}"'
             + (f' aria-label="{e["title"]}: {label}"' if label else "")  # the thumb's
@@ -454,8 +596,15 @@ def placeholder(root: Path, name: str, who) -> str | None:
     making it and what that pane is doing now, reloading itself (the sandbox allows no
     fetch) every 5s, every 30s after ten minutes, and every minute once stopped. None
     for any other folder. `who()` gives the panes, their accounts, the stylesheet and,
-    optionally, pane_of (as page's); it scans every account, so only a pending folder asks."""
-    i = read(root, root / name)
+    optionally, pane_of (as page's); it scans every account, so only a pending folder asks.
+    An archived folder answers at ARCHIVE/<name>, and at <name> while that is not taken."""
+    under = name.startswith(scratch_markdown.ARCHIVE + "/") or not os.path.lexists(root / name)
+    name = name.removeprefix(scratch_markdown.ARCHIVE + "/")
+    try:
+        base = archive(root) if under else root
+    except PermissionError:
+        return None
+    i = read(base, base / name)
     if not (i and i["pending"]):
         return None
     states, profiles, style, *pane_of = who()
