@@ -942,13 +942,17 @@ function paintPins(list) {
 const loadPins = () => request("/api/pins").then(paintPins, () => {});
 // Over Scratch, as the gallery's own pages are: route() closes a viewer left anywhere else.
 $("sb-pins").onclick = (e) => { const a = e.target.closest("a"); if (a) inApp(() => { openPage("scratch"); viewScratch(a.href, a.title); })(e); }; // a modified click opens a tab
-$("viewer-pin").onclick = async () => {
+// One save at a time: each reads the list the one before it wrote, so none drops another's pin.
+let pinSave = Promise.resolve();
+$("viewer-pin").onclick = () => {
   const folder = viewedFolder();
-  try { // from the pins as they are now: one deleted since the last read would fail the write
-    const names = (await request("/api/pins")).map((p) => p.name);
-    await request("/api/pins", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(names.includes(folder) ? names.filter((n) => n !== folder) : [...names, folder]) });
-    paintPins(await request("/api/pins"));
-  } catch (e) { $("viewer-pin").title = `Could not save the pin: ${e.detail || e.message}`; }
+  pinSave = pinSave.then(async () => {
+    try { // from the pins as they are now: one deleted since the last read would fail the write
+      const names = (await request("/api/pins")).map((p) => p.name);
+      await request("/api/pins", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(names.includes(folder) ? names.filter((n) => n !== folder) : [...names, folder]) });
+      paintPins(await request("/api/pins"));
+    } catch (e) { $("viewer-pin").title = `Could not save the pin: ${e.detail || e.message}`; }
+  });
 };
 addEventListener("focus", loadPins); loadPins(); // another device's pin shows once this one is back
 // The agent that made the page is messaged from the viewer's own footer, never from the
