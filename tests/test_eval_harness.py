@@ -299,6 +299,13 @@ def test_reply_buttons_expectation_wants_accept_then_decline():
     none = {"question": {"answer_style": "text", "reply_buttons": False}}
     assert score_structured({"question": {"answer_style": "text", "options": []}}, none)[0]
     assert not score_structured(good, none)[0]
+    few = {"question": {"answer_style": "text"}, "buttons_at_most": 2}  # as answerOptions draws
+    assert score_structured({"question": good["question"], "offers": ["no", "! ls"]}, few)[0]
+    assert not score_structured({"question": good["question"], "offers": ["Later"]}, few)[0]
+    free = {"answer_style": "text", "options": ["Yes", "No", "Type something"], "free_text": 2}
+    assert score_structured({"question": free}, few)[0]
+    assert not score_structured({"question": {**free, "free_text": None}}, few)[0]
+    assert score_structured({"question": {**free, "options": 7}, "offers": "x"}, few)[0]
     chips = {"status_entries_exclude": ["16% ctx"]}
     assert score_structured({"status_entries": ["4h49m"]}, chips)[0]
     assert not score_structured({"status_entries": ["16% ctx", "4h49m"]}, chips)[0]
