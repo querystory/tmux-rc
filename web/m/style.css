@@ -63,7 +63,7 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 #app:has(#connection.online) :is(#sb-head #brand, #menu-open, #back, #dash-page [data-key="page-back"])::before { background: var(--accent); }
 :is(#menu-open, #back, #dash-page [data-key="page-back"])::before { top: 10px; right: 9px; box-shadow: 0 0 0 2px var(--ring, var(--bg)); }
 .icon-button { width: 44px; height: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; flex: none; }
-a.icon-button { color: var(--fg); text-decoration: none; }
+a.icon-button, .pane-row, .sb-open, .sb-rail { color: inherit; text-decoration: none; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; } /* links into the app (middle-click opens a tab), drawn as the buttons they were: no callout, no selection */
 #notice { flex: none; background: var(--amber-bg); color: var(--amber); font-size: 13px; padding: 8px 16px; }
 #sessions { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 #new-window { background: var(--accent-bg); color: var(--accent); }
@@ -320,8 +320,10 @@ dialog { position: fixed; inset: auto 0 0; margin: 0 auto; background: var(--sur
 html.editing dialog:not(.beside) { bottom: calc(100% - var(--app-top, 0px) - var(--app-height, 100%)); max-height: calc(var(--app-height, 100dvh) - 16px); }
 dialog::backdrop { background: #0008; opacity: var(--drag, 1); } /* fades as the sheet is dragged away (drag-dismiss.js) */
 /* A phone's ☰ drawer (Gmail's): a sheet from the left, the logo atop the rows; the current
-   one is a tinted pill. */
-#drawer { inset: 0 auto 0 0; width: min(304px, 84vw); height: 100%; max-height: none; margin: 0; padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); border: 0; border-radius: 0 16px 16px 0; }
+   one is a tinted pill. It scrolls on its own, contained like every other scroller here: a
+   swipe it cannot take must not chain out, since iOS hands that to the scroller under the
+   finger (the dashboard), not up the DOM. */
+#drawer { inset: 0 auto 0 0; width: min(304px, 84vw); height: 100%; max-height: none; margin: 0; padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); border: 0; border-radius: 0 16px 16px 0; overflow-y: auto; overscroll-behavior: contain; }
 #drawer[open] { animation: none; } /* it slides in and out by script (app.js settle), as a drag does */
 #drawer::backdrop { opacity: var(--shown, 1); }
 @media (prefers-reduced-motion: no-preference) { #drawer.settling, #drawer.settling::backdrop { transition: transform .2s ease-out, opacity .2s ease-out; } }
