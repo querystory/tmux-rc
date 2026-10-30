@@ -509,7 +509,7 @@ footer p,footer>a:last-child {
   }
 }
 @media(prefers-reduced-motion:reduce) {
-  html,.strip {
+  html {
     scroll-behavior:auto
   }
 }
@@ -695,7 +695,6 @@ footer p,footer>a:last-child {
   gap:24px;
   overflow-x:auto;
   scroll-snap-type:x mandatory;
-  scroll-behavior:smooth;
   overscroll-behavior-x:contain;
   padding:6px 56px 14px 6px;
   scroll-padding-inline:6px;
@@ -703,6 +702,11 @@ footer p,footer>a:last-child {
   -webkit-mask-image:linear-gradient(to right,#000 calc(100% - 56px),transparent);
   mask-image:linear-gradient(to right,#000 calc(100% - 56px),transparent);
   border-radius:9px
+}
+@media(prefers-reduced-motion:no-preference) {
+  .strip {
+    scroll-behavior:smooth
+  }
 }
 .strip:focus-visible {
   outline:2px solid var(--accent);
