@@ -17,9 +17,9 @@ voice when iOS locks or suspends the app.
 4. Open **Settings** (the gear in the header), turn on **Push notifications**, and allow
    notifications when iOS asks. A question
    card inside the app is not proof that push permission or delivery works.
-5. Open **Live Mode** with the microphone button, select an available model, and
-   start the session. Allow microphone access. Wait for **Listening**, then speak
-   and confirm you hear a response. The header's connection indicator alone does
+5. Tap **Voice** (in the menu ☰, on a pane, or in the **New session** sheet), pick a
+   model, and start the session. Allow microphone access. Wait for **Listening**, then
+   speak and confirm you hear a response. The header's connection indicator alone does
    not establish a voice session.
 6. Test notifications separately: leave an agent at a real, unanswered permission
    or choice prompt. Wait for the app to classify it as **Needs you**, then leave it
@@ -36,6 +36,16 @@ Microphone and notification permissions are separate: allowing one does not allo
 the other. If notifications were denied, enable them for the installed app in iOS
 **Settings → Notifications**; repeatedly turning the switch on cannot override a denial.
 
+## Share a link into a pane
+
+iOS lists no web app in its share sheet (it has no Web Share Target), so a Shortcut stands
+in: one that receives URLs from the share sheet and opens `/m?url=<the link, URL-encoded>`.
+iOS opens that in the default browser, not the installed app, since a home-screen app
+can't claim links; the browser keeps its own sign-in, so sign in there once too. On
+Android the installed app is a share target itself, through its manifest, and opens the
+same address. Either way the list asks which pane, Needs you first, and the pane picked
+opens with the link in its composer, as a draft link would: nothing is sent until you Send.
+
 ## While using it: screen timeout, lock, and interruptions
 
 | Situation | Expected behavior / what to do |
@@ -44,7 +54,7 @@ the other. If notifications were denied, enable them for the installed app in iO
 | Switch apps or lock the phone | The app does not deliberately stop Live Mode just because it becomes hidden. It keeps the microphone/socket and attempts audio recovery, but iOS can interrupt audio or suspend the page. Do not assume it is still listening. |
 | Screen timed out; voice stopped | Unlock and reopen the Home Screen app. Open Live Mode and follow the **Audio interrupted** message; tap the microphone control to resume, checking its mute state. If recovery fails, stop and start Live Mode again. |
 | Network or tunnel interruption | Live Mode attempts bounded reconnection after an established connection drops. If it ends with **Live Mode disconnected. Try again.**, start it again once connectivity returns. |
-| Navigate away, reload, or terminate the app | Navigation releases the voice session; start Live Mode again when you return. Closing only the voice dialog does not stop it—use its Stop control to end the session. |
+| Navigate away, reload, or terminate the app | Navigation releases the voice session; start Live Mode again when you return. Closing only the voice dialog does not stop it—tap **End Live Mode** to end the session. |
 | Phone locked, voice stopped, or app closed | Push does not depend on the browser's voice socket. The server continues watching panes and sends through Apple's push service, provided the daemon/tunnel setup and device subscription remain healthy. |
 
 For a reliable hands-free conversation, keep the installed app foregrounded and
@@ -99,16 +109,9 @@ The server must keep running even when the phone is asleep.
 
 The sender contact defaults to `mailto:tmux-rc@openbus.io`; no configuration is
 required. This identifies the push sender, not the tunnel URL. To use your own
-contact, set it in the daemon's root `.env` and restart the service:
-
-```dotenv
-TMUXRC_PUSH_SUBJECT=mailto:you@your-real-domain.com
-```
-
-Replace that example with your actual address. The old default
-`mailto:tmux-rc@localhost` caused Apple to reject delivery during iPhone testing with
-**403 BadJwtToken**, and using a real mail contact fixed it. Use `mailto:` with the
-current VAPID library; an HTTPS subject failed its validation in our setup.
+contact, set `TMUXRC_PUSH_SUBJECT=mailto:you@your-real-domain.com` in the daemon's `.env`
+and restart the service. Keep it a real `mailto:` address: Apple rejects a placeholder
+with **403 BadJwtToken**, and an HTTPS subject fails the VAPID library's validation.
 
 Subscriptions and the stable VAPID keypair live in the owner-only file
 `~/.local/state/tmux-rc/push.json` (under the XDG state directory), outside Git.

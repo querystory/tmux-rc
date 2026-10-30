@@ -63,7 +63,8 @@ monitor and unblock them from a phone without SSH-ing into a shell on a touchscr
 
 ### Nice to have (post-PoC)
 
-- Push notifications instead of polling.
+- Push notifications instead of polling — shipped, see
+  [push notifications](design/push-notifications.md).
 - Rendered PNG snapshots (vs. raw captured text) for the timeline.
 - Multi-host / multiple tmux servers.
 - Auth beyond network isolation.

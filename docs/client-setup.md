@@ -29,7 +29,10 @@ behavior. Use iOS 16.4 or newer for Web Push.
 3. Launch tmux-rc from the installed icon.
 4. In **Settings** (the gear), turn on **Push notifications** and allow them. For voice, allow microphone access separately.
 
-The client updates from your daemon; you do not need to download an APK.
+The installed app is a share target: share a link from another app to tmux-rc and pick
+the pane it goes to ([details](iphone-setup.md#share-a-link-into-a-pane), with the iOS
+Shortcut that stands in there). The client updates from your daemon; you do not need
+to download an APK.
 See [Chrome's web app installation instructions](https://support.google.com/chrome/answer/9658361?co=GENIE.Platform%3DAndroid&hl=en).
 
 ## Desktop
@@ -40,6 +43,7 @@ its own window; using an ordinary browser tab works too.
 
 ## Chat and voice
 
-Chat and voice require [Live Mode configuration](design/live-mode.md) on the daemon.
-They are available alongside direct pane controls. The basic no-model quick start does
-not enable a conversational model by itself.
+**Chat** and **Voice** require [Live Mode configuration](design/live-mode.md) on the
+daemon (`TMUXRC_LIVE_MODE=1`); until then their buttons are hidden or greyed with the
+reason. On a phone they are in the menu (☰) and in the **New session** sheet (**+**); on
+a wide window, beside the pane's title. The no-model quick start does not enable them.
