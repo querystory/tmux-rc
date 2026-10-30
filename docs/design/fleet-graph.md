@@ -30,8 +30,14 @@ Esc or the button leaves it, and it refits both ways. The toggle heads the contr
 the top-right corner and stays there in both states, its icon swapped, so the way out is
 exactly where the way in was. A phone once opened the view full screen by default, with
 that button closing the view; in use it lost the app's title bar and back button, and a
-close button where the full-screen toggle belonged sent people hunting, so the view now
-opens inline like every other drill-in and full screen is one tap away. The Fullscreen API was passed over because an iPhone grants it to
+close button where the full-screen toggle belonged sent people hunting, so for a while it
+opened inline with full screen one tap away. That in-between state earned nothing on a phone:
+inline, the graph sat in a strip under the title bar too small to pan, and the first thing
+everyone did was tap full screen. So a phone opens it full screen again, the toggle's place
+taken by a close that does what the title bar's Back did (back to the card, or the
+Dashboard), and Esc does the same; a wider screen keeps the toggle. Full screen also covers
+the bar that holds the account filter on a phone, so there the filter button and its chips
+head the view in a strip of their own: a scoped graph says so, and widens without leaving. The Fullscreen API was passed over because an iPhone grants it to
 video only, so it would add a code path that does nothing on the device that wanted this.
 
 ## The look
