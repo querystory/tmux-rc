@@ -125,7 +125,10 @@ choice scoped both, and it was wrong in use: narrowing the charts to one plan to
 also hid every other account's panes from the list, which is not what anyone picking a
 chart meant. A chart the pick empties (Weekly Fable with only Codex picked) collapses to
 one line saying so, rather than vanishing and shifting the others, and band focus picks
-among the shown accounts only.
+among the shown accounts only. On a phone this button sits in the view's title bar, where every
+other card view puts the list's filter, and the list's filter is left out: two funnels, one of
+which filtered panes the screen does not show, read as a bug. The view's own pick covers what the
+list's agent filter did here, since every account belongs to one tool.
 
 **A chart per window type, not per account.** A per-account chart overlays its 5h teeth
 on the weekly line they feed, which reads well for one account and badly for three; and
