@@ -7,27 +7,24 @@ tmux-rc runs on the machine where your tmux sessions live. Open its web app on y
 desktop or phone to see what your agents are doing and answer them through chat or
 direct dashboard controls.
 
-## Try it without a model account
+## Run it
 
 Install tmux, Python 3.12 or newer, and [uv](https://docs.astral.sh/uv/).
 Keep an existing tmux session running, or start one and launch your preferred agent.
-Then run:
-
-```bash
-TMUXRC_NO_LLM=1 uvx --from "git+https://github.com/querystory/tmux-rc.git" tmux-rc
-```
-
-Open `http://127.0.0.1:18030/m` on that machine. This mode uses heuristics for basic
-activity and prompt detection; richer summaries require the model pass.
-
-## Enable summaries
-
-The classifier uses Gemini Flash Lite. The simplest setup is an API key from
-[aistudio.google.com](https://aistudio.google.com/apikey), with no Google Cloud project needed:
+Get a free Gemini API key at [aistudio.google.com](https://aistudio.google.com/apikey)
+(no Google Cloud project needed), then run:
 
 ```bash
 GEMINI_API_KEY=your-key uvx --from "git+https://github.com/querystory/tmux-rc.git" tmux-rc
 ```
+
+Open `http://127.0.0.1:18030/m` on that machine. The key powers the parse model (Gemini
+Flash Lite) behind pane summaries, Needs-you answers and copy blocks.
+
+No key? `TMUXRC_NO_LLM=1` in place of `GEMINI_API_KEY` runs heuristics-only: basic
+activity and prompt detection, no summaries or answers.
+
+## Use Vertex AI instead
 
 Alternatively, use Vertex AI: configure a Google Cloud project and durable credentials as
 described in [Vertex authentication](design/durable-vertex-auth.md), then supply these

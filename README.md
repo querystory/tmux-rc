@@ -255,8 +255,8 @@ uvx --from "git+https://github.com/querystory/tmux-rc.git" tmux-rc
 ```
 
 > `GOOGLE_APPLICATION_CREDENTIALS` **must be an absolute path** — google-auth does not
-> expand `~`. To run heuristics-only with no Vertex creds at all, set `TMUXRC_NO_LLM=1`
-> (see the table below). All other `TMUXRC_*` vars work the same way.
+> expand `~`. With no key or Vertex creds at all, `TMUXRC_NO_LLM=1` runs heuristics-only,
+> with no summaries or answers (see the table below). All other `TMUXRC_*` vars work the same way.
 
 ### Config (env)
 
@@ -271,7 +271,7 @@ Loaded from `.env` at startup (real shell env vars still override). See `.env.ex
 | `TMUXRC_GEMINI_MODEL` | `gemini-3.1-flash-lite` | the classifier model |
 | `TMUXRC_IN_PER_M` / `TMUXRC_OUT_PER_M` | `0.25` / `1.50` | its USD prices per 1M tokens, for the cost figures |
 | `TMUXRC_LLM_TIMEOUT_MS` | `20000` | per-call timeout |
-| `TMUXRC_NO_LLM` | unset | `1` runs heuristics-only (no Vertex calls) |
+| `TMUXRC_NO_LLM` | unset | `1` runs heuristics-only (no model calls) |
 | `TMUXRC_TARGET` | unset (all panes) | watch one pane: a pane id (`%3`) or `session:window[.pane]` by index. The derived labels `.env.example` describes also work; a card's title does not |
 | `TMUXRC_TMUX_SOCKET` | unset (default server) | a `tmux -L` socket name, for a dev daemon that must not touch your real server |
 | `TMUXRC_HOST` / `TMUXRC_PORT` | `127.0.0.1` / `18030` | HTTP bind |
