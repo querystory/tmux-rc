@@ -136,9 +136,9 @@
            #sessions is the scroller (style.css). -->
       <div id="sb-head" class="sb-only"><button id="collapse" class="icon-button"></button></div>
       <div id="sb-scroll">
-      <!-- The places you go, as rows: Dashboard, Scratch (agents' previews, in the content area) and Settings (app.js moves Settings in). Chat and
+      <!-- The places you go, as rows: Dashboard, Graph (the fleet graph), Scratch (agents' previews, in the content area) and Settings (app.js moves Settings in). Chat and
            Voice are toggles, icons in the head. -->
-      <div id="sb-nav" class="sb-only"><button id="dash-nav" class="icon-button" aria-label="Dashboard" title="Dashboard"></button><a id="scratch-nav" class="icon-button" href="#view=scratch" aria-label="Scratch" title="Scratch" hidden></a></div>
+      <div id="sb-nav" class="sb-only"><button id="dash-nav" class="icon-button" aria-label="Dashboard" title="Dashboard"></button><a id="graph-nav" class="icon-button" href="#view=graph" aria-label="Graph" title="Graph" hidden></a><a id="scratch-nav" class="icon-button" href="#view=scratch" aria-label="Scratch" title="Scratch" hidden></a></div>
       <div id="sb-sticky"><div id="sb-sess" class="sb-only"><b>Sessions</b></div></div>
       <button type="button" id="restore" hidden></button>
       <div id="pane-list"></div>
@@ -170,7 +170,7 @@
            the tabs exactly as the old header row read, wide sits it on the tab line. -->
       <div id="heading" hidden><button id="back" class="icon-button" aria-label="Back to sessions" title="Back to sessions" hidden></button><div class="pane-heading-text"><h1 id="pane-title" tabindex="-1"></h1><p id="pane-location"></p></div>
         <div id="layout-control"><div id="mobile-view-toggle" role="group" aria-label="Session view"><button type="button" id="view-summary" data-view="summary" aria-pressed="true" aria-label="Overview" title="Overview"></button><button type="button" id="view-terminal" data-view="terminal" aria-pressed="false" aria-label="Terminal" title="Terminal"></button></div><select id="review-layout" aria-label="Pane layout" aria-description="Applies to all panes · remembered in this browser"></select></div>
-        <details id="pane-menu" class="header-picker"><summary id="pane-menu-button" class="icon-button" aria-label="More actions" title="More actions"></summary><div class="header-picker-menu"><div id="fit-row" hidden><span>Fit this pane</span><span id="fit-pane" class="seg" role="group" aria-label="Fit this pane"></span></div><button id="kill-pane" type="button"></button><button id="move-pane" hidden type="button"></button><hr id="expunge-rule" hidden><button id="expunge-pane" hidden type="button"></button></div></details>
+        <details id="pane-menu" class="header-picker"><summary id="pane-menu-button" class="icon-button" aria-label="More actions" title="More actions"></summary><div class="header-picker-menu"><div id="fit-row" hidden><span>Fit this pane</span><span id="fit-pane" class="seg" role="group" aria-label="Fit this pane"></span></div><button id="rename-pane" type="button"></button><button id="kill-pane" type="button"></button><button id="move-pane" hidden type="button"></button><hr id="expunge-rule" hidden><button id="expunge-pane" hidden type="button"></button></div></details>
         <button id="close-pane" class="icon-button" aria-label="Close" title="Close"></button>
       </div>
       <div id="review-divider" role="separator" tabindex="0" aria-label="Resize overview" hidden></div>
@@ -196,8 +196,8 @@
         <!-- Empty until there is something to say ("Draft" / "Sent"), and :empty collapses
              it to zero height, so the status costs no space on a resting screen. -->
         <p id="draft-status" role="status"></p>
-        <form id="reply-form"><button type="button" id="keyboard" class="icon-button" aria-expanded="false" aria-controls="keys" aria-label="Terminal keys" title="Terminal keys"></button><button type="button" id="attach" class="icon-button" aria-label="Attach image" title="Attach image"></button><div id="reply"></div><input id="secret" type="password" autocomplete="off" placeholder="Password for this pane only" aria-label="Password for this pane" hidden><button id="send" type="submit" class="icon-button primary" aria-label="Send message" title="Send message" disabled></button></form>
-        <input id="image-file" type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+        <form id="reply-form"><button type="button" id="keyboard" class="icon-button" aria-expanded="false" aria-controls="keys" aria-label="Terminal keys" title="Terminal keys"></button><button type="button" id="attach" class="icon-button" aria-label="Attach file" title="Attach file"></button><div id="reply"></div><input id="secret" type="password" autocomplete="off" placeholder="Password for this pane only" aria-label="Password for this pane" hidden><button id="send" type="submit" class="icon-button primary" aria-label="Send message" title="Send message" disabled></button></form>
+        <input id="attach-file" type="file" multiple hidden>
       </footer>
       <!-- Wide only: the fleet chart docked under the pane, sized by its seam (app.js). -->
       <div id="fleet-handle" role="separator" aria-orientation="horizontal" aria-label="Resize the fleet chart" title="Drag to resize. Double-click to fold or unfold." tabindex="0" hidden></div>
@@ -221,6 +221,7 @@
     </div></dialog>
     <dialog id="export-dialog" aria-labelledby="export-title"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="export-title">Export all</h2><button type="button" id="close-export" class="icon-button" aria-label="Close" title="Close"></button></div><p>One file that restores this instance on another machine with <code>tmux-rc import</code>.</p><div id="export-parts"></div><p id="export-total" role="status"></p><a id="export-go" class="primary" download>Download</a></dialog>
     <dialog id="expunge-dialog" aria-labelledby="expunge-title"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="expunge-title">Expunge session</h2><button type="button" id="close-expunge" class="icon-button" aria-label="Cancel" title="Cancel"></button></div><p id="expunge-what"></p><p id="expunge-caveat">Copies already sent via OpenTelemetry, or kept by Anthropic or OpenAI, are not affected.</p><button type="button" id="expunge-confirm"></button><button type="button" id="expunge-cancel">Cancel</button></dialog>
+    <dialog id="rename-dialog" aria-labelledby="rename-title"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="rename-title">Rename</h2><button type="button" id="close-rename" class="icon-button" aria-label="Cancel" title="Cancel"></button></div><form id="rename-form" method="dialog" novalidate><label for="pane-label">Title</label><input id="pane-label" type="text" maxlength="200" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done"><label for="session-label">Session</label><input id="session-label" type="text" maxlength="64" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done"><p id="rename-error" role="status"></p><button type="submit" id="rename-save" class="primary">Save</button></form></dialog>
     <dialog id="move-dialog" aria-labelledby="move-title"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="move-title">Move to another account</h2><button type="button" id="close-move" class="icon-button" aria-label="Cancel" title="Cancel"></button></div><p id="move-what" role="status"></p><div id="move-choices" class="choice-list" aria-label="Account"></div></dialog>
     <dialog id="voice-dialog" aria-labelledby="voice-title" tabindex="-1">
       <div class="sheet-handle"></div>

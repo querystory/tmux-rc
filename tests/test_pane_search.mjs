@@ -13,7 +13,7 @@ test("PR titles are primary, with the repository and number beneath", () => {
 
 const pane = {
   pane_id: "%7", session: "work", title: "Address review", activity: "idle",
-  window_index: "2", tool: "codex", prs: [{ repo: "querystory/qs-app", number: 4955 }],
+  window_index: "2", tool: "codex", prs: [{ repo: "example-org/example-app", number: 4955 }],
 };
 
 test("transient link metadata cannot spoof the destination host", () => {
@@ -23,13 +23,13 @@ test("transient link metadata cannot spoof the destination host", () => {
 });
 
 test("tracked PRs stay tappable without a current-frame link and preserve other links", () => {
-  const pr = { href: "https://github.com/querystory/qs-app/pull/4955", text: "querystory/qs-app#4955" };
+  const pr = { href: "https://github.com/example-org/example-app/pull/4955", text: "example-org/example-app#4955" };
   assert.deepEqual(paneLinks(pane), [pr]);
   const preview = { href: "https://example.com/preview", text: "Preview" };
   assert.deepEqual(paneLinks({ ...pane, prs: [...pane.prs, ...pane.prs], links: [
     { href: pr.href + "/", text: "Open PR" }, preview,
   ] }), [pr, preview]);
-  const other = { repo: "other/qs-app", number: 4955 };
+  const other = { repo: "other/example-app", number: 4955 };
   assert.equal(paneLinks({ prs: [...pane.prs, other] }).length, 2);
 });
 
@@ -54,10 +54,10 @@ test("transient links keep their own cap without hiding tracked PRs", () => {
 });
 
 test("sidebar finds accumulated PRs after the number disappears from visible text", () => {
-  for (const query of ["4955", "#4955", "PR 4955", "PR #4955", "qs-app#4955",
-    "qs-app 4955", "qs-app #4955", "qs-app pr 4955", "QUERYSTORY/QS-APP#4955",
-    "querystory/qs-app PR #4955", "  qs-app   PR 4955  ",
-    "https://github.com/querystory/qs-app/pull/4955"]) {
+  for (const query of ["4955", "#4955", "PR 4955", "PR #4955", "example-app#4955",
+    "example-app 4955", "example-app #4955", "example-app pr 4955", "EXAMPLE-ORG/EXAMPLE-APP#4955",
+    "example-org/example-app PR #4955", "  example-app   PR 4955  ",
+    "https://github.com/example-org/example-app/pull/4955"]) {
     assert.equal(matchesSearch(pane, query), true, query);
   }
   assert.equal(matchesSearch(pane, "4956"), false);
