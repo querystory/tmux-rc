@@ -1,15 +1,16 @@
-// Ordered text/image model: what is sent is the draft in the order it was typed.
-// A U+200B spacer follows every image to hold the caret after it (see insert()). Every
+// Ordered text/file model: what is sent is the draft in the order it was typed.
+// A U+200B spacer follows every file to hold the caret after it (see insert()). Every
 // U+200B is dropped from what is sent: it is invisible, so a draft that kept the user's own
 // could not show it, and the spacer survives typing, copy and paste where no marker could.
 const ZW = /\u200B/g;
 const spacer = () => document.createTextNode("\u200B");
 export class Composer {
   // The Live chat (/live-chat.js) reuses this editor under its own id and label.
-  constructor(changed, error, { id = "reply", label = "Message this pane", max = Infinity } = {}) {
+  constructor(changed, error, { id = "reply", label = "Message this pane", max = Infinity, images = false } = {}) {
     this.changed = changed;
     this.error = error;
-    this.max = max; // images one draft may hold (the chat turn limit); the pane composer has none
+    this.max = max; // files one draft may hold (the chat turn limit); the pane composer has none
+    this.images = images; // only images (the chat sends them to the model inline); a pane takes any file
     this.files = new Map();
     this.editor = document.createElement("div");
     this.editor.id = id;
@@ -107,18 +108,19 @@ export class Composer {
   }
   attach(file) {
     if (!file || this.editor.contentEditable !== "true") return;
-    if (!/^image\/(png|jpeg|webp|gif)$/.test(file.type) || file.size > 20 * 1024 * 1024) {
-      this.error("Choose a PNG, JPEG, WebP, or GIF under 20 MB."); return;
-    }
+    if (this.images && !/^image\/(png|jpeg|webp|gif)$/.test(file.type)) { this.error("Choose a PNG, JPEG, WebP, or GIF."); return; }
+    if (file.size > 50 * 1024 * 1024) { this.error(`${file.name || "That file"} is over 50 MB; not attached.`); return; }
     this.insert(this.chip(file));
   }
-  // An image chip owned by this composer: its remove handlers update this draft.
+  // A chip owned by this composer: an image's thumbnail, or a file's name. Its remove
+  // handlers update this draft.
   chip(file) {
-    const chip = document.createElement("img");
-    chip.className = "attach-chip"; chip.contentEditable = "false"; chip.draggable = false;
-    chip.src = URL.createObjectURL(file); chip.alt = file.name || "Image";
+    const image = file.type.startsWith("image/"), name = file.name || (image ? "Image" : "File");
+    const chip = document.createElement(image ? "img" : "span");
+    chip.className = image ? "attach-chip" : "attach-chip file"; chip.contentEditable = "false"; chip.draggable = false;
+    if (image) { chip.src = URL.createObjectURL(file); chip.alt = name; } else chip.textContent = name;
     chip.tabIndex = 0; chip.setAttribute("role", "button");
-    chip.setAttribute("aria-label", `Remove ${chip.alt}`); chip.title = `Remove ${chip.alt}`;
+    chip.setAttribute("aria-label", `Remove ${name}`); chip.title = `Remove ${name}`;
     const remove = () => {
       if (this.editor.contentEditable !== "true") return;
       this.editor.focus({ preventScroll: true }); this.drop(chip);
@@ -130,7 +132,7 @@ export class Composer {
     this.files.set(chip, file);
     return chip;
   }
-  // Take another composer's draft onto the end of this one, in order. Its images become
+  // Take another composer's draft onto the end of this one, in order. Its files become
   // this composer's own chips (fresh handlers and URLs); the old ones are released.
   append(other) {
     const segments = other.segments();
@@ -187,4 +189,19 @@ export function bindAttach(button, input, target) {
   button.onpointerdown = () => target()?.saveCaret();
   button.onclick = () => { picking = target(); input.click(); };
   input.onchange = () => { if (picking && picking === target()) picking.attachMany([...input.files]); input.value = ""; };
+}
+
+// Why a Send can't go now, or "" when it can: one answer for both the greyed look and what
+// a tap on it says. A greyed Send with no reason left the user relaunching the app to learn
+// it was waiting on a send that would never finish.
+export function sendBlock({ sending, available = true, online = true, secret = false, empty }) {
+  if (sending) return "Still sending the last message…";
+  if (!available) return online ? "This pane is not available right now." : "Reconnecting to tmux-rc…";
+  return empty ? (secret ? "Type the password first." : "Nothing to send yet.") : "";
+}
+// Grey `button` for `why` ("" clears it). Not `disabled`, which swallows the tap that should
+// explain it: app.js answers a tap on a greyed button with its reason.
+export function block(button, why) {
+  button.setAttribute("aria-disabled", String(!!why));
+  button.dataset.why = why;
 }

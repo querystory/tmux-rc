@@ -1,0 +1,18 @@
+{
+  "description": "Synthetic: a finished auto-mode turn writes a gh command WITHOUT the \"!\" (the terminal wraps its quoted comment over three rows) and tells the user to run it with \"!\" once happy; the input box holds an unsent draft. The command is a hand-over to run here: waiting on the user, offered as \"! \" plus the command on one line with the quoted comment intact, so the phone's Send it types it into Claude Code's bash mode. The command is paste-worthy too, so a copyable beside the offer is expected.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ close the mail issue\n\n● #312, the mail issue: review it first, since it names the old key. The comment\n  I'd post when closing it is in this command:\n\n  gh issue close 312 -R acme/app -c \"Mail sending is working again in production.\n  Confirmed by a real notification send that landed in the inbox. The cause was the\n  revoked key; the rotated one is in place. See #313 for the model side.\"\n\n  Run it with ! once you're happy, or close it from the page.\n\n✻ Worked for 19s · done 2:05 PM\n\n────────────────────────────────────────────────── demo ─\n❯ Do the docs PR as a draft\n──────────────────────────────────────────────────\n  ~/src/acme/app on main | Opus 5.5 | dev@example.com\n  session: +8/-2 lines · 16% ctx · 1h04m · $2.60\n  ⏵⏵ auto mode on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "text"
+    },
+    "headline": "Asking the user to review the mail issue and close it with the prepared comment",
+    "offers": [
+      "! gh issue close 312 -R acme/app -c \"Mail sending is working again in production. Confirmed by a real notification send that landed in the inbox. The cause was the revoked key; the rotated one is in place. See #313 for the model side.\""
+    ],
+    "copyables": true
+  }
+}

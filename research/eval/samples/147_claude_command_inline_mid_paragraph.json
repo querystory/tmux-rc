@@ -1,0 +1,17 @@
+{
+  "description": "Synthetic: a finished auto-mode turn asks the user, inside a sentence mid-paragraph, to run `! make seed-staging`, then goes on with what it will do after. The command is the offer.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ get staging ready for the demo\n\n● The migrations are applied and the new build is\n  live on staging. The seed data needs the vault\n  token, which this session can't read, so please\n  run ! make seed-staging here and I'll check the\n  dashboards load once it finishes. Everything\n  else for the demo is done.\n\n✻ Worked for 44s · done 2:15 PM\n──────────────────────── demo ─\n❯ ⟪placeholder⟫Cut the release⟪/placeholder⟫\n──────────────────────────────────────────────────\n  ~/src/acme/app on main | Opus 5.5 | dev@example.com\n  ⏵⏵ auto mode on · 1 shell · ← for agents",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "text"
+    },
+    "headline": "User must run the staging seed command",
+    "offers": [
+      "! make seed-staging"
+    ]
+  }
+}
