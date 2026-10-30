@@ -641,15 +641,17 @@ def _at(root: Path, name: str) -> dict | None:
     return read(base, base / name)
 
 
-def bar(root: Path, name: str, states: list[dict]) -> tuple[str, str] | None:
+def bar(root: Path, name: str, states: list[dict],
+        pane_of=lambda _entry: None) -> tuple[str, str] | None:
     """An updating folder's notice on its rendered (Markdown) pages: the tab's label and a
     thin bar, whose ask (as the placeholder's) reloads the page once the update is done or
-    its files change. None for any other folder. `states`: the panes (no accounts: it is
-    asked every few seconds). Archived, as placeholder's."""
+    its files change. None for any other folder. `states` and `pane_of` find its reviser as
+    the gallery does (no accounts: it is asked every few seconds). Archived, as
+    placeholder's."""
     i = _at(root, name)
     if not (i and i["updating"]):
         return None
-    _progress([i], states)
+    resolve([i], states, [], pane_of)
     label, every = status(i), 60000 if i["state"] == "stopped" else 5000
     return label, (f'<p class="updating {i["state"]}" role="status">{label}: '
                    f'{escape(i["updating"])} · reloads when done'

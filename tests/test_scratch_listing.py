@@ -378,8 +378,8 @@ def test_a_revision_is_read_from_its_revisers_pane_not_its_authors_session(tmp_p
     items, _ = _resolved(tmp_path, states)
     assert (items["page"]["pane"], items["page"]["state"]) == ("%7", "working")
     # Its mark names %6, the first Codex pane (Codex's shared daemon names it for every
-    # session): the reviser is searched for from the mark, found in %44, and never saved
-    # as the author.
+    # session), closed since: the reviser is searched for from the mark, found in %44, and
+    # never saved as the author; the page's own bar finds it too.
     due = []
     monkeypatch.setattr(agent_history, "writers", lambda _p, d: due.append(d) or {
         "page": {"session_id": "b"}})
@@ -387,10 +387,11 @@ def test_a_revision_is_read_from_its_revisers_pane_not_its_authors_session(tmp_p
         "b": {"session_id": "b", "harness": "codex", "running": {"thread": "b"}}})
     meta = tmp_path / "page" / "meta.json"
     meta.write_text(json.dumps({"pane": "%6", "agent_session": "a", "updating": "the intro"}))
-    states = [{"pane_id": "%6", "tool": "codex", "session": "s", "activity": "idle"},
-              {"pane_id": "%44", "tool": "codex", "session": "s", "activity": "running"}]
+    states = [{"pane_id": "%44", "tool": "codex", "session": "s", "activity": "running"}]
     items, _ = _resolved(tmp_path, states, pane_of=lambda e: e.get("running") and "%44")
     assert (items["page"]["pane"], items["page"]["state"]) == ("%44", "working")
+    assert scratch.bar(tmp_path, "page", states,
+                       lambda e: e.get("running") and "%44")[0] == "Updating"
     assert due == [{"page": meta.stat().st_mtime}]
     assert json.loads(meta.read_text())["agent_session"] == "a"
 
