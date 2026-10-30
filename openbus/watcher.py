@@ -233,6 +233,16 @@ def _reflowed(text: str, before: str) -> bool:
                 for t in (text, before)}) == 1
 
 
+def _turn(said: str | None, text: str) -> str:
+    """The turn a card was read from, as push tells one ask from the next: the agent's
+    transcript as it stood (`said`, transcript.turn), else the whole capture at any width
+    (a resize moves the visible screen's top, not the turn), words and values kept ("ls a
+    b" is not "ls ab"; _fingerprint would make "sleep 10s" and "sleep 20s" one). Never the
+    card's reading or CARD_VERSION, so a card read again is the same turn."""
+    return said or hashlib.sha256(
+        fit.reflow_key(text.replace(tmux.VISIBLE_SCREEN, ""), " ").encode()).hexdigest()
+
+
 def _stamp_identity(s: dict, p: tmux.Pane) -> None:
     """Copy the pane's NAMES, NUMBERS and per-session focus onto a state dict. These
     live outside the captured text — an agent renames the title, tmux rename-window/
@@ -316,6 +326,7 @@ class Watcher:
         self.snapshots: dict[str, list[dict]] = {}  # pane_id -> [{id, text, ts}]
         self._prev_fp: dict[str, str] = {}  # pane_id -> fingerprint at last parse
         self._parsed_reply: dict[str, str | None] = {}  # pane_id -> agent reply at last parse
+        self._parsed_turn: dict[str, str | None] = {}  # pane_id -> transcript turn at last parse
         self._seen_fp: dict[str, str] = {}  # pane_id -> fingerprint at last CAPTURE
         self._collection_failed = False
         # Last tick's answer to "is a tmux server running at all?" — lets the UI tell a
@@ -1145,6 +1156,7 @@ class Watcher:
             self._dropped,
             self._prev_fp,
             self._parsed_reply,
+            self._parsed_turn,
             self._seen_fp,
             self._parse_fails,
             self._parse_valid,
@@ -1423,6 +1435,7 @@ class Watcher:
         # The agent's transcript can land after its screen settles; a reply the last
         # parse didn't have re-reads the card even though the screen is unchanged.
         reply = transcript.last_reply(pane, text)
+        said = transcript.turn(pane, text)  # before the parse: what it reads, not after
         changed = not hold and (fp != self._prev_fp.get(pane.id)  # differs from the last parse
                                 # A restored card has no parsed reply: the first seen stands in.
                                 or reply != self._parsed_reply.setdefault(pane.id, reply))
@@ -1454,7 +1467,12 @@ class Watcher:
         forced = pane.id in self._forced_this_tick  # drained snapshot (see _tick)
         # A card checkpointed before frames were kept is read again: a frame taken off
         # today's screen would vouch for a question parsed from an older one.
-        if cached is not None and not changed and not forced and "frame" in cached:
+        # So is an ask whose agent has moved on (a second, identical approval), once per turn
+        # like a screen (a failing parse retires it), a restored card's own turn standing in.
+        moved_on = said and cached and cached.get("activity") == "waiting" \
+            and said != self._parsed_turn.setdefault(pane.id, cached.get("turn"))
+        if cached is not None and not changed and not forced and "frame" in cached \
+                and not moved_on:
             cached["idle_seconds"] = idle  # just tick the timer, reuse everything else
             # Offers send what they say: held to this very screen, which the fingerprint
             # may call unchanged while a command's "10s" became "20s". Not off a screen held
@@ -1462,6 +1480,8 @@ class Watcher:
             if not hold and (offers := screen_offers(cached.pop("offers", None), text)):
                 cached["offers"] = offers
             cached.setdefault("input_generation", generation)  # a restored card has none
+            if "turn" not in cached:  # nor one checkpointed before turns were kept
+                cached["turn"] = _turn(said, text)
             # Same activity/question as the last parse (nothing re-classified), so this
             # returns the persisted entry time unchanged — the client's clock keeps
             # climbing while the pane sits still.
@@ -1510,7 +1530,7 @@ class Watcher:
             if self.use_llm
             else None
         )
-        self._parsed_reply[pane.id] = reply
+        self._parsed_reply[pane.id], self._parsed_turn[pane.id] = reply, said
         state = classify(
             pane,
             text,
@@ -1523,6 +1543,7 @@ class Watcher:
             prev_activity=(previous or {}).get("activity"),
             repository=self._repository_for(pane) if self.use_llm else None,
         )
+        state["turn"] = _turn(said, text)
         # Preserve the parsed conversation name before session is stamped with the
         # tmux session. It must survive cached ticks and tmux renames independently.
         parsed_title = state.get("session")
