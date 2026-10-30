@@ -145,6 +145,10 @@ key** rather than developer ADC (which expires and needs a browser reauth — se
 `GOOGLE_APPLICATION_CREDENTIALS` at the key file — an **absolute** path, since google-auth
 does not expand `~` (`.env.example` has the mint command).
 
+**Live Mode (voice) with `gpt-live-1`:** set `OPENAI_API_KEY` and `TMUXRC_LIVE_MODE=1`, and
+voice uses `gpt-live-1` by default. Without the key it falls back to Gemini on Vertex
+([details](docs/design/live-mode.md#gpt-live-1)).
+
 ```bash
 uv sync
 cp .env.example .env          # then edit .env: GOOGLE_CLOUD_PROJECT + GOOGLE_APPLICATION_CREDENTIALS
@@ -283,7 +287,7 @@ Loaded from `.env` at startup (real shell env vars still override). See `.env.ex
 | `TMUXRC_LIVE_REGION` | `us-central1` | Vertex region for voice models (needs one that serves them; not `global`) |
 | `TMUXRC_LIVE_MODELS` | Gemini 2.5 voice on Vertex, plus the chat defaults | the models Chat and Voice offer, inline JSON or a path (`.env.example` has the shape, backends and rates) |
 | `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `AZURE_OPENAI_API_KEY` + `AZURE_OPENAI_ENDPOINT` | — | keys for the other Live backends, read from `~/.config/tmux-rc/openai.env`, never `.env`; a model whose key is missing is listed greyed with the reason |
-| `TMUXRC_GPT_LIVE_VOICE` / `TMUXRC_GPT_LIVE_BACKEND` | `marin` / `gpt-5.6-luna` | GPT-Live's voice and backend model (offered when `OPENAI_API_KEY` is set); `TMUXRC_GPT_LIVE_{INPUT,CACHED,OUTPUT}_PER_M` price a backend override |
+| `TMUXRC_GPT_LIVE_VOICE` / `TMUXRC_GPT_LIVE_BACKEND` | `marin` / `gpt-5.6-luna` | GPT-Live 1's voice and backend model; `OPENAI_API_KEY` makes it the default voice model ([details](docs/design/live-mode.md#gpt-live-1)); `TMUXRC_GPT_LIVE_{INPUT,CACHED,OUTPUT}_PER_M` price a backend override |
 | `TMUXRC_PUSH_SUBJECT` | `mailto:tmux-rc@openbus.io` | VAPID contact; a real `mailto:`, or Apple rejects delivery |
 | `TMUXRC_PUSH_ALLOWED_HOSTS` | Apple, Google, Mozilla, Microsoft relays | push endpoints accepted at subscribe, hosts or `.suffix`es |
 | `TMUXRC_SCRATCH_DIR` | unset (not served) | directory served read-only at `/scratch/` for agents' previews — [docs/scratch.md](docs/scratch.md) |

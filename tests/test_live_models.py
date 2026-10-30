@@ -82,6 +82,7 @@ def test_table_trims_identity_and_round_trips_offered_label(monkeypatch):
     monkeypatch.setenv("TMUXRC_LIVE_MODELS", json.dumps([{
         "label": "  Voice test \t", "model": " model-id \n",
     }]))
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)  # else GPT-Live is offered first
     offered = TestClient(server.app).get("/api/version").json()["live_models"]
     assert offered[0]["label"] == "Voice test"
     assert L.pick(offered[0]["label"]).model == "model-id"
@@ -113,7 +114,7 @@ def test_version_lists_offered_labels_with_hints(monkeypatch):
     monkeypatch.setenv("TMUXRC_LIVE_MODE", "1")
     monkeypatch.setenv("TMUXRC_LIVE_MODELS", json.dumps(TABLE))
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    # GPT-Live is appended from outside the table when its key is set (it is an adapter,
+    # GPT-Live is added from outside the table when its key is set (it is an adapter,
     # not a table entry) — keep it out so this covers the TABLE's own contribution.
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     got = TestClient(server.app).get("/api/version").json()["live_models"]
@@ -164,11 +165,15 @@ def test_gpt_live_joins_the_menu_on_its_key_alone(monkeypatch):
     without = offered()
     monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
     with_key = offered()
-    assert [m["label"] for m in with_key] == [m["label"] for m in without] + ["GPT-Live 1"]
+    assert [m["label"] for m in with_key] == ["GPT-Live 1"] + [m["label"] for m in without]
+    # First means default: no label picks GPT-Live, while an explicit pick still wins.
+    assert L.pick(None).label == "GPT-Live 1"
+    assert L.pick("Gemini 2.5").label == "Gemini 2.5"
+    assert L.pick(None, text=True).label == "Gemini 3 Flash"  # voice only; Chat unchanged
     # Its own hint, not a rate card: GPT-Live bills voice by the MINUTE, so rendering the
     # per-1M-audio line every table entry gets would put a number on the picker that
     # describes nothing the user will be charged.
-    assert with_key[-1]["hint"] == "OpenAI · $0.05/min + backend"
+    assert with_key[0]["hint"] == "OpenAI · $0.05/min + backend"
 
 
 @pytest.mark.parametrize("bad", [-1, float("nan"), float("inf")])
@@ -184,7 +189,7 @@ def test_table_rejects_rates_that_cannot_be_money(monkeypatch, bad):
 
 
 def test_a_configured_entry_may_claim_gpt_lives_label_and_wins_it(monkeypatch):
-    """GPT-Live is appended to the menu, not configured into the table, so nothing stops an
+    """GPT-Live is added to the menu, not configured into the table, so nothing stops an
     operator from naming a table entry after it. One menu and one resolver is what keeps
     that from splitting: the row the picker shows and the model the socket opens are read
     off the same list, so the configured entry wins BOTH — rather than the menu showing two

@@ -1466,12 +1466,15 @@ async def _run_session(websocket: WebSocket, watcher, meter: _Meter) -> None:
 
 
 def offered() -> list[live_providers.LiveModel]:
-    """Everything a client may pick, in picker order: the configured table, then GPT-Live
-    when its key is set. ONE list, behind both /api/version's menu and this module's socket
-    gate, because the two saying it separately is exactly how they come to disagree — and a
-    gate that refuses what the menu just offered is indistinguishable from a broken pick.
+    """Everything a client may pick, in picker order: GPT-Live first when its key is set,
+    then the configured table. First is the default — what a label-less pick resolves to
+    and the top of the voice picker — so an OpenAI key alone makes GPT-Live the voice
+    model, while a model the user picks (the label the client remembers) still wins. ONE
+    list, behind both /api/version's menu and this module's socket gate, because the two
+    saying it separately is exactly how they come to disagree — and a gate that refuses
+    what the menu just offered is indistinguishable from a broken pick.
 
-    GPT-Live is appended rather than configured: the seam opens a CONNECTION and hands it
+    GPT-Live is added rather than configured: the seam opens a CONNECTION and hands it
     to the shared coroutines, while the adapter owns a whole SESSION, so it cannot be a
     table entry. The TABLE wins a label collision — an operator who names an entry
     "GPT-Live 1" gets the entry they configured, not a second row shadowing it — and it
@@ -1487,7 +1490,7 @@ def offered() -> list[live_providers.LiveModel]:
     table = live_providers.models()
     menu = [m for m in table if m.available()]
     if os.environ.get("OPENAI_API_KEY") and all(m.label != gpt_live.LABEL for m in table):
-        menu.append(gpt_live.ENTRY)
+        menu.insert(0, gpt_live.ENTRY)
     return menu
 
 
