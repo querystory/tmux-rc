@@ -6,7 +6,7 @@
     "tool": "claude",
     "activity": "waiting",
     "waiting_on": "user",
-    "headline": "User must run the PR merge while agents keep working",
+    "headline": "PR #87 is ready to merge while agents test retries and docs",
     "offers": [
       "! gh pr merge 87 --squash -R acme/widgets"
     ]
