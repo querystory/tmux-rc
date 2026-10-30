@@ -1469,9 +1469,10 @@ def offered() -> list[live_providers.LiveModel]:
     """Everything a client may pick, in picker order: GPT-Live first when its key is set,
     then the configured table. First is the default — what a label-less pick resolves to
     and the top of the voice picker — so an OpenAI key alone makes GPT-Live the voice
-    model, while a model the user picks (the label the client remembers) still wins. ONE list, behind both /api/version's menu and this module's socket
-    gate, because the two saying it separately is exactly how they come to disagree — and a
-    gate that refuses what the menu just offered is indistinguishable from a broken pick.
+    model, while a model the user picks (the label the client remembers) still wins. ONE
+    list, behind both /api/version's menu and this module's socket gate, because the two
+    saying it separately is exactly how they come to disagree — and a gate that refuses
+    what the menu just offered is indistinguishable from a broken pick.
 
     GPT-Live is added rather than configured: the seam opens a CONNECTION and hands it
     to the shared coroutines, while the adapter owns a whole SESSION, so it cannot be a
