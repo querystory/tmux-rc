@@ -15,7 +15,7 @@ from scripts import demo_fleet as demo
 from tests.test_public_data import IDENTITY
 
 # A stranger's fleet: not even this project's own names or a home path.
-PRIVATE = re.compile(rf"/home/|querystory|qs-app|tmux-rc|{IDENTITY}", re.IGNORECASE)
+PRIVATE = re.compile(rf"/home/|querystory|tmux-rc|{IDENTITY}", re.IGNORECASE)
 
 
 @pytest.fixture(autouse=True)

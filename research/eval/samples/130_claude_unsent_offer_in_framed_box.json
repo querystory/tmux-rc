@@ -1,0 +1,15 @@
+{
+  "description": "Synthetic: the same hand-over as 129, but the user has only typed the `! command` into Claude's framed input box (╭──╮ / │ ! … │ / ╰──╯, as in 02) and not sent it. The draft inside the box is not a sent command, so the hand-over still waits on the user and its offer stands (#463, Copilot on #536).",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ ship the demo branch\n\n● The push to the shared remote was blocked by my permission check. Run it yourself:\n\n  ! git push -u origin demo/sample-branch\n\n✻ Worked for 9s · done 3:20 PM\n\n╭──────────────────────────────────────────────────────────────────────────────────────────────╮\n│ ! git push -u origin demo/sample-branch                                                      │\n╰──────────────────────────────────────────────────────────────────────────────────────────────╯\n  ~/src/acme/app on demo/sample-branch | Opus 5.5 | user@example.com\n  session: +12/-3 lines · 14% ctx · 1h02m · $1.20\n  ! for bash mode",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": null,
+    "offers": [
+      "! git push -u origin demo/sample-branch"
+    ],
+    "headline": "Pushing the demo branch; the user must run the blocked push"
+  }
+}

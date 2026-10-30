@@ -7,7 +7,7 @@
 // could vary on.
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { PHONE, WIDE, chat, settle, startDemo } from "./demo_browser.mjs";
+import { PHONE, WIDE, chat, pace, settle, startDemo } from "./demo_browser.mjs";
 
 const [out = ".screenshots", tree = process.cwd()] = process.argv.slice(2);
 const HD = { width: 1920, height: 1080 };
@@ -97,7 +97,7 @@ const TWO_ACCOUNTS = [
   ["accounts-wide-dashboard", WIDE, "light", "#view=dashboard", two()],
   ["accounts-hd-dashboard", HD, "dark", "#view=dashboard", two()],
   ["accounts-wide-pane", WIDE, "light", "#pane=%2513", two()],
-  ["accounts-wide-new-window", WIDE, "dark", "", two(async (page) => { await page.click("#new-window"); await page.click('.acct-pick [data-dir="~/.claude-personal"]'); })],
+  ["accounts-wide-new-window", WIDE, "dark", "", two(async (page) => { await accountStep(page); await page.click('.acct-pick [data-dir="~/.claude-personal"]'); })],
   ["accounts-wide-usage-tall", WIDE, "dark", "#pane=%2513", two(async (page) => { // the sidebar strip dragged to two rows
     const handle = page.locator("#usage-handle");
     if (!await handle.count()) return; // a base without the seam (boundingBox would wait for it)
@@ -117,13 +117,13 @@ const TWO_ACCOUNTS = [
   ["accounts-mobile-pane-menu", PHONE, "dark", "#pane=%2513", moveMenu()],
   ["accounts-mobile-move", PHONE, "light", "#pane=%2513", moveMenu("#move-pane"), "#move-dialog"],
   ["accounts-mobile-moved", PHONE, "light", "#pane=%2513", moveMenu("#move-pane", "Exit the old pane"), "#move-dialog"],
-  ["accounts-mobile-new-window", PHONE, "light", "", two(async (page) => { await page.click("#new-window"); await page.waitForSelector(".acct-pick"); })],
+  ["accounts-mobile-new-window", PHONE, "light", "", two(accountStep)],
   ["accounts-mobile-consent", PHONE, "light", "", two(chat("Tell e2e triage to rerun it headed", "#voice-log .propose .acct-badge"))],
   ["accounts-mobile-accounts", PHONE, "dark", "", two(async (page) => { await phoneSettings(page); await page.click("#accounts-open"); })],
   ["accounts-mobile-add", PHONE, "light", "", two(async (page) => { await phoneSettings(page); await page.click("#accounts-open"); await page.click("#acct-dialog [data-add]"); await page.fill("#acct-name", "Side project"); })],
   // Adding "Demo", step by step, each cropped to its sheet (docs/design/agent-accounts.md).
   // Last, and in this order: opening the sign-in window changes the demo server's state.
-  ["accounts-add-1-new-window", PHONE, "light", "", two(async (page) => { await page.click("#new-window"); await page.waitForSelector(".acct-pick"); }), "#launch-dialog"],
+  ["accounts-add-1-new-window", PHONE, "light", "", two(accountStep), "#launch-dialog"],
   ["accounts-add-2-name", PHONE, "light", "", two(addFlow("name")), "#acct-dialog"],
   ["accounts-add-3-share", PHONE, "light", "", two(addFlow("share")), "#acct-dialog"],
   ["accounts-add-4-sign-in", PHONE, "light", "", two(addFlow("login")), "#acct-dialog"],
@@ -132,6 +132,15 @@ const TWO_ACCOUNTS = [
   ["accounts-add-6-done", PHONE, "light", "", two(addFlow("done")), "#acct-dialog"],
   ["accounts-add-7-list", PHONE, "light", "", two((page) => page.fill("#search", "sign in"))],
 ];
+// New session's account step: a step after picking Claude here; a base shows the grid at once,
+// and its Claude row would start a window instead.
+async function accountStep(page) {
+  await page.click("#new-window");
+  const claude = page.locator('#launch-choices [data-provider="claude"]');
+  await claude.waitFor(); // the agents and the picker render together
+  if (!await page.locator(".acct-pick").count()) await claude.click();
+  await page.waitForSelector(".acct-pick");
+}
 // A phone opens Settings from the ☰ drawer, its own button being a wide screen's.
 async function phoneSettings(page) {
   await page.click("#menu-open"); await page.click('#drawer-nav [data-via="settings-open"]');
@@ -207,7 +216,7 @@ function afterReboot(page) { return noTmux(page, ".restore-pane"); }
 function reach(selector, end = false) {
   return async (page) => {
     for (const node of ["#loops-card [data-lane]", selector]) await page.locator(node).first().waitFor({ timeout: 5000 }).catch(() => {});
-    await page.waitForTimeout(500); // the panels above settle their height first
+    await settle(page, "reach"); // the panels above settle their height first
     await page.locator(selector).first().evaluate((el, end) => {
       const pane = document.getElementById("landing"); // scroll the dashboard, never the page
       pane.scrollTop = end ? pane.scrollHeight : pane.scrollTop + el.getBoundingClientRect().top - pane.getBoundingClientRect().top - 16;
@@ -228,7 +237,10 @@ async function showLoops(page) {
 }
 
 // The sub-agents count's switch is on by default; show their lines under activity cards too.
+// The usage strip arrives later and shortens the list, so it is waited for before scrolling:
+// otherwise the card is centred in whichever height the list had at that moment.
 async function showSubagents(page) {
+  await page.locator("#usage").waitFor();
   await page.locator(".sb-group", { hasText: "Working" }).locator(".sb-icon").click();
   await page.locator(".sb-card", { hasText: "terraform plan review" }).scrollIntoViewIfNeeded();
 }
@@ -238,7 +250,7 @@ async function heatCard(page) {
   // The word cloud above lays out at random, and at the page's foot it is in frame.
   await page.addStyleTag({ content: ".atlas-cloud { visibility: hidden; }" });
   await page.waitForSelector(".atlas-heat-card .heat-grid");
-  await page.waitForTimeout(500); // the panels above settle their height first
+  await settle(page, "heatCard"); // the panels above settle their height first
   await page.locator(".atlas-heat-card").scrollIntoViewIfNeeded();
 }
 // Older days page in while the foot is near; a shot waits until the day count holds still.
@@ -284,7 +296,7 @@ function stubVoice(socket) {
   socket.onMessage((raw) => {
     if (spoken || JSON.parse(raw).action !== "audio") return;
     spoken = true;
-    for (const frame of [
+    pace(socket, [
       { type: "transcript", role: "user", text: "Tell e2e triage to rerun the checkout test with tracing.", new_segment: true },
       { type: "transcript", role: "model", text: "Sent. I'll keep an eye on that rerun.", new_segment: true },
       { type: "typed", label: "e2e triage", pane_id: "%9", text: "Rerun the checkout test with tracing.", submitted: true },
@@ -292,7 +304,7 @@ function stubVoice(socket) {
       { type: "transcript", role: "model", text: "The rerun reproduced the checkout failure. e2e triage is tracing the iframe timing now.", new_segment: true },
       { type: "open_pane", pane_id: "%9", label: "e2e triage" },
       { type: "turn_complete" },
-    ]) socket.send(JSON.stringify(frame));
+    ]);
   });
 }
 

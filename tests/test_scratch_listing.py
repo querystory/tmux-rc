@@ -238,10 +238,10 @@ def test_a_folder_with_only_its_meta_json_is_a_page_being_made(tmp_path, monkeyp
         "bare": "working", "old": "stopped"}
     assert scratch.progress({"activity": "idle", "agents": 1}, "%1", now) == "working"
     card = scratch._card(items["wip"])
-    assert 'class="working" data-pending="wip/thumb.webp">Being made…' in card
-    assert 'aria-label="wip: Being made…">wip</a>' in card  # the thumb's state, read aloud
+    assert 'class="working" data-pending="wip/thumb.webp">In progress' in card
+    assert 'aria-label="wip: In progress">wip</a>' in card  # the thumb's state, read aloud
     # an earlier page's thumbnail neither hides the state nor is polled in its place
-    assert '<span class="quiet">Being made…' in scratch._card(items["idle"])
+    assert '<span class="quiet">In progress' in scratch._card(items["idle"])
     assert '<span class="stopped">' in scratch._card(items["long"])  # nothing left to poll for
     shot = []
     scratch.page(tmp_path, states, [], STYLE, sidecars=shot.extend)
@@ -301,3 +301,23 @@ def test_annotate_never_clobbers_and_never_repeats(tmp_path, monkeypatch):
 def test_dot_dot_is_not_inside(tmp_path):
     assert not scratch.inside(tmp_path / "..", tmp_path)
     assert scratch.inside(tmp_path / "x", tmp_path)
+
+
+def test_a_pane_keeps_its_sessions_pages_after_a_restore(tmp_path, monkeypatch):
+    """Its overview links them as long as they exist, not while the screen shows the URL,
+    found by the session once the pane id from before a restore names nothing."""
+    monkeypatch.setattr(agent_history, "writers", lambda *_: {})
+    monkeypatch.setattr(agent_history, "get_many", lambda ids: {
+        "s1": {"session_id": "s1", "running": {"tmux_pane": "%9"}}})
+    _folder(tmp_path, "status", 2000, {"pane": "%9"})
+    _folder(tmp_path, "older", 1000, {"pane": "%3", "agent_session": "s1"})  # restored
+    _folder(tmp_path, "theirs", 3000, {"pane": "%4"})
+    states = [{"pane_id": p, "session": "s", "window_name": "w"} for p in ("%9", "%4")]
+    made = scratch.made_by(tmp_path, "%9", states, [], lambda e: e["running"]["tmux_pane"])
+    assert [(m["href"], m["pending"]) for m in made] == [("status/", False), ("older/", False)]
+    assert made[0]["at"] > made[1]["at"]  # newest first, each with when, for its Links row
+    # A page still being made before the restore is In progress while its session works on.
+    (tmp_path / "older" / "index.html").unlink()
+    states[0]["activity"] = "running"
+    made = scratch.made_by(tmp_path, "%9", states, [], lambda e: e["running"]["tmux_pane"])
+    assert [(m["href"], m["pending"]) for m in made] == [("status/", False), ("older/", True)]
