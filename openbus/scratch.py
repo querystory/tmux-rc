@@ -312,11 +312,15 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
         running = {**agent_history.indexed(missing), **running}  # the index still says who
     for i in listed:
         s = running.get(i["session_id"]) or {} if i["pane"] not in sure else {}
-        at = open_in.get(s.get("session_id"), i["pane"])  # the writer's, if open; the pane
-        if at != i["pane"]:  # named stands when only the index knows the writer (no binary,
-            # a subagent), since it cannot say where. A pending card follows its writer, and a
-            # writer found but gone from every pane has stopped, however recent the folder
-            i["pane"], i["state"] = at, progress(panes.get(at), at or i["pane"], i["created"])
+        # The writer's pane, if open; else the pane named, which stands when nobody can say
+        # where the writer is: only the index knows it (no binary, a subagent), or the
+        # process scan failed (`running_unknown`). A pending card follows its writer; one
+        # found but gone from every pane has stopped, however recent the folder; one alive
+        # that no pane shows (Codex without `session-id` in its status bar) works on by time.
+        at = i["pane"] if s.get("running_unknown") else open_in.get(s.get("session_id"), i["pane"])
+        if at != i["pane"]:
+            named = at or (None if s.get("running") else i["pane"])
+            i["pane"], i["state"] = at, progress(panes.get(at), named, i["created"])
         if (pane := panes.get(i["pane"])) is not None:
             _author(i, pane.get("tool"), account.get(i["pane"]) or {})
             i["where"] = where(pane)

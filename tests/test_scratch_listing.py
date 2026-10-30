@@ -142,6 +142,15 @@ def test_a_codex_panes_meta_json_is_checked_against_the_transcript(tmp_path, mon
     items, _ = _resolved(tmp_path, states, pane_of=lambda e: e.get("running") and "%44")
     assert all(items[n]["pane"] == "%6" and items[n]["where"] == "s:first" for n in items)
     assert [items[n]["state"] for n in ("moved", "gone")] == ["stopped", "quiet"]
+    # So does a writer whose liveness the binary could not tell (its process scan failed);
+    # one it knows alive, in a pane no status bar names, has not stopped: unlinked, it
+    # works on until STALL
+    running["t2"]["running_unknown"] = True
+    running["t3"] = {**running["t3"], "running": {"thread": "t3"}}
+    monkeypatch.setattr(agent_history, "get_many", lambda _ids: running)
+    items, _ = _resolved(tmp_path, states, pane_of=lambda _e: None)
+    assert (items["moved"]["pane"], items["moved"]["state"]) == ("%6", "stopped")
+    assert (items["gone"]["pane"], items["gone"]["state"]) == (None, "working")
 
 
 def test_a_pane_id_from_an_earlier_tmux_server_is_not_trusted(tmp_path, monkeypatch):
