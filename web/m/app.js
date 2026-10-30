@@ -2358,8 +2358,10 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !documen
 // A click in a frame (the Scratch gallery) never reaches this document, but it takes the focus.
 addEventListener("blur", () => { if (document.activeElement?.tagName === "IFRAME" && !document.querySelector("dialog:modal")) besides().forEach((d) => d.close()); });
 // Closed by its × or Escape, focus goes back to what opened it; not after a launch, whose
-// navigation has already put focus on the pane.
+// navigation has already put focus on the pane. The event is queued: a dialog open again by
+// then (the top bar's Voice over an idle Chat) keeps its place.
 for (const d of [$("settings"), $("launch-dialog"), $("voice-dialog")]) d.addEventListener("close", () => {
+  if (d.open) return;
   if (d.classList.contains("beside") && [null, document.body].includes(document.activeElement)) d._opener?.focus({ preventScroll: true });
   d.classList.remove("beside");
 });
