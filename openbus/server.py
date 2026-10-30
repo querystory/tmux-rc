@@ -545,16 +545,18 @@ async def lifespan(app: FastAPI):
         await app.state.watcher.stop()
 
 
-# Swagger UI moves off /docs to /apidocs so /docs belongs to the Hugo docs site
-# (FastAPI's default /docs would otherwise shadow the bare /docs path). ReDoc follows.
+# FastAPI's interactive docs load third-party JavaScript on the terminal-control
+# origin. Opt in for development; the JSON schema remains available without scripts.
+_api_docs = os.environ.get("TMUXRC_API_DOCS", "").strip().lower() in ("1", "true", "yes", "on")
+# Swagger UI moves off /docs to /apidocs so /docs belongs to the Hugo docs site.
 # auto_configure off: FastAPI would otherwise attach its own OTLP exporters, from the
 # OTEL_* env the session shares with Claude Code, and ship every request span, metric and
 # log to that receiver. Our export is telemetry.py's scoped records, on its own provider.
 app = FastAPI(
     title="tmux-rc",
     lifespan=lifespan,
-    docs_url="/apidocs",
-    redoc_url="/apiredoc",
+    docs_url="/apidocs" if _api_docs else None,
+    redoc_url="/apiredoc" if _api_docs else None,
     telemetry={"auto_configure": False},
 )
 # Terminal frames are ~13KB raw but ~4.6x compressible (mostly repeated text/escapes).
