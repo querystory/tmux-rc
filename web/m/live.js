@@ -382,7 +382,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     if (current) {
       expire(current);
       // Turns queued for a chat that never connected: shown, so nothing typed vanishes.
-      for (const [frame] of current.pending) add("error", `Not sent: ${frame.text}`);
+      for (const [frame, thumbs] of current.pending) add("error", `Not sent: ${frame.text}`, false, thumbs);
       clearTimeout(current.retry); clearTimeout(current.deadline);
       current.resolveReady?.();
       current.wakeLock?.release().catch(() => {});
@@ -618,7 +618,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   // Docked, Escape is no close request, so take it here: only from inside the panel.
   dialog.addEventListener("keydown", (event) => { if (event.key === "Escape" && docked()) hide(); });
   // Crossing the breakpoint reopens the same panel the other way: same session and log.
-  wide?.addEventListener?.("change", () => { if (dialog.open) { hide(); show(); } });
+  wide?.addEventListener?.("change", () => { if (dialog.open) { hide(); dialog.classList.remove("beside"); show(); } }); // a sheet or the dock, never beside
   dialog.addEventListener("close", badge);
   // The X beside minimize: end the chat AND dismiss the sheet, so nothing is left to close.
   // (Voice keeps End Live Mode: its sheet stays up for the model picker to start again.)
