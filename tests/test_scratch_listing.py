@@ -142,6 +142,22 @@ def test_a_codex_panes_meta_json_is_checked_against_the_transcript(tmp_path, mon
     items, _ = _resolved(tmp_path, states, pane_of=lambda e: e.get("running") and "%44")
     assert all(items[n]["pane"] == "%6" and items[n]["where"] == "s:first" for n in items)
     assert [items[n]["state"] for n in ("moved", "gone")] == ["stopped", "quiet"]
+    # So does a writer whose liveness the binary could not tell (its process scan failed);
+    # one it knows alive, in a pane no status bar names, has not stopped: unlinked, it
+    # works on until STALL
+    running["t2"]["running_unknown"] = True
+    running["t3"] = {**running["t3"], "running": {"thread": "t3"}}
+    monkeypatch.setattr(agent_history, "get_many", lambda _ids: running)
+    items, _ = _resolved(tmp_path, states, pane_of=lambda _e: None)
+    assert (items["moved"]["pane"], items["moved"]["state"]) == ("%6", "stopped")
+    assert (items["gone"]["pane"], items["gone"]["state"]) == (None, "working")
+
+
+def test_where_names_a_pane_as_the_phone_does():
+    pane = {"session": "dev", "window_name": "bash", "label": "dev:4", "pane_id": "%2"}
+    assert scratch.where(pane) == "dev:4"  # the label of an unnamed window says the session
+    assert scratch.where({**pane, "title": "Build"}) == "dev:Build"
+    assert scratch.where({**pane, "label": "Resolve PR 38"}) == "dev:Resolve PR 38"
 
 
 def test_a_pane_id_from_an_earlier_tmux_server_is_not_trusted(tmp_path, monkeypatch):
@@ -350,6 +366,36 @@ def test_an_updating_page_keeps_its_thumbnail_and_says_so(tmp_path, monkeypatch)
     assert scratch.bar(tmp_path, "no", states) is None
 
 
+def test_a_revision_is_read_from_its_revisers_pane_not_its_authors_session(tmp_path,
+                                                                          monkeypatch):
+    # Session a made the page and has exited; session b, in a Codex pane, revises it now.
+    monkeypatch.setattr(agent_history, "writers", lambda *_: {})
+    monkeypatch.setattr(agent_history, "get_many", lambda _ids: {
+        "a": {"session_id": "a", "harness": "claude", "title": "First draft"}})
+    _folder(tmp_path, "page", time.time(), {"pane": "%7", "agent_session": "a",
+                                            "updating": "the intro"})
+    states = [{"pane_id": "%7", "tool": "codex", "session": "s", "activity": "running"}]
+    items, _ = _resolved(tmp_path, states)
+    assert (items["page"]["pane"], items["page"]["state"]) == ("%7", "working")
+    # Its mark names %6, the first Codex pane (Codex's shared daemon names it for every
+    # session), closed since: the reviser is searched for from the mark, found in %44, and
+    # never saved as the author; the page's own bar finds it too.
+    due = []
+    monkeypatch.setattr(agent_history, "writers", lambda _p, d: due.append(d) or {
+        "page": {"session_id": "b"}})
+    monkeypatch.setattr(agent_history, "get_many", lambda _ids: {
+        "b": {"session_id": "b", "harness": "codex", "running": {"thread": "b"}}})
+    meta = tmp_path / "page" / "meta.json"
+    meta.write_text(json.dumps({"pane": "%6", "agent_session": "a", "updating": "the intro"}))
+    states = [{"pane_id": "%44", "tool": "codex", "session": "s", "activity": "running"}]
+    items, _ = _resolved(tmp_path, states, pane_of=lambda e: e.get("running") and "%44")
+    assert (items["page"]["pane"], items["page"]["state"]) == ("%44", "working")
+    assert scratch.bar(tmp_path, "page", states,
+                       lambda e: e.get("running") and "%44")[0] == "Updating"
+    assert due == [{"page": meta.stat().st_mtime}]
+    assert json.loads(meta.read_text())["agent_session"] == "a"
+
+
 def test_one_find_lists_scratch_and_none_means_an_empty_gallery(tmp_path, monkeypatch):
     _folder(tmp_path, "a", 1000)
     _folder(tmp_path, "b", 1000).joinpath(".git").mkdir()
@@ -392,6 +438,16 @@ def test_dot_dot_is_not_inside(tmp_path):
     assert scratch.inside(tmp_path / "x", tmp_path)
 
 
+def test_the_maker_is_its_meta_pane_only_while_that_pane_is_open(tmp_path):
+    _folder(tmp_path, "mine", 1000, {"pane": "%7"})
+    _folder(tmp_path, "none", 1000)
+    live = [{"pane_id": "%7"}]
+    assert scratch.maker(tmp_path, "mine", live) == {"pane_id": "%7"}
+    assert scratch.maker(tmp_path, "mine", []) is None  # closed
+    assert scratch.maker(tmp_path, "mine", [{"pane_id": "%7", "birth": str(os.getpid())}]) is None
+    assert [scratch.maker(tmp_path, n, live) for n in ("none", "gone", "..")] == [None] * 3
+
+
 def test_a_pane_keeps_its_sessions_pages_after_a_restore(tmp_path, monkeypatch):
     """Its overview links them as long as they exist, not while the screen shows the URL,
     found by the session once the pane id from before a restore names nothing."""
@@ -410,13 +466,3 @@ def test_a_pane_keeps_its_sessions_pages_after_a_restore(tmp_path, monkeypatch):
     states[0]["activity"] = "running"
     made = scratch.made_by(tmp_path, "%9", states, [], lambda e: e["running"]["tmux_pane"])
     assert [(m["href"], m["pending"]) for m in made] == [("status/", False), ("older/", True)]
-
-
-def test_the_maker_is_its_meta_pane_only_while_that_pane_is_open(tmp_path):
-    _folder(tmp_path, "mine", 1000, {"pane": "%7"})
-    _folder(tmp_path, "none", 1000)
-    live = [{"pane_id": "%7"}]
-    assert scratch.maker(tmp_path, "mine", live) == {"pane_id": "%7"}
-    assert scratch.maker(tmp_path, "mine", []) is None  # closed
-    assert scratch.maker(tmp_path, "mine", [{"pane_id": "%7", "birth": str(os.getpid())}]) is None
-    assert [scratch.maker(tmp_path, n, live) for n in ("none", "gone", "..")] == [None] * 3

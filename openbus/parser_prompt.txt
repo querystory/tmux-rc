@@ -25,7 +25,7 @@ changes across versions and tools):
   activity "compacting" (not "running") so the UI can show the agent is briefly busy
   on itself. It ends by returning to normal working/idle; classify by the CURRENT frame.
 - Is the agent QUOTA-BLOCKED — halted at its plan's usage limit until a reset time
-  ("usage limit reached · resets 2:10pm" as the live bottom)? Report "quota_blocked".
+  ("usage limit reached · resets 2:10pm" at the live bottom)? Report "quota_blocked".
 - Is there a SELECTION MENU — a list of choices with one marked by a cursor/highlight
   (❯, ›, >, an arrow, a bold or colored line) that you'd move through with up/down?
 - Is there an INPUT PROMPT — a yes/no confirmation, a numbered choice, or a free-text

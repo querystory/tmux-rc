@@ -727,7 +727,7 @@ PLACEHOLDER_OPEN, PLACEHOLDER_CLOSE = "⟪placeholder⟫", "⟪/placeholder⟫"
 PROMPT_GLYPHS = "❯›"  # Claude Code (U+276F), Codex (U+203A)
 _PROMPT_DIM = re.compile(
     "(?m)^((?:" + re.escape(DIM_CLOSE) + ")?[" + PROMPT_GLYPHS + r"][ \xa0]?)"
-    + re.escape(DIM_OPEN) + "([^⟪\n]*?)(?:(" + re.escape(DIM_CLOSE) + r")(?=[ \t]*([^\s⟪])?)"
+    + re.escape(DIM_OPEN) + "(.*?)(?:(" + re.escape(DIM_CLOSE) + r")(?=[ \t]*([^\s⟪])?)"
     + r"|([ \t]*)$)"
 )
 

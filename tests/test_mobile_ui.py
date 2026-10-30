@@ -269,9 +269,10 @@ def test_new_session_start_row_follows_the_pick_and_comes_back():
     assert 'pressKind(b); $("launch-dialog").close(); live.open[kind]();' in app
     assert '$("voice-dialog").querySelector(".dialog-heading").after(kindRow)' in app
     # The close event is queued: the breakpoint handler's close-and-reopen must leave the row.
-    assert '$("voice-dialog").addEventListener("close", () => $("voice-dialog").open || kindHome())' in app
+    assert ('$("voice-dialog").addEventListener("close", () => $("voice-dialog").open || '
+            'kindHome())' in app)
     assert '$("voice-close").click(); $("launch-dialog")._opener.click();' in app
-    # The other mode while a conversation runs is a reason on the line, not a pick that did not take.
+    # The other mode while a conversation runs is a reason on the line, not a pick that failed.
     assert "busy && busy !== kind && `End ${" in app
 
 
@@ -366,3 +367,16 @@ def test_phone_drawer_scrolls_itself_and_never_the_view_behind_it():
     css = (Path(__file__).resolve().parents[1] / "web/m/style.css").read_text()
     drawer = next(line for line in css.splitlines() if line.startswith("#drawer {"))
     assert "overflow-y: auto" in drawer and "overscroll-behavior: contain" in drawer
+
+
+def test_tab_title_keeps_its_count_while_the_tab_is_hidden():
+    """The title's Needs-you count is read from OTHER tabs, so it is only worth having if a
+    background tab keeps receiving state. The state long poll (answered only on change) runs
+    whatever the visibility; the history and meter fetches still wait for the tab to be seen
+    (docs/design/tab-icons.md)."""
+    app = (Path(__file__).resolve().parents[1] / "web/m/app.js").read_text()
+    start = app.index("function startState()")
+    body = app[start:app.index("\n}", start)]
+    assert "if (!document.hidden) { refreshHistory(); refreshCached(); }" in body
+    assert "\n  pollState(stateController.signal);" in body, "the poll must not wait to be seen"
+    assert "document.title = tabTitle(" in app

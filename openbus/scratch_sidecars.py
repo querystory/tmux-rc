@@ -138,13 +138,14 @@ class _Static(SimpleHTTPRequestHandler):
         path or the index a folder would serve that leads out of scratch is not found."""
         if path.startswith(scratch_markdown.MERMAID):
             return str(self.web / scratch_markdown.MERMAID.removeprefix("/"))
-        parts = Path(unquote(urlsplit(path).path).removeprefix("/scratch/")).parts
-        archived = parts[:1] == (scratch_markdown.ARCHIVE,)  # nor anything hidden, as the daemon
-        if not path.startswith("/scratch/") or any(p.startswith(".") for p in parts[archived:]):
+        if not path.startswith("/scratch/") or any(  # nor anything hidden, as the daemon
+                part.startswith(".") for part in Path(unquote(urlsplit(path).path)).parts):
             return "/nonexistent"
         full = Path(super().translate_path(path.removeprefix("/scratch")))
         served = [full, full / "index.html", full / "index.htm"] if full.is_dir() else [full]
-        if full.is_dir() and not served[1].exists():  # the daemon's order: index.md next
+        # The daemon's order: index.md next, once the folder's slash is there (a slashless
+        # folder is redirected first, as the daemon does, so its relative links resolve in it).
+        if full.is_dir() and urlsplit(path).path.endswith("/") and not served[1].exists():
             served.append(full := full / "index.md")
         elif full.name == "index.html" and not full.exists():  # as the daemon: its index.md
             served.append(full := full.with_suffix(".md"))
@@ -243,7 +244,8 @@ def render(url: str) -> bytes | None:
 
 def shoot(url: str, out: Path, root: Path, at: float | None = None, inode: int = 0) -> bool:
     """Render `url` at VIEWPORT and save it as a THUMB webp dated `at` (the page's version it
-    was queued for), so an edit made while it rendered still reads as newer."""
+    was queued for), so an edit made while it rendered still reads as newer. With `inode`,
+    only while its folder is still that one: not into another that took its name meanwhile."""
     if not (data := render(url)):
         return False
     with Image.open(io.BytesIO(data)) as im:
@@ -251,7 +253,7 @@ def shoot(url: str, out: Path, root: Path, at: float | None = None, inode: int =
         try:
             if inode and out.parent.stat().st_ino != inode:
                 return False
-        except OSError:
+        except OSError:  # archived meanwhile
             return False
         scratch.replace(out, root, lambda tmp: im.save(tmp, "WEBP", quality=70))
     if at:

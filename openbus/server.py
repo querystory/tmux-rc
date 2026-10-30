@@ -2176,6 +2176,8 @@ async def _compose(pane_id: str, request: Request):
                 path = _stage_file(data, mime, value.filename)
                 segments.append((data if mime in _EXT else b"", path))
             elif kind == "birth" and isinstance(value, str):  # the incarnation the user confirmed
+                if not re.fullmatch(r"\d{1,10}", value):  # a pane's pid (tmux.py), nothing else
+                    raise HTTPException(400, "birth is a pane's pid")
                 birth = value
             elif kind == "scratch" and isinstance(value, str):  # sent from the scratch viewer
                 page = value
@@ -2388,6 +2390,13 @@ if _scratch_dir:
         _audit(request, f"scratch_{body.action}", "-", ",".join(done))
         return {"done": done}
 
+    @app.get("/api/scratch/{name}/pane")
+    def scratch_maker(name: str) -> dict:
+        """The open pane that made a scratch folder (scratch.maker): the viewer's composer."""
+        pane = scratch.maker(Path(_scratch_dir), name, list(app.state.watcher.states)) or {}
+        return {"pane": pane.get("pane_id"), "birth": pane.get("birth"),
+                "about": scratch.about(Path(_scratch_dir), name)}
+
     def _pins() -> Path:
         return accounts.store_path().with_name("pins.json")  # the state dir: every device's
 
@@ -2407,18 +2416,12 @@ if _scratch_dir:
         _audit(request, "pin", "-", detail)
         return pins
 
-    @app.get("/api/scratch/{name}/pane")
-    def scratch_maker(name: str) -> dict:
-        """The open pane that made a scratch folder (scratch.maker): the viewer's composer."""
-        pane = scratch.maker(Path(_scratch_dir), name, list(app.state.watcher.states)) or {}
-        return {"pane": pane.get("pane_id"), "birth": pane.get("birth"),
-                "about": scratch.about(Path(_scratch_dir), name)}
-
     _mount_static("/scratch", _scratch_dir, partial(
         scratch_markdown.Files, web=WEB_DIR,
         pending=lambda name: scratch.placeholder(Path(_scratch_dir), name, _who),
-        updating=lambda name: scratch.bar(Path(_scratch_dir), name,
-                                          list(app.state.watcher.states))))
+        updating=lambda name: scratch.bar(
+            Path(_scratch_dir), name, list(app.state.watcher.states),
+            lambda entry: live.running_pane(entry, app.state.watcher))))
 
 
 def _visited(kind: str, key: str) -> None:

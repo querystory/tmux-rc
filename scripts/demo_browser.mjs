@@ -13,7 +13,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 
 const playwright = process.env.PLAYWRIGHT_DIR || path.join(homedir(), ".cache/tmux-rc/playwright");
-export const { chromium } = createRequire(path.join(playwright, "/"))("playwright");
+export const { chromium, webkit } = createRequire(path.join(playwright, "/"))("playwright");
 export const WIDE = { width: 1440, height: 900 }, PHONE = { width: 390, height: 844 };
 
 // Motion off, and the UI font pinned to what Linux already renders for the app's stack:
@@ -126,7 +126,7 @@ export async function settle(page, name, shoot = () => page.screenshot()) {
   return shot;
 }
 
-export async function startDemo(tree = process.cwd(), env = {}) {
+export async function startDemo(tree = process.cwd(), env = {}, browse = launch) { // `browse`: another engine
   const python = (...args) => ["uv", ["run", "--directory", tree, "python", ...args]];
   const now = Number(execFileSync(...python("-c", "from scripts.demo_fleet import NOW; print(NOW)"), { encoding: "utf8" }));
   const port = await freePort();
@@ -136,7 +136,7 @@ export async function startDemo(tree = process.cwd(), env = {}) {
   const close = async () => { await browser?.close(); server.kill(); };
   try {
     await waitUp(`${base}/api/version`, server);
-    browser = await launch();
+    browser = await browse();
   } catch (e) { await close(); throw e; }
   return {
     base, close,

@@ -1016,57 +1016,6 @@ def test_a_page_being_made_notifies_once_as_it_lands(tmp_path, monkeypatch):
     assert sender.payloads[-1]["tag"] == "block:%1" and sender.payloads[-1]["actions"] == []
 
 
-def test_a_page_made_between_two_scans_still_notifies(tmp_path, monkeypatch):
-    """A meta.json and its page landing inside one scan were never seen pending, but were
-    promised all the same: one Ready, under its own tag, so it buzzes beside the pane's
-    Needs-you instead of silently replacing it. Folders there at startup, stale ones and
-    pages published without a meta.json stay quiet, as does a later rewrite or a restart."""
-    clock, watcher, root = [100.0], Watcher(), tmp_path / "scratch"
-    (root / "old").mkdir(parents=True)  # landed before startup
-    (root / "old" / "meta.json").write_text('{"title": "Old", "pane": "%1"}')
-    (root / "old" / "index.html").write_text("page")
-    service, sender = manager(tmp_path, watcher, clock)
-    service.scratch, shot = root, []
-    service.shoot = shot.append
-    service.store.upsert(subscription())
-    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
-    watcher.states = [waiting()]
-    for _ in range(2):
-        service.evaluate()
-        clock[0] += push.SETTLE_SECONDS
-    service.landed()
-    made = datetime.now(UTC).isoformat()
-    for name, meta in (("fast", '{"title": "Fast", "pane": "%1", "created": "'),
-                       ("loose", None), ("described", '{"description": "Generated."}'),
-                       ("stale", '{"title": "Stale", "created": "2020-01-01T00:00:00Z"}')):
-        (root / name).mkdir()
-        if meta:
-            (root / name / "meta.json").write_text(meta)
-        (root / name / "index.html").write_text("page")
-    service.landed()  # fast's meta.json caught half-written: read again once it is whole
-    (root / "fast" / "meta.json").write_text(
-        f'{{"title": "Fast", "pane": "%1", "created": "{made}"}}')
-    sender.available = False  # a full queue: tried again, though no longer fresh by then
-    service.landed()
-    monkeypatch.setattr(push, "LANDED_FRESH_SECONDS", 0)
-    sender.available = True
-    service.landed()
-    service.landed()
-    monkeypatch.setattr(push, "LANDED_FRESH_SECONDS", 60.0)
-    (root / "fast" / "meta.json").write_text(
-        f'{{"title": "Fast", "created": "{made}", "description": "Later."}}')
-    service.landed()
-    service._mtimes, service._done = None, set()  # a restart
-    service.landed()
-    (root / "fast" / "meta.json").write_text(
-        f'{{"title": "Fast", "created": "{made}", "description": "Again."}}')
-    service.landed()
-    assert [(p["title"], p["tag"]) for p in sender.payloads] == [
-        (sender.payloads[0]["title"], "block:%1"),
-        ("Ready: Fast", "scratch:fast")]
-    assert [i["name"] for i in shot] == ["fast"]
-
-
 def test_a_page_being_updated_notifies_once_its_mark_is_gone(tmp_path, monkeypatch):
     """An agent revising a published page marks meta.json `updating`, then removes the mark:
     that sends "Updated", under the page's own tag, whichever pane did the revising."""
@@ -1121,6 +1070,57 @@ def test_a_page_being_updated_notifies_once_its_mark_is_gone(tmp_path, monkeypat
     assert service._waiting == {} and len(sender.payloads) == 2
 
 
+def test_a_page_made_between_two_scans_still_notifies(tmp_path, monkeypatch):
+    """A meta.json and its page landing inside one scan were never seen pending, but were
+    promised all the same: one Ready, under its own tag, so it buzzes beside the pane's
+    Needs-you instead of silently replacing it. Folders there at startup, stale ones and
+    pages published without a meta.json stay quiet, as does a later rewrite or a restart."""
+    clock, watcher, root = [100.0], Watcher(), tmp_path / "scratch"
+    (root / "old").mkdir(parents=True)  # landed before startup
+    (root / "old" / "meta.json").write_text('{"title": "Old", "pane": "%1"}')
+    (root / "old" / "index.html").write_text("page")
+    service, sender = manager(tmp_path, watcher, clock)
+    service.scratch, shot = root, []
+    service.shoot = shot.append
+    service.store.upsert(subscription())
+    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
+    watcher.states = [waiting()]
+    for _ in range(2):
+        service.evaluate()
+        clock[0] += push.SETTLE_SECONDS
+    service.landed()
+    made = datetime.now(UTC).isoformat()
+    for name, meta in (("fast", '{"title": "Fast", "pane": "%1", "created": "'),
+                       ("loose", None), ("described", '{"description": "Generated."}'),
+                       ("stale", '{"title": "Stale", "created": "2020-01-01T00:00:00Z"}')):
+        (root / name).mkdir()
+        if meta:
+            (root / name / "meta.json").write_text(meta)
+        (root / name / "index.html").write_text("page")
+    service.landed()  # fast's meta.json caught half-written: read again once it is whole
+    (root / "fast" / "meta.json").write_text(
+        f'{{"title": "Fast", "pane": "%1", "created": "{made}"}}')
+    sender.available = False  # a full queue: tried again, though no longer fresh by then
+    service.landed()
+    monkeypatch.setattr(push, "LANDED_FRESH_SECONDS", 0)
+    sender.available = True
+    service.landed()
+    service.landed()
+    monkeypatch.setattr(push, "LANDED_FRESH_SECONDS", 60.0)
+    (root / "fast" / "meta.json").write_text(
+        f'{{"title": "Fast", "created": "{made}", "description": "Later."}}')
+    service.landed()
+    service._mtimes, service._done = None, set()  # a restart
+    service.landed()
+    (root / "fast" / "meta.json").write_text(
+        f'{{"title": "Fast", "created": "{made}", "description": "Again."}}')
+    service.landed()
+    assert [(p["title"], p["tag"]) for p in sender.payloads] == [
+        (sender.payloads[0]["title"], "block:%1"),
+        ("Ready: Fast", "scratch:fast")]
+    assert [i["name"] for i in shot] == ["fast"]
+
+
 def test_a_meta_json_caught_half_written_is_read_again(tmp_path, monkeypatch):
     """Finishing meta.json in place leaves its folder's mtime alone: the scan retries, with
     an asset already there (a loose file then, not a page in progress) or not."""
@@ -1145,6 +1145,9 @@ def test_a_meta_json_caught_half_written_is_read_again(tmp_path, monkeypatch):
     assert {name for name, _ in service._waiting} == {"gone"}
     shutil.rmtree(root / "gone")
     service.landed()
+    assert service._waiting == {}
+
+
     assert service._waiting == {}
 
 

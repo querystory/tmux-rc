@@ -64,7 +64,7 @@ CHECKPOINT_EVENTS = 100
 DEAD_SERVER_RETENTION = 30 * 86400
 # Bump when classification or the fingerprint changes meaning: stored cards then miss
 # their hash once and every pane is re-read, instead of restoring an older parser's card.
-CARD_VERSION = 52
+CARD_VERSION = 55
 # LLM parse cadence. We capture every tick (cheap, for the snapshot buffer) but only
 # PARSE when the content fingerprint CHANGED vs. the last parse (or on a forced reparse).
 # `changed` compares against _prev_fp, which is written only on a SUCCESSFUL parse — so a
@@ -1436,7 +1436,7 @@ class Watcher:
         # The agent's transcript can land after its screen settles; a reply or turn end
         # the last parse didn't have re-reads the card even though the screen is unchanged.
         told = transcript.last_reply(pane, text), transcript.codex_turn_live(pane, text)
-        said = transcript.turn(pane, text)
+        said = transcript.turn(pane, text)  # before the parse: what it reads, not after
         changed = not hold and (fp != self._prev_fp.get(pane.id)  # differs from the last parse
                                 # A restored card has no parsed reply: the first seen stands
                                 # in. Its turn state is unknown, so a known one re-reads it once.

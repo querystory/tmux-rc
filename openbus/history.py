@@ -15,6 +15,7 @@ import socket
 import sqlite3
 import time
 from contextlib import contextmanager
+from functools import partial
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -132,7 +133,7 @@ def _create_base(db) -> None:
          "payload_id INTEGER NOT NULL REFERENCES inventory_payloads(id))"),
         ("CREATE TABLE IF NOT EXISTS log_observations ("
          "t REAL NOT NULL, uid TEXT NOT NULL, tool TEXT NOT NULL, "
-         "state INTEGER NOT NULL CHECK(state BETWEEN 0 AND 5), valid_until REAL, "
+         "state INTEGER NOT NULL CHECK(state BETWEEN 0 AND 6), valid_until REAL, "
          "PRIMARY KEY(t, uid))"),
     ):
         db.execute(sql)
@@ -146,12 +147,12 @@ def _add_valid_until(db) -> None:
         db.execute("ALTER TABLE log_observations ADD COLUMN valid_until REAL")
 
 
-def _widen_states(db) -> None:
-    # Expand the legacy constraint without rewriting or reinterpreting observations.
+def _widen_states(db, legacy="BETWEEN 0 AND 3") -> None:
+    # Expand an older state constraint without rewriting or reinterpreting observations.
     schema = db.execute(
         "SELECT sql FROM sqlite_master WHERE name='log_observations'",
     ).fetchone()[0]
-    if "BETWEEN 0 AND 3" in schema:
+    if legacy in schema:
         db.execute("ALTER TABLE log_observations RENAME TO old_log_observations")
         _create_base(db)
         db.execute("INSERT INTO log_observations SELECT * FROM old_log_observations")
@@ -223,7 +224,8 @@ def _add_visits(db) -> None:
 
 MIGRATIONS = (_create_base, _add_valid_until, _widen_states, _compress_snapshots,
               _add_checkpoints, _add_plan_usage, _index_plan_usage, _index_plan_usage_resets,
-              _drop_plan_usage_resets, _add_layout_snapshots, _add_visits)
+              _drop_plan_usage_resets, _add_layout_snapshots, _add_visits,
+              partial(_widen_states, legacy="BETWEEN 0 AND 5"))  # Quota blocked, state 6
 
 
 class History:

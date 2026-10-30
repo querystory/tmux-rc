@@ -32,6 +32,45 @@ def test_reset_time_rides_only_on_a_quota_blocked_pane():
     assert (r["subagents"][0]["state"], r["agents"]) == ("quota_blocked", 0)  # it shares the limit
 
 
+def test_a_quota_blocked_pane_keeps_nothing_from_the_turn_before():
+    # The limit hit after a closing question: the notice sits under the empty input box, so
+    # the finished turn still reads as asking. The model's quota read stands, reset time kept.
+    notice = "\n  Usage limit reached · continuing automatically at 2:10pm"
+    screen = _auto_screen("Want me to merge it?") + notice
+    read = {"tool": "claude", "activity": "quota_blocked", "resets": "2:10pm",
+            "offers": ["merge it"]}
+    for extra in ({}, {"question": {"prompt": "Want me to merge it?", "answer_style": "text"}}):
+        r = classify(_pane("claude"), screen, _llm({**read, **extra}))
+        assert (r["activity"], r.get("resets"), r.get("question"), r.get("offers")) == (
+            "quota_blocked", "2:10pm", None, None)
+    # A misquoted question would send the re-read a viewport cut above the notice: the quota
+    # read drops its ask first, so nothing is re-read and nothing overwrites it.
+    calls = []
+    def llm(system, screen, **_):
+        calls.append(screen)
+        return {**read, "question": {"prompt": "Merge now?", "answer_style": "text"}}
+    r = classify(_pane("claude"), screen, llm)
+    assert (r["activity"], r.get("resets"), r.get("question"), len(calls)) == (
+        "quota_blocked", "2:10pm", None, 1)
+    # A first read that misquotes the ask is re-read; a re-read that says quota_blocked and
+    # quotes any ask still waits on nothing.
+    for ask in ("Want me to merge it?", "Merge right now?"):  # supported or not
+        answers = [{"tool": "claude", "activity": "waiting", "waiting_on": "user",
+                    "question": {"prompt": "Merge now?", "answer_style": "text"}},
+                   {**read, "question": {"prompt": ask, "answer_style": "text"}}]
+        r = classify(_pane("claude"), screen, lambda *_a, _q=answers, **_k: _q.pop(0))
+        assert (r["activity"], r.get("resets"), r.get("question"), answers) == (
+            "quota_blocked", "2:10pm", None, [])
+    # A bash-mode command run under that turn spent its ask, but the notice below the
+    # command is the screen's end: the quota read stands over the spent row's "idle".
+    spent = screen.replace("\n\n❯\n", "\n\n! gh pr merge 7 --squash\n\n❯\n")
+    r = classify(_pane("claude"), spent, _llm(read))
+    assert (r["activity"], r.get("resets"), r.get("question")) == ("quota_blocked", "2:10pm", None)
+    # A failed read only carries quota_blocked over: the spent row's "idle" wins then.
+    assert classify(_pane("claude"), spent, _llm(None), prev_activity="quota_blocked")[
+        "activity"] == "idle"
+
+
 def test_a_handed_over_command_keeps_its_bash_prefix():
     screen = "● Run it yourself:\n\n  ! gh pr merge 7 --squash\n\n❯ "
     offered = classify_mod.screen_offers(["gh pr merge 7 --squash", "ship it"], screen)
@@ -43,8 +82,18 @@ def test_a_handed_over_command_keeps_its_bash_prefix():
                        ("if ! grep -q x f; then echo y; fi", "grep -q x f")):
         assert classify_mod.screen_offers([offer], f"● Then:\n\n  {row}\n\n❯ ") == [offer]
     # An older turn's handoff does not turn this turn's reply into a command.
-    two_turns = "● Run it:\n\n  ! make tea\n\n❯ ok\n\n● Now reply with: make tea\n\n❯ "
-    assert classify_mod.screen_offers(["make tea"], two_turns) == ["make tea"]
+    for now in ("Now reply with: make tea", "Now reply with: Make tea",
+                "I can make some tea for you. Shall I?"):
+        two_turns = f"● Run it:\n\n  ! make tea\n\n❯ ok\n\n● {now}\n\n❯ "
+        assert classify_mod.screen_offers(["make tea"], two_turns) == ["make tea"]
+    # Nor does the user's own message quoting one; an unsent draft below keeps the handoff.
+    typed = "❯ run this for me:\n\n  ! make tea\n\n● Done, it is queued.\n\n❯ "
+    assert classify_mod.screen_offers(["make tea"], typed) == ["make tea"]
+    draft = "● Run it:\n\n  ! make tea\n\n────────────\n❯ check the result\n────────────\n"
+    assert classify_mod.screen_offers(["make tea"], draft) == ["! make tea"]
+    # A long final message begins above the viewport: its handoff is still this turn's.
+    long = "● Run it:\n\x1e[visible screen]\x1f\n  first rows of it.\n\n  ! make tea\n\n❯ "
+    assert classify_mod.screen_offers(["make tea"], long) == ["! make tea"]
 
 
 def _pane(cmd="bash", title="t"):
@@ -420,18 +469,26 @@ def test_omp_ask_radios_do_not_become_tasks(checked, unchecked):
     ]
 
 
-@pytest.mark.parametrize("tabs", [" ☐ Fruit ", "←  ☒ Beds  ☐ Fruit  ✔ Submit  →", " ☐ API → UI"])
-def test_claude_picker_header_tabs_are_not_tasks(tabs):
+@pytest.mark.parametrize("rule", ["─", "▔"])
+@pytest.mark.parametrize(("tabs", "label"), [
+    (" ☐ Fruit ", "Fruit"), ("←  ☒ Beds  ☐ Fruit  ✔ Submit  →", "Fruit"),
+    (" ☐ API → UI", "API → UI"), (" ☐ API  →  UI", "API → UI"),
+    (" ☐ Fruit →", "Fruit →"),  # a lone tab keeps its trailing arrow
+])
+def test_claude_picker_header_tabs_are_not_tasks(tabs, label, rule):
     screen = (
-        "  ⎿  ☐ Plant the seedlings\n" + "─" * 40 + f"\n{tabs}\n\nWhich fruit should we plant?"
+        "  ⎿  ☐ Plant the seedlings\n" + rule * 40 + f"\n{tabs}\n\nWhich fruit should we plant?"
         "\n\n❯ 1. Apple\n  2. Pear\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n"
     )
-    label = "API → UI" if "API" in tabs else "Fruit"
     tasks = [{"text": text, "done": False} for text in ("Plant the seedlings", label)]
     result = classify(_pane("claude"), screen, _llm({
         "tool": "claude", "activity": "waiting", "tasks": tasks,
     }))
     assert result["tasks"] == tasks[:1]
+    narrow = screen.replace("Esc to cancel", "Esc\nto cancel")  # wrapped in a narrow pane
+    assert classify(_pane("claude"), narrow, _llm({
+        "tool": "claude", "activity": "waiting", "tasks": tasks,
+    }))["tasks"] == tasks[:1]
     assert "tasks" not in classify(_pane("claude"), screen, _llm({
         "tool": "claude", "activity": "waiting", "tasks": tasks[1:],
     }))
@@ -449,6 +506,16 @@ def test_claude_picker_header_tabs_are_not_tasks(tabs):
     assert classify(_pane(cmd="opencode"), plan, _llm({
         "tool": "opencode", "activity": "running", "tasks": tasks[1:],
     }))["tasks"] == tasks[1:]
+    # Claude's own plan under a rule, no picker footer: a checklist, every row kept.
+    plan = rule * 40 + f"\n☐ Water the beds\n☐ {label}"
+    assert classify(_pane("claude"), plan, _llm({
+        "tool": "claude", "activity": "running", "tasks": tasks[1:],
+    }))["tasks"] == tasks[1:]
+    # The same plan above the open picker: only the picker's own header is chrome.
+    rows = [{"text": "Water the beds", "done": False}, *tasks[1:]]
+    assert classify(_pane("claude"), f"  {plan}\n\n" + screen, _llm({
+        "tool": "claude", "activity": "waiting", "tasks": rows,
+    }))["tasks"] == rows
 
 
 def test_opencode_stale_interrupt_row_does_not_override_idle_footer():

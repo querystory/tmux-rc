@@ -289,6 +289,13 @@ def test_reply_buttons_expectation_wants_accept_then_decline():
         assert not ok and any("options" in d for d in diffs)
     ok, _ = score_structured({"question": "free text"}, want)  # malformed: a mismatch, no crash
     assert not ok
+    # A sample that pins `options` scores them exactly: no buttons, or a dropped first
+    # choice (a picker's highlighted row), must fail.
+    pick = lambda opts: {"question": {"answer_style": "menu", "options": opts}}  # noqa: E731
+    menu = pick(["Close it", "Rewrite", "Chat"])
+    assert score_structured(pick(["Close it", "Rewrite", "Chat"]), menu)[0]
+    for opts in ([], ["Rewrite", "Chat"], None):
+        assert not score_structured(pick(opts), menu)[0]
     none = {"question": {"answer_style": "text", "reply_buttons": False}}
     assert score_structured({"question": {"answer_style": "text", "options": []}}, none)[0]
     assert not score_structured(good, none)[0]

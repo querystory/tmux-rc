@@ -39,8 +39,8 @@ _RETRY = 600
 _LOCK = threading.Lock()
 _ACT = threading.Lock()  # one Archive, Restore or Delete batch at a time
 _META = threading.Lock()  # one meta.json read-merge-replace at a time (authors, descriptions)
-_missed: dict[tuple[str, int], float] = {}  # when each (name, inode) was last not found
-_found: dict[tuple[str, int], str] = {}  # for a refusing meta.json, or a listing older than it
+_missed: dict[tuple, float] = {}  # when each (name, inode, update mark) was last not found
+_found: dict[tuple, str] = {}  # for a refusing meta.json, or a listing older than it
 _reconciled = [0.0]
 _PAGE = Path(__file__).resolve().parent / "scratch.html"
 _PENDING = Path(__file__).resolve().parent / "scratch_pending.html"
@@ -152,13 +152,14 @@ def _item(root: Path, folder: Path, files: list[tuple[float, str]]) -> dict | No
     return {"name": folder.name, "title": title or folder.name,
             "description": meta.get("description", ""), "pane": meta.get("pane"),
             "icon": meta.get("icon"),  # a Lucide name, drawn only if the app ships it
-            "session_id": meta.get("agent_session"), "folder": folder,
+            # an update's writer is its reviser, searched for from its mark, never the author
+            "session_id": None if updating else meta.get("agent_session"), "folder": folder,
             "href": quote(page.relative_to(root).as_posix() if page != index and not pending
                           else folder.name + "/"),
             "created": created, "updated": max(files)[0], "updating": updating,
+            "stamped": _when(meta.get("created")),  # the agent's own word, never a guess
             # when meta.json last named its pane (a reviser's, too), and what an update dates from
             "named": named, "since": named if updating else created,
-            "stamped": _when(meta.get("created")),  # the agent's own word, never a guess
             "inode": folder.stat().st_ino,  # the folder until replaced, however rewritten
             "page": page, "pending": pending,
             "revising": bool(meta.get("updating")),  # its mark, pending a moment or not
@@ -176,6 +177,39 @@ def read(root: Path, folder: Path, files: list | None = None) -> dict | None:
     except OSError:
         pass
     return None
+
+
+def folder_name(name: object) -> bool:
+    """Whether `name` can only be one folder directly in scratch: not a path, a dot name
+    (.., .archive) or anything with a NUL."""
+    return isinstance(name, str) and name == Path(name).name and name[:1] not in ("", ".") \
+        and "\0" not in name
+
+
+def pinned(root: Path, store: Path) -> list[dict]:
+    """The folders pinned to the app's menu, in order, while still in scratch: one deleted
+    or archived (moved out) drops out here, and from `store` at the next pin or unpin."""
+    try:
+        names = json.loads(store.read_text())
+    except (OSError, ValueError):
+        names = []
+    found = (read(root, root / n) for n in names if folder_name(n)) if isinstance(
+        names, list) else ()
+    return [{k: i[k] for k in ("name", "title", "icon", "href")} for i in found if i]
+
+
+def pin(root: Path, store: Path, names: list[str]) -> list[dict]:
+    """Pin exactly these folders of scratch, in this order (the app sends its pins with one
+    added or removed). Each must be a folder there now; at most PINS of them."""
+    if len(names) > PINS or len(set(names)) < len(names):
+        raise ValueError(f"at most {PINS} pins, each once")
+    if not all(folder_name(n) and read(root, root / n) for n in names):
+        raise ValueError("a pin is one folder of scratch")
+    store.parent.mkdir(parents=True, exist_ok=True)
+    tmp = store.with_suffix(f".{threading.get_ident()}.tmp")  # each request its own
+    tmp.write_text(json.dumps(names))
+    tmp.replace(store)
+    return pinned(root, store)
 
 
 def archive(root: Path) -> Path:
@@ -272,46 +306,13 @@ def listing(root: Path, *, archived: bool = False) -> list[dict]:
 def tag(listed: list[dict]) -> str:
     """What the open gallery compares to see that it changed: a folder came, went or
     changed (its page too, say renamed to its index), its thumbnail, title or description
-    landed, an update began or ended, or (by the minute) a page in progress or an update
-    may have stopped. In no particular order,
+    landed, an update began or ended, or (by the minute) a page in progress or being
+    updated may have stopped. In no particular order,
     as the gallery sorts after listing."""
     return str(hash((*sorted((i["name"], i["href"], i["updated"], i["pending"], i["thumb"],
                               i["title"], i["description"], i["updating"]) for i in listed),
                      any(i["pending"] or i["updating"] for i in listed)
                      and int(time.time() // 60))))
-
-
-def folder_name(name: object) -> bool:
-    """Whether `name` can only be one folder directly in scratch: not a path, a dot name
-    (.., .archive) or anything with a NUL."""
-    return isinstance(name, str) and name == Path(name).name and name[:1] not in ("", ".") \
-        and "\0" not in name
-
-
-def pinned(root: Path, store: Path) -> list[dict]:
-    """The folders pinned to the app's menu, in order, while still in scratch: one deleted
-    or archived (moved out) drops out here, and from `store` at the next pin or unpin."""
-    try:
-        names = json.loads(store.read_text())
-    except (OSError, ValueError):
-        names = []
-    found = (read(root, root / n) for n in names if folder_name(n)) if isinstance(
-        names, list) else ()
-    return [{k: i[k] for k in ("name", "title", "icon", "href")} for i in found if i]
-
-
-def pin(root: Path, store: Path, names: list[str]) -> list[dict]:
-    """Pin exactly these folders of scratch, in this order (the app sends its pins with one
-    added or removed). Each must be a folder there now; at most PINS of them."""
-    if len(names) > PINS or len(set(names)) < len(names):
-        raise ValueError(f"at most {PINS} pins, each once")
-    if not all(folder_name(n) and read(root, root / n) for n in names):
-        raise ValueError("a pin is one folder of scratch")
-    store.parent.mkdir(parents=True, exist_ok=True)
-    tmp = store.with_suffix(f".{threading.get_ident()}.tmp")  # each request its own
-    tmp.write_text(json.dumps(names))
-    tmp.replace(store)
-    return pinned(root, store)
 
 
 def items(root: Path) -> list[dict]:
@@ -365,12 +366,14 @@ def about(root: Path, name: str) -> str | None:
 
 
 def _writers(todo: list[dict]) -> None:
-    """Fill in each item's missing `session_id` from the transcripts, saving what is found."""
-    now, keys = time.time(), {i["name"]: (i["name"], i["inode"]) for i in todo}
+    """Fill in each item's missing `session_id` from the transcripts, saving the author found
+    (an update's reviser is searched for from its mark, and kept only in memory)."""
+    now = time.time()
+    keys = {i["name"]: (i["name"], i["inode"], i["updating"] and i["since"]) for i in todo}
     with _LOCK:  # a second request waits for the first's search instead of repeating it
         for i in todo:
             i["session_id"] = i["session_id"] or _found.get(keys[i["name"]])
-        due = {i["name"]: i["created"] for i in todo if not i["session_id"]
+        due = {i["name"]: i["since"] for i in todo if not i["session_id"]
                and now - _missed.get(keys[i["name"]], 0) > _RETRY}
         if due and now - _reconciled[0] > _RETRY:  # a running session's entry can be days old
             agent_history.reconcile()
@@ -380,9 +383,9 @@ def _writers(todo: list[dict]) -> None:
             if hit := hits.get(i["name"]):
                 i["session_id"] = hit["session_id"]
                 _found[keys[i["name"]]] = i["session_id"]
-                annotate(i["folder"] / "meta.json", i["folder"].parent, "agent_session",
-                         i["session_id"],
-                         i["inode"])  # not into a folder rebuilt during the search
+                if not i["updating"]:  # not into a folder rebuilt during the search
+                    annotate(i["folder"] / "meta.json", i["folder"].parent, "agent_session",
+                             i["session_id"], i["inode"])
             elif i["name"] in due:
                 _missed[keys[i["name"]]] = now
 
@@ -445,9 +448,10 @@ def made_in(pane: dict, created: float) -> bool:
 def where(pane: dict) -> str:
     """Where a pane is, "session:name", named as the phone's own heading names it
     (pane-model.js paneName): the agent's title for its work, else tmux's label for the
-    window. The window name alone is tmux's default ("Codex") for most agent panes."""
+    window. The window name alone is tmux's default ("Codex") for most agent panes; the
+    label of an unnamed window already says the session ("dev:4")."""
     name = pane.get("title") or pane.get("label") or pane.get("window_name") or pane.get("pane_id")
-    return f"{pane.get('session')}:{name}"
+    return name if name.startswith(f"{pane.get('session')}:") else f"{pane.get('session')}:{name}"
 
 
 def _author(i: dict, tool: str | None, acct: dict) -> None:
@@ -510,14 +514,18 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
         running = {**agent_history.indexed(missing), **running}  # the index still says who
     for i in listed:
         s = running.get(i["session_id"]) or {} if i["pane"] not in sure else {}
-        at = open_in.get(s.get("session_id"), i["pane"])  # the writer's, if open; the pane
-        if at != i["pane"]:  # named stands when only the index knows the writer (no binary,
-            # a subagent), since it cannot say where. A pending card follows its writer, and a
-            # writer found but gone from every pane has stopped, however recent the folder
-            i["pane"], i["state"] = at, progress(panes.get(at), at or i["pane"], i["created"])
+        # The writer's pane, if open; else the pane named, which stands when nobody can say
+        # where the writer is: only the index knows it (no binary, a subagent), or the
+        # process scan failed (`running_unknown`). A pending card follows its writer; one
+        # found but gone from every pane has stopped, however recent the folder; one alive
+        # that no pane shows (Codex without `session-id` in its status bar) works on by time.
+        at = i["pane"] if s.get("running_unknown") else open_in.get(s.get("session_id"), i["pane"])
+        if at != i["pane"]:
+            named = at or (None if s.get("running") else i["pane"])
+            i["pane"], i["state"] = at, progress(panes.get(at), named, i["since"])
         if (pane := panes.get(i["pane"])) is not None:
             if s:  # its session, found in a new pane: its page comes along as that pane does
-                i["state"] = progress(pane, i["pane"], i["created"])
+                i["state"] = progress(pane, i["pane"], i["since"])
             _author(i, pane.get("tool"), account.get(i["pane"]) or {})
             i["where"] = where(pane)
             continue
@@ -595,15 +603,14 @@ def status(i: dict) -> str | None:
 def _card(i: dict) -> str:
     e = {k: escape(str(v)) for k, v in i.items() if v is not None}
     label = status(i)
-    wait = label if i["pending"] else (
-        i.get("shot") == "pending" and "Making a preview…")
+    wait = label if i["pending"] else i.get("shot") == "pending" and "Making a preview…"
     # A pending folder's thumbnail is an earlier page's: its state shows instead, until the
     # page lands and is shot, which the open gallery sees (its tag) and reloads to show.
     src = f'{i.get("under", "")}{quote(i["name"])}/thumb.webp'
     thumb = (f'<img src="{src}" alt="" loading="lazy">'
              if i["thumb"] and not i["pending"]
              else f'<span class="{i["state"] if i["pending"] else ""}">{wait}</span>'
-             if wait else "No preview") + (  # a revision keeps its badge above the preview
+             if wait else "No preview") + (  # an update: the page so far, with a badge
         f'<span class="badge {i["state"]}">{label}</span>' if i.get("updating") else "")
     words = " ".join([i["title"], i["description"], i["who"], i["where"]]).lower()
     return (f'<article data-q="{escape(words)}" data-name="{e["name"]}"'
@@ -627,13 +634,7 @@ def placeholder(root: Path, name: str, who) -> str | None:
     for any other folder. `who()` gives the panes, their accounts, the stylesheet and,
     optionally, pane_of (as page's); it scans every account, so only a pending folder asks.
     An archived folder answers at ARCHIVE/<name>, and at <name> while that is not taken."""
-    under = name.startswith(scratch_markdown.ARCHIVE + "/") or not os.path.lexists(root / name)
-    name = name.removeprefix(scratch_markdown.ARCHIVE + "/")
-    try:
-        base = archive(root) if under else root
-    except PermissionError:
-        return None
-    i = read(base, base / name)
+    i = _at(root, name)
     if not (i and i["pending"]):
         return None
     states, profiles, style, *pane_of = who()
@@ -663,15 +664,31 @@ def _ask(seen, every: int) -> str:
     return f"<script>{script}</script>"
 
 
-def bar(root: Path, name: str, states: list[dict]) -> tuple[str, str] | None:
+def _at(root: Path, name: str) -> dict | None:
+    """The card of the folder a link to `name` answers with: an archived one's at
+    ARCHIVE/<name>, and at <name> while that is not taken."""
+    under = name.startswith(scratch_markdown.ARCHIVE + "/") or not os.path.lexists(root / name)
+    name = name.removeprefix(scratch_markdown.ARCHIVE + "/")
+    try:
+        base = archive(root) if under else root
+    except PermissionError:
+        return None
+    return read(base, base / name)
+
+
+def bar(root: Path, name: str, states: list[dict],
+        pane_of=lambda _entry: None) -> tuple[str, str] | None:
     """An updating folder's notice on its rendered (Markdown) pages: the tab's label and a
     thin bar, whose ask (as the placeholder's) reloads the page once the update is done or
-    its files change. None for any other folder. `states`: the panes (no accounts: it is
-    asked every few seconds)."""
-    i = read(root, root / name)
+    its files change. None for any other folder. `states` and `pane_of` find its reviser as
+    the gallery does (no accounts: it is asked every few seconds). Archived, as
+    placeholder's. ("", "") while meta.json is unreadable (mid-write): no answer yet."""
+    i = _at(root, name)
+    if i and not i["read"]:
+        return "", ""
     if not (i and i["updating"]):
         return None
-    _progress([i], states)
+    resolve([i], states, [], pane_of)
     label, every = status(i), 60000 if i["state"] == "stopped" else 5000
     return label, (f'<p class="updating {i["state"]}" role="status">{label}: '
                    f'{escape(i["updating"])} · reloads when done'

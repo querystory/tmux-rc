@@ -123,6 +123,8 @@ def test_the_renderer_is_served_scratch_and_nothing_else(tmp_path):
         (root / "md" / "index.md").write_text("# Index")
         with urlopen(f"{base}/md/index.html?raw") as raw:  # the daemon's alias for its index.md
             assert raw.read() == b"# Index"
+        with urlopen(f"{base}/md") as page:  # slashless: redirected, so its relative links resolve
+            assert page.url == f"{base}/md/" and b"<h1" in page.read()
         (root / "notes.md").write_text("# Notes")
         with urlopen(f"{base}/notes.md?raw") as raw:  # the file itself, as the daemon serves it
             assert raw.read() == b"# Notes" and raw.headers["Content-Type"].startswith("text/plain")
@@ -251,6 +253,28 @@ def test_a_description_missed_while_the_model_is_out_is_asked_again(tmp_path, mo
     assert calls == ["shot", "said", "said"]  # the failed shot is not redone with it
 
 
+def test_a_capture_draws_the_viewed_page_and_nothing_outside_its_folder(tmp_path, monkeypatch):
+    _page(tmp_path, "p")
+    urls = []
+    monkeypatch.setattr(S, "whole", lambda url, size, scale, **k: urls.append(url) or scale)
+    for view in ("", "b.html?x=1", "../q/", "a/%2e%2e/../q/", "//../q/", "..\\q/", "/\\../q/",
+                 "x://..%2f..%2fq/", "%2e%2e%5cq/", "a%2fb/../../q/", ".private/n.html",
+                 "%2eprivate/n.html", "a/.hidden"):
+        S.capture(tmp_path, WEB_DIR, "p", view, (390, 844), 2, dark=False)
+    assert [u.split("/scratch/")[1] for u in urls] == ["p/", "p/b.html?x=1"]
+    assert not S.capture(tmp_path, WEB_DIR, "../p", "", (390, 844), 2, dark=False)
+    assert S.capture(tmp_path, WEB_DIR, "p", "", (390, 844), 2, dark=False) == 2  # sharp on a phone
+
+
+@pytest.mark.skipif(not S.browser(), reason="no bundled headless shell here")
+def test_a_whole_page_is_drawn_at_its_width_and_ratio_and_cut_when_tall(tmp_path):
+    _page(tmp_path, "tall", page="".join(f"<p>row {i}</p>" for i in range(400)))
+    png, drawn, height = S.capture(tmp_path, WEB_DIR, "tall", "", (390, 700), 2, dark=True)
+    assert drawn == S.MAX_HEIGHT < height
+    with Image.open(io.BytesIO(png)) as im:
+        assert im.size[1] == S.MAX_PIXELS and im.size[0] == round(780 * S.MAX_PIXELS / 12000)
+
+
 def test_a_folder_archived_before_its_shot_is_shot_once_restored(tmp_path, monkeypatch):
     shots = []
     monkeypatch.setattr(S, "_tried", set())
@@ -286,25 +310,3 @@ def test_a_description_never_lands_in_a_folder_that_took_its_name(tmp_path):
     meta = tmp_path / "p" / "meta.json"
     assert not scratch.annotate(meta, tmp_path, "description", "Stale.", old["inode"])
     assert not meta.exists()
-
-
-def test_a_capture_draws_the_viewed_page_and_nothing_outside_its_folder(tmp_path, monkeypatch):
-    _page(tmp_path, "p")
-    urls = []
-    monkeypatch.setattr(S, "whole", lambda url, size, scale, **k: urls.append(url) or scale)
-    for view in ("", "b.html?x=1", "../q/", "a/%2e%2e/../q/", "//../q/", "..\\q/", "/\\../q/",
-                 "x://..%2f..%2fq/", "%2e%2e%5cq/", "a%2fb/../../q/", ".private/n.html",
-                 "%2eprivate/n.html", "a/.hidden"):
-        S.capture(tmp_path, WEB_DIR, "p", view, (390, 844), 2, dark=False)
-    assert [u.split("/scratch/")[1] for u in urls] == ["p/", "p/b.html?x=1"]
-    assert not S.capture(tmp_path, WEB_DIR, "../p", "", (390, 844), 2, dark=False)
-    assert S.capture(tmp_path, WEB_DIR, "p", "", (390, 844), 2, dark=False) == 2  # sharp on a phone
-
-
-@pytest.mark.skipif(not S.browser(), reason="no bundled headless shell here")
-def test_a_whole_page_is_drawn_at_its_width_and_ratio_and_cut_when_tall(tmp_path):
-    _page(tmp_path, "tall", page="".join(f"<p>row {i}</p>" for i in range(400)))
-    png, drawn, height = S.capture(tmp_path, WEB_DIR, "tall", "", (390, 700), 2, dark=True)
-    assert drawn == S.MAX_HEIGHT < height
-    with Image.open(io.BytesIO(png)) as im:
-        assert im.size[1] == S.MAX_PIXELS and im.size[0] == round(780 * S.MAX_PIXELS / 12000)

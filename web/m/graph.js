@@ -600,6 +600,9 @@ export function renderGraphView(root, panes, ctx) {
   if (!root._g) {
     const lenses = el('div', 'fg-lenses', '<span>Group by</span>'), box = el('div', 'fg-box'), tools = el('div', 'fg-tools'), hud = el('div', 'fg-hud');
     const stats = el('div', 'fg-stats'), legend = el('div', 'fg-legend'), call = el('details', 'fg-call', '<summary>Jump to</summary><div></div>');
+    // The account scope's seat on a narrow screen (app.js placePill): full screen covers the page's
+    // bar that holds its filter button and chips, so they head the view, in a strip of their own.
+    const scope = el('div', 'fg-scope');
     call.open = true;
     call.addEventListener('toggle', () => root._g?.hud());
     for (const [name, label] of LENSES) { const b = el('button', '', label); b.dataset.lens = name; b.onclick = () => { root._lens = null; g.setLens(name); }; lenses.append(b); } // a pick ends any pending restore
@@ -621,23 +624,34 @@ export function renderGraphView(root, panes, ctx) {
     // graph; the view leaving the screen ends it, at once on any navigation (app.js route()), so
     // the focus the app moves lands on a page that is live again.
     // The button is relabelled every call, as crossing the phone breakpoint changes what it does.
+    // What is seated in the view after the shade fell (the scope's filter and chips) is lifted out of it.
+    const shade = () => root._inert?.forEach(s => { s.inert = root.classList.contains('full') && !root.contains(s); });
+    new MutationObserver(shade).observe(scope, { childList: true });
     const zoomBtn = tools.firstChild, darkBtn = tools.lastChild, full = root._full = on => {
       if (on !== root.classList.contains('full')) {
         if (on) { root._inert = []; for (let a = root; a.parentElement && a !== document.body; a = a.parentElement) root._inert.push(...[...a.parentElement.children].filter(s => s !== a && !s.inert)); }
-        root._inert.forEach(s => { s.inert = on; });
-        root.classList.toggle('full', on); g.fit();
-        if (on && !root.contains(document.activeElement)) zoomBtn.focus({ preventScroll: true }); // focus left outside would be stranded under it
+        root.classList.toggle('full', on); shade();
+        if (!phone()) g.fit(); // the user's switch frames the whole graph; a phone's pin is not theirs, so their pan and zoom stay (size() recentres)
+        root._seat = on; // focus left outside would be stranded under it
       }
+      // Before boot the page is hidden (index.html) and takes no focus, so a cold link's open tries
+      // again on each render until focus is in the view.
+      if (root._seat && !root.contains(document.activeElement)) zoomBtn.focus({ preventScroll: true });
+      root._seat &&= !root.contains(document.activeElement);
       zoomBtn.innerHTML = ctx.icon(phone() ? 'x' : on ? 'minimize' : 'fullscreen', 18);
       zoomBtn.title = zoomBtn.ariaLabel = phone() ? 'Close' : on ? 'Exit full screen' : 'Full screen';
     }, fitScreen = root._fitScreen = () => root.isConnected && full(phone() || root.classList.contains('full')); // a phone is always full screen
     addEventListener('resize', fitScreen);
-    document.addEventListener('keydown', e => { if (e.key === 'Escape' && root.classList.contains('full')) toggle(); });
+    document.addEventListener('keydown', e => { // captured: the filter's sheet closes itself on Esc too, and would be gone by the time this bubbled
+      if (e.key !== 'Escape' || !root.classList.contains('full')) return;
+      const menu = scope.querySelector('details[open]'); // the sheet closes first, the view after
+      if (menu) { menu.open = false; menu.firstElementChild.focus(); } else toggle();
+    }, true);
     new IntersectionObserver(([e]) => { if (!e.isIntersecting) full(false); }).observe(root);
     call.lastChild.onclick = e => { const b = e.target.closest('button'); if (b) g.focus(b.dataset.id); };
     hud.append(lenses, call, stats, legend);
     box.append(hud, tools);
-    root.append(box);
+    root.append(scope, box);
     const paint = root._paint = () => {
       const lens = g.lens(), list = root._panes, c = [0, 0, 0, 0, 0, 0], subs = list.reduce((t, p) => t + subCount(p), 0); // all of them, where the canvas draws MAX_SUBS
       list.forEach(p => c[paneState(p)]++);

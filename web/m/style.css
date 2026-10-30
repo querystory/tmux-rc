@@ -1305,7 +1305,7 @@ button.picked:is(:disabled, [aria-disabled="true"]) { opacity: 1; }
   #find .search { flex: 1; min-width: 0; margin: 0; padding: 0 0 0 4px; background: none; box-shadow: none; }
   #find + .acct-pill { display: none; }
   #side-filter-picker summary { width: 40px; height: 40px; min-height: 40px; border-radius: 10px; }
-  :is(.app-header, .landing-head) #side-filter-picker summary[data-n=""] { width: 44px; height: 44px; border-color: transparent; background: none; }
+  :is(.app-header, .landing-head, .fg-scope) #side-filter-picker summary[data-n=""] { width: 44px; height: 44px; border-color: transparent; background: none; }
   /* The bar stays slim: Back, then the pane's name once its title has gone (app.js), then the actions. */
   #heading { gap: 0; padding: 4px 4px 4px 16px; }
   #back { order: -2; margin-right: 8px; }
@@ -1578,6 +1578,12 @@ html.editing #scratch-viewer { top: var(--app-top, 0px); height: var(--app-heigh
   .fg-hud::before { grid-row: stats / key; margin: -14px -52px -8px -10px; } /* the fade backs the counts too */
   .fg-legend { margin-right: -42px; } .fg-key { font-size: 8.5px; gap: 3px 10px; }
 }
+/* The account scope's strip over the canvas (graph.js, seated by app.js placePill on a narrow
+   screen): the filter button, then the active chips; nothing, and it takes no room. */
+.fg-scope { display: flex; flex: none; align-items: center; gap: 4px; padding: 6px 6px 4px; overflow-x: auto; scrollbar-width: none; }
+.fg-scope:empty { display: none; }
+.fg-scope > #side-filter-picker { flex: none; }
+.fg-scope > .acct-pill { flex-wrap: nowrap; padding: 0 4px; }
 /* Full screen (graph.js): the view over everything, edge to edge inside the safe area. A phone
    opens the view this way. */
 .fg-view.full { position: fixed; inset: 0; z-index: 40; min-height: 0; background: var(--surface); padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }

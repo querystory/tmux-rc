@@ -127,9 +127,16 @@ where the line would run as a command) and opens its own sheet, outside the fram
 the pane, the page that asked, and Send, Edit in composer, Cancel. Only that tap sends,
 through the composer's own path, bound to the pane's process as it was when asked (a pane
 that has since become a shell, or a recycled id, gets nothing), and the user stays on the
-page. Only the page's first load may ask: one the frame navigated to, or a reload, can't be
-told from the page the sheet names, so the user reopens it. Send ignores taps for half
-a second, so one already in flight can't land on it, and there is no "don't ask again":
+page. Only the page the viewer opened can ask: from its first load on, the app sandboxes the
+frame for every later document, so a page it navigates to, or a reload, runs no script and posts
+nothing. A token handed to the page would not do: the page can pass it on (in a link's
+fragment, say), and the next document can post it before its own load tells the app it arrived.
+The sandbox can't go on sooner: Safari applies it to the navigation under way, so the page opened
+would lose its own scripts. A page that navigates away before it has loaded is shown, and named,
+as the page opened: it could as well have served that content itself, and no other page's name
+is borrowed.
+The cost: a page reached by a link inside the viewer shows without its scripts (open it from the
+gallery, or in a tab, for those). Send ignores taps for half a second, so one already in flight can't land on it, and there is no "don't ask again":
 a silent send is exactly what an injected page would want. A standalone tab can't ask at
 all: the app hears only the frame it opened, so a page in a tab, even one that opens the app
 in a popup and posts to it, is ignored; its buttons stay same-tab draft links.
@@ -233,7 +240,8 @@ tmux-rc fills in the rest in the background, so the gallery never waits for it:
   session and window, its agent and its account, and links to it. A Codex pane is the
   exception: Codex's shared app-server daemon stamps every session's `meta.json` with the
   first Codex pane, so the transcript is asked and the named pane is kept only when it
-  has no answer. Otherwise tmux-rc asks
+  has no answer. For a page being updated, the session asked for is the reviser, active
+  when the `updating` mark was written; the author's session is not used. Otherwise tmux-rc asks
   [agent-history](https://github.com/querystory/tmux-rc/tree/main/agent-history) which
   session was active when the folder appeared and mentioned its path. If several were,
   it picks the most recently started one, since a long-running session that only passed

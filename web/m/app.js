@@ -6,7 +6,7 @@ import { Composer, bindAttach, enterSubmits, sendBlock, block } from "/m/compose
 import { answerBody, pickCursorRow, STALE, UNTAKEN } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { linkGroups, askLink } from "/pr-links.js";
-import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, sendIntent, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf, tabTitle, tabIconKey, isRunning } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf, tabTitle, tabIconKey, isRunning, sendIntent } from "/m/pane-model.js";
 import { tabIcon } from "/tab-icon.js";
 import { parseHash, formatHash, historyMode, PAGES, scratchUrl } from "/m/url-state.js";
 import "/long-press.js"; // globalThis.longPress: a classic script, so the scratch gallery shares it
@@ -289,6 +289,8 @@ const restore = setupRestore({ mount: $("restore"), request, slow: NO_TIMEOUT, l
   open: () => openPage("restore"),
   opened: () => { if (!active && !page && !dashboard) navigate(null, "restore", { mode: "replace" }); },
   closed: () => { if (page === "restore") closePage(); } });
+// shared: a link shared to the app (boot, below), pending while its notice asks for a pane.
+// Any other notice replaces that ask, and so drops the link: nothing pending goes unseen.
 let shared = null;
 // Over a scratch page in the viewer (a modal, so the app's own bar is hidden), the viewer's bar.
 function notice(message = "", ms = 0, action = null) {
@@ -351,11 +353,12 @@ const stayPut = (opts) => navigate(active, active ? view : dashboard ? page || "
 // Clear all: every filter (the states, the accounts and the search), not the grouping or the
 // sort, which are not filters; focus goes to the search box, else (a phone's dashboard or
 // pane, where it is hidden) the tab bar's pressed tab or Back; in the rail, to the filter
-// button, since focusing search would expand it.
+// button, since focusing search would expand it; under the graph's full screen, which leaves
+// the page inert, to that button seated in the graph (placePill).
 function clearFilters() {
   filter = []; scope.tools = []; scope.session = ""; $("search").value = ""; renderSidebar.picker.open = false; stayPut({ acct: [] });
-  ($("app").classList.contains("rail") ? [renderSidebar.picker.firstChild] : [$("search"), document.querySelector('#list-nav [aria-pressed="true"]'), $("back")])
-    .find((el) => el?.getClientRects().length)?.focus();
+  ($("app").classList.contains("rail") ? [renderSidebar.picker.firstChild] : [$("search"), document.querySelector('#list-nav [aria-pressed="true"]'), $("back"), renderSidebar.picker.firstChild])
+    .find((el) => el?.getClientRects().length && !el.closest("[inert]"))?.focus();
 }
 
 // Leaving a pane the user did not choose to leave: it closed under them, or a deep link
@@ -519,7 +522,7 @@ function renderList() {
   // Restore rides the dashboard's view machinery but is its own screen: its row is the one pressed.
   $("dashboard-tab").setAttribute("aria-pressed", String(dashboard && !["restore", "usage", "scratch"].includes(page)));
   for (const id of PLACES) $(id).setAttribute("aria-pressed", String(page === id.split("-")[0]));
-    // The places are links: their hrefs carry the filters, as a click would. The one you are at is
+  // The places are links: their hrefs carry the filters, as a click would. The one you are at is
   // pressed (style.css draws it, the drawer reads it) and, as a link, current for assistive tech.
   for (const [id, nav, at] of [["dash-nav", "dashboard", dashboardVisible() && !["restore", "scratch", "graph"].includes(page)], ["scratch-nav", "scratch", page === "scratch"], ["graph-nav", "graph", page === "graph"]])
     Object.assign($(id), { href: `#${hashFor(null, nav)}`, ariaCurrent: at ? "page" : null }).setAttribute("aria-pressed", String(at));
@@ -882,11 +885,10 @@ scratchFrame.addEventListener("load", tellScratch);
 // so the placeholder can't be told from another page, and a pane opened is only navigation.
 addEventListener("message", (e) => {
   const { pane, view, open, title, scratch, names, draft: offered, intent } = e.data || {}, href = scratchUrl(open, location.href);
-  // The page the viewer shows (a pinned one included) may ask to send a line, and only ask (askSend).
-  // Only on the frame's first load: the sheet names the page the viewer opened, and one the
-  // frame navigated to since (or a reload of it) can't be told apart. Reopening it asks again.
-  const framed = viewer.querySelector("iframe");
-  if (intent) return e.source === framed?.contentWindow && !$("send-dialog").open && (framed.loads === 1 ? askSend(sendIntent(e.data, panes)) : notice("This page changed since it was opened: reopen it to send."));
+  // The page the viewer opened (a pinned one included) may ask to send a line, and only ask
+  // (askSend). Only that document runs script in its frame (viewScratch), so an ask from the frame
+  // is the page the sheet names. Its origin is opaque, so "null".
+  if (intent) return e.source === viewer.querySelector("iframe")?.contentWindow && e.origin === "null" && !$("send-dialog").open && askSend(sendIntent(e.data, panes));
   if (/^%\d+$/.test(pane) && [scratchFrame, viewer.querySelector("iframe")].some((f) => f?.contentWindow === e.source)) navigate(pane, "summary", { draft: offered });
   if (e.source !== scratchFrame.contentWindow) return;
   if (["grid", "list"].includes(view)) { scratchView = view; try { localStorage.setItem("tmuxrc-scratch-view", view); } catch {} }
@@ -921,10 +923,17 @@ function viewScratch(href, title) {
   text($("viewer-title"), title);
   $("viewer-out").href = href;
   viewer.querySelector("iframe")?.remove();
-  const frame = Object.assign(document.createElement("iframe"), { src: href, title, onload() { if ((this.loads = (this.loads || 0) + 1) > 1) { viewerTo = null; paintViewerForm(); } } });
+  // A page that navigates its frame shows something else: the box is for the page opened, so it goes.
+  // Nor does what it navigates to (or a reload) run script: from its first load on, the frame is
+  // sandboxed for every later document, so only the page opened can ask to send (askSend) or post
+  // at all. A token for the page could be handed on, and the next page can post before its load.
+  // Not sooner: WebKit (Safari) applies the attribute to the navigation under way, the page's own.
+  const frame = Object.assign(document.createElement("iframe"), { src: href, title, onload() {
+    if (++this.loads > 1) { viewerTo = null; paintViewerForm(); } else this.sandbox = "allow-popups allow-popups-to-escape-sandbox";
+  }, loads: 0 });
   frame.addEventListener("load", tellScratch);
   $("viewer-form").before(frame);
-  viewer.showModal(); viewer.focus(); paintPins(pins); findMaker(href);
+  viewer.showModal(); viewer.focus(); paintPins(pins); loadPins(); findMaker(href); // cached now, then as stored: a slot freed meanwhile
 }
 // Scratch pages pinned to the menu (GET/PUT /api/pins: the daemon keeps them, so every device
 // shows the same): rows after the sidebar's nav, and a Pinned group in the phone's ☰, whose rows
@@ -945,14 +954,18 @@ function paintPins(list) {
 }
 const loadPins = () => request("/api/pins").then(paintPins, () => {});
 // Over Scratch, as the gallery's own pages are: route() closes a viewer left anywhere else.
-$("sb-pins").onclick = (e) => { const a = e.target.closest("a"); if (a) { e.preventDefault(); openPage("scratch"); viewScratch(a.href, a.title); } };
-$("viewer-pin").onclick = async () => {
+$("sb-pins").onclick = (e) => { const a = e.target.closest("a"); if (a) inApp(() => { openPage("scratch"); viewScratch(a.href, a.title); })(e); }; // a modified click opens a tab
+// One save at a time: each reads the list the one before it wrote, so none drops another's pin.
+let pinSave = Promise.resolve();
+$("viewer-pin").onclick = () => {
   const folder = viewedFolder();
-  try { // from the pins as they are now: one deleted since the last read would fail the write
-    const names = (await request("/api/pins")).map((p) => p.name);
-    await request("/api/pins", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(names.includes(folder) ? names.filter((n) => n !== folder) : [...names, folder]) });
-    paintPins(await request("/api/pins"));
-  } catch (e) { $("viewer-pin").title = `Could not save the pin: ${e.detail || e.message}`; }
+  pinSave = pinSave.then(async () => {
+    try { // from the pins as they are now: one deleted since the last read would fail the write
+      const names = (await request("/api/pins")).map((p) => p.name);
+      await request("/api/pins", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(names.includes(folder) ? names.filter((n) => n !== folder) : [...names, folder]) });
+      paintPins(await request("/api/pins"));
+    } catch (e) { $("viewer-pin").title = `Could not save the pin: ${e.detail || e.message}`; }
+  });
 };
 addEventListener("focus", loadPins); loadPins(); // another device's pin shows once this one is back
 // The agent that made the page is messaged from the viewer's own footer, never from the
@@ -1990,7 +2003,7 @@ async function compose(id, value, birth, fields = {}) {
       const owner = [...viewerDrafts.values(), renderSidebar.drafts.get(id)].includes(value) ? value : draft(id), typed = owner.segments();
       owner.replace([...owner.adopt(sent), ...typed.length ? [{ text: "\n" }] : [], ...typed]);
     }
-    notice("Delivery could not be confirmed. Draft kept; check the terminal before retrying.");
+    notice(KEPT);
     settle(false); return false; // last: it renders, and a render that throws must not lose the draft
   } finally { sending = false; render(); }
 }
@@ -2719,8 +2732,10 @@ function placeChrome() {
 // head holds that pick's button instead, the one funnel there, and wide it sits by the range.
 function placePill() {
   const phone = !WIDE.matches, bar = phone && $("dash-page").querySelector(":scope > .landing-head"), dash = phone && dashboard;
-  const own = page === "usage" && (usageView._filter ||= usageView.querySelector(".uv-filter")), to = own && (bar || usageView.firstChild), head = !own && CARDS[page] && bar;
+  const own = page === "usage" && (usageView._filter ||= usageView.querySelector(".uv-filter")), to = own && (bar || usageView.firstChild);
   if (own && own.parentElement !== to) to.append(own); // held by the view: another view drops the head it sat in
+  // The graph's full screen covers its bar (graph.js), so there the scope heads the view instead.
+  const head = !own && CARDS[page] && bar && (page === "graph" ? graphView.querySelector(".fg-scope") : bar);
   const picker = renderSidebar.picker, at = head ? picker : bar ? $("find") : dash ? document.querySelector(".app-header") : $("find");
   if (head) { if (picker.parentElement !== head) head.append(picker); }
   else if (dash && picker.nextElementSibling !== $("new-window")) $("new-window").before(picker);

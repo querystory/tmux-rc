@@ -133,7 +133,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
       enabled = data.live_enabled;
       $("live-mode").hidden = !!why(false);
       const noChat = !!why(true);
-      if (noChat !== $("chat").hidden) { $("chat").hidden = noChat; onChat(); }
+      if (noChat !== $("chat").hidden) { $("chat").hidden = noChat; onChat(); } // the app offers Chat elsewhere too
       $("docs").hidden = !data.docs; // not live, but this is the boot capabilities fetch
       $("scratch-tab").hidden = $("scratch-nav").hidden = !data.scratch;
     } catch { /* Retain the last confirmed capabilities during a tunnel reconnect. */ }
@@ -594,6 +594,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     show(); // first, so a new chat's handshake says it opened in view
     if (!run && model) { mode = "text"; $("voice-model").value = model.label; start(); }
   }
+  $("live-mode").onclick = voice;
   $("chat").onclick = () => docked() ? hide() : openChat(); // a docked panel toggles: nothing covers the button
   // A question from elsewhere in the app: into the open conversation, else a new chat's
   // first turn once it is listening.
@@ -602,10 +603,10 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     const frame = { action: "text", text, images: [] };
     if (run && sendText(frame) === false) run.pending.push(frame); // in order: none is dropped
   }
-  $("live-mode").onclick = voice;
   $("voice-switch").onchange = () => {
     if (!run?.text || $("voice-switch").value === run.model) return;
-    $("voice-model").value = $("voice-switch").value; stop(); start();
+    const pending = run.pending; $("voice-model").value = $("voice-switch").value; stop(); start();
+    run.pending.push(...pending); // a first turn queued for the old model goes to the new one
   };
   $("voice-close").onclick = hide;
   dialog.addEventListener("cancel", minimize); // Escape, modal only

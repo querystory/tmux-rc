@@ -114,7 +114,6 @@ def page(path: Path, web: Path, notice: tuple[str, str] | None = None) -> str:
 
 
 ARCHIVE = ".archive"  # scratch's archived folders: hidden, like any dot folder
-
 # A 1x1 and a 2x1 GIF: a placeholder's ask answered "no change" and "reload" (Files).
 PIXEL = bytes.fromhex("47494638396101000100800000000000ffffff21f90401000000002c"
                       "00000000010001000002024401003b")
@@ -125,8 +124,8 @@ class Files(StaticFiles):
     """scratch's files, with a .md served as its page (`?raw` for the file itself), a
     folder's index.md as its index when it has no index.html, and, while it has neither,
     what `pending` makes of the folder's name (scratch.placeholder), as 202 Accepted:
-    an agent checking for a 200 is not told its page is there; while updating marks
-    a revision, its .md pages wear that bar. Anything hidden (a .git,
+    an agent checking for a 200 is not told its page is there; while `updating` says the
+    folder is being revised (scratch.bar), its .md pages wear that bar. Anything hidden (a .git,
     an .env) is not part of the page, as in the gallery, and is not served. An archived
     folder (in ARCHIVE) is served at ARCHIVE/<name>/, where the Archived gallery links it,
     and at its old link while no folder has taken that name since, so links handed out keep
@@ -152,17 +151,16 @@ class Files(StaticFiles):
 
     async def get_response(self, path, scope):
         seen = parse_qs(scope["query_string"].decode()).get("seen")
-        # A placeholder or bar asking: wide says reload.
-        if seen and "/" not in path.removeprefix(ARCHIVE + "/"):
-            wait = await anyio.to_thread.run_sync(
-                lambda: self.pending(path) or "".join(self.updating(path) or ()))
-            same = wait and f'const SEEN = "{seen[0]}";' in wait
+        folder = "/" not in path.removeprefix(ARCHIVE + "/")  # a folder's own URL
+        if seen and folder:  # a placeholder or bar asking: wide says reload
+            wait = await anyio.to_thread.run_sync(lambda: self.pending(path) or self.updating(path))
+            same = wait == ("", "") or (wait and f'const SEEN = "{seen[0]}";' in "".join(wait))
             return Response(PIXEL if same else WIDE, media_type="image/gif")
         try:
             response = await super().get_response(path, scope)
         except HTTPException as e:
-            wait = e.status_code == 404 and "/" not in path.removeprefix(
-                ARCHIVE + "/") and await anyio.to_thread.run_sync(self.pending, path)
+            wait = e.status_code == 404 and folder and await anyio.to_thread.run_sync(
+                self.pending, path)
             if not wait:
                 raise
             return HTMLResponse(wait, status_code=202,  # `curl -f` and .ok pass a 202
@@ -174,5 +172,6 @@ class Files(StaticFiles):
             response.headers["content-type"] = "text/plain; charset=utf-8"
             return response
         parts = Path(os.path.relpath(file, self.directory)).parts  # a folder's page, not loose
+        n = 1 + (parts[0] == ARCHIVE)  # an archived one's folder is ARCHIVE/<name>
         return HTMLResponse(await anyio.to_thread.run_sync(lambda: page(
-            file, self.web, self.updating(parts[0]) if len(parts) > 1 else None)))
+            file, self.web, self.updating("/".join(parts[:n])) if len(parts) > n else None)))

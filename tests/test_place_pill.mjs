@@ -24,17 +24,25 @@ class Node {
 function place(page, own = null) { // own: Plan usage's account picker, once its view is drawn
   const root = new Node("root"), nodes = {};
   for (const id of ["dash-page", "find", "new-window", "heat-card", "picker", "pill"]) root.append(nodes[id] = new Node(id));
-  const bar = new Node("landing-head"), view = new Node("usage-view");
+  const bar = new Node("landing-head"), view = new Node("usage-view"), scope = new Node("fg-scope");
   view.append(new Node("uv-bar"));
   if (own) view.kids[0].append(own);
   nodes["dash-page"].append(bar);
   nodes["dash-page"].querySelector = () => bar;
-  const sandbox = { page, dashboard: true, WIDE: { matches: false }, CARDS: { heat: "heat-card", usage: "usage-panel", loops: "loops-card" },
-    $: (id) => nodes[id], usageView: Object.assign(view, { firstChild: view.kids[0], querySelector: () => own }), renderSidebar: { picker: nodes.picker }, accounts: { pill: nodes.pill }, document: { querySelector: () => null } };
+  const sandbox = { page, dashboard: true, WIDE: { matches: false }, CARDS: { heat: "heat-card", usage: "usage-panel", loops: "loops-card", graph: "graph-card" },
+    $: (id) => nodes[id], usageView: Object.assign(view, { firstChild: view.kids[0], querySelector: () => own }), renderSidebar: { picker: nodes.picker }, accounts: { pill: nodes.pill }, document: { querySelector: () => null },
+    graphView: { querySelector: () => scope } };
   vm.createContext(sandbox);
   vm.runInContext(`${block}; placePill();`, sandbox);
-  return { bar, ...nodes };
+  return { bar, scope, ...nodes };
 }
+
+test("the graph's page seats the picker and the pill in the view's own strip, which its full screen shows", () => {
+  const { bar, scope, picker, pill } = place("graph");
+  assert.equal(picker.parentElement, scope);
+  assert.equal(pill.previousElementSibling, picker);
+  assert.equal(bar.kids.length, 0);
+});
 
 test("a card's page puts the picker and the pill in its head bar", () => {
   for (const page of ["heat", "usage", "loops"]) {

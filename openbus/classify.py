@@ -65,9 +65,15 @@ _CHECKLIST_LINE_RE = re.compile(
 # Claude's AskUserQuestion draws each question's header as a ☐/☒/✔ tab on the row right
 # under the dialog's top rule (a lone tab for a single question, "← … →" around several):
 # picker chrome, so a task that is only a tab's label (no checkbox row of its own
-# elsewhere on screen) is the model misreading it.
+# elsewhere on screen) is the model misreading it. The arrows come as a pair: a lone
+# tab's label keeps a trailing →.
 _PICKER_TABS_RE = re.compile(
-    r"(?m)^[ \t]*[─━]{3,}[ \t]*\n[ \t]*(?:←[ \t]*)?([☐☒✔].*?)(?:[ \t]*→)?[ \t]*$")
+    r"(?m)^[ \t]*[─━▔]{3,}[ \t]*\n[ \t]*(←[ \t]*)?([☐☒✔].*?)(?(1)[ \t]*→)[ \t]*$")
+# Its footer is the evidence a picker is open at all: a plan's checklist under a rule
+# has none, and keeps every row. A narrow pane wraps the footer onto a second row.
+_PICKER_FOOTER_RE = re.compile(
+    r"(?m)^[ \t]*Enter to select\b[^\n]*(?:\n[ \t]*[^\n]*)?"
+    r"\bEsc[ \t]*\n?[ \t]*to[ \t]*\n?[ \t]*cancel[ \t]*$")
 _PICKER_TAB_RE = re.compile(r"[☐☒✔][ \t]*([^☐☒✔\n]*[^☐☒✔\s])")
 # A label's own checkbox row elsewhere: behind any gutter (⎿ ☐, ├─ [X], •), and before a
 # barred transcript's right border. A real task there keeps a tab's label.
@@ -639,6 +645,15 @@ def _supported_rewind(rewind, visible: str) -> bool:
     return bool(rewind) and "rewind to a previous point" in text and "enter to restore" in text
 
 
+def _unblocked_ask(result: dict) -> None:
+    """A pane the model read as stopped at its quota waits on nothing from the turn before:
+    its closing question or handed-over command (still on screen above the notice) is not
+    what blocks it, so none is kept or restored as an ask."""
+    if result.get("activity") == "quota_blocked":
+        result.pop("question", None)
+        result.pop("rewind", None)
+
+
 def _ground_visible_fields(
     result: dict, text: str, pane: Pane, llm_fn, prompt: str, host_tool: str | None,
 ) -> None:
@@ -696,6 +711,7 @@ def _ground_visible_fields(
     retry = dict(retry) if isinstance(retry, dict) else None
     if retry:
         _fold_sends(retry)
+        _unblocked_ask(retry)  # before its ask is validated: a bad one costs no quota read
     if retry and receipt and kind == "prompt":
         # The cursor rests below everything printed since the answer: nothing there asks.
         retry.pop("question", None)
@@ -985,14 +1001,19 @@ def screen_offers(offers: object, text: str) -> list[str]:
     continuation (which bash -n accepts). Classify's gate, and the watcher's on a screen it
     does not reparse (its fingerprint ignores a duration). An offer is sent as one line, so
     a row break the model copied from a wrap is a space. A command the screen hands over
-    as `! command`, alone on its rows and nowhere else on screen, keeps that `! ` even where
-    the model's copy dropped it: it is what makes Send it run the command rather than say
-    it to the agent. Any other sighting (an older turn, a reply to type) leaves it as is. A
-    reply ("delete it" for "I'd delete this job, unless you want to keep it") is the user's
-    words, so it is on the screen word by word rather than whole."""
+    as `! command` in the final message, alone on its rows and nowhere else on screen, keeps
+    that `! ` even where the model's copy dropped it: it is what makes Send it run the
+    command rather than say it to the agent. Any other sighting (an older turn, a reply to
+    type) leaves it as is. A reply ("delete it" for "I'd delete this job, unless you want to
+    keep it") is the user's words, so it is on the screen word by word rather than whole."""
     listed = offers if isinstance(offers, list) else ()
     visible = _ask_view(text)
-    whole = (f"! {o}" if not o.startswith("!") and _quoted(f"! {o}", visible, rows=True)
+    # The final assistant message (from its bullet, or the top when the view begins inside
+    # it), above any unsent draft; none once the user typed after it.
+    above = _below_turn(visible, 0)
+    reply = above[max(0, ("\n" + above).rfind("\n● ")):]
+    turn = "" if _USER_ROW_RE.search(reply) else reply
+    whole = (f"! {o}" if not o.startswith("!") and _quoted(f"! {o}", turn, rows=True)
              and _quoted(o, visible) == 1 else o
              for o in (re.sub(r"[ \t]*\n[ \t]*", " ", o.strip())
                        for o in listed if isinstance(o, str)))
@@ -1381,6 +1402,9 @@ def classify(
         result.pop("question", None)
         result.pop("rewind", None)
     _fold_sends(result)
+    # Before grounding, since a misquoted ask would otherwise send the re-read a viewport
+    # cut above the quota notice (the re-read's own ask is dropped inside it).
+    _unblocked_ask(result)
     _ground_visible_fields(result, text, pane, llm_fn, prompt, process_tool)
     # OpenCode answer bullets and omp Ask radios are not tasks. Match genuine visible
     # checkbox rows after a bounded re-read, whose replacement fields need grounding too.
@@ -1399,11 +1423,17 @@ def classify(
             and _checklist_text(task["text"]) in visible_tasks
         ] if isinstance(tasks, list) else []
         result["tasks"] = validated
-    if result.get("tool") == "claude" and isinstance(result.get("tasks"), list):
-        rest = _PICKER_TABS_RE.sub("", visible)
-        tabs = {_checklist_text(tab) for row in _PICKER_TABS_RE.findall(visible)
-                for tab in _PICKER_TAB_RE.findall(row)
-                if not re.search(_OWN_ROW.format(re.escape(tab)), rest)}
+    footer = (result.get("tool") == "claude" and isinstance(result.get("tasks"), list)
+              and _PICKER_FOOTER_RE.search(visible))
+    # The open picker's header is the last tab row above its footer; a plan under a rule
+    # higher up is a checklist, and its rows stay evidence.
+    headers = list(_PICKER_TABS_RE.finditer(visible, endpos=footer.start())) if footer else []
+    if headers:
+        header = headers[-1]
+        rest = visible[:header.start()] + visible[header.end():]
+        tabs = {_checklist_text(tab) for tab in _PICKER_TAB_RE.findall(header[2])
+                if not re.search(_OWN_ROW.format(r"[ \t]+".join(map(re.escape, tab.split()))),
+                                 rest)}
         result["tasks"] = [task for task in result["tasks"] if not isinstance(task, dict)
                            or _checklist_text(str(task.get("text"))) not in tabs]
     if result.get("tasks") == []:
@@ -1443,7 +1473,9 @@ def classify(
     # Either row is itself a read of the screen, so it stands even after a failed parse.
     spent = result.get("tool") == "claude" and _spent(view, turn)
     if spent:
-        result["activity"] = "idle"
+        # A quota notice under that row stands, when this read (not a carried one) saw it.
+        if result.get("activity") != "quota_blocked" or "parse_ok" in result:
+            result["activity"] = "idle"
         result.pop("question", None)
         result.pop("parse_ok", None)
     elif result.get("tool") == "claude" and turn:
@@ -1472,9 +1504,11 @@ def classify(
     # The finished turn's own chrome is authoritative over any model question: nothing was
     # typed after it, so a live menu (whose ❯/› rows would count as typed) is ruled out.
     tool = result.get("tool")
+    blocked = result.get("activity") == "quota_blocked"  # its ask already dropped (_unblocked_ask)
+    over = spent or blocked
     # Claude's final message is read on the ask view: a long one begins above the viewport.
-    final = not spent and tool in _TURN_ERROR_RE and _final_message(view, tool)
-    if (offers := screen_offers(result.pop("offers", None), text)) and not spent:
+    final = not over and tool in _TURN_ERROR_RE and _final_message(view, tool)
+    if (offers := screen_offers(result.pop("offers", None), text)) and not over:
         result["offers"] = offers = [_from_reply(offer, reply) for offer in offers]
     # The model's own read of this screen (not an activity carried over a failed parse) that
     # the turn waits on the user, where no question of its own survived grounding.
