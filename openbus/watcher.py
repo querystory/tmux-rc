@@ -64,7 +64,7 @@ CHECKPOINT_EVENTS = 100
 DEAD_SERVER_RETENTION = 30 * 86400
 # Bump when classification or the fingerprint changes meaning: stored cards then miss
 # their hash once and every pane is re-read, instead of restoring an older parser's card.
-CARD_VERSION = 56
+CARD_VERSION = 58
 # LLM parse cadence. We capture every tick (cheap, for the snapshot buffer) but only
 # PARSE when the content fingerprint CHANGED vs. the last parse (or on a forced reparse).
 # `changed` compares against _prev_fp, which is written only on a SUCCESSFUL parse — so a
@@ -132,7 +132,10 @@ _OMP_ROW = rf".*{_OMP_BAR}"  # lookahead body: the rest of this line holds the b
 _VOLATILE_RE = re.compile(
     # durations; fractional seconds only as omp's job timer ("· 3.4s"), so "1.2s" elsewhere
     # stays content rather than leaving a "1." that half-tracks it
-    r"\d+h\d+m|\d+m\s*\d+s|(?<=· )\d+\.\d+s\b|(?<!\.)\d+s\b"
+    # Each match takes the spaces before it: they right-align the value, so they shift
+    # when it changes width (9s→10s, 99.9k→100.0k) and would sign as new content. The run
+    # is taken whole and only from its start, so a wide padded row is scanned once.
+    r"(?:(?<![ \t])[ \t]++)?(?:\d+h\s*\d+m|\d+m\s*\d+s|(?<=· )\d+\.\d+s\b|(?<!\.)\d+s\b"
     r"|↓\s*[\d.]+k?|[\d.]+k tokens"  # token counts
     r"|\$[\d.]+"  # cost
     r"|\d+%\s*ctx"  # context percent
@@ -153,7 +156,7 @@ _VOLATILE_RE = re.compile(
     rf"|^ ?\S(?= [\dhms ]+ > {_OMP_ROW})"
     r"|[⏳✳✻✶✷✽❋⣾⣽⣻⢿⡿⣟⣯⣷◐◓◑◒]"  # spinner glyphs
     # (Codex's moving "sparkle" animation needs more than deletion — see _SPARKLE_RE.)
-    r"|[ \t]+$",  # trailing whitespace
+    r")|[ \t]+$",  # trailing whitespace (outside the group, so one run has one quantifier)
     re.MULTILINE,
 )
 
