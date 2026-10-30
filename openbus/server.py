@@ -2395,6 +2395,25 @@ if _scratch_dir:
         return {"pane": pane.get("pane_id"), "birth": pane.get("birth"),
                 "about": scratch.about(Path(_scratch_dir), name)}
 
+    def _pins() -> Path:
+        return accounts.store_path().with_name("pins.json")  # the state dir: every device's
+
+    @app.get("/api/pins")
+    def get_pins() -> list[dict]:
+        """The scratch pages pinned to the app's menu (scratch.pinned)."""
+        return scratch.pinned(Path(_scratch_dir), _pins())
+
+    @app.put("/api/pins")
+    def put_pins(names: list[str], request: Request) -> list[dict]:
+        """Pin exactly these folders, in order (scratch.pin)."""
+        detail = repr(names)[:240]
+        try:
+            pins = scratch.pin(Path(_scratch_dir), _pins(), names)
+        except ValueError as e:
+            _refuse(request, "pin", detail, 422, str(e))
+        _audit(request, "pin", "-", detail)
+        return pins
+
     _mount_static("/scratch", _scratch_dir, partial(
         scratch_markdown.Files, web=WEB_DIR,
         pending=lambda name: scratch.placeholder(Path(_scratch_dir), name, _who)))
