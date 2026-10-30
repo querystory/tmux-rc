@@ -242,7 +242,7 @@ Loaded from `.env` at startup (real shell env vars still override). See `.env.ex
 
 | var | default | meaning |
 | --- | --- | --- |
-| `GEMINI_API_KEY` | — | AI Studio key for the LLM pass: the simplest setup, no GCP project needed. Used only when `GOOGLE_CLOUD_PROJECT` is unset |
+| `GEMINI_API_KEY` | — | AI Studio key for the LLM pass: the simplest setup, no GCP project needed. Used only when `GOOGLE_CLOUD_PROJECT` is unset. Keep it in `~/.config/tmux-rc/openai.env` (mode 600), not `.env` |
 | `GOOGLE_CLOUD_PROJECT` | — | GCP project for Vertex, the alternative to `GEMINI_API_KEY`; when set, Vertex is used |
 | `GOOGLE_APPLICATION_CREDENTIALS` | — | absolute path to the Vertex service-account key (durable auth; see `.env.example`) |
 | `VERTEX_AI_REGION_GEMINI` | `global` | Vertex region |
