@@ -1001,15 +1001,16 @@ def screen_offers(offers: object, text: str) -> list[str]:
     continuation (which bash -n accepts). Classify's gate, and the watcher's on a screen it
     does not reparse (its fingerprint ignores a duration). An offer is sent as one line, so
     a row break the model copied from a wrap is a space. A command the screen hands over
-    as `! command` in the current turn, alone on its rows and nowhere else on screen, keeps
+    as `! command` in the final message, alone on its rows and nowhere else on screen, keeps
     that `! ` even where the model's copy dropped it: it is what makes Send it run the
     command rather than say it to the agent. Any other sighting (an older turn, a reply to
     type) leaves it as is. A reply ("delete it" for "I'd delete this job, unless you want to
     keep it") is the user's words, so it is on the screen word by word rather than whole."""
     listed = offers if isinstance(offers, list) else ()
     visible = _ask_view(text)
-    *_, typed = [None, *_USER_ROW_RE.finditer(visible)]  # the current turn starts below it
-    turn = visible[typed.end():] if typed else visible
+    # The final assistant message, above any unsent draft; none once the user typed after it.
+    reply = _below_turn(visible, ("\n" + visible).rfind("\n● ")) if "● " in visible else ""
+    turn = "" if _USER_ROW_RE.search(reply) else reply
     whole = (f"! {o}" if not o.startswith("!") and _quoted(f"! {o}", turn, rows=True)
              and _quoted(o, visible) == 1 else o
              for o in (re.sub(r"[ \t]*\n[ \t]*", " ", o.strip())
@@ -1468,7 +1469,8 @@ def classify(
     # Either row is itself a read of the screen, so it stands even after a failed parse.
     spent = result.get("tool") == "claude" and _spent(view, turn)
     if spent:
-        if result.get("activity") != "quota_blocked":  # the notice under that row: it stands
+        # A quota notice under that row stands, when this read (not a carried one) saw it.
+        if result.get("activity") != "quota_blocked" or "parse_ok" in result:
             result["activity"] = "idle"
         result.pop("question", None)
         result.pop("parse_ok", None)

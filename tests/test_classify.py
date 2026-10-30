@@ -66,6 +66,9 @@ def test_a_quota_blocked_pane_keeps_nothing_from_the_turn_before():
     spent = screen.replace("\n\n❯\n", "\n\n! gh pr merge 7 --squash\n\n❯\n")
     r = classify(_pane("claude"), spent, _llm(read))
     assert (r["activity"], r.get("resets"), r.get("question")) == ("quota_blocked", "2:10pm", None)
+    # A failed read only carries quota_blocked over: the spent row's "idle" wins then.
+    assert classify(_pane("claude"), spent, _llm(None), prev_activity="quota_blocked")[
+        "activity"] == "idle"
 
 
 def test_a_handed_over_command_keeps_its_bash_prefix():
@@ -83,6 +86,11 @@ def test_a_handed_over_command_keeps_its_bash_prefix():
                 "I can make some tea for you. Shall I?"):
         two_turns = f"● Run it:\n\n  ! make tea\n\n❯ ok\n\n● {now}\n\n❯ "
         assert classify_mod.screen_offers(["make tea"], two_turns) == ["make tea"]
+    # Nor does the user's own message quoting one; an unsent draft below keeps the handoff.
+    typed = "❯ run this for me:\n\n  ! make tea\n\n● Done, it is queued.\n\n❯ "
+    assert classify_mod.screen_offers(["make tea"], typed) == ["make tea"]
+    draft = "● Run it:\n\n  ! make tea\n\n────────────\n❯ check the result\n────────────\n"
+    assert classify_mod.screen_offers(["make tea"], draft) == ["! make tea"]
 
 
 def _pane(cmd="bash", title="t"):
