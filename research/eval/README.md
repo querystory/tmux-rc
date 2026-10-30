@@ -213,6 +213,9 @@ actually hit:
 | `112_claude_handoff_command_wrapped_across_rows` | synthetic: a long `! command` the screen wraps onto a second row, then a sentence → the whole command offered, its rows joined |
 | `114_claude_mcp_picker_checked_rows` | synthetic: `/mcp` arrow picker whose rows carry ✔/✘ marks → cursor question with its arrow keymap |
 | `128_claude_handoff_no_side_panel_no_question_mark` | synthetic: a signed `! git tag` handed over in a sentence, no `?`, no `[side panel]`, ASCII-pipe status rows → text user-wait offering the command |
+| `133_claude_narrow_picker_wrapped_question` | synthetic: AskUserQuestion in a narrow pane, its question ending mid-row of a wrapped paragraph, every row behind its digit → menu (a digit answers any row), not a cursor list no walk can ground |
+| `134_claude_single_question_picker_after_turns` | synthetic: a one-question AskUserQuestion picker (gray row digits, "4. Chat about this" under a rule) below answered turns → a menu with all four options |
+| `132_claude_advice_for_another_pane_not_a_reply` | synthetic: a report ending 'tap Reply and type "1"' about another pane, agents still running → no question, no "1" button |
 
 Sample 16 originally exposed a table-extraction failure: the prompt said to carry a
 question's supporting list but also to omit tables unless an actual table was shown.
@@ -324,7 +327,7 @@ and both are reported.
 - Idle detection did not move in any design: the offers that must stay idle stayed idle
   every run, so B does not threaten the idle/closing-offer rule. Sample 16 is the known
   failure.
-- B's buttons are worse where it matters. On the real gated capture (sample 58) B returned
+- B's buttons are worse where it matters. On the gated sample 58 B returned
   accept and decline and never the per-step checkpoints A gives; on the single-step
   sample 59 it invented a checkpoint ("Yes, but check with me before sending") on every
   run, which fails that sample's accept-then-decline check. Across the four gated synthetic

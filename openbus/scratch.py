@@ -39,10 +39,11 @@ _reconciled = [0.0]
 _PAGE = Path(__file__).resolve().parent / "scratch.html"
 _PENDING = Path(__file__).resolve().parent / "scratch_pending.html"
 STALL = 30 * 60  # an in-progress folder's agent quiet this long has stopped
-# What a card, then the placeholder, says of a page being made, by progress().
-STATES = {"working": ("Being made…", "An agent is making this page. It opens here once it lands."),
-          "quiet": ("Being made…", "The agent's pane is idle. It may still be working."),
-          "stopped": ("Stopped without publishing",
+# What a card, then the placeholder, says of a page in progress, by progress().
+STATES = {"working": ("In progress",
+                      "An agent is working on this page. It opens here once it's ready."),
+          "quiet": ("In progress", "The agent's pane is idle. It may still be working."),
+          "stopped": ("Stopped",
                       "The agent stopped without publishing this page.")}
 DOCS = "https://github.com/querystory/tmux-rc/blob/main/docs/deploy/scratch-gallery.md"
 SIDECARS = ("meta.json", "thumb.webp")  # what tmux-rc and agents add beside a page
@@ -108,7 +109,7 @@ def _files(root: Path, top: Path) -> dict[str, list[tuple[float, str]]]:
 def _item(root: Path, folder: Path, files: list[tuple[float, str]]) -> dict | None:
     """One card's data; None for a folder with nothing to open. Its sidecars and anything
     hidden (a sidecar half-written, a .git) are not the page and do not date it. A folder
-    whose meta.json came first is `pending` until its index lands: its page is being made
+    whose meta.json came first is `pending` until its index lands: its page is in progress
     (a site's assets may land ahead of its index, for a minute; loose files older than
     that are the publish)."""
     sidecars = {str(folder / name) for name in SIDECARS}  # its own, not a page's images/thumb.webp
@@ -138,6 +139,7 @@ def _item(root: Path, folder: Path, files: list[tuple[float, str]]) -> dict | No
             "href": quote(page.relative_to(root).as_posix() if page != index and not pending
                           else folder.name + "/"),
             "created": _when(meta.get("created")) or min(files)[0], "updated": max(files)[0],
+            "stamped": _when(meta.get("created")),  # the agent's own word, never a guess
             "inode": folder.stat().st_ino,  # the folder until replaced, however rewritten
             "page": page, "pending": pending, "thumb": inside(thumb, folder)
             and thumb.is_file() and thumb.stat().st_mtime}
@@ -165,13 +167,19 @@ def items(root: Path) -> list[dict]:
 def opened(root: Path, visits: list[tuple[str, float]], n: int,
            states: list[dict] = ()) -> list[dict]:
     """The first `n` folders of these visits, (name, when), still in scratch: the title and
-    link the gallery gives each, whether its page is still being made (not stopped), and
+    link the gallery gives each, whether its page is still in progress (not stopped), and
     when it was opened."""
     found = list(islice(((item, at) for name, at in visits
                          if (item := read(root, root / name))), n))
     _progress([i for i, _ in found], states)
-    return [{"title": i["title"], "href": i["href"], "at": at,
-             "pending": i["pending"] and i["state"] != "stopped"} for i, at in found]
+    return [_link(i, at) for i, at in found]
+
+
+def _link(i: dict, at: float) -> dict:
+    """A page as the app links it: its title and link, `at`, and whether it is still being
+    made (not stopped)."""
+    return {"title": i["title"], "href": i["href"], "at": at,
+            "pending": i["pending"] and i["state"] != "stopped"}
 
 
 def _writers(todo: list[dict]) -> None:
@@ -302,6 +310,8 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
         s = running.get(i["session_id"]) or {} if i["pane"] not in panes else {}
         i["pane"] = open_in.get(s.get("session_id")) or i["pane"]  # still open
         if (pane := panes.get(i["pane"])) is not None:
+            if s:  # its session, found in a new pane: its page comes along as that pane does
+                i["state"] = progress(pane, i["pane"], i["created"])
             _author(i, pane.get("tool"), account.get(i["pane"]) or {})
             i["where"] = f"{pane.get('session')}:{pane.get('window_name')}"
             continue
@@ -310,6 +320,15 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
         i["pane"] = None
         _author(i, s.get("harness"), acct)
         i["where"] = s.get("title") or ""
+
+
+def made_by(root: Path, pane: str, *who) -> list[dict]:
+    """The pages this pane's session made, newest first, linked from its overview for as
+    long as they exist: matched as the gallery's cards are (resolve, `who` as for it), so
+    one made before a restore still finds the session in its new pane."""
+    listed = items(root)
+    resolve(listed, *who)
+    return [_link(i, i["updated"]) for i in listed if i["pane"] == pane]
 
 
 def page(root: Path, states: list[dict], profiles: list[dict], style: Path,
@@ -361,7 +380,7 @@ def _card(i: dict) -> str:
              else f'<span class="{i["state"] if i["pending"] else ""}"{poll}>{wait}</span>'
              if wait else "No preview")
     words = " ".join([i["title"], i["description"], i["who"], i["where"]]).lower()
-    return (f'<article data-q="{escape(words)}">'
+    return (f'<article data-q="{escape(words)}" data-pane="{e.get("pane", "")}">'
             f'<a class="thumb" href="{e["href"]}" tabindex="-1" aria-hidden="true">{thumb}</a>'
             f'<h2><a href="{e["href"]}"'
             + (f' aria-label="{e["title"]}: {wait}"' if i["pending"] else "")  # the thumb's
@@ -389,7 +408,9 @@ def placeholder(root: Path, name: str, who) -> str | None:
     headline = next((s.get("headline") for s in states if s.get("pane_id") == i["pane"]), "")
     where = _where(i, e)
     age = int(time.time() - i["created"]) // 60
+    icon = json.dumps((style.parent.parent / "scratch.svg").read_text())  # spun by the page
     fill = {"tokens": scratch_markdown.tokens(style), "title": e["title"], "state": i["state"],
+            "label": "Stopped" if i["state"] == "stopped" else "In progress", "icon": icon,
             "say": STATES[i["state"]][1], "who": e["who"], "where": where and f" · {where}",
             "desc": f'<p>{e["description"]}</p>' if i["description"] else "",
             "now": f'<p class="now">Now: {escape(str(headline))}</p>' if headline else "",

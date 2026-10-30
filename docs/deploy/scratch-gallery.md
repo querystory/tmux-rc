@@ -17,6 +17,15 @@ and in a phone's ☰ menu. There a card opens full screen over the app. Back, Es
 swipe from the left edge returns to the gallery, and "Open in browser" opens the page in
 a tab of its own. Settings links to the gallery's own page under More.
 
+A pane's overview lists only the few links that matter: its pages still In progress, its
+newest page, and the PR it was last seen working on (the watcher's own order; there is no
+signal for "named in the latest turn", so none is invented). Below them, "Scratch pages"
+opens the gallery at `/scratch/?pane=<id>`, filtered to that pane with its three newest
+cards raised and a "From this pane" chip to drop the filter, and "More pull requests"
+unfolds the rest in place. A pane's pages go to the gallery rather than a longer list
+because the gallery already has thumbnails, search and the viewer; PRs stay in place
+because the gallery cannot list them and a pane rarely has more than a few.
+
 ## Setting it up
 
 The gallery needs two things: a scratch directory the daemon serves, and agents that know
@@ -41,13 +50,13 @@ about it.
     $TMUXRC_SCRATCH_URL/<folder>/ (or the folder's path if that variable is unset). The
     public URL sits behind the user's login, so to check the page yourself request
     $TMUXRC_SCRATCH_LOCAL_URL/<folder>/ instead; exactly 200 means it is served (a 202 is a
-    page still being made). Everything in
+    page still in progress). Everything in
     that directory is visible to everyone who can reach tmux-rc: never put secrets or
     private data there. Pages are sandboxed: their scripts cannot fetch, use XHR or
     WebSockets, or submit forms, so inline any data a page needs. Write the folder's
     meta.json ({"title", "description", "pane": "$TMUX_PANE", "created": ISO 8601 time})
     first, before the page: until index.html or index.md lands, the link shows that the
-    page is being made, so it is safe to hand out early, and the user is notified when it
+    page is in progress, so it is safe to hand out early, and the user is notified when it
     is ready.
 
 ## Markdown pages
@@ -97,9 +106,10 @@ crashes, and it survives a daemon restart, since the state is read from the fold
   started. It reloads itself, every 5 seconds and every 30 after ten minutes, so it turns
   into the page once that lands. A 202 passes `curl -f`, `raise_for_status()` and
   `fetch().ok`, so the snippet says exactly 200; the placeholder also sends `Retry-After` and
-  `X-Scratch-Pending: 1`, and its `<title>` reads "In progress: …", not the page's own.
+  `X-Scratch-Pending: 1`, and its `<title>` reads "In progress · …" (or "Stopped · …"), not the page's own. Its tab
+  icon is scratch's, with an arc running round it while the page is in progress.
 - **Its state** comes from the pane named in `meta.json`. While that pane runs, waits on a
-  tool or has subagents out, the page is being made. While it idles, the placeholder says
+  tool or has subagents out, the page is in progress. While it idles, the placeholder says
   so but keeps waiting, since a background subagent can build the page while its
   session's prompt looks idle. Once the pane is closed, or idle for 30 minutes, it says
   the agent stopped without publishing (without a pane, 30 minutes after `created`).
@@ -109,11 +119,20 @@ crashes, and it survives a daemon restart, since the state is read from the fold
   reloads every 30 seconds (not while a filter is being typed), since the thumbnail never
   comes without a browser to shoot it.
 - **When the page lands** (the daemon looks every ten seconds), every subscribed device gets one push, `Ready: <title>`, whose
-  tap opens the page in the app's scratch viewer. It shares its tag with the pane's
-  Needs-you notification, and for two minutes after it that pane's plain "turn ended"
-  Needs-you is skipped (any question still notifies), so one finish buzzes once: a
-  Needs-you already shown is replaced silently, and a question with buttons keeps its
-  notification, the Ready arriving beside it. A page published in one go was never promised and does not notify.
+  tap opens the page in the app's scratch viewer. A page made faster than that, its
+  `meta.json` and page arriving between two looks, was never seen pending but was promised
+  all the same, so it notifies too while the `created` in its `meta.json` is under a minute
+  old. Only the agent writes `created`, so a `meta.json` tmux-rc generated (a description
+  for a page published in one go) promises nothing, and a half-written one is read again
+  once it is whole. A page published in one go was never promised and does not notify, and
+  neither does anything already there when the daemon starts.
+- **The Ready push has a tag of its own**, `scratch:<folder>`. It once shared the pane's
+  Needs-you tag, so a finish would buzz once, but iOS replaces a notification with the same
+  tag in place and silently: a Ready landing after a Needs-you never made a sound, and the
+  page could go unnoticed. A page landing is news of its own and must not be swallowed. What
+  still keeps one finish to one buzz is the other direction: for two minutes after a Ready,
+  that pane's plain "turn ended" Needs-you is skipped, since it says nothing the Ready did
+  not (any question still notifies). A Needs-you already shown stays beside the Ready.
 
 An orchestrator that hands a subagent's link out writes `meta.json` itself, with its own
 `$TMUX_PANE`: in Claude Code and Codex the subagent runs in that pane. A worker in another
@@ -132,8 +151,8 @@ tmux-rc fills in the rest in the background, so the gallery never waits for it:
 - **Thumbnails.** If Playwright's headless Chromium is installed (`make screenshots`
   installs it, or run `npx playwright install chromium-headless-shell`;
   `TMUXRC_THUMB_BROWSER` names another binary), each page is shot into a `thumb.webp`
-  beside it. It is shot again after the page changes. Until then the card says the preview
-  is being made, or that there is none.
+  beside it. It is shot again after the page changes. Until then the card says "Making a preview…",
+  or that there is none.
 - **Descriptions.** With the parse model configured, a folder without a description gets
   one sentence, written into its `meta.json` and marked `"generated": ["description"]`.
   A description already there is never replaced.

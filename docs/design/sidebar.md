@@ -118,13 +118,22 @@ rejected: New session had grown taller than the screen and scrolled its own titl
 
 New session is compact for the same reason, but not at the cost of saying how it works (a
 first cut hid every explanation in tooltips, and read as cryptic): a one-line subtitle says
-what it does; the accounts are a two-column grid of small chips, "+ Add account" the next
-cell, with a hint naming the tool they apply to; the session's default is a sentence with a
+what it does; the accounts are a step after the agent, shown only for one with several
+(a wall of every tool's accounts before you had picked a tool read as clutter), preset to the
+account that would start anyway, with Back to the agents and Start: a two-column grid of
+small chips, "+ Add account" the next cell, with a hint naming the tool they apply to; the session's default is a sentence with a
 checkbox ("Use Work for every new window in qs") and a muted line on what happens otherwise,
 not a "Default for … Not set" select; and each tool is a 52px row with a muted line, the
 account it starts on where it has several, then its model or what it is. Rows the account
 does not apply to carry no chip. It fits unscrolled at 900px tall; shorter, the body scrolls under
 the fixed title.
+
+Its top row picks Session, Chat or Voice, so starting something is one place whatever it is.
+Chat and Voice hand over to their own buttons rather than repeating their start logic, and the
+row is a segmented control, not a first sheet, so the common case (a session) costs no extra
+tap. A choice that can't start here is greyed, and tapping it puts the reason on the line
+below; with neither available (Live Mode is off by default) the row is hidden, so a casual
+user's sheet is unchanged.
 
 ## The collapsed rail keeps working
 

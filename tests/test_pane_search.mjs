@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { matchesSearch, matchesFilter, noteSessions, sessionOf, paneName, paneActivity } from "../web/m/pane-model.js";
-import { paneLinks, askLink } from "../web/pr-links.js";
+import { paneLinks, linkGroups, askLink } from "../web/pr-links.js";
 
 test("PR titles are primary, with the repository and number beneath", () => {
   const [link] = paneLinks({ prs: [{ repo: "querystory/tmux-rc", number: 245,
@@ -13,7 +13,7 @@ test("PR titles are primary, with the repository and number beneath", () => {
 
 const pane = {
   pane_id: "%7", session: "work", title: "Address review", activity: "idle",
-  window_index: "2", tool: "codex", prs: [{ repo: "querystory/qs-app", number: 4955 }],
+  window_index: "2", tool: "codex", prs: [{ repo: "example-org/example-app", number: 4955 }],
 };
 
 test("transient link metadata cannot spoof the destination host", () => {
@@ -23,13 +23,13 @@ test("transient link metadata cannot spoof the destination host", () => {
 });
 
 test("tracked PRs stay tappable without a current-frame link and preserve other links", () => {
-  const pr = { href: "https://github.com/querystory/qs-app/pull/4955", text: "querystory/qs-app#4955" };
+  const pr = { href: "https://github.com/example-org/example-app/pull/4955", text: "example-org/example-app#4955" };
   assert.deepEqual(paneLinks(pane), [pr]);
   const preview = { href: "https://example.com/preview", text: "Preview" };
   assert.deepEqual(paneLinks({ ...pane, prs: [...pane.prs, ...pane.prs], links: [
     { href: pr.href + "/", text: "Open PR" }, preview,
   ] }), [pr, preview]);
-  const other = { repo: "other/qs-app", number: 4955 };
+  const other = { repo: "other/example-app", number: 4955 };
   assert.equal(paneLinks({ prs: [...pane.prs, other] }).length, 2);
 });
 
@@ -54,10 +54,10 @@ test("transient links keep their own cap without hiding tracked PRs", () => {
 });
 
 test("sidebar finds accumulated PRs after the number disappears from visible text", () => {
-  for (const query of ["4955", "#4955", "PR 4955", "PR #4955", "qs-app#4955",
-    "qs-app 4955", "qs-app #4955", "qs-app pr 4955", "QUERYSTORY/QS-APP#4955",
-    "querystory/qs-app PR #4955", "  qs-app   PR 4955  ",
-    "https://github.com/querystory/qs-app/pull/4955"]) {
+  for (const query of ["4955", "#4955", "PR 4955", "PR #4955", "example-app#4955",
+    "example-app 4955", "example-app #4955", "example-app pr 4955", "EXAMPLE-ORG/EXAMPLE-APP#4955",
+    "example-org/example-app PR #4955", "  example-app   PR 4955  ",
+    "https://github.com/example-org/example-app/pull/4955"]) {
     assert.equal(matchesSearch(pane, query), true, query);
   }
   assert.equal(matchesSearch(pane, "4956"), false);
@@ -117,4 +117,27 @@ test("a row falls back to the headline until a summary exists", () => {
   assert.equal(paneActivity({ headline: "Fixing the parser" }), "Fixing the parser");
   assert.equal(paneActivity({ headline: "h", session_summary: "s" }), "s");
   assert.equal(paneActivity({}), "");
+});
+
+test("a session's scratch pages stay in Links after their URL leaves the screen", () => {
+  const page = { href: "https://deck.example/scratch/status/", text: "Status", detail: "Scratch" };
+  assert.deepEqual(paneLinks({ links: [] }, [page]), [page]);
+  assert.deepEqual(paneLinks({ links: [{ href: page.href, text: "status" }] }, [page]), [page]);
+  const many = Array.from({ length: 64 }, (_, i) => ({ repo: "a/b", number: i + 1 }));
+  assert.deepEqual(paneLinks({ prs: many }, [page]).at(-1), page); // its own cap, not the PRs'
+});
+
+test("Links lead with pages In progress, the newest page and the PR evidenced last", () => {
+  const page = (n, pending = false) => ({ href: `https://deck.example/scratch/p${n}/`, text: `p${n}`, pending });
+  const pages = [page(1), page(2, true), page(3), page(4, true)];
+  const prs = [1, 2, 3].map((number) => ({ repo: "a/b", number })), pr = (n) => `https://github.com/a/b/pull/${n}`;
+  const links = linkGroups({ prs, links: [{ href: "https://screen.example/", text: "now" }] }, pages);
+  assert.deepEqual(links.top.map((l) => l.href), [pages[1].href, pages[3].href, pages[0].href, "https://screen.example/"]);
+  assert.equal(links.pages.length, 4);
+  assert.deepEqual(links.prs.map((l) => l.href), [pr(3), pr(2), pr(1)]); // newest first, none on top
+  assert.deepEqual(linkGroups({ prs }, [page(5)]).top.map((l) => l.href), [page(5).href, pr(3)]);
+  // A page or PR the screen links now leads, titled, and leaves the rest.
+  const shown = linkGroups({ prs, links: [{ href: pr(1), text: "raw" }, { href: pages[2].href }] }, pages);
+  assert.deepEqual(shown.top.slice(3).map((l) => l.text), ["a/b#1", "p3"]);
+  assert.deepEqual(shown.prs.map((l) => l.href), [pr(3), pr(2)]);
 });
