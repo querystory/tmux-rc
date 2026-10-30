@@ -1,0 +1,18 @@
+{
+  "description": "Synthetic: a finished turn in a 50-column pane drafts a chat reply for the user to post elsewhere, ending in a long URL that the program hard-broke onto a second, indented row. The reply is one copyable with the URL whole; the grounding gate must accept a token that spans a row boundary.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ reply to the thread\n\n● Here's a reply for the thread:\n\n  Shipped the sentinel fix; notes are in\n  https://github.com/example/jev-sentinel\n    /blob/main/docs/NOTES.md\n\n  Want it shorter?\n\n✻ Worked for 12s · done 3:14 PM\n──────────────────────────────────────────────────\n❯ \n──────────────────────────────────────────────────\n  ~/src/sentinel | Opus 5.5 | 9% ctx\n  ⏵⏵ accept edits on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "copyables": true,
+    "copyables_include": [
+      "Shipped the sentinel fix; notes are in https://github.com/example/jev-sentinel/blob/main/docs/NOTES.md"
+    ],
+    "headline": "Drafted a reply linking the sentinel notes",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "text"
+    }
+  }
+}

@@ -4,6 +4,7 @@ import queue
 import shutil
 import subprocess
 import threading
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -13,7 +14,7 @@ from pydantic import ValidationError
 from openbus import push
 from openbus.classify import _widget_text, question_rows
 from openbus.watcher import Watcher as RealWatcher
-from openbus.watcher import _fingerprint
+from openbus.watcher import _fingerprint, _turn
 
 
 def box(command):
@@ -44,6 +45,9 @@ class Watcher:
 
     def is_stale(self):
         return self.stale
+
+    def booted(self):
+        return True
 
     def pane_birth(self, pane_id):
         return self.births.get(pane_id)
@@ -975,10 +979,9 @@ def test_a_page_being_made_notifies_once_as_it_lands(tmp_path, monkeypatch):
     sender.available = True
     scan([], 0)
     scan([], 0)
-    assert [(p["title"], p["body"], p["tag"], p["url"], p["renotify"])
-            for p in sender.payloads] == [(
-        "Ready: Mock", "claude finished it in dev:ui", "block:%1",
-        "/m#view=scratch&open=%2Fscratch%2Fwip%2F", True)]
+    assert [(p["title"], p["body"], p["tag"], p["url"]) for p in sender.payloads] == [(
+        "Ready: Mock", "claude finished it in dev:Build", "scratch:wip",  # its heading, not tmux's
+        "/m#view=scratch&open=%2Fscratch%2Fwip%2F")]
     assert [i["name"] for i in shot] == ["wip"]
     # The turn ends and the pane waits on the user: its plain Needs-you is the same news...
     watcher.states = [waiting()]
@@ -986,7 +989,7 @@ def test_a_page_being_made_notifies_once_as_it_lands(tmp_path, monkeypatch):
         service.evaluate()
         clock[0] += push.SETTLE_SECONDS
     assert len(sender.payloads) == 1
-    # ...but any question still gets through, free text or with answers, under the same tag.
+    # ...but any question still gets through, free text or with answers, under its own tag.
     for question in ({"prompt": "Which name?"}, held()):
         watcher.states = [waiting(question)]
         for _ in range(2):
@@ -998,7 +1001,7 @@ def test_a_page_being_made_notifies_once_as_it_lands(tmp_path, monkeypatch):
     (root / "two").mkdir()
     (root / "two" / "meta.json").write_text('{"title": "Two", "pane": "%1"}')
     (root / "two" / "app.css").write_text("")
-    service._mtimes = {}
+    service._mtimes = None
     scan([], 0)
     scan([("two", "index.html")], 300)
     assert sender.payloads[-1]["tag"] == "scratch:two"
@@ -1041,9 +1044,8 @@ def test_a_page_being_updated_notifies_once_its_mark_is_gone(tmp_path, monkeypat
     meta.write_text("{}")  # the mark was all it said
     service.landed()
     service.landed()
-    assert [(p["title"], p["tag"], p["url"], p["renotify"]) for p in sender.payloads] == [(
-        "Updated: page", "scratch:page", "/m#view=scratch&open=%2Fscratch%2Fpage%2Freport.html",
-        True)]
+    assert [(p["title"], p["tag"], p["url"]) for p in sender.payloads] == [(
+        "Updated: page", "scratch:page", "/m#view=scratch&open=%2Fscratch%2Fpage%2Freport.html")]
     assert [i["name"] for i in shot] == ["page"]
     # A PDF rewritten in a revision reads as pending for a minute, its mark already gone:
     # nothing on disk changes when that minute ends, and the scan still sees it.
@@ -1068,9 +1070,60 @@ def test_a_page_being_updated_notifies_once_its_mark_is_gone(tmp_path, monkeypat
     assert service._waiting == {} and len(sender.payloads) == 2
 
 
+def test_a_page_made_between_two_scans_still_notifies(tmp_path, monkeypatch):
+    """A meta.json and its page landing inside one scan were never seen pending, but were
+    promised all the same: one Ready, under its own tag, so it buzzes beside the pane's
+    Needs-you instead of silently replacing it. Folders there at startup, stale ones and
+    pages published without a meta.json stay quiet, as does a later rewrite or a restart."""
+    clock, watcher, root = [100.0], Watcher(), tmp_path / "scratch"
+    (root / "old").mkdir(parents=True)  # landed before startup
+    (root / "old" / "meta.json").write_text('{"title": "Old", "pane": "%1"}')
+    (root / "old" / "index.html").write_text("page")
+    service, sender = manager(tmp_path, watcher, clock)
+    service.scratch, shot = root, []
+    service.shoot = shot.append
+    service.store.upsert(subscription())
+    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
+    watcher.states = [waiting()]
+    for _ in range(2):
+        service.evaluate()
+        clock[0] += push.SETTLE_SECONDS
+    service.landed()
+    made = datetime.now(UTC).isoformat()
+    for name, meta in (("fast", '{"title": "Fast", "pane": "%1", "created": "'),
+                       ("loose", None), ("described", '{"description": "Generated."}'),
+                       ("stale", '{"title": "Stale", "created": "2020-01-01T00:00:00Z"}')):
+        (root / name).mkdir()
+        if meta:
+            (root / name / "meta.json").write_text(meta)
+        (root / name / "index.html").write_text("page")
+    service.landed()  # fast's meta.json caught half-written: read again once it is whole
+    (root / "fast" / "meta.json").write_text(
+        f'{{"title": "Fast", "pane": "%1", "created": "{made}"}}')
+    sender.available = False  # a full queue: tried again, though no longer fresh by then
+    service.landed()
+    monkeypatch.setattr(push, "LANDED_FRESH_SECONDS", 0)
+    sender.available = True
+    service.landed()
+    service.landed()
+    monkeypatch.setattr(push, "LANDED_FRESH_SECONDS", 60.0)
+    (root / "fast" / "meta.json").write_text(
+        f'{{"title": "Fast", "created": "{made}", "description": "Later."}}')
+    service.landed()
+    service._mtimes, service._done = None, set()  # a restart
+    service.landed()
+    (root / "fast" / "meta.json").write_text(
+        f'{{"title": "Fast", "created": "{made}", "description": "Again."}}')
+    service.landed()
+    assert [(p["title"], p["tag"]) for p in sender.payloads] == [
+        (sender.payloads[0]["title"], "block:%1"),
+        ("Ready: Fast", "scratch:fast")]
+    assert [i["name"] for i in shot] == ["fast"]
+
+
 def test_a_meta_json_caught_half_written_is_read_again(tmp_path, monkeypatch):
     """Finishing meta.json in place leaves its folder's mtime alone: the scan retries, with
-    an asset already there (a loose file then, not a page being made) or not."""
+    an asset already there (a loose file then, not a page in progress) or not."""
     root = tmp_path / "scratch"
     (root / "wip").mkdir(parents=True)
     (root / "wip" / "app.css").write_text("")
@@ -1093,3 +1146,65 @@ def test_a_meta_json_caught_half_written_is_read_again(tmp_path, monkeypatch):
     shutil.rmtree(root / "gone")
     service.landed()
     assert service._waiting == {}
+
+
+    assert service._waiting == {}
+
+
+def test_a_turn_already_told_about_never_buzzes_again(tmp_path, monkeypatch):
+    """An ask notifies once per turn of its pane, not once per reading of it: a restart, a
+    new parser (CARD_VERSION) or a resize reads the same turn again, often in other words,
+    and the phone must not buzz for it. Only the conversation moving on is news."""
+    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
+    clock, watcher = [100.0], Watcher()
+    service, sender = manager(tmp_path, watcher, clock)
+
+    def settle(question, turn, activity="waiting"):
+        watcher.states = [{**waiting(question), "turn": turn, "activity": activity}]
+        for _ in range(2):
+            service.evaluate()
+            clock[0] += push.SETTLE_SECONDS
+
+    settle(held(), "t0")
+    watcher.states = [{**waiting(held()), "turn": "t1"}]  # a new turn, the same words:
+    service.evaluate()  # it settles afresh
+    assert len(sender.payloads) == 1
+    settle(held(), "t1")
+    assert len(sender.payloads) == 2
+    settle(held(ask="Show the files?"), "t1")  # re-read in-run, reworded: the same ask
+    assert len(sender.payloads) == 2
+    for reworded in (held(), held(ask="Show the files?")):  # a restart, or a version bump
+        service, sender = manager(tmp_path, watcher, clock)
+        settle(reworded, "t1")
+        assert sender.payloads == []
+    settle(held(), "t9")  # the conversation moved on
+    assert len(sender.payloads) == 1
+    # A turn that ended asking nothing, read again after a restart as an ask: no news.
+    settle(None, "t3", activity="idle")
+    service, sender = manager(tmp_path, watcher, clock)
+    settle(held(), "t3")
+    assert sender.payloads == []
+    assert service._notified  # what a "Ready" landing now reads to stay quiet
+    # Any number of idle panes keeps it so; a pane gone is forgotten.
+    idle = [{**waiting(None), "pane_id": f"%{n}", "activity": "idle", "turn": "i"}
+            for n in range(2, 300)]
+    watcher.states = [*idle, {**waiting(held()), "turn": "t3"}]
+    for _ in range(2):
+        service.evaluate()
+        clock[0] += push.SETTLE_SECONDS
+    assert sender.payloads == []
+    watcher.states = idle[:1]
+    service.evaluate()
+    assert json.loads(service.store.path.read_text())["turns"] == {"%2:123": "i"}
+
+
+def test_a_screen_s_turn_is_the_same_under_any_card_version_or_width(monkeypatch):
+    """With no agent transcript the screen is the turn: a new parser or a reflow leaves it
+    be, and a menu's own rows tell "sleep 10s" from "sleep 20s"."""
+    before = _turn(None, box("ls"))
+    monkeypatch.setattr("openbus.watcher.CARD_VERSION", -1)
+    assert _turn(None, box("ls")) == before != _turn(None, box("rm"))
+    assert _turn(None, box("ls").replace("─" * 40, "─" * 20)) == before
+    assert _turn(None, box("sleep 10s")) != _turn(None, box("sleep 20s"))
+    assert _turn(None, box("ls a b")) != _turn(None, box("ls ab"))
+    assert _turn("t1", box("ls")) == "t1"  # the transcript, when there is one
