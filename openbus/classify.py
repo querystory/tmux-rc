@@ -923,6 +923,17 @@ def _final_paragraph(message: str) -> str:
     return " ".join(r.strip() for r in reversed(rows))
 
 
+# Claude Code's notes on a background agent ("● Agent "x" finished · 3m 2s", "… is waiting
+# on its own background work") print as bullets after the reply, but are no message.
+_AGENT_NOTE_RE = re.compile(r'^[ \t]*● Agent "[^"\n]*" (?:finished|is waiting)\b.*\n?',
+                            re.MULTILINE)
+
+
+def _last_message(text: str) -> str:
+    """`text` from its last message bullet on (the bullet itself left out), or all of it."""
+    return re.split(r"(?:^|\n)● ", _AGENT_NOTE_RE.sub("", text))[-1]
+
+
 def _final_message(visible: str, tool: str) -> str | None:
     """A finished turn's final assistant message, up to its stamp or through the provider
     error that stopped it, or None while it runs. Anything typed after: the user acted."""
@@ -934,7 +945,7 @@ def _final_message(visible: str, tool: str) -> str | None:
     end = stop.end() if stop.re is error_re else stop.start()
     # The turn's final assistant message, without the bars framing its rows: a bar left on
     # a blank row joins paragraphs, and one after a "?" hides that the row asks.
-    return _FRAME_BARS_RE.sub("", visible[:end].rsplit("\n● ", 1)[-1])
+    return _FRAME_BARS_RE.sub("", _last_message(visible[:end]))
 
 
 @lru_cache(maxsize=256)
@@ -1001,28 +1012,28 @@ def screen_offers(offers: object, text: str) -> list[str]:
     continuation (which bash -n accepts). Classify's gate, and the watcher's on a screen it
     does not reparse (its fingerprint ignores a duration). An offer is sent as one line, so
     a row break the model copied from a wrap is a space. A command the screen hands over
-    as `! command` in the final message, alone on its rows and nowhere else on screen, keeps
-    that `! ` even where the model's copy dropped it: it is what makes Send it run the
-    command rather than say it to the agent. Any other sighting (an older turn, a reply to
-    type) leaves it as is. A reply ("delete it" for "I'd delete this job, unless you want to
-    keep it") is the user's words, so it is on the screen word by word rather than whole."""
+    as `! command` in the final message, alone on its rows and with its `! ` wherever else
+    the screen shows it, keeps that `! ` even where the model's copy dropped it: it is what
+    makes Send it run the command rather than say it to the agent. Any bare sighting (a
+    reply to type) leaves it as is. The unsent draft in the input box vouches for nothing.
+    A reply ("delete it" for "I'd delete this job, unless you want to keep it") is the
+    user's words, so it is on the screen word by word rather than whole."""
     listed = offers if isinstance(offers, list) else ()
-    visible = _ask_view(text)
-    # The final assistant message (from its bullet, or the top when the view begins inside
-    # it), above any unsent draft; none once the user typed after it.
-    above = _below_turn(visible, 0)
-    reply = above[max(0, ("\n" + above).rfind("\n● ")):]
+    # The screen above any unsent draft, and on it the final assistant message (from its
+    # bullet, or the top when the view begins inside it); none once the user typed after it.
+    above = _below_turn(_ask_view(text), 0)
+    reply = _last_message(above)
     turn = "" if _USER_ROW_RE.search(reply) else reply
     whole = (f"! {o}" if not o.startswith("!") and _quoted(f"! {o}", turn, rows=True)
-             and _quoted(o, visible) == 1 else o
+             and _quoted(o, above) == _quoted(f"! {o}", above) else o
              for o in (re.sub(r"[ \t]*\n[ \t]*", " ", o.strip())
                        for o in listed if isinstance(o, str)))
     # A reply is the user's own words for the final message's ask ("merge PR #5144" for
     # "Approvals to merge PR #5385 and PR #5144"), read off one paragraph (_invited). A
     # `! command` the agent wrote without its "!" is on the screen as the command alone.
-    shown = lambda o: _quoted(o, visible) or (  # noqa: E731
-        o.startswith("! ") and _quoted(o[2:], visible)) or (
-        not o.startswith("!") and _invited(o, visible))
+    shown = lambda o: _quoted(o, above) or (  # noqa: E731
+        o.startswith("! ") and _quoted(o[2:], above)) or (
+        not o.startswith("!") and _invited(o, above))
     kept = [o for o in dict.fromkeys(whole)
             if shown(o) and not (o.startswith("! ") and (o.endswith("\\") or not _parses(o[2:])))]
     return [o for o in kept if f"! {o}" not in kept][:3]  # the command, not its plain copy too
@@ -1170,7 +1181,8 @@ _CLAUDE_MODE_RE = re.compile(r"^[ \t]*(?:-- INSERT --[ \t]*)?(?:⏵⏵|⏸)[ \t]
 
 def claude_mode(visible: str) -> str | None:
     """The mode Claude Code's status line shows in the screen's last rows, or None."""
-    *_, m = [None, *_CLAUDE_MODE_RE.finditer("\n".join(visible.rstrip().splitlines()[-4:]))]
+    rows = _AGENT_LIST_RE.sub("", visible).rstrip().splitlines()[-4:]  # the agent list sits below
+    *_, m = [None, *_CLAUDE_MODE_RE.finditer("\n".join(rows))]
     return m and m[1]
 
 

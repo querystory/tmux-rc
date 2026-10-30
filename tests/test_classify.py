@@ -96,6 +96,29 @@ def test_a_handed_over_command_keeps_its_bash_prefix():
     assert classify_mod.screen_offers(["make tea"], long) == ["! make tea"]
 
 
+def test_offers_read_past_agent_notes_repeats_and_the_draft():
+    """A turn handing over a command it also handed over earlier, then Claude's notes on its
+    background agents, a draft in the input box and the agent list below the mode row."""
+    rule = "─" * 40
+    screen = (f"● Ready:\n\n  ! make tea\n\n❯ and?\n\n● Still ready:\n\n  ! make tea\n\n"
+              f'● Agent "Kettle check" finished · 3m 2s\n\n'
+              f'● Agent "Cup count" is waiting on its own background work · 1m 4s\n\n'
+              f"{rule}\n❯ brew coffee\n{rule}\n  ⏵⏵ auto mode on · 2 shells\n\n  ● main\n"
+              "  ◯ general-purpose  Warming the pot\n  ◯ general-purpose  Counting cups\n"
+              "  ◯ general-purpose  Finding sugar\n  ↓ 2 more")
+    assert classify_mod.claude_mode(screen) == "auto mode"
+    assert classify_mod._last_message(screen.split(rule, 1)[0]).startswith("Still ready:")
+    # The repeated command keeps its "!"; the user's own draft is no offer.
+    assert classify_mod.screen_offers(["make tea", "brew coffee"], screen) == ["! make tea"]
+    # A bare sighting elsewhere (a reply to type) still leaves the command as written.
+    bare = screen.replace("● Ready:\n\n  ! make tea", "● Reply: make tea")
+    assert classify_mod.screen_offers(["make tea"], bare) == ["make tea"]
+    # The finished turn's final message is the reply, not the note after it.
+    done = screen.replace("\n\n● Agent", "\n\n✻ Worked for 9s\n\n● Agent", 1).replace(
+        "❯ brew coffee", "❯ ")
+    assert classify_mod._final_message(done, "claude").strip().startswith("Still ready:")
+
+
 def _pane(cmd="bash", title="t"):
     return Pane("work", "0", "bash", "0", "%0", cmd, title, "/home/x/proj")
 
