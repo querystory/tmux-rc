@@ -96,6 +96,7 @@ from . import (  # noqa: E402
 from .browser_security import BrowserOriginMiddleware  # noqa: E402
 from .classify import picker_digest, picker_read, prompt_gone  # noqa: E402
 from .history import History, default_path, pane_key  # noqa: E402
+from .host_security import TrustedHostMiddleware  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
 from .open_loops import OpenLoops  # noqa: E402
 from .plan_usage import ENV, PlanUsage, canonical  # noqa: E402
@@ -545,16 +546,18 @@ async def lifespan(app: FastAPI):
         await app.state.watcher.stop()
 
 
-# Swagger UI moves off /docs to /apidocs so /docs belongs to the Hugo docs site
-# (FastAPI's default /docs would otherwise shadow the bare /docs path). ReDoc follows.
+# FastAPI's interactive docs load third-party JavaScript on the terminal-control
+# origin. Opt in for development; the JSON schema remains available without scripts.
+_api_docs = os.environ.get("TMUXRC_API_DOCS", "").strip().lower() in ("1", "true", "yes", "on")
+# Swagger UI moves off /docs to /apidocs so /docs belongs to the Hugo docs site.
 # auto_configure off: FastAPI would otherwise attach its own OTLP exporters, from the
 # OTEL_* env the session shares with Claude Code, and ship every request span, metric and
 # log to that receiver. Our export is telemetry.py's scoped records, on its own provider.
 app = FastAPI(
     title="tmux-rc",
     lifespan=lifespan,
-    docs_url="/apidocs",
-    redoc_url="/apiredoc",
+    docs_url="/apidocs" if _api_docs else None,
+    redoc_url="/apiredoc" if _api_docs else None,
     telemetry={"auto_configure": False},
 )
 # Terminal frames are ~13KB raw but ~4.6x compressible (mostly repeated text/escapes).
@@ -627,6 +630,10 @@ async def no_cache(request, call_next):
     if cl and request.url.path.endswith("/live"):
         logger.debug("%s -> %s bytes", request.url.path, cl)
     return resp
+
+
+# Later registrations run first: refuse malformed authorities before no_cache parses URLs.
+app.add_middleware(TrustedHostMiddleware)
 
 
 def _web_version() -> str:
@@ -888,6 +895,8 @@ async def get_state(v: int | None = None, client: str = "", visible: bool = Fals
         "usage": usage_totals(),  # running tokens/cost/calls/errors for the top-bar readout
         "prefix": tmux.prefix_key(),  # auto-detected tmux prefix, so the phone button matches
         "tmux_running": w.tmux_running,  # False = no server at all (e.g. after a reboot)
+        # The machine's name for the app's tab titles (docs/design/tab-icons.md): zero setup.
+        "host": os.environ.get("TMUXRC_HOST_NAME") or socket.gethostname().split(".")[0],
         "panes": panes,
     }
 
@@ -2313,6 +2322,12 @@ if _scratch_dir:
         states = list(watcher.states)
         return (states, accounts.report(states, watcher.pane_birth)["profiles"],
                 WEB_DIR / "m" / "style.css", lambda entry: live.running_pane(entry, watcher))
+
+    @app.get("/api/panes/{pane_id}/scratch")
+    def pane_scratch(pane_id: str) -> list[dict]:
+        """The scratch pages this pane's session made, for its overview's Links."""
+        states, profiles, _style, pane_of = _who()
+        return scratch.made_by(Path(_scratch_dir), pane_id, states, profiles, pane_of)
 
     @app.get("/scratch/", include_in_schema=False)
     async def scratch_listing() -> HTMLResponse:
