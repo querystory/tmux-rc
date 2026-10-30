@@ -350,10 +350,10 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
         at = i["pane"] if s.get("running_unknown") else open_in.get(s.get("session_id"), i["pane"])
         if at != i["pane"]:
             named = at or (None if s.get("running") else i["pane"])
-            i["pane"], i["state"] = at, progress(panes.get(at), named, i["created"])
+            i["pane"], i["state"] = at, progress(panes.get(at), named, i["since"])
         if (pane := panes.get(i["pane"])) is not None:
             if s:  # its session, found in a new pane: its page comes along as that pane does
-                i["state"] = progress(pane, i["pane"], i["created"])
+                i["state"] = progress(pane, i["pane"], i["since"])
             _author(i, pane.get("tool"), account.get(i["pane"]) or {})
             i["where"] = where(pane)
             continue

@@ -20,7 +20,7 @@ a { color: var(--accent); }
 <p class="muted">{who}{where} · started {ago} ago</p>
 <p class="muted" id="offline" hidden>Reconnecting…</p>
 </main><script>
-// Sandboxed like every /scratch/ page: the system theme (the ask that reloads it is {ask}, below).
+// Sandboxed like every /scratch/ page: the system theme. The ask that reloads it follows this script.
 document.documentElement.classList.toggle("light", !matchMedia("(prefers-color-scheme: dark)").matches);
 // The tab's icon: scratch's, with an arc running round its edge while the page is in progress
 // (Chrome animates no SVG favicon, so step it; a background tab steps about once a second),
