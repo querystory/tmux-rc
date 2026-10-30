@@ -1139,6 +1139,22 @@ def test_copyable_keeps_line_continuations_as_shown():
         assert result["copyables"][0]["text"] == text
 
 
+def test_copyable_survives_a_url_the_program_hard_wrapped(caplog):
+    # A 50-column pane's program broke the URL with its own newline, which capture-pane -J
+    # cannot rejoin; the model offers it whole, as the prompt asks.
+    shown = ("● Reply for the thread:\n\n  Shipped. Notes:\n"
+             "  https://github.com/example/jev-sentinel\n    /blob/main/docs/NOTES.md\n")
+    text = "Shipped. Notes:\nhttps://github.com/example/jev-sentinel/blob/main/docs/NOTES.md"
+    result = classify(_pane(), shown, _llm({"copyables": [{"label": "Reply", "text": text}]}))
+    assert result["copyables"][0]["text"] == text
+    # A token the screen never showed is still no copy, and the journal says so.
+    with caplog.at_level("INFO", logger="openbus.classify"):
+        result = classify(_pane(), shown, _llm({"copyables": [
+            {"label": "Reply", "text": text.replace("NOTES", "PLAN")}]}))
+    assert "copyables" not in result
+    assert any("%0: copyable 'Reply'" in r.getMessage() for r in caplog.records)
+
+
 def test_copyable_cannot_cut_a_summary_out_of_prose():
     result = classify(_pane(), "• Tests reject malformed input. No PR was opened.", _llm({
         "copyables": [{"label": "Summary", "text": "Tests reject malformed input."}],

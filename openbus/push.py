@@ -43,6 +43,7 @@ NONCE_SECONDS = 10 * 60.0
 MAX_PRESENCE_LEASES = 128
 MAX_SUBSCRIPTIONS = 16
 READY_QUIET_SECONDS = 120.0  # after "Ready", a pane's Needs-you without answers says nothing new
+LANDED_FRESH_SECONDS = 60.0  # a promised page that landed between two scans: still news
 DEFAULT_PUSH_HOSTS = (
     "web.push.apple.com",
     "fcm.googleapis.com",
@@ -127,7 +128,8 @@ class PushStore:
             data = json.loads(self.path.read_text())
         except FileNotFoundError:
             private, public = _new_keys()
-            data = {"private_key": private, "public_key": public, "subscriptions": []}
+            data = {"private_key": private, "public_key": public, "subscriptions": [],
+                    "turns": {}}
             self._data = data
             self._save()
             return data
@@ -140,6 +142,8 @@ class PushStore:
         changed = subscriptions != data["subscriptions"]
         data["subscriptions"] = subscriptions[-MAX_SUBSCRIPTIONS:]
         changed = changed or len(subscriptions) > MAX_SUBSCRIPTIONS
+        if not isinstance(data.get("turns"), dict):  # a store from before turns were kept
+            data["turns"] = {}
         self._data = data
         if changed:
             self._save()
@@ -196,6 +200,28 @@ class PushStore:
             if changed:
                 self._save()
             return changed
+
+    def told(self, pane: str, turn: str | None) -> bool:
+        """Was the user already told about this pane (id and birth) at this turn?"""
+        with self._lock:
+            return turn is not None and self._load()["turns"].get(pane) == turn
+
+    def tell(self, pane: str, turn: str | None) -> None:
+        """Remember `turn` as the pane's last one the user was told about, or that ended
+        without an ask. Kept across restarts: the same turn read again is not news."""
+        with self._lock:
+            turns = self._load()["turns"]
+            if turn is not None and turns.get(pane) != turn:
+                turns[pane] = turn
+                self._save()
+
+    def keep(self, panes: set[str]) -> None:
+        """Forget the turns of panes gone (not in `panes`): what bounds the store."""
+        with self._lock:
+            data = self._load()
+            if not set(data["turns"]) <= panes:
+                data["turns"] = {k: v for k, v in data["turns"].items() if k in panes}
+                self._save()
 
     def revoke_all(self) -> int:
         with self._lock:
@@ -261,10 +287,13 @@ class PushSender:
             ) as pool:
                 futures = [pool.submit(self._deliver, subscription, payload, private)
                            for subscription in subscriptions]
-                for future in futures:
-                    future.result()  # _deliver contains and logs endpoint-specific errors
+                # _deliver contains and logs endpoint-specific errors; never log an endpoint.
+                sent = sum(future.result() for future in futures)
+            if sent:
+                logger.info("push sent to %d of %d devices: %s %r", sent, len(subscriptions),
+                            payload.get("tag"), payload.get("title"))
 
-    def _deliver(self, subscription: dict, payload: dict, private: str) -> None:
+    def _deliver(self, subscription: dict, payload: dict, private: str) -> bool:
         try:
             # pywebpush mutates this dict with endpoint-specific aud/exp claims,
             # so every endpoint receives the independent copy returned by the store.
@@ -280,6 +309,7 @@ class PushSender:
                 ttl=600,
                 headers={"Urgency": "high"},
             )
+            return True
         except WebPushException as exc:
             status = getattr(getattr(exc, "response", None), "status_code", None)
             if status in {404, 410}:
@@ -290,6 +320,7 @@ class PushSender:
                 logger.warning("push delivery failed: %s", exc)
         except Exception:
             logger.warning("push delivery failed", exc_info=True)
+        return False
 
 
 def renderable_options(question: dict) -> list[tuple[int, str]]:
@@ -329,6 +360,11 @@ def contract(pane: dict, birth: str | None) -> tuple[str, dict | None]:
     }
     digest = hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
     return digest, question
+
+
+def _pane_key(pane: dict) -> str:
+    """A pane across restarts: ids are recycled, so with its birth."""
+    return f"{pane['pane_id']}:{pane.get('birth')}"
 
 
 def held_question(watcher, pane_id: str, fingerprint: str) -> tuple[dict, str]:
@@ -449,7 +485,7 @@ class PushManager:
         self.sender = sender or PushSender(self.store)
         self.clock = clock
         self._presence: dict[str, float] = {}
-        self._stable: dict[str, tuple[str, float]] = {}
+        self._stable: dict[str, tuple[str, float, str | None]] = {}  # fp, since, turn
         self._notified: set[tuple[str, str]] = set()
         self._rates: dict[tuple[str, str | None], deque[float]] = defaultdict(deque)
         self._nonces: dict[str, dict] = {}
@@ -458,8 +494,9 @@ class PushManager:
         self._task: asyncio.Task | None = None
         self.scratch = scratch  # the scratch dir whose pending pages notify as they land
         self.shoot = shoot  # what queues a landed page's thumbnail (scratch_sidecars.queue)
-        self._mtimes: dict[str, float] = {}
+        self._mtimes: dict[str, tuple] | None = None  # None: not scanned since startup
         self._waiting: set[tuple[str, int]] = set()  # pending folders, (name, inode)
+        self._done: set[tuple[str, int]] = set()  # folders whose "Ready" went out
         self._ready: dict[tuple, float] = {}  # (pane, birth) -> when its "Ready" went out
 
     def start(self) -> None:
@@ -543,44 +580,51 @@ class PushManager:
     def landed(self) -> None:
         """Each tick, read again the scratch folders whose entries, or meta.json, changed
         (all of them at startup); one that was pending (only its meta.json, its page being
-        made) and has its page now sends "Ready" to every device, tagged as its pane's
-        Needs-you so the two never stack. A page published in one go was never promised,
-        and does not notify."""
+        made) and has its page now sends "Ready" to every device. So does a page whose
+        meta.json says it was `created` under a minute ago: one made faster than a scan was
+        never seen pending, but was promised all the same (a meta.json tmux-rc generated, or
+        one half-written, says no such thing). A page published in one go was never promised
+        and does not notify; nor does any folder already there at startup that was not
+        pending."""
         now = self.clock()
         if not self.scratch:
             return
         seen, self._mtimes = self._mtimes, {  # a meta.json finished in place: the folder's alone
             e.name: (e.stat(follow_symlinks=False).st_mtime_ns, _mtime(Path(e.path, "meta.json")))
             for e in os.scandir(self.scratch)}
-        self._waiting = {k for k in self._waiting if k[0] in self._mtimes}  # removed: forgotten
-        for name in [n for n, at in self._mtimes.items() if seen.get(n) != at]:
+        # Removed: forgotten.
+        self._waiting, self._done = ({k for k in keys if k[0] in self._mtimes}
+                                     for keys in (self._waiting, self._done))
+        for name in [n for n, at in self._mtimes.items() if (seen or {}).get(n) != at]:
             item = scratch.read(self.scratch, self.scratch / name)
             key = item and (name, item["inode"])
+            if seen is None and item and not item["pending"]:
+                self._done.add(key)  # there at startup: old news, however it changes later
+            fresh = (item and key not in self._done and item["stamped"]
+                     and time.time() - item["stamped"] < LANDED_FRESH_SECONDS)
             if item and item["pending"]:
                 self._waiting.add(key)
-            elif key in self._waiting and item["href"].endswith("/"):  # its index, no asset
+            elif (key in self._waiting or fresh) and item["href"].endswith("/"):  # its index
                 if self._ready_push(item, now) or not self.store.subscriptions():
                     self.shoot(item)  # the gallery's spinner polls for it
                     self._waiting.discard(key)
-                else:  # a full queue: the next scan tries again
+                    self._done.add(key)  # a later rewrite of its meta.json is not news
+                else:  # a full queue: the next scan tries again, however old it is by then
+                    self._waiting.add(key)
                     self._mtimes.pop(name)
 
     def _ready_push(self, item: dict, now: float) -> bool:
-        """Tell every device a pending page has landed. Its pane's Needs-you tag, so a plain
-        Needs-you already shown for that finish is replaced without a second buzz, and one
-        after it is skipped (evaluate); while that pane holds a question with answer buttons,
-        a tag of its own, so they stay."""
+        """Tell every device a pending page has landed, under a tag of its own: a page is news
+        of its own, so it never silently replaces a Needs-you. A plain Needs-you right after
+        it is skipped (evaluate), so one finish still buzzes once."""
         pane = next((s for s in self.watcher.states if s.get("pane_id") == item["pane"]
                      and scratch.made_in(s, item["created"])), None)
-        with self._lock:
-            asking = any(n["pane_id"] == item["pane"] for n in self._nonces.values())
         body = item["description"] or (pane and f"{pane.get('tool')} finished it in "
-                                       f"{pane.get('session')}:{pane.get('window_name')}")
+                                       f"{scratch.where(pane)}")
         sent = self.sender.send({
             "title": _push_text(f"Ready: {item['title']}", 100),
             "body": _push_text(body or "Its page is ready.", PUSH_BODY_MAX),
-            "tag": f"block:{item['pane']}" if pane and not asking else f"scratch:{item['name']}",
-            "renotify": not any(p == item["pane"] for p, _ in self._notified),
+            "tag": f"scratch:{item['name']}",
             "url": "/m#" + urlencode({"view": "scratch", "open": f"/scratch/{item['href']}"}),
             "actions": []})
         if sent and pane:
@@ -591,28 +635,33 @@ class PushManager:
         if self._stopping.is_set() or self.watcher.is_stale():
             return
         now = self.clock()
+        booted = self.watcher.booted()  # before the copy: then it lists every pane
         panes = [dict(s) for s in self.watcher.states]
         active: set[tuple[str, str]] = set()
         candidates = []
         for pane in panes:
-            if (pane.get("activity") != "waiting"
-                    or pane.get("waiting_on") == "external"):
-                continue
             pane_id = pane.get("pane_id")
             if (not isinstance(pane_id, str)
                     or not self.watcher.pane_parse_valid(pane_id)):
+                continue
+            if (pane.get("activity") != "waiting"
+                    or pane.get("waiting_on") == "external"):
+                if pane.get("activity") in ("idle", "waiting"):  # it ended asking nothing
+                    self.store.tell(_pane_key(pane), pane.get("turn"))
                 continue
             # The snapshot's own birth: held_question checks it against the live one, so
             # a recycled pane id can never inherit this question.
             fp, question = contract(pane, pane.get("birth"))
             active.add((pane_id, fp))
             previous = self._stable.get(pane_id)
-            if previous is None or previous[0] != fp:
-                self._stable[pane_id] = (fp, now)
+            if previous is None or (previous[0], previous[2]) != (fp, pane.get("turn")):
+                self._stable[pane_id] = (fp, now, pane.get("turn"))
                 continue
             if now - previous[1] >= SETTLE_SECONDS:
                 candidates.append((pane, fp, question))
 
+        if booted:  # the rest are gone
+            self.store.keep({_pane_key(p) for p in panes if isinstance(p.get("pane_id"), str)})
         self._ready = {k: at for k, at in self._ready.items() if now - at < READY_QUIET_SECONDS}
         cleared = set(self._notified) - active
         self._notified.intersection_update(active)
@@ -635,7 +684,12 @@ class PushManager:
         for pane, fp, question in candidates:
             pane_id = pane["pane_id"]
             marker = (pane_id, fp)
-            if marker in self._notified:
+            # Evidence, not wording: a turn already told about (before a restart, too) is
+            # not news however its card reads now (re-read after a resize, by a new parser),
+            # and a new one is, however alike. The wording decides only for a card with none.
+            turn = pane.get("turn")
+            if self.store.told(_pane_key(pane), turn) if turn else marker in self._notified:
+                self._notified.add(marker)  # told before a restart, too: _ready_push reads it
                 continue
             rate = self._rates[(pane_id, self.watcher.pane_birth(pane_id))]
             if len(rate) >= RATE_MAX:
@@ -667,6 +721,7 @@ class PushManager:
                 offered = []
             if not question and (pane_id, pane.get("birth")) in self._ready:
                 self._notified.add(marker)  # a plain turn ended: its "Ready" was the news
+                self.store.tell(_pane_key(pane), turn)
                 continue
             nonce = secrets.token_urlsafe(24) if offered else None
             if nonce:
@@ -703,4 +758,5 @@ class PushManager:
                         self._nonces.pop(nonce, None)
                 continue
             self._notified.add(marker)
+            self.store.tell(_pane_key(pane), turn)
             rate.append(now)

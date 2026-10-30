@@ -118,13 +118,28 @@ rejected: New session had grown taller than the screen and scrolled its own titl
 
 New session is compact for the same reason, but not at the cost of saying how it works (a
 first cut hid every explanation in tooltips, and read as cryptic): a one-line subtitle says
-what it does; the accounts are a two-column grid of small chips, "+ Add account" the next
-cell, with a hint naming the tool they apply to; the session's default is a sentence with a
+what it does; the accounts are a step after the agent, shown only for one with several
+(a wall of every tool's accounts before you had picked a tool read as clutter), preset to the
+account that would start anyway, with Back to the agents and Start: a two-column grid of
+small chips, "+ Add account" the next cell, with a hint naming the tool they apply to; the session's default is a sentence with a
 checkbox ("Use Work for every new window in qs") and a muted line on what happens otherwise,
 not a "Default for … Not set" select; and each tool is a 52px row with a muted line, the
 account it starts on where it has several, then its model or what it is. Rows the account
 does not apply to carry no chip. It fits unscrolled at 900px tall; shorter, the body scrolls under
 the fixed title.
+
+Its top row picks Session, Chat or Voice, so starting something is one place whatever it is.
+Chat and Voice hand over to their own buttons rather than repeating their start logic, and the
+row is a segmented control, not a first sheet, so the common case (a session) costs no extra
+tap. A choice that can't start here is greyed, and tapping it puts the reason on the line
+below; with neither available (Live Mode is off by default) the row is hidden, so a casual
+user's sheet is unchanged. The row goes with the choice: picking Chat or Voice carries it to
+the top of that sheet, pressed on the pick, so Session is one tap back rather than a close
+and a second + (the first version dropped it with the sheet, and there was no way back). It
+returns to New session when the Chat sheet closes, or when New session opens over a docked
+one; Chat opened from its own button never shows it. While a conversation runs, the other
+mode is a reason on the line ("End the chat first"), not a pressed choice that did not take:
+Chat and Voice each only bring a running conversation back, whichever mode it is in.
 
 ## The collapsed rail keeps working
 
@@ -144,8 +159,13 @@ The idle-count button ("+12") is gone: the rail lists every pane, as the list do
 
 ## The phone
 
-The phone's tab bar is a floating glass pill of Dashboard, Sessions, a raised mic, Chat and
-Needs you (variant D of the tab bar mock, with its count only on Needs you). It used to carry
+The phone's tab bar is a floating glass pill of Dashboard, Usage, Sessions, Needs you and
+Scratch, with a count only on Needs you. Usage and Scratch were a card's view and a ☰ row, a
+tap or two deep for places people check many times a day. The five never change: with no
+plan to meter, Usage says how to get one rather than its tab vanishing and the bar shifting. Five is all a 320 px phone holds
+without shrinking the targets, so Chat and the mic left the bar for the ☰ drawer (and a
+pane's heading, as before): they are opt-in actions that open a sheet, not places, a casual
+user never sees them, and a running conversation keeps its own bubble. It used to carry
 the state filter as five flat tabs (All, Working, Just finished, Needs you, plus Dashboard),
 which cost "Just finished", the widest word, a tab for the least-used view, and left Chat and
 the mic up in the header, out of thumb's reach. Now the states are in the filter menu like the

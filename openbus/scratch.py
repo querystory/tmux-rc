@@ -39,10 +39,11 @@ _reconciled = [0.0]
 _PAGE = Path(__file__).resolve().parent / "scratch.html"
 _PENDING = Path(__file__).resolve().parent / "scratch_pending.html"
 STALL = 30 * 60  # an in-progress folder's agent quiet this long has stopped
-# What a card, then the placeholder, says of a page being made, by progress().
-STATES = {"working": ("Being made…", "An agent is making this page. It opens here once it lands."),
-          "quiet": ("Being made…", "The agent's pane is idle. It may still be working."),
-          "stopped": ("Stopped without publishing",
+# What a card, then the placeholder, says of a page in progress, by progress().
+STATES = {"working": ("In progress",
+                      "An agent is working on this page. It opens here once it's ready."),
+          "quiet": ("In progress", "The agent's pane is idle. It may still be working."),
+          "stopped": ("Stopped",
                       "The agent stopped without publishing this page.")}
 DOCS = "https://github.com/querystory/tmux-rc/blob/main/docs/deploy/scratch-gallery.md"
 SIDECARS = ("meta.json", "thumb.webp")  # what tmux-rc and agents add beside a page
@@ -108,7 +109,7 @@ def _files(root: Path, top: Path) -> dict[str, list[tuple[float, str]]]:
 def _item(root: Path, folder: Path, files: list[tuple[float, str]]) -> dict | None:
     """One card's data; None for a folder with nothing to open. Its sidecars and anything
     hidden (a sidecar half-written, a .git) are not the page and do not date it. A folder
-    whose meta.json came first is `pending` until its index lands: its page is being made
+    whose meta.json came first is `pending` until its index lands: its page is in progress
     (a site's assets may land ahead of its index, for a minute; loose files older than
     that are the publish)."""
     sidecars = {str(folder / name) for name in SIDECARS}  # its own, not a page's images/thumb.webp
@@ -138,6 +139,7 @@ def _item(root: Path, folder: Path, files: list[tuple[float, str]]) -> dict | No
             "href": quote(page.relative_to(root).as_posix() if page != index and not pending
                           else folder.name + "/"),
             "created": _when(meta.get("created")) or min(files)[0], "updated": max(files)[0],
+            "stamped": _when(meta.get("created")),  # the agent's own word, never a guess
             "inode": folder.stat().st_ino,  # the folder until replaced, however rewritten
             "page": page, "pending": pending, "thumb": inside(thumb, folder)
             and thumb.is_file() and thumb.stat().st_mtime}
@@ -165,13 +167,19 @@ def items(root: Path) -> list[dict]:
 def opened(root: Path, visits: list[tuple[str, float]], n: int,
            states: list[dict] = ()) -> list[dict]:
     """The first `n` folders of these visits, (name, when), still in scratch: the title and
-    link the gallery gives each, whether its page is still being made (not stopped), and
+    link the gallery gives each, whether its page is still in progress (not stopped), and
     when it was opened."""
     found = list(islice(((item, at) for name, at in visits
                          if (item := read(root, root / name))), n))
     _progress([i for i, _ in found], states)
-    return [{"title": i["title"], "href": i["href"], "at": at,
-             "pending": i["pending"] and i["state"] != "stopped"} for i, at in found]
+    return [_link(i, at) for i, at in found]
+
+
+def _link(i: dict, at: float) -> dict:
+    """A page as the app links it: its title and link, `at`, and whether it is still being
+    made (not stopped)."""
+    return {"title": i["title"], "href": i["href"], "at": at,
+            "pending": i["pending"] and i["state"] != "stopped"}
 
 
 def _writers(todo: list[dict]) -> None:
@@ -245,6 +253,15 @@ def made_in(pane: dict, created: float) -> bool:
     return len(stat) < 20 or tmux.started_at(stat[19]) <= created + 60
 
 
+def where(pane: dict) -> str:
+    """Where a pane is, "session:name", named as the phone's own heading names it
+    (pane-model.js paneName): the agent's title for its work, else tmux's label for the
+    window. The window name alone is tmux's default ("Codex") for most agent panes; the
+    label of an unnamed window already says the session ("dev:4")."""
+    name = pane.get("title") or pane.get("label") or pane.get("window_name") or pane.get("pane_id")
+    return name if name.startswith(f"{pane.get('session')}:") else f"{pane.get('session')}:{name}"
+
+
 def _author(i: dict, tool: str | None, acct: dict) -> None:
     """The agent, its account and that account's chip colour, and `who` reading them as
     "claude · Work"; the account left out when it only repeats the agent ("Codex")."""
@@ -286,12 +303,16 @@ def _progress(listed: list[dict], states: list[dict]) -> dict:
 
 def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
             pane_of=lambda _entry: None) -> None:
-    """Who made each item: `who` (agent and account), `where` (session:window, or the
+    """Who made each item: `who` (agent and account), `where` (session:pane name, or the
     agent session's title), `pane` when that pane is still open, and `state` (progress),
     which only a pending one shows."""
     panes = _progress(listed, states)
+    # Codex runs every session's tool calls through one app-server daemon, forked by the
+    # first Codex pane with its TMUX_PANE, so a meta.json Codex wrote names that pane
+    # whichever session wrote it: the transcript says which, the named pane failing that.
+    sure = {p for p, s in panes.items() if s.get("tool") != "codex"}
     account = {p: a for a in profiles for p in a.get("panes", [])}
-    todo = [i for i in listed if i["pane"] not in panes]
+    todo = [i for i in listed if i["pane"] not in sure]
     _writers(todo)
     ids = sorted({i["session_id"] for i in todo if i["session_id"]})
     running = agent_history.get_many(ids) or {} if ids else {}
@@ -299,17 +320,36 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
     if missing := [sid for sid in ids if sid not in running]:  # no binary, or a subagent
         running = {**agent_history.indexed(missing), **running}  # the index still says who
     for i in listed:
-        s = running.get(i["session_id"]) or {} if i["pane"] not in panes else {}
-        i["pane"] = open_in.get(s.get("session_id")) or i["pane"]  # still open
+        s = running.get(i["session_id"]) or {} if i["pane"] not in sure else {}
+        # The writer's pane, if open; else the pane named, which stands when nobody can say
+        # where the writer is: only the index knows it (no binary, a subagent), or the
+        # process scan failed (`running_unknown`). A pending card follows its writer; one
+        # found but gone from every pane has stopped, however recent the folder; one alive
+        # that no pane shows (Codex without `session-id` in its status bar) works on by time.
+        at = i["pane"] if s.get("running_unknown") else open_in.get(s.get("session_id"), i["pane"])
+        if at != i["pane"]:
+            named = at or (None if s.get("running") else i["pane"])
+            i["pane"], i["state"] = at, progress(panes.get(at), named, i["created"])
         if (pane := panes.get(i["pane"])) is not None:
+            if s:  # its session, found in a new pane: its page comes along as that pane does
+                i["state"] = progress(pane, i["pane"], i["created"])
             _author(i, pane.get("tool"), account.get(i["pane"]) or {})
-            i["where"] = f"{pane.get('session')}:{pane.get('window_name')}"
+            i["where"] = where(pane)
             continue
         source = s.get("source") or ""
         acct = next((a for a in profiles if source.startswith(a.get("dir", "") + "/")), {})
         i["pane"] = None
         _author(i, s.get("harness"), acct)
         i["where"] = s.get("title") or ""
+
+
+def made_by(root: Path, pane: str, *who) -> list[dict]:
+    """The pages this pane's session made, newest first, linked from its overview for as
+    long as they exist: matched as the gallery's cards are (resolve, `who` as for it), so
+    one made before a restore still finds the session in its new pane."""
+    listed = items(root)
+    resolve(listed, *who)
+    return [_link(i, i["updated"]) for i in listed if i["pane"] == pane]
 
 
 def page(root: Path, states: list[dict], profiles: list[dict], style: Path,
@@ -361,7 +401,7 @@ def _card(i: dict) -> str:
              else f'<span class="{i["state"] if i["pending"] else ""}"{poll}>{wait}</span>'
              if wait else "No preview")
     words = " ".join([i["title"], i["description"], i["who"], i["where"]]).lower()
-    return (f'<article data-q="{escape(words)}">'
+    return (f'<article data-q="{escape(words)}" data-pane="{e.get("pane", "")}">'
             f'<a class="thumb" href="{e["href"]}" tabindex="-1" aria-hidden="true">{thumb}</a>'
             f'<h2><a href="{e["href"]}"'
             + (f' aria-label="{e["title"]}: {wait}"' if i["pending"] else "")  # the thumb's
@@ -389,10 +429,13 @@ def placeholder(root: Path, name: str, who) -> str | None:
     headline = next((s.get("headline") for s in states if s.get("pane_id") == i["pane"]), "")
     where = _where(i, e)
     age = int(time.time() - i["created"]) // 60
+    icon = json.dumps((style.parent.parent / "scratch.svg").read_text())  # spun by the page
     fill = {"tokens": scratch_markdown.tokens(style), "title": e["title"], "state": i["state"],
+            "label": "Stopped" if i["state"] == "stopped" else "In progress", "icon": icon,
             "say": STATES[i["state"]][1], "who": e["who"], "where": where and f" · {where}",
             "desc": f'<p>{e["description"]}</p>' if i["description"] else "",
             "now": f'<p class="now">Now: {escape(str(headline))}</p>' if headline else "",
             "ago": f"{age}m" if age < 60 else f"{age // 60}h {age % 60}m",
             "every": 60000 if i["state"] == "stopped" else 5000 if age < 10 else 30000}
+    fill["seen"] = hash(tuple(fill.values()))  # what scratch_markdown.Files compares, as SEEN
     return re.sub(r"\{(\w+)\}", lambda m: str(fill[m[1]]), _PENDING.read_text())
