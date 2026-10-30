@@ -11,7 +11,7 @@
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="icon" href="/favicon.ico">
   <link rel="manifest" href="/m/manifest.json" crossorigin="use-credentials">
-  <title>tmux-rc mobile</title>
+  <title>tmux-rc</title>
   <script>
     (() => {
       let theme;
@@ -138,12 +138,12 @@
       <div id="sb-scroll">
       <!-- The places you go, as rows: Dashboard, Graph (the fleet graph), Scratch (agents' previews, in the content area) and Settings (app.js moves Settings in). Chat and
            Voice are toggles, icons in the head. -->
-      <div id="sb-nav" class="sb-only"><button id="dash-nav" class="icon-button" aria-label="Dashboard" title="Dashboard"></button><a id="graph-nav" class="icon-button" href="#view=graph" aria-label="Graph" title="Graph" hidden></a><a id="scratch-nav" class="icon-button" href="#view=scratch" aria-label="Scratch" title="Scratch" hidden></a></div>
+      <div id="sb-nav" class="sb-only"><a id="dash-nav" class="icon-button" href="#view=dashboard" aria-label="Dashboard" title="Dashboard"></a><a id="graph-nav" class="icon-button" href="#view=graph" aria-label="Graph" title="Graph" hidden></a><a id="scratch-nav" class="icon-button" href="#view=scratch" aria-label="Scratch" title="Scratch" hidden></a></div>
       <div id="sb-sticky"><div id="sb-sess" class="sb-only"><b>Sessions</b></div></div>
       <button type="button" id="restore" hidden></button>
       <div id="pane-list"></div>
       <div id="side-list" class="sb-only"></div>
-      <p id="empty" class="empty" role="status">Loading sessions...</p><button type="button" id="empty-needs" class="empty-needs" hidden></button><button id="list-start" class="primary start-session" hidden>Start a tmux session</button>
+      <p id="empty" class="empty" role="status">Loading sessions...</p><button type="button" id="empty-needs" class="empty-needs" hidden></button><button type="button" id="empty-history" class="empty-needs" hidden>Search previous sessions</button><button id="list-start" class="primary start-session" hidden>Start a tmux session</button>
       </div>
       <!-- Plan limits (usage.js): atop a phone's list by CSS (it scrolls away), the wide foot. -->
       <div id="usage-handle" class="sb-only" role="separator" aria-orientation="horizontal" aria-label="Resize plan usage" tabindex="0" hidden></div>

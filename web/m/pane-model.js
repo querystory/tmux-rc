@@ -139,6 +139,25 @@ export function paneName(pane) {
   const label = pane.label && !sessionOf(pane) && pane.label === `${pane.session}:${pane.window_index}` ? `Window ${pane.window_index}` : pane.label;
   return pane.title || label || pane.window_name || pane.pane_id;
 }
+// The tab's title (docs/design/tab-icons.md): the Needs-you count, the most specific subject,
+// then the host, the order a narrow tab keeps them in as it cuts from the right. Dialogs
+// (Settings, Chat) sit over a view and leave its title alone.
+const PAGE_TITLES = { heat: "Running by hour", usage: "Plan usage", loops: "Open loops", restore: "Restore", scratch: "Scratch", graph: "Graph" };
+export function tabTitle({ pane, page, dashboard, filter }, panes, count, host) {
+  const open = pane && panes.find((p) => p.pane_id === pane);
+  const subject = pane ? (open ? paneName(open) : "Loading pane") : PAGE_TITLES[page] || (dashboard ? "Dashboard" : String(filter) === "attention" ? "Needs you" : "Sessions");
+  return [count ? `(${count}) ${subject}` : subject, host].filter(Boolean).join(" · ");
+}
+// The tab's icon, as "glyph:state" (docs/design/tab-icons.md): the surface's Lucide glyph (the
+// app's own mark for the sessions home), and the state of the tab's own subject. A pane shows
+// its own, "done" while it finished with the tab hidden (`away`); the home a dot while anything
+// needs you; a view of the fleet none, the title's count covers it.
+const PAGE_GLYPHS = { heat: "activity", usage: "gauge", loops: "listTodo", restore: "history", scratch: "files", graph: "network" };
+export function tabIconKey({ pane, page, dashboard }, panes, asks, away) {
+  const open = pane && panes.find((p) => p.pane_id === pane);
+  if (pane) return `terminal:${!open ? "" : asks(open) ? "needs" : isRunning(open) ? "working" : away ? "done" : ""}`;
+  return page || dashboard ? `${PAGE_GLYPHS[page] || "dashboard"}:` : `home:${panes.some(asks) ? "needs" : ""}`;
+}
 // The session a pane is in, where that tells it apart: "" when every pane shares one, so a
 // single-session user never sees tmux plumbing. Every surface that names a session asks
 // here; app.js notes the panes on each poll (noteSessions).

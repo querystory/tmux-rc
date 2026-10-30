@@ -7,9 +7,12 @@ The HTTP API runs on your own tmux-rc daemon. Its default address is
 
 ## Interactive reference
 
-Open `/apidocs` on your running daemon for Swagger UI, `/apiredoc` for ReDoc, or
-`/openapi.json` for the machine-readable schema. Those routes describe the exact version
-you are running. The public documentation website does not proxy your daemon's API.
+Open `/openapi.json` for the machine-readable schema of the exact daemon version you
+are running. Interactive documentation is off by default because FastAPI's Swagger UI
+and ReDoc pages load third-party JavaScript on the same origin as terminal control.
+Set `TMUXRC_API_DOCS=1` and restart to opt in to `/apidocs` (Swagger UI) and
+`/apiredoc` (ReDoc). This does not affect the Hugo documentation at `/docs/`.
+The public documentation website does not proxy your daemon's API.
 
 ## Common endpoints
 

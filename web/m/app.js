@@ -6,7 +6,8 @@ import { Composer, bindAttach, enterSubmits, sendBlock, block } from "/m/compose
 import { answerBody, pickCursorRow, STALE, UNTAKEN } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { linkGroups, askLink } from "/pr-links.js";
-import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf, tabTitle, tabIconKey, isRunning } from "/m/pane-model.js";
+import { tabIcon } from "/tab-icon.js";
 import { parseHash, formatHash, historyMode, PAGES, scratchUrl } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { dragToDismiss } from "/m/drag-dismiss.js";
@@ -99,8 +100,22 @@ const LUCIDE = {
   minimize: '<path d="M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3"/>',
   network: '<rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3M12 12V8"/>',
   fileText: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4M10 9H8M16 13H8M16 17H8"/>',
+  activity: '<path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/>',
+  listTodo: '<rect x="3" y="5" width="6" height="6" rx="1"/><path d="m3 17 2 2 4-4M13 6h8M13 12h8M13 18h8"/>',
+  files: '<path d="M20 7h-3a2 2 0 0 1-2-2V2"/><path d="M9 18a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h7l4 4v10a2 2 0 0 1-2 2Z"/><path d="M3 7.6v12.8A1.6 1.6 0 0 0 4.6 22h9.8"/>',
   bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/>',
 };
+// The tab's icon follows the view (tabIconKey), drawn once per key on the brand tiles.
+const tiles = {}, tabIcons = {};
+let awayPane = null, tabKey = "home:", painted; // awayPane: worked while the tab was hidden, "done" until seen
+for (const t of ["scratch", "icon"]) fetch(`/${t}.svg`).then((r) => r.text()).then((svg) => { tiles[t] = svg; paintTabIcon(); });
+function paintTabIcon(key = tabKey) {
+  tabKey = key;
+  const [glyph, state] = key.split(":"), tile = tiles[glyph === "home" ? "icon" : "scratch"];
+  if (!tile || painted === key) return;
+  painted = key;
+  document.querySelector("link[rel=icon]").href = tabIcons[key] ??= tabIcon(tile, { glyph: LUCIDE[glyph], state });
+}
 const licon = (name, size = 20) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LUCIDE[name]}</svg>`;
 const $ = (id) => document.getElementById(id);
 const text = (node, value = "") => { if (node.textContent !== String(value)) node.textContent = value; };
@@ -168,7 +183,7 @@ const ofAgent = (p) => !scope.tools.length || scope.tools.includes(p.tool || "ot
 try { pinNeeds = localStorage.getItem("tmuxrc-pin-needs") !== "off"; } catch {}
 const setPinNeeds = (v) => { pinNeeds = v === "on"; try { localStorage.setItem("tmuxrc-pin-needs", v); } catch {} renderList(); paintSettings(); };
 const setSort = (v) => { sort = v; try { localStorage.setItem("tmuxrc-sort", v); } catch {} renderList(); paintSettings(); };
-let sending = false, prefix = "C-b", stateController, detailController, detailId = null, fitCols = 0, fitAlt; // see fitTo; fitAlt: is the streamed app full screen
+let sending = false, prefix = "C-b", host = "", stateController, detailController, detailId = null, fitCols = 0, fitAlt; // see fitTo; fitAlt: is the streamed app full screen
 let streamedLayout = null;
 let eventsKey = null, latestCapture = "", fontSize = 13;
 // Answers tapped and not yet reflected, per pane (pane id -> { key, option, index, note }): the
@@ -293,14 +308,22 @@ const accounts = setupAccounts({ request, post, licon, notice, repaint: () => { 
   clearChip: (k) => { filter = filter.filter((f) => f !== k); scope.tools = scope.tools.filter((t) => `agent:${t}` !== k); stayPut(); renderSidebar.picker.firstChild.focus(); }, clearAll: clearFilters });
 
 const writeHash = (next, how = "replace", state = history.state) => history[`${how}State`](state, "", next ? `#${next}` : location.pathname + location.search);
+// The hash a move writes, so a row's or a nav item's href is the view it opens: a middle or
+// modified click (new tab, new window) is the browser's, and lands on the same view.
+const hashFor = (id = null, nextView = "summary", acct = accounts.key()) => {
+  const nextPage = PAGES.includes(nextView) ? nextView : null;
+  return formatHash({ pane: id, view: nextView, dashboard: nextView === "dashboard" || !!nextPage, page: nextPage, filter, acct, agent: scope.tools, q: $("search").value });
+};
+// Such a link's plain click routes in place instead.
+const inApp = (go) => (e) => { if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; e.preventDefault(); go(); };
+// A pane's row (either layout's) or rail icon, as its link.
+const paneLink = (a, id) => { a.href = `#${hashFor(id)}`; a.onclick = inApp(() => navigate(id)); };
 // Every user-driven move goes through here: the URL is written first, then the view is
 // routed synchronously (pushState/replaceState fire no hashchange). Back/Forward and edits
 // by hand reach route() through hashchange instead. Never call this from a poll.
 // `draft`: a scratch page's suggested reply, offered by route() as a link's would be.
 function navigate(id = null, nextView = "summary", { mode, acct = accounts.key(), draft } = {}) {
-  const nextPage = PAGES.includes(nextView) ? nextView : null;
-  const next = formatHash({ pane: id, view: nextView, dashboard: nextView === "dashboard" || !!nextPage, page: nextPage, filter, acct, agent: scope.tools, q: $("search").value })
-    + (typeof draft === "string" ? `&draft=${encodeURIComponent(draft)}` : "");
+  const next = hashFor(id, nextView, acct) + (typeof draft === "string" ? `&draft=${encodeURIComponent(draft)}` : "");
   const current = location.hash.slice(1);
   if (next !== current) {
     // A replaced entry keeps its state (a card's view stays "from its card"); a new screen starts bare.
@@ -412,13 +435,13 @@ function route() {
 }
 
 function makeRow(pane) {
-  const button = document.createElement("button");
+  const button = document.createElement("a");
   button.className = "pane-row";
   button.innerHTML = `<span class="pane-icon"><img alt=""></span><span class="row-body"><span class="row-title"><strong></strong><span class="row-age"></span>${licon("chevron", 14)}</span><span class="row-status"></span><span class="row-meta"><span class="session-chip" hidden></span><span class="row-acct"></span><span class="row-details"></span><span class="badge"></span></span></span>`;
-  button.onclick = () => navigate(pane.pane_id);
   return button;
 }
 function updateRow(button, pane) {
+  paneLink(button, pane.pane_id);
   if (pane.pane_id === active) button.setAttribute("aria-current", "true");
   else button.removeAttribute("aria-current");
   button.classList.toggle("needs-you", asks(pane));
@@ -440,7 +463,7 @@ function updateRow(button, pane) {
   html(button.querySelector(".row-acct"), accounts.badge(pane.pane_id));
   text(button.querySelector(".row-details"), [pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
 }
-const renderSidebar = setupSidebar({ licon, reconcile, text, html, renderItems, logos: LOGOS, navigate, notice, badge: accounts.badge,
+const renderSidebar = setupSidebar({ licon, reconcile, text, html, renderItems, logos: LOGOS, navigate, paneLink, notice, badge: accounts.badge,
   active: () => active, wide: () => WIDE.matches, sending: () => sending, answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, compose, offers: (p) => offersOf(p).filter(isCommand), copy: copyText, linkPair,
   setFilter: (value) => { filter = value; stayPut(); }, setAgents: scope.pick,
   setSession: scope.pickSession, clearAll: clearFilters, outside: (p) => outside.has(p.pane_id), sort: () => sort, setSort, repaint: () => renderList() });
@@ -480,6 +503,8 @@ function renderList() {
   // A phone's list narrowed by the filter menu says so at its foot too, a tap from all of them.
   const scopedOn = !hidden && !WIDE.matches && accts.length + filter.length + scope.tools.length > 0, scoped = subset.filter((p) => !outside.has(p.pane_id)).length; // not the pinned
   show("empty-needs", hidden > 0 || scopedOn);
+  // A search nothing open matches may be work from an earlier session: Chat can look.
+  show("empty-history", !subset.length && !!$("search").value.trim() && !$("chat").hidden);
   $("empty-needs").dataset.all = scopedOn ? "filters" : "needs";
   // "On other accounts" only when that is what hides every one of them.
   text($("empty-needs"), scopedOn ? `${scoped} ${[...scope.tools, ...accts].map((a) => `${a} `).join("or ")}pane${scoped === 1 ? "" : "s"} of ${panes.length} · Show all`
@@ -490,8 +515,11 @@ function renderList() {
   $("list-nav").querySelectorAll("[data-filter]").forEach((button) => button.setAttribute("aria-pressed", !dashboard && tab === button.dataset.filter));
   // Restore rides the dashboard's view machinery but is its own screen: its row is the one pressed.
   $("dashboard-tab").setAttribute("aria-pressed", String(dashboard && !["restore", "usage", "scratch"].includes(page)));
-  $("dash-nav").setAttribute("aria-pressed", String(dashboardVisible() && !["restore", "scratch", "graph"].includes(page)));
   for (const id of PLACES) $(id).setAttribute("aria-pressed", String(page === id.split("-")[0]));
+  // The places are links: their hrefs carry the filters, as a click would. The one you are at is
+  // pressed (style.css draws it, the drawer reads it) and, as a link, current for assistive tech.
+  for (const [id, nav, at] of [["dash-nav", "dashboard", dashboardVisible() && !["restore", "scratch", "graph"].includes(page)], ["scratch-nav", "scratch", page === "scratch"], ["graph-nav", "graph", page === "graph"]])
+    Object.assign($(id), { href: `#${hashFor(null, nav)}`, ariaCurrent: at ? "page" : null }).setAttribute("aria-pressed", String(at));
   $("restore").setAttribute("aria-pressed", String(page === "restore"));
   // The filter button counts each filter on, and its tooltip names them.
   const on = [filter.map((f) => SHOW[f]).join(", "), scope.tools.join(", "), accounts.on().join(", "), scope.session, $("search").value.trim() && `"${$("search").value.trim()}"`].filter(Boolean);
@@ -794,7 +822,7 @@ const paintUsage = steady(() => {
   if (focused) $("usage-more")?.focus({ preventScroll: true });
   $("usage-handle").hidden = $("usage").hidden;
   // The dashboard's card draws every meter as a trend whatever the mode; its view (#view=usage)
-  // draws them over time (usage-view.js). The dashboard's tool chips filter both, and a
+  // draws them over time (usage-view.js). The dashboard's tool chips filter the card, and a
   // tool with no plan meters hides the card. Several accounts: a labelled group each when
   // wide, the strip on a phone.
   const tools = scope.tools, board = tools.length ? all.filter((a) => tools.includes(a.provider)) : all;
@@ -806,10 +834,9 @@ const paintUsage = steady(() => {
   accounts.strip(el, several); // grouped too: a line too narrow for its charts scrolls rather than wraps
   if (page !== "usage") return;
   if (usagePast !== usageDays()) refreshCached(true); // past windows: only this view asks for them
-  // Every account's meters, whatever the list's account filter: the view picks its own
-  // (usage-view.js). Named and chipped as the list names them; a tool filter with no meters
-  // (reached by Forward, say) shows them all rather than a blank view.
-  const scoped = usage.filter((a) => tools.includes(a.provider)), list = (scoped.length ? scoped : usage).map((a) => {
+  // Every account's meters, whatever the list's filters: the view picks its own (usage-view.js).
+  // Named and chipped as the list names them.
+  const list = usage.map((a) => {
     const p = (a.dirs || []).map(accounts.profile).find((p) => p?.signed_in);
     return { ...a, acct: p, chip: p ? accounts.chip(p) : "" };
   }).filter((a) => a.acct || !accounts.list().length); // a removed account drops out, as in accounts.usage()
@@ -914,6 +941,10 @@ function render() {
   // has nothing to go back TO — the sidebar it would return you to is already there.
   // The brand keeps its slot for the same reason. Narrow is unchanged.
   const wide = WIDE.matches;
+  const tab = { pane: active, page, dashboard: dashboardVisible(), filter };
+  document.title = tabTitle(tab, panes, panes.filter(asks).length, host);
+  if (document.hidden && pane && isRunning(pane)) awayPane = active;
+  paintTabIcon(tabIconKey(tab, panes, asks, awayPane === active));
   show("sessions", (!inPane && !dashboard) || wide); show("list-nav", !inPane && !wide);
   const list = !inPane && !dashboard; // a phone's list screen: the only one with search and sort
   show("brand", wide || !list); show("find", wide || list);
@@ -1542,10 +1573,10 @@ async function streamTerminal(id, signal) {
 function startState() {
   stateController?.abort();
   stateController = new AbortController();
-  if (!document.hidden) {
-    refreshHistory(); refreshCached();
-    pollState(stateController.signal);
-  }
+  // State keeps coming while the tab is hidden: a background tab's title and icon are what the
+  // tab strip shows (docs/design/tab-icons.md). The history and meters wait to be seen.
+  if (!document.hidden) { refreshHistory(); refreshCached(); }
+  pollState(stateController.signal);
 }
 // Panes of windows this page is closing, by pane id: { birth, pane, label } while the request
 // runs, then { birth, done } for each pane the server says it killed. A killed pane stays
@@ -1608,10 +1639,10 @@ async function pollState(signal) {
       const ids = (data.panes || []).map((p) => `${p.pane_id}:${p.birth}:${p.tool}`).join(); // birth: a recycled id is a new pane
       if (ids !== paneIds || Date.now() - accountsAt > 20000) { paneIds = ids; accountsAt = Date.now(); accounts.refresh(); }
       const wasRunning = loaded ? tmuxRunning : null; // null: the first answer always asks
-      statePanes = data.panes || []; showPanes(); loaded = true; booted = data.booted !== false; tmuxRunning = data.tmux_running !== false; prefix = data.prefix || "C-b";
+      statePanes = data.panes || []; showPanes(); loaded = true; booted = data.booted !== false; tmuxRunning = data.tmux_running !== false; prefix = data.prefix || "C-b"; host = data.host || "";
       if (wasRunning !== tmuxRunning || restore.due()) restore.refresh(); // a server came or went: the offer changes
       $("ctrl-b").hidden = data.prefix === "C-b"; // absent prefix: can't know it's C-b, so show it
-      refreshHistory(); refreshCached();
+      if (!document.hidden) { refreshHistory(); refreshCached(); }
       pruneDrafts();
       text($("connection"), data.stale ? "Stalled" : "Live");
       $("connection").classList.toggle("online", !data.stale);
@@ -1921,7 +1952,8 @@ function fadeKeys() {
 $("keys").addEventListener("scroll", fadeKeys, { passive: true });
 new ResizeObserver(fadeKeys).observe($("keys"));
 $("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); if (open) fadeKeys(); };
-$("dashboard-tab").onclick = $("dash-nav").onclick = () => openDashboard();
+$("dashboard-tab").onclick = () => openDashboard();
+$("dash-nav").onclick = inApp(openDashboard);
 // A phone's ☰ drawer: every destination, each row pressing the control that already goes there
 // (the five tabs in the bar's order, Graph under the Dashboard it opens within, then Chat, Voice,
 // Settings, the docs link), shown when it is and current while it is pressed. A modal
@@ -1995,7 +2027,8 @@ addEventListener("touchmove", (e) => {
   drag.v = (t.clientX - drag.at) / Math.max(1, e.timeStamp - drag.t); drag.at = t.clientX; drag.t = e.timeStamp;
   slide(Math.min(0, Math.max(-drawer.offsetWidth, drag.base + dx)));
 }, { passive: true });
-for (const id of PLACES) $(id).onclick = (e) => { e.preventDefault(); openPage(id.split("-")[0]); };
+for (const id of PLACES) $(id).onclick = inApp(() => openPage(id.split("-")[0]));
+$("empty-history").onclick = () => live.ask(`Find my previous sessions about "${$("search").value.trim()}".`);
 $("empty-needs").onclick = () => { const needs = $("empty-needs").dataset.all === "needs"; if (needs) $("search").value = ""; filter = needs ? ["attention"] : []; scope.tools = []; stayPut({ acct: [] }); };
 // Close only leaves the pane, exactly like Back (which stands in for it on a narrow screen).
 $("back").onclick = $("close-pane").onclick = () => navigate();
@@ -2003,8 +2036,9 @@ $("back").onclick = $("close-pane").onclick = () => navigate();
 // view or Scratch's viewer (whose left edge is kept for it; on the list, the same swipe draws the drawer in). Not under an open sheet, not from a strip scrolled sideways (that swipe scrolls
 // it), and not once the URL moved under the finger: Safari's own edge swipe went back already.
 // One owner per swipe: the edge is the browser's wherever it has a page to go back to (a tab,
-// or an installed app that says so), and there neither Back nor the drawer answers it, so the
-// two can never slide in together (☰ still opens the drawer, and an open one still drags);
+// or an installed app that says so: navigation.canGoBack from Safari 26.2; before it any history
+// at all counts, which yields more often and never doubles), and there neither Back nor the
+// drawer answers it, so the two can never slide in together (☰ still opens the drawer, and an open one still drags);
 // ours only where the browser has nothing behind, and then the list's edge opens the drawer
 // and nothing else, decided once the drag commits.
 let edge = null, headingSwipe = null, headingClickUntil = 0;
@@ -2028,7 +2062,7 @@ addEventListener("touchstart", (e) => {
     headingSwipe = { x: t.clientX, y: t.clientY, at: 0, href: location.href, live: false,
       ids: [...$("pane-list").children].filter((n) => n._p && !ending.has(n._p.pane_id)).map((n) => n._p.pane_id) };
   }
-  edge = standalone() && !globalThis.navigation?.canGoBack && !WIDE.matches && e.touches.length === 1 && t.clientX < 20 && !scrolled(e.target) && !document.querySelector("dialog[open]:not(#scratch-viewer)") ? { x: t.clientX, y: t.clientY, href: location.href } : null;
+  edge = standalone() && !(globalThis.navigation?.canGoBack ?? history.length > 1) && !WIDE.matches && e.touches.length === 1 && t.clientX < 20 && !scrolled(e.target) && !document.querySelector("dialog[open]:not(#scratch-viewer)") ? { x: t.clientX, y: t.clientY, href: location.href } : null;
   drag = !WIDE.matches && e.touches.length === 1 && (drawer.open || edge && !active && !page) ? { x: t.clientX, y: t.clientY, at: t.clientX, t: e.timeStamp, v: 0, open: drawer.open } : null;
 }, { passive: true });
 // A gesture the page moved under (a touchcancel, or a route() mid-swipe) springs back to where it began.
@@ -2563,10 +2597,14 @@ function placeChrome() {
 // too, beside New window: the dashboard's filter row folds behind it (style.css). A card's own
 // view follows the same filters, and on a phone its head is the bar: the button and the chips go
 // in it, which a view's rebuild keeps (atlas.js renderHeatView), so neither loses focus.
+// Plan usage follows none of them: it charts its own pick of accounts (usage-view.js), so its
+// head holds that pick's button instead, the one funnel there, and wide it sits by the range.
 function placePill() {
-  const phone = !WIDE.matches, bar = phone && $("dash-page").querySelector(":scope > .landing-head");
+  const phone = !WIDE.matches, bar = phone && $("dash-page").querySelector(":scope > .landing-head"), dash = phone && dashboard;
+  const own = page === "usage" && (usageView._filter ||= usageView.querySelector(".uv-filter")), to = own && (bar || usageView.firstChild);
+  if (own && own.parentElement !== to) to.append(own); // held by the view: another view drops the head it sat in
   // The graph's full screen covers its bar (graph.js), so there the scope heads the view instead.
-  const head = CARDS[page] && bar && (page === "graph" ? graphView.querySelector(".fg-scope") : bar), dash = phone && dashboard;
+  const head = !own && CARDS[page] && bar && (page === "graph" ? graphView.querySelector(".fg-scope") : bar);
   const picker = renderSidebar.picker, at = head ? picker : bar ? $("find") : dash ? document.querySelector(".app-header") : $("find");
   if (head) { if (picker.parentElement !== head) head.append(picker); }
   else if (dash && picker.nextElementSibling !== $("new-window")) $("new-window").before(picker);
@@ -2766,7 +2804,7 @@ navigator.serviceWorker?.addEventListener("message", ({ data }) => {
 });
 // Only catch up a frame that was held for a selection; composer keystrokes also fire this.
 document.addEventListener("selectionchange", () => { if (terminalVisible() && captureDirty) paintCapture(); });
-document.addEventListener("visibilitychange", () => { sendPresence(); startState(); restartDetail(); fitViewport(); });
+document.addEventListener("visibilitychange", () => { if (!document.hidden) awayPane = null; render(); sendPresence(); startState(); restartDetail(); fitViewport(); }); // render: the tab's icon notes or clears "done"
 window.addEventListener("online", () => { startState(); restartDetail(); });
 window.addEventListener("pageshow", () => { startState(); restartDetail(); fitViewport(); });
 window.addEventListener("pagehide", () => { stateController?.abort(); detailController?.abort(); });
@@ -2783,7 +2821,7 @@ setupPush($("push"), notice, licon("bell"));
 // /api/state; a stale one whose pane has since closed takes the normal gone-pane path.
 const openOffered = (id, at) => !panes.some((p) => p.pane_id === id) && awaitingLaunch({ id, at }, id)
   ? openLaunched(id, at) : navigate(id);
-const live = setupLiveMode({ request, session: liveSession, licon, wide: WIDE, open: openOffered, report: reportError, onVersion: observeVersion, account: accounts.consent, panes: () => panes, logos: LOGOS });
+const live = setupLiveMode({ request, session: liveSession, licon, wide: WIDE, open: openOffered, report: reportError, onVersion: observeVersion, onChat: () => renderList(), account: accounts.consent, panes: () => panes, logos: LOGOS });
 document.documentElement.classList.add("booted"); // icons in, chrome placed: unveil (style.css)
 let assetVersion = null;
 function hasDrafts() {

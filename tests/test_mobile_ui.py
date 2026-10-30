@@ -346,3 +346,26 @@ def test_agent_title_is_not_squeezed_by_its_meta():
     assert ".task, .agent { display: flex; flex-wrap: wrap;" in css
     assert ".agent > span:nth-child(2) { max-width: calc(100% - 26px); }" in css
     assert ".sb-agents .agent { min-width: 0; flex-wrap: nowrap;" in css
+
+
+def test_phone_drawer_scrolls_itself_and_never_the_view_behind_it():
+    """The drawer is a modal dialog, so its overflow came from the UA sheet and nothing contained
+    it. On iOS a swipe the drawer cannot take chains to the scroller under the finger, not up the
+    DOM: over the dashboard that scrolled the dashboard behind the scrim. The drawer declares
+    its own scrolling and containment, as every other scroller in the app does."""
+    css = (Path(__file__).resolve().parents[1] / "web/m/style.css").read_text()
+    drawer = next(line for line in css.splitlines() if line.startswith("#drawer {"))
+    assert "overflow-y: auto" in drawer and "overscroll-behavior: contain" in drawer
+
+
+def test_tab_title_keeps_its_count_while_the_tab_is_hidden():
+    """The title's Needs-you count is read from OTHER tabs, so it is only worth having if a
+    background tab keeps receiving state. The state long poll (answered only on change) runs
+    whatever the visibility; the history and meter fetches still wait for the tab to be seen
+    (docs/design/tab-icons.md)."""
+    app = (Path(__file__).resolve().parents[1] / "web/m/app.js").read_text()
+    start = app.index("function startState()")
+    body = app[start:app.index("\n}", start)]
+    assert "if (!document.hidden) { refreshHistory(); refreshCached(); }" in body
+    assert "\n  pollState(stateController.signal);" in body, "the poll must not wait to be seen"
+    assert "document.title = tabTitle(" in app
