@@ -381,6 +381,8 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     const current = run; run = null; sequence++;
     if (current) {
       expire(current);
+      // Turns queued for a chat that never connected: shown, so nothing typed vanishes.
+      for (const [frame] of current.pending) add("error", `Not sent: ${frame.text}`);
       clearTimeout(current.retry); clearTimeout(current.deadline);
       current.resolveReady?.();
       current.wakeLock?.release().catch(() => {});
@@ -595,7 +597,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   function openChat(now = true) {
     const models = chatModels(), model = models.find((entry) => entry.label === saved(CHAT_MODEL_KEY)) || models[0];
     show(); // first, so a new chat's handshake says it opened in view
-    if (!run && model) { mode = "text"; $("voice-model").value = model.label; if (now) start(); else paint(); }
+    if (!run && model) { mode = "text"; $("voice-model").value = model.label; if (now) start(); else { log.replaceChildren(); status(""); paint(); } } // not an ended chat's
   }
   $("live-mode").onclick = voice;
   $("chat").onclick = () => docked() ? hide() : openChat(); // a docked panel toggles: nothing covers the button
