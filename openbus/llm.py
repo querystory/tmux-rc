@@ -324,7 +324,8 @@ def classify_text(
         return None
     # Which pane, and which exact payload: the tail alone is the same auto-mode trailer on
     # every call, so it can't tell one call from another or spot a resend.
-    who = f"{pane_label or pane_uid} {hashlib.sha256(text.encode()).hexdigest()[:12]}"
+    # The uid too: split panes share a window label.
+    who = f"{pane_label} {pane_uid} {hashlib.sha256(text.encode()).hexdigest()[:12]}"
     try:
         types = genai_types()
 
