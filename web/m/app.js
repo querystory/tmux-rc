@@ -2358,8 +2358,10 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !documen
 // A click in a frame (the Scratch gallery) never reaches this document, but it takes the focus.
 addEventListener("blur", () => { if (document.activeElement?.tagName === "IFRAME" && !document.querySelector("dialog:modal")) besides().forEach((d) => d.close()); });
 // Closed by its × or Escape, focus goes back to what opened it; not after a launch, whose
-// navigation has already put focus on the pane.
-for (const d of [$("settings"), $("launch-dialog")]) d.addEventListener("close", () => {
+// navigation has already put focus on the pane. The event is queued: a dialog open again by
+// then (the top bar's Voice over an idle Chat) keeps its place.
+for (const d of [$("settings"), $("launch-dialog"), $("voice-dialog")]) d.addEventListener("close", () => {
+  if (d.open) return;
   if (d.classList.contains("beside") && [null, document.body].includes(document.activeElement)) d._opener?.focus({ preventScroll: true });
   d.classList.remove("beside");
 });
@@ -2558,7 +2560,7 @@ $("sessions").addEventListener("scroll", () => {
 const LAST_DIR = "tmuxrc-last-dir";
 let launchPick = null, launchLoad = 0; // the account picker (accounts.js), with several accounts; the newest load
 const LAUNCH_DESC = { claude: "Claude Code", codex: "OpenAI Codex CLI", gemini: "Google Gemini CLI", antigravity: "Google Antigravity CLI", opencode: "OpenCode CLI", omp: "omp agent", shell: "A plain shell in the session's folder" };
-async function openLaunch(fresh, opener) {
+async function openLaunch(fresh, opener, kind) {
   launchPick?.remove(); launchPick = null;
   const load = ++launchLoad; // a second open, or a close, while this one loads makes it stale
   if (opener) openBeside($("launch-dialog"), opener); else $("launch-dialog").showModal(); text($("launch-error"), "Loading agents..."); $("launch-choices").replaceChildren();
@@ -2573,6 +2575,7 @@ async function openLaunch(fresh, opener) {
   const kinds = [...$("launch-kind").querySelectorAll("[data-start]")];
   kinds.forEach((b) => { b.dataset.why = live.why(b.dataset.start === "chat"); });
   show("launch-kind", kinds.some((b) => !b.dataset.why)); text($("launch-sub"), "Start an agent or shell in a new tmux window.");
+  if (kind) kindRow.querySelector(`[data-start=${kind}]`).click(); // the top bar's Chat or Voice
   // Suggestions only (open panes' and past agent sessions' directories); any path works.
   request("/api/sessions/dirs").then((d) => $("launch-dirs").replaceChildren(...d.dirs.map((dir) => new Option(dir))), () => {});
   try {
@@ -2612,6 +2615,7 @@ async function openLaunch(fresh, opener) {
 $("close-launch").onclick = () => $("launch-dialog").close();
 // The Start row goes with the choice: Chat or Voice carries it to the top of their sheet,
 // pressed on the pick, so Session is one tap back (it reopens the sheet as its opener did).
+// On a wide screen that sheet opens where New session was; it docks once it starts (live.js).
 // The row comes home when that sheet closes, or when New session opens over a docked Chat.
 const kindRow = $("launch-kind");
 const pressKind = (b) => kindRow.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
@@ -2628,7 +2632,10 @@ kindRow.onclick = (e) => {
   const why = b.dataset.why || (busy && busy !== kind && `End ${busy === "chat" ? "the chat" : "Live Mode"} first.`);
   if (why) { text(b.closest("dialog").querySelector("[role=status]"), why); return; }
   if (!kind) { if (kindRow.closest("#voice-dialog")) { $("voice-close").click(); $("launch-dialog")._opener.click(); } return; }
-  pressKind(b); $("launch-dialog").close(); live.open[kind]();
+  const opener = $("launch-dialog")._opener;
+  pressKind(b); $("launch-dialog").close();
+  if (WIDE.matches && opener && !busy) { $("voice-dialog")._opener = opener; $("voice-dialog").classList.add("beside"); }
+  live.open[kind](false);
   $("voice-dialog").querySelector(".dialog-heading").after(kindRow);
 };
 let launching = false, launched = null;
@@ -2953,6 +2960,12 @@ setupPush($("push"), notice, licon("bell"));
 const openOffered = (id, at) => !panes.some((p) => p.pane_id === id) && awaitingLaunch({ id, at }, id)
   ? openLaunched(id, at) : navigate(id);
 const live = setupLiveMode({ request, session: liveSession, licon, wide: WIDE, open: openOffered, report: reportError, onVersion: observeVersion, onChat: () => renderList(), account: accounts.consent, panes: () => panes, logos: LOGOS });
+// Wide, the top bar's Chat and Voice open New session on that tab, beside the sidebar; nothing
+// starts or docks until something is asked. A conversation already running is just brought back.
+for (const [id, kind] of [["chat", "chat"], ["live-mode", "voice"]]) {
+  const own = $(id).onclick;
+  $(id).onclick = (e) => WIDE.matches && !live.kind() ? openLaunch(false, $("new-window"), kind) : own(e);
+}
 document.documentElement.classList.add("booted"); // icons in, chrome placed: unveil (style.css)
 let assetVersion = null;
 function hasDrafts() {
