@@ -39,8 +39,8 @@ _RETRY = 600
 _LOCK = threading.Lock()
 _ACT = threading.Lock()  # one Archive, Restore or Delete batch at a time
 _META = threading.Lock()  # one meta.json read-merge-replace at a time (authors, descriptions)
-_missed: dict[tuple[str, int], float] = {}  # when each (name, inode) was last not found
-_found: dict[tuple[str, int], str] = {}  # for a refusing meta.json, or a listing older than it
+_missed: dict[tuple, float] = {}  # when each (name, inode, update mark) was last not found
+_found: dict[tuple, str] = {}  # for a refusing meta.json, or a listing older than it
 _reconciled = [0.0]
 _PAGE = Path(__file__).resolve().parent / "scratch.html"
 _PENDING = Path(__file__).resolve().parent / "scratch_pending.html"
@@ -150,7 +150,8 @@ def _item(root: Path, folder: Path, files: list[tuple[float, str]]) -> dict | No
     named = (folder / "meta.json").stat().st_mtime if meta else created
     return {"name": folder.name, "title": title or folder.name,
             "description": meta.get("description", ""), "pane": meta.get("pane"),
-            "session_id": meta.get("agent_session"), "folder": folder,
+            # an update's writer is its reviser, searched for from its mark, never the author
+            "session_id": None if updating else meta.get("agent_session"), "folder": folder,
             "href": quote(page.relative_to(root).as_posix() if page != index and not pending
                           else folder.name + "/"),
             "created": created, "updated": max(files)[0], "updating": updating,
@@ -330,12 +331,14 @@ def about(root: Path, name: str) -> str | None:
 
 
 def _writers(todo: list[dict]) -> None:
-    """Fill in each item's missing `session_id` from the transcripts, saving what is found."""
-    now, keys = time.time(), {i["name"]: (i["name"], i["inode"]) for i in todo}
+    """Fill in each item's missing `session_id` from the transcripts, saving the author found
+    (an update's reviser is searched for from its mark, and kept only in memory)."""
+    now = time.time()
+    keys = {i["name"]: (i["name"], i["inode"], i["updating"] and i["since"]) for i in todo}
     with _LOCK:  # a second request waits for the first's search instead of repeating it
         for i in todo:
             i["session_id"] = i["session_id"] or _found.get(keys[i["name"]])
-        due = {i["name"]: i["created"] for i in todo if not i["session_id"]
+        due = {i["name"]: i["since"] for i in todo if not i["session_id"]
                and now - _missed.get(keys[i["name"]], 0) > _RETRY}
         if due and now - _reconciled[0] > _RETRY:  # a running session's entry can be days old
             agent_history.reconcile()
@@ -345,9 +348,9 @@ def _writers(todo: list[dict]) -> None:
             if hit := hits.get(i["name"]):
                 i["session_id"] = hit["session_id"]
                 _found[keys[i["name"]]] = i["session_id"]
-                annotate(i["folder"] / "meta.json", i["folder"].parent, "agent_session",
-                         i["session_id"],
-                         i["inode"])  # not into a folder rebuilt during the search
+                if not i["updating"]:  # not into a folder rebuilt during the search
+                    annotate(i["folder"] / "meta.json", i["folder"].parent, "agent_session",
+                             i["session_id"], i["inode"])
             elif i["name"] in due:
                 _missed[keys[i["name"]]] = now
 
@@ -481,9 +484,7 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
         # process scan failed (`running_unknown`). A pending card follows its writer; one
         # found but gone from every pane has stopped, however recent the folder; one alive
         # that no pane shows (Codex without `session-id` in its status bar) works on by time.
-        # A revision is its reviser's, in the pane its mark names, not the author's session.
-        at = i["pane"] if s.get("running_unknown") or i["updating"] else open_in.get(
-            s.get("session_id"), i["pane"])
+        at = i["pane"] if s.get("running_unknown") else open_in.get(s.get("session_id"), i["pane"])
         if at != i["pane"]:
             named = at or (None if s.get("running") else i["pane"])
             i["pane"], i["state"] = at, progress(panes.get(at), named, i["since"])

@@ -216,7 +216,8 @@ tmux-rc fills in the rest in the background, so the gallery never waits for it:
   session and window, its agent and its account, and links to it. A Codex pane is the
   exception: Codex's shared app-server daemon stamps every session's `meta.json` with the
   first Codex pane, so the transcript is asked and the named pane is kept only when it
-  has no answer. Otherwise tmux-rc asks
+  has no answer. For a page being updated, the session asked for is the reviser, active
+  when the `updating` mark was written; the author's session is not used. Otherwise tmux-rc asks
   [agent-history](https://github.com/querystory/tmux-rc/tree/main/agent-history) which
   session was active when the folder appeared and mentioned its path. If several were,
   it picks the most recently started one, since a long-running session that only passed
