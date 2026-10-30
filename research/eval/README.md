@@ -61,6 +61,8 @@ So we split the fields by how the UI uses them:
 **Structured fields — exact match (strict).** These drive the badge and behavior, so
 strictness is correct:
 - `tool`, `activity`, `waiting_on` — compared by value.
+- `resets` — opt-in exact check of a quota-blocked pane's reset time ("9:30am"); pinned
+  `null`, it asserts a working pane carries none.
 - `parse_ok`, `model`, `cost` — opt-in checks for accepted classifications and status-row
   readouts (model preservation, cost normalized to dollars).
   An omitted `parse_ok` means success, matching the watcher.
@@ -217,6 +219,10 @@ actually hit:
 | `134_claude_single_question_picker_after_turns` | synthetic: a one-question AskUserQuestion picker (gray row digits, "4. Chat about this" under a rule) below answered turns → a menu with all four options |
 | `131_claude_single_question_picker_header_tab` | synthetic: 134 with its lone "☐ #812" header tab under the dialog's top rule → the menu, and no one-row task list |
 | `132_claude_advice_for_another_pane_not_a_reply` | synthetic: a report ending 'tap Reply and type "1"' about another pane, agents still running → no question, no "1" button |
+| `135_claude_quota_blocked_auto_continue` | synthetic: the plan's usage limit notice as the live bottom, auto-continue at the reset → `quota_blocked` with `resets`, not running or Needs you |
+| `136_claude_quota_blocked_with_subagent_row` | synthetic: the limit hit again after a new message, a sub-agent row still listed → `quota_blocked`, the worker quota_blocked too, no running agent counted |
+| `137_claude_working_on_usage_limit_handling` | synthetic: a live spinner while editing code that handles "usage limit reached" → running, no reset time |
+| `138_claude_quota_blocked_after_a_closing_question` | synthetic: an auto-mode turn ending "Want me to merge…?", then the limit hit → `quota_blocked`, no question, not Needs you |
 
 Sample 16 originally exposed a table-extraction failure: the prompt said to carry a
 question's supporting list but also to omit tables unless an actual table was shown.

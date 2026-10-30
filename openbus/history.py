@@ -15,6 +15,7 @@ import socket
 import sqlite3
 import time
 from contextlib import contextmanager
+from functools import partial
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -22,7 +23,7 @@ HEARTBEAT = 60
 COVERAGE = 120
 VISITS = 200  # the drawer shows a handful; this many outlast the panes and folders now gone
 BACKFILL_TTL = 4 * 3600
-STATES = ("Needs you", "Running", "Idle", "Unknown", "Compacting", "Waiting")
+STATES = ("Needs you", "Running", "Idle", "Unknown", "Compacting", "Waiting", "Quota blocked")
 AGENT_TOOLS = {"claude", "codex", "gemini", "antigravity", "opencode", "omp"}
 MAX_SPAN = 90 * 86400  # bounds a request; the database itself is never pruned
 GOAL_KEY = "running_goal"
@@ -50,6 +51,7 @@ def state_index(pane: dict) -> int:
     if activity == "running": return 1
     if activity == "compacting": return 4
     if activity == "waiting": return 5
+    if activity == "quota_blocked": return 6
     if activity == "idle": return 2
     return 3
 
@@ -80,7 +82,8 @@ def sum_counts(rows: list[dict], key: str) -> list[int] | None:
     # Missing legacy fields mean unmeasured, not zero. Empty inventories ARE zero.
     if any(row.get(key) is None for row in rows):
         return None
-    return [sum(row[key][i] for row in rows) for i in range(len(STATES))]
+    # A row recorded before a state was added has no count for it: zero.
+    return [sum(row[key][i] for row in rows if i < len(row[key])) for i in range(len(STATES))]
 
 
 def grouped(panes: list[dict]) -> tuple[list[int], list[dict]]:
@@ -130,7 +133,7 @@ def _create_base(db) -> None:
          "payload_id INTEGER NOT NULL REFERENCES inventory_payloads(id))"),
         ("CREATE TABLE IF NOT EXISTS log_observations ("
          "t REAL NOT NULL, uid TEXT NOT NULL, tool TEXT NOT NULL, "
-         "state INTEGER NOT NULL CHECK(state BETWEEN 0 AND 5), valid_until REAL, "
+         "state INTEGER NOT NULL CHECK(state BETWEEN 0 AND 6), valid_until REAL, "
          "PRIMARY KEY(t, uid))"),
     ):
         db.execute(sql)
@@ -144,12 +147,12 @@ def _add_valid_until(db) -> None:
         db.execute("ALTER TABLE log_observations ADD COLUMN valid_until REAL")
 
 
-def _widen_states(db) -> None:
-    # Expand the legacy constraint without rewriting or reinterpreting observations.
+def _widen_states(db, legacy="BETWEEN 0 AND 3") -> None:
+    # Expand an older state constraint without rewriting or reinterpreting observations.
     schema = db.execute(
         "SELECT sql FROM sqlite_master WHERE name='log_observations'",
     ).fetchone()[0]
-    if "BETWEEN 0 AND 3" in schema:
+    if legacy in schema:
         db.execute("ALTER TABLE log_observations RENAME TO old_log_observations")
         _create_base(db)
         db.execute("INSERT INTO log_observations SELECT * FROM old_log_observations")
@@ -221,7 +224,8 @@ def _add_visits(db) -> None:
 
 MIGRATIONS = (_create_base, _add_valid_until, _widen_states, _compress_snapshots,
               _add_checkpoints, _add_plan_usage, _index_plan_usage, _index_plan_usage_resets,
-              _drop_plan_usage_resets, _add_layout_snapshots, _add_visits)
+              _drop_plan_usage_resets, _add_layout_snapshots, _add_visits,
+              partial(_widen_states, legacy="BETWEEN 0 AND 5"))  # Quota blocked, state 6
 
 
 class History:

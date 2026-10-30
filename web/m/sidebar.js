@@ -21,8 +21,8 @@ try { const saved = JSON.parse(localStorage.getItem(KEY)); if (saved?.fold && sa
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(prefs)); } catch {} };
 
 const rank = (p) => needsYou(p) ? 0 : isRunning(p) ? 1 : isRecent(p) ? 2 : 3;
-export const SHOW = { attention: "Needs you", working: "Working", finished: "Just finished", idle: "Idle" }; // the sections, by filter name
-const STATES = [["run", "working"], ["done", "finished"], ["idle", "idle"]].map(([id, f]) => [id, SHOW[f], (p) => FILTERS[f](p)]); // the filters' own sets (no index as nowMs)
+export const SHOW = { attention: "Needs you", working: "Working", blocked: "Quota blocked", finished: "Just finished", idle: "Idle" }; // the sections, by filter name
+const STATES = [["run", "working"], ["blocked", "blocked"], ["done", "finished"], ["idle", "idle"]].map(([id, f]) => [id, SHOW[f], (p) => FILTERS[f](p)]); // the filters' own sets (no index as nowMs)
 export const SORTS = { updated: "Last activity", session: "Session order" }; // app.js keeps the choice
 const HOVER_MS = 350;
 const bySession = () => prefs.by === "session" && !oneSession(); // one session is one group: by state instead

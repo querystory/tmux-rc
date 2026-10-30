@@ -19,10 +19,11 @@ export const home = (d) => d.replace(/^\/home\/[^/]+/, "~");
 export const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 // An idle pane older than this is parked, so it drops out of "Recent".
 export const PARKED_IDLE_SECS = 600;
-const ACTIVITIES = ["running", "waiting", "idle", "compacting", "unknown"];
+const ACTIVITIES = ["running", "waiting", "idle", "compacting", "quota_blocked", "unknown"];
 const actOf = (pane) => ACTIVITIES.includes(pane.activity) ? pane.activity : "unknown";
 export const needsYou = (pane) => pane.activity === "waiting" && pane.waiting_on !== "external";
-export const activityLabel = (pane) => pane.ending || (needsYou(pane) ? "Needs you" : ({ running: "Running", waiting: "Working", idle: "Idle", compacting: "Compacting", unknown: "Unknown" }[actOf(pane)]));
+// A quota-blocked pane resumes by itself at its reset time, so the label says when.
+export const activityLabel = (pane) => pane.ending || (needsYou(pane) ? "Needs you" : actOf(pane) === "quota_blocked" ? ["Quota blocked", pane.resets && `resets ${pane.resets}`].filter(Boolean).join(" · ") : ({ running: "Running", waiting: "Working", idle: "Idle", compacting: "Compacting", unknown: "Unknown" }[actOf(pane)]));
 // A pane whose window this page is closing (app.js sets pane.ending while the request runs):
 // greyed under a spinner, and inert, so no answer or action on it can be sent meanwhile.
 export const markEnding = (node, pane) => { node.inert = !!pane?.ending; node.classList.toggle("ending", !!pane?.ending); };
@@ -74,9 +75,10 @@ export function isRecent(pane, nowMs = Date.now(), within = PARKED_IDLE_SECS) {
   return pane.activity !== "idle" || idle < within;
 }
 // The list's sections, each its own pane set, so a filter shows exactly one section's panes:
-// Needs you, then Working, Just finished and Idle among the rest, each the first that fits.
-const working = (pane) => !needsYou(pane) && isRunning(pane), finished = (pane, nowMs) => !needsYou(pane) && !isRunning(pane) && isRecent(pane, nowMs);
-export const FILTERS = { attention: needsYou, working, finished, idle: (pane, nowMs) => !needsYou(pane) && !isRunning(pane) && !isRecent(pane, nowMs) };
+// Needs you, then Working, Quota blocked, Just finished and Idle among the rest, each the first that fits.
+const working = (pane) => !needsYou(pane) && isRunning(pane), blocked = (pane) => !needsYou(pane) && pane.activity === "quota_blocked";
+const rest = (pane) => !needsYou(pane) && !isRunning(pane) && !blocked(pane);
+export const FILTERS = { attention: needsYou, working, blocked, finished: (pane, nowMs) => rest(pane) && isRecent(pane, nowMs), idle: (pane, nowMs) => rest(pane) && !isRecent(pane, nowMs) };
 // `filters` is a list of FILTERS' names: a pane shows if it matches any; none (or only
 // unknown names) shows every pane.
 export function matchesFilter(pane, filters, nowMs = Date.now()) {

@@ -1,0 +1,14 @@
+{
+  "description": "Synthetic: the usage limit hit twice, the second time after the user sent another message, with a background sub-agent row still listed under the status line (its meter frozen, since it shares the same limit). The pane is quota_blocked, the worker is quota_blocked with it, and no running agent is counted.",
+  "current_command": "node",
+  "capture": "❯ Continue\n\n● Usage limit reached again · continuing automatically at 4:00pm · esc to cancel\n  ⎿  You've hit your session limit · resets 4:00pm (America/Chicago)\n\n✻ Worked for 6s · done 1:12 PM · 1 shell still running\n\n❯ did the recipe photos get resized too?\n\n● Usage limit reached again · continuing automatically at 4:00pm · esc to cancel\n  ⎿  You've hit your session limit · resets 4:00pm (America/Chicago)\n\n✻ Baked for 1s · done 4:21 PM · 1 shell still running\n\n────────────────────────────────────────────────────────────────────── recipe-box ──\n❯ \n────────────────────────────────────────────────────────────────────────────────\n  ⚠ Usage limit reached · limit resets 4:00pm\n    Continuing automatically at 4:00pm · esc to cancel\n  ~/src/recipe-box on feat/photo-thumbs | Opus 5.5 | session: +340/-58 lines · 44% ctx · 6h02m\n  ⏵⏵ auto mode on · 1 shell · ← for agents\n\n  ● main\n  ◯ general-purpose  Resize the recipe photos  1m 12s · ↓ 41.2k tokens",
+  "expected": {
+    "tool": "claude",
+    "activity": "quota_blocked",
+    "subagent_states": [
+      "quota_blocked"
+    ],
+    "agents": 0,
+    "headline": "Usage limit reached; continues automatically at 4:00pm"
+  }
+}

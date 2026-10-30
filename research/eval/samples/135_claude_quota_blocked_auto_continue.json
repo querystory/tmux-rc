@@ -1,0 +1,11 @@
+{
+  "description": "Synthetic: Claude Code stopped at its plan's usage limit, auto mode set to continue at the reset time. The notice is the live bottom of the screen above an empty box → activity=quota_blocked with the reset time in `resets`, not running or Needs you.",
+  "current_command": "node",
+  "capture": "❯ add a dark theme toggle to the tide chart\n\n● Usage limit reached · continuing automatically at 9:30am · esc to cancel\n  ⎿  You've hit your session limit · resets 9:30am (Europe/Lisbon)\n\n✻ Worked for 4s · done 7:02 AM\n\n────────────────────────────────────────────────────────────────────── tide-tables ──\n❯ \n────────────────────────────────────────────────────────────────────────────────\n  ⚠ Usage limit reached · limit resets 9:30am\n    Continuing automatically at 9:30am · esc to cancel\n  ~/src/tide-tables on feat/dark-chart | Sonnet 5 | session: +12/-3 lines · 21% ctx · 2h10m\n  ⏵⏵ auto mode on",
+  "expected": {
+    "tool": "claude",
+    "activity": "quota_blocked",
+    "resets": "9:30am",
+    "headline": "Usage limit reached; continues automatically at 9:30am"
+  }
+}

@@ -48,7 +48,7 @@ def test_fleet_covers_every_state_the_ui_draws():
     fleet = demo.fleet()
     assert len({p["pane_id"] for p in fleet}) == len(fleet)
     acts = {(p["activity"], p.get("waiting_on")) for p in fleet}
-    assert {("running", None), ("idle", None), ("compacting", None),
+    assert {("running", None), ("idle", None), ("compacting", None), ("quota_blocked", None),
             ("waiting", "user"), ("waiting", "external")} <= acts
     assert 1 <= sum(p.get("waiting_on") == "user" for p in fleet) <= 2  # a calm fleet
     assert {p["tool"] for p in fleet} >= {"claude", "codex", "opencode", "omp", "gemini", "shell"}

@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-Activity = Literal["running", "idle", "waiting", "compacting", "unknown"]
+Activity = Literal["running", "idle", "waiting", "compacting", "quota_blocked", "unknown"]
 # WHOM a `waiting` pane is blocked on: "user" (an input affordance the human must fill —
 # actionable) vs "external" (a background subagent / Copilot / CI / poll it spawned —
 # just busy). Absent ⇒ treat as "user" (the safe default; never hide a real user-wait).
@@ -71,7 +71,8 @@ class SubAgent(BaseModel):
 
     label: str  # what the sub-agent is doing, e.g. "In-depth review PR 4012"
     # Unknown is not proof of active work. Only running/compacting are busy.
-    state: Literal["running", "waiting", "idle", "compacting", "unknown", "done"] = "unknown"
+    state: Literal["running", "waiting", "idle", "compacting", "quota_blocked", "unknown",
+                   "done"] = "unknown"
     elapsed: str | None = None  # e.g. "2m", if the row shows it
     tokens: str | None = None  # e.g. "88.7k", if the row shows it
     progress: str | None = None  # a workflow row's "done/total" steps, e.g. "1/2"
@@ -126,6 +127,7 @@ class PaneState(BaseModel):
     tool: Tool = "unknown"
     activity: Activity = "unknown"
     waiting_on: WaitingOn | None = None  # only meaningful when activity == "waiting"
+    resets: str | None = None  # quota_blocked only: when the usage limit resets, "2:10pm"
     idle_seconds: int = 0
     status_line: str = ""  # one short human phrase: "Editing models.py", "14/52 tests"
     question: Question | None = None

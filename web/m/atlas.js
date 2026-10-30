@@ -1,15 +1,15 @@
 import { atlasCharts, fleetChart, latestAverage, shownStates, unchanged } from './atlas-charts.js';
 import { needsYou, isRunning, markWorking, modelProvider, paneName, AGENT_TOOLS } from './pane-model.js';
 
-export const STATES = ['Needs you', 'Running', 'Idle', 'Unknown', 'Compacting', 'Waiting'];
+export const STATES = ['Needs you', 'Running', 'Idle', 'Unknown', 'Compacting', 'Waiting', 'Quota blocked'];
 const sum = rows => rows.some(row => row == null) ? null : STATES.map((_, i) => rows.reduce((n, row) => n + (row[i] || 0), 0));
-export const stateOf = (p) => needsYou(p) ? 0 : p.activity === 'compacting' ? 4 : p.activity === 'waiting' ? 5 : isRunning(p) ? 1 : p.activity === 'idle' ? 2 : 3;
+export const stateOf = (p) => needsYou(p) ? 0 : p.activity === 'compacting' ? 4 : p.activity === 'waiting' ? 5 : p.activity === 'quota_blocked' ? 6 : isRunning(p) ? 1 : p.activity === 'idle' ? 2 : 3;
 const toolOf = p => p.tool || 'other';
 // 'unknown' (classifier could not tell) and 'other' (no tool) are buckets, not agents to
 // filter to: they still count under All, but get no chip of their own.
 const isAgent = tool => tool && tool !== 'unknown' && tool !== 'other';
 // The running count the goal is about, as the Running tab counts it (isRunning): Running,
-// Compacting, and Waiting on external work.
+// Compacting, and Waiting on external work; never Quota blocked, which waits on nothing it can do.
 const running = n => n[1] + (n[4] || 0) + (n[5] || 0);
 const RANGES = ['24h', '3d', '7d', '30d'], AVERAGES = ['1d', '3d', '7d'];
 // What every chart counts: each pane once plus its visible background agents (sub-agents,
