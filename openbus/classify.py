@@ -1369,6 +1369,13 @@ def classify(
         result.pop("question", None)
         result.pop("rewind", None)
     _fold_sends(result)
+    # A pane the model read as stopped at its quota waits on nothing from the turn before:
+    # its closing question or handed-over command (still on screen above the notice) is not
+    # what blocks it, so none is kept or restored as an ask. Dropped before grounding, since a
+    # misquoted one would otherwise send the re-read a viewport cut above the quota notice.
+    if result.get("activity") == "quota_blocked":
+        result.pop("question", None)
+        result.pop("rewind", None)
     _ground_visible_fields(result, text, pane, llm_fn, prompt, process_tool)
     # OpenCode answer bullets and omp Ask radios are not tasks. Match genuine visible
     # checkbox rows after a bounded re-read, whose replacement fields need grounding too.
@@ -1449,13 +1456,7 @@ def classify(
     # The finished turn's own chrome is authoritative over any model question: nothing was
     # typed after it, so a live menu (whose ❯/› rows would count as typed) is ruled out.
     tool = result.get("tool")
-    # A pane the model read as stopped at its quota waits on nothing from the turn before:
-    # its closing question or handed-over command (still on screen above the notice) is not
-    # what blocks it, so none is kept or restored as an ask.
-    blocked = result.get("activity") == "quota_blocked"
-    if blocked:
-        result.pop("question", None)
-        result.pop("rewind", None)
+    blocked = result.get("activity") == "quota_blocked"  # its ask already dropped (above)
     over = spent or blocked
     # Claude's final message is read on the ask view: a long one begins above the viewport.
     final = not over and tool in _TURN_ERROR_RE and _final_message(view, tool)

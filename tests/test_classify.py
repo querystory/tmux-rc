@@ -43,6 +43,15 @@ def test_a_quota_blocked_pane_keeps_nothing_from_the_turn_before():
         r = classify(_pane("claude"), screen, _llm({**read, **extra}))
         assert (r["activity"], r.get("resets"), r.get("question"), r.get("offers")) == (
             "quota_blocked", "2:10pm", None, None)
+    # A misquoted question would send the re-read a viewport cut above the notice: the quota
+    # read drops its ask first, so nothing is re-read and nothing overwrites it.
+    calls = []
+    def llm(system, screen, **_):
+        calls.append(screen)
+        return {**read, "question": {"prompt": "Merge now?", "answer_style": "text"}}
+    r = classify(_pane("claude"), screen, llm)
+    assert (r["activity"], r.get("resets"), r.get("question"), len(calls)) == (
+        "quota_blocked", "2:10pm", None, 1)
     # A bash-mode command run under that turn spent its ask, but the notice below the
     # command is the screen's end: the quota read stands over the spent row's "idle".
     spent = screen.replace("\n\n❯\n", "\n\n! gh pr merge 7 --squash\n\n❯\n")
