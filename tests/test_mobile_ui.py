@@ -348,6 +348,16 @@ def test_agent_title_is_not_squeezed_by_its_meta():
     assert ".sb-agents .agent { min-width: 0; flex-wrap: nowrap;" in css
 
 
+def test_phone_drawer_scrolls_itself_and_never_the_view_behind_it():
+    """The drawer is a modal dialog, so its overflow came from the UA sheet and nothing contained
+    it. On iOS a swipe the drawer cannot take chains to the scroller under the finger, not up the
+    DOM: over the dashboard that scrolled the dashboard behind the scrim. The drawer declares
+    its own scrolling and containment, as every other scroller in the app does."""
+    css = (Path(__file__).resolve().parents[1] / "web/m/style.css").read_text()
+    drawer = next(line for line in css.splitlines() if line.startswith("#drawer {"))
+    assert "overflow-y: auto" in drawer and "overscroll-behavior: contain" in drawer
+
+
 def test_tab_title_keeps_its_count_while_the_tab_is_hidden():
     """The title's Needs-you count is read from OTHER tabs, so it is only worth having if a
     background tab keeps receiving state. The state long poll (answered only on change) runs
