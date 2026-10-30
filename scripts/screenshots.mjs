@@ -29,7 +29,6 @@ const SHOTS = [
   ["website-usage-detail", WIDE, "light", "#view=usage"],
   ["website-dashboard", WIDE, "light", "#view=dashboard"],
   ["website-graph", WIDE, "light", "#view=graph"],
-  ["website-atlas", WIDE, "light", "#view=dashboard", reach(".atlas-multiples")],
   ["website-restore", WIDE, "light", "#view=restore", afterReboot],
   ["website-restore-phone", PHONE, "light", "#view=restore", afterReboot],
   ["wide-pane-dark", WIDE, "dark", "#pane=%259"],
