@@ -8,8 +8,14 @@ const SEEN = "{seen}";
 // While the tab is hidden, a notification that brings it back when clicked, one per folder: each
 // replaces the last, and its push's Ready (push.py's tag). Only the placeholder may notify: an
 // opaque origin never gets the permission.
+// Through the app's service worker where there is one (a page's own notification never replaces
+// a push's, and Android has no other), whose click focuses this tab (sw.js).
 const tell = (title, body) => { if (!document.hidden || window.Notification?.permission !== "granted") return false;
-  new Notification(title, { body, tag: "scratch:" + decodeURIComponent(location.pathname.split("/").filter(Boolean).pop()), renotify: true }).onclick = (e) => { focus(); e.target.close(); };
+  const as = { body, tag: "scratch:" + decodeURIComponent(location.pathname.split("/").filter(Boolean).pop()),
+    renotify: true, data: { url: location.href } };
+  Promise.resolve(navigator.serviceWorker?.getRegistration()).then((sw) => {
+    if (sw) return sw.showNotification(title, as);
+    new Notification(title, as).onclick = (e) => { focus(); e.target.close(); }; });
   return true; };
 let fails = 0;
 const ask = () => { const img = new Image(); let late; // an ask unanswered in 10s failed too

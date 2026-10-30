@@ -119,6 +119,8 @@ if server._scratch_dir:
     print(width(mine))
     (rev / "meta.json").write_text('{"title": "Rev"}')
     print(before, landed, width(mine), int("Updating" not in c.get("/scratch/rev/").text))
+    (rev / "index.md").rename(rev / "page.md")  # done too when its page is not the index
+    print(width(mine))
 """
 
 
@@ -161,7 +163,7 @@ def test_scratch_serves_only_inside_the_configured_dir(tmp_path):
     assert _probe({"TMUXRC_SCRATCH_DIR": str(scratch)}, tmp_path) == [
         200, 404, 404, 200, 307, 200, 404, 404, 404, 202, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
         1, 1, 200, 200, 202, 200, 202, 202, 400, 1, 1, 1, 404, 2, 1, 1, 3,
-        1, 1, 1, 1, 1, 1, 2, 3, 1]
+        1, 1, 1, 1, 1, 1, 2, 3, 1, 3]
 
 
 def test_scratch_is_off_unless_configured(tmp_path):

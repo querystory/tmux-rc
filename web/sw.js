@@ -68,6 +68,9 @@ self.addEventListener("notificationclick", (event) => {
     // page cannot reply until it is woken. Several are each asked first, and the first to
     // say it owns the card is focused at once; if none does, the most recently focused
     // (matchAll's order) is, and is asked.
+    // A window already at the notification's page (a scratch placeholder's own) is just focused.
+    const there = !data.chat && windows.find((client) => client.url === target);
+    if (there) return there.focus();
     const owner = data.chat && apps.length > 1 && await Promise.any(apps.map(holdsCard(data.chat))).catch(() => null);
     const existing = owner || apps[0] || windows[0];
     if (existing) {

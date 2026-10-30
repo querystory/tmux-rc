@@ -154,9 +154,10 @@ class Files(StaticFiles):
         seen = parse_qs(scope["query_string"].decode()).get("seen")
         folder = "/" not in path.removeprefix(ARCHIVE + "/")  # a folder's own URL
         if seen and folder:  # a placeholder or bar asking: wide says reload, wider it is done
-            def asked():  # what it waits on, else whether its page is there
-                wait = self.pending(path) or self.updating(path)
-                return wait, not wait and self.lookup_path(path + "/index.html")[1] is not None
+            def asked():  # what it waits on, else whether the folder has a page (as pending)
+                wait, full = self.pending(path) or self.updating(path), self.lookup_path(path)[0]
+                return wait, not wait and os.path.isdir(full) and any(
+                    f.suffix in (".html", ".htm", ".md") for f in Path(full).iterdir())
             wait, done = await anyio.to_thread.run_sync(asked)
             # neither (meta.json mid-write, the folder gone): nothing landed, so ask again
             same = wait == ("", "") or (wait and f'const SEEN = "{seen[0]}";' in "".join(wait)) \
