@@ -20,6 +20,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from collections import defaultdict
 from contextlib import contextmanager, suppress
 from functools import partial
 from html.parser import HTMLParser
@@ -45,6 +46,7 @@ _VIEW = re.compile(r"(?:[\w-][\w.-]*/)*(?:[\w-][\w.-]*)?(?:[?#].*)?")  # a page 
 _pending: list[tuple[Path, str, dict]] = []
 _tried: set[tuple] = set()  # folder versions queued
 _done: set[tuple] = set()  # and worked
+_moves: dict[str, int] = defaultdict(int)  # times each name was archived or restored (forget)
 _worker: threading.Thread | None = None
 
 
@@ -91,6 +93,17 @@ def queue(root: Path, web: Path, listed: list[dict], describe: bool = True) -> N
             _worker.start()
 
 
+def forget(names: list[str]) -> None:
+    """These folders were archived or restored (scratch.act): whatever was worked out for them
+    is asked afresh, and a job of theirs already running counts for nothing. A move keeps a
+    folder's inode and times, so its version alone would call it done."""
+    with _lock:
+        for name in names:
+            _moves[name] += 1
+        for seen in (_tried, _done):
+            seen.difference_update({key for key in seen if key[0] in names})
+
+
 def _work(root: Path, web: Path) -> None:
     global _worker  # noqa: PLW0603
     with serving(root, web) as base:
@@ -100,14 +113,16 @@ def _work(root: Path, web: Path) -> None:
                     _worker = None  # under the lock, so queue() starts one for what comes next
                     return
                 item = _pending.pop(0)
+                moves = _moves[item["name"]]
             for step in (_thumbnail, _description):
                 try:  # each on its own: one failing must stop neither the other nor the queue
                     step(root, f"{base}/{item['href']}", item)
                 except Exception:
                     logger.warning("Scratch %s for %s failed", step.__name__, item["name"],
                                    exc_info=True)
-            with _lock:
-                _done.add(_version(item))
+            with _lock:  # a folder archived or restored meanwhile was not worked: ask again
+                moved = _moves[item["name"]] != moves
+                (_tried.discard if moved else _done.add)(_version(item))
 
 
 class _Static(SimpleHTTPRequestHandler):
@@ -181,13 +196,14 @@ def serving(root: Path, web: Path):
 def _thumbnail(root: Path, url: str, item: dict) -> None:
     if stale(item) and _version(item) not in _done:  # once per version, even
         # when the description is asked again
-        shoot(url, root / item["name"] / "thumb.webp", root, item["updated"])
+        shoot(url, root / item["name"] / "thumb.webp", root, item["updated"], item["inode"])
 
 
 def _description(root: Path, _url: str, item: dict) -> None:
     folder = root / item["name"]
     if item["describe"] and not item["description"] and not describe(
-            folder / "meta.json", item["page"], item["title"], root) and llm.backing_off():
+            folder / "meta.json", item["page"], item["title"], root,
+            item["inode"]) and llm.backing_off():
         with _lock:  # the model is out, not the page at fault: ask again later
             _tried.discard(_version(item))
 
@@ -226,13 +242,19 @@ def render(url: str) -> bytes | None:
         return png.read_bytes() if png.is_file() else None
 
 
-def shoot(url: str, out: Path, root: Path, at: float | None = None) -> bool:
+def shoot(url: str, out: Path, root: Path, at: float | None = None, inode: int = 0) -> bool:
     """Render `url` at VIEWPORT and save it as a THUMB webp dated `at` (the page's version it
-    was queued for), so an edit made while it rendered still reads as newer."""
+    was queued for), so an edit made while it rendered still reads as newer. With `inode`,
+    only while its folder is still that one: not into another that took its name meanwhile."""
     if not (data := render(url)):
         return False
     with Image.open(io.BytesIO(data)) as im:
         im.thumbnail(THUMB)
+        try:
+            if inode and out.parent.stat().st_ino != inode:
+                return False
+        except OSError:  # archived meanwhile
+            return False
         scratch.replace(out, root, lambda tmp: im.save(tmp, "WEBP", quality=70))
     if at:
         os.utime(out, (at, at))
@@ -336,10 +358,11 @@ class _Text(HTMLParser):
             self.parts.append(data)
 
 
-def describe(meta: Path, page: Path, title: str, root: Path) -> str | None:
+def describe(meta: Path, page: Path, title: str, root: Path, inode: int = 0) -> str | None:
     """Ask the parse model for one sentence on the page and add it to meta.json, marked as
     generated. Never over a description already there, nor into a meta.json that is
-    unreadable or a symlink: those are the agent's to fix."""
+    unreadable or a symlink: those are the agent's to fix. With `inode`, only while its
+    folder is still that one (scratch.annotate)."""
     if not scratch.inside(page, root):
         return None
     parser, html = _Text(), ""
@@ -354,6 +377,6 @@ def describe(meta: Path, page: Path, title: str, root: Path) -> str | None:
         "Describe this web page in ONE short sentence (under 20 words) for a gallery of "
         f'previews: what it shows, starting with the subject (never "This page"). Plain '
         f"text.\nTitle: {title}\n\n{text}")
-    if not (sentence and scratch.annotate(meta, root, "description", sentence)):
+    if not (sentence and scratch.annotate(meta, root, "description", sentence, inode)):
         return None
     return sentence
