@@ -1520,10 +1520,10 @@ async function streamTerminal(id, signal) {
 function startState() {
   stateController?.abort();
   stateController = new AbortController();
-  if (!document.hidden) {
-    refreshHistory(); refreshCached();
-    pollState(stateController.signal);
-  }
+  // State keeps coming while the tab is hidden: a background tab's title is what the tab strip
+  // shows (docs/design/tab-icons.md). The history and meters wait to be seen.
+  if (!document.hidden) { refreshHistory(); refreshCached(); }
+  pollState(stateController.signal);
 }
 // Panes of windows this page is closing, by pane id: { birth, pane, label } while the request
 // runs, then { birth, done } for each pane the server says it killed. A killed pane stays
@@ -1589,7 +1589,7 @@ async function pollState(signal) {
       statePanes = data.panes || []; showPanes(); loaded = true; booted = data.booted !== false; tmuxRunning = data.tmux_running !== false; prefix = data.prefix || "C-b"; host = data.host || "";
       if (wasRunning !== tmuxRunning || restore.due()) restore.refresh(); // a server came or went: the offer changes
       $("ctrl-b").hidden = data.prefix === "C-b"; // absent prefix: can't know it's C-b, so show it
-      refreshHistory(); refreshCached();
+      if (!document.hidden) { refreshHistory(); refreshCached(); }
       pruneDrafts();
       text($("connection"), data.stale ? "Stalled" : "Live");
       $("connection").classList.toggle("online", !data.stale);

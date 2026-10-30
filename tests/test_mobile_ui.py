@@ -331,3 +331,16 @@ def test_agent_title_is_not_squeezed_by_its_meta():
     assert ".task, .agent { display: flex; flex-wrap: wrap;" in css
     assert ".agent > span:nth-child(2) { max-width: calc(100% - 26px); }" in css
     assert ".sb-agents .agent { min-width: 0; flex-wrap: nowrap;" in css
+
+
+def test_tab_title_keeps_its_count_while_the_tab_is_hidden():
+    """The title's Needs-you count is read from OTHER tabs, so it is only worth having if a
+    background tab keeps receiving state. The state long poll (answered only on change) runs
+    whatever the visibility; the history and meter fetches still wait for the tab to be seen
+    (docs/design/tab-icons.md)."""
+    app = (Path(__file__).resolve().parents[1] / "web/m/app.js").read_text()
+    start = app.index("function startState()")
+    body = app[start:app.index("\n}", start)]
+    assert "if (!document.hidden) { refreshHistory(); refreshCached(); }" in body
+    assert "\n  pollState(stateController.signal);" in body, "the poll must not wait to be seen"
+    assert "document.title = tabTitle(" in app
