@@ -58,7 +58,8 @@ shaped for the phone and carries only the events new since the last parse.
 | `POST /api/windows`, `POST /api/sessions`, `GET /api/sessions/dirs` | Open a window or session running a configured launcher; directory suggestions |
 | `GET`/`POST`/`PUT /api/accounts`, `/accounts/login`, `/accounts/default` | Agent accounts and their sign-in windows |
 | `GET`/`POST /api/restore`, `POST /api/restore/dismiss` | Offer and restore the workspace of a dead tmux server ([design](design/reboot-restore.md)) |
-| `GET /api/export`, `/api/export/parts` | Everything the daemon knows, as a `.tgz` (also `python -m openbus.server export`) |
+| `GET /api/export?part=…` | The parts named (repeat `part`; none means only what every archive carries), as a `.tgz`, like `tmux-rc export`'s flags |
+| `GET /api/export/parts` | JSON: each part's name, label, default and size on disk, what Settings › Export all… shows |
 | `PUT /api/history/goal` | The goal line shown on the dashboard |
 
 ### Previews and push

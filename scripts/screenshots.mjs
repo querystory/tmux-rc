@@ -115,7 +115,8 @@ function openScratch(name) {
   return async (page) => {
     await (await stillFrame(page)).locator(`article[data-name="${name}"] h2 a`).click();
     await stillFrame(page, "#scratch-viewer iframe");
-    await page.waitForSelector("#viewer-form:not([hidden])");
+    await page.waitForSelector("#viewer-form:not([hidden])") // the shot is the reply box: no gallery in its place
+      .catch((e) => { throw Object.assign(new Error(`no reply box: ${e.message}`), { loud: true }); });
   };
 }
 

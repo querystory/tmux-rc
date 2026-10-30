@@ -117,8 +117,9 @@ front door as the app, so a page is on your phone with no second server or tunne
   revised reads **Updating** and reloads when done.
 - **Reply to the maker.** The viewer's message box goes to the agent that wrote the page,
   with a screenshot of what you are looking at.
-- **Yours.** The pages never leave your machine except to your own phone, so an agent can
-  put private work there; anyone can write one (Claude Code, Codex, Gemini CLI, a script).
+- **Yours.** The files never leave your machine except to your own phone (only a page
+  without a description has its text sent to the parse model, for one sentence), so an agent
+  can put private work there; anyone can write one (Claude Code, Codex, Gemini CLI, a script).
   How it compares with claude.ai Artifacts, and setup: [Scratch](docs/scratch.md).
 
 > **Status.** In daily use on real fleets: every pane on the server is watched,

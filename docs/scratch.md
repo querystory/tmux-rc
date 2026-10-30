@@ -56,7 +56,7 @@ turns into the page the moment `index.html` or `index.md` lands. The card in the
 spins the same way. Once the agent's pane has closed, or sat idle for thirty minutes, the
 card says **Stopped**: the agent gave up without publishing.
 
-When the page lands, every subscribed device gets one push, **Ready: <title>**, whose tap
+When the page lands, every subscribed device gets one push, `Ready: <title>`, whose tap
 opens the page in the app. It is a notification of its own, never swallowed by the pane's
 Needs-you; what keeps one finish to one buzz is that for two minutes after a Ready, that
 pane's plain "turn ended" Needs-you is skipped (a question still notifies). A page
@@ -65,7 +65,7 @@ published in one go was never promised and does not notify.
 The same holds for revisions. An agent reworking a published page marks its `meta.json`
 `"updating": "<what's changing>"`; the card and the page's tab read **Updating**, a thin
 bar on the page says what is changing, and the page reloads itself when the mark is
-removed, with a push, **Updated: <title>**. There is no status database behind any of this:
+removed, with a push, `Updated: <title>`. There is no status database behind any of this:
 the state is read from the folder itself, so an agent that crashes cannot leave a stale
 "done", and it survives a daemon restart.
 
@@ -120,9 +120,12 @@ the page lives and who it is for.
 Which to use follows from the first two rows. **Scratch is for work about this machine**:
 a mock of the UI an agent is changing, the build output of the site in the next pane, a
 report that quotes your private repos or costs, anything a non-Claude agent produced, and
-anything that should sit in the fleet's own trail of links and notifications. It never
-leaves your machine except to your own phone through your own front door, so an agent can
-put things there it must never post anywhere public. **An Artifact is for a page that has
+anything that should sit in the fleet's own trail of links and notifications. The files
+never leave your machine except to your own phone through your own front door, so an agent
+can put things there it must never post anywhere public. One exception to know: with the
+parse model configured, a page whose `meta.json` has no description has its title and
+visible text sent to that model for a one-line description, so agents should write the
+description themselves (the snippet does), or set `TMUXRC_NO_LLM=1`. **An Artifact is for a page that has
 to outlive your front door**: something to hand to people who cannot reach your tmux-rc,
 a page that needs live data or state shared between viewers, or work done in claude.ai
 rather than in a pane. The one hazard is an agent that defaults to the hosted one for a
