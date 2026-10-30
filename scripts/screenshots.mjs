@@ -28,7 +28,6 @@ const SHOTS = [
   ["website-voice-phone", PHONE, "light", "", voice],
   ["website-usage-detail", WIDE, "light", "#view=usage"],
   ["website-dashboard", WIDE, "light", "#view=dashboard"],
-  ["website-graph", WIDE, "light", "#view=graph"],
   ["website-restore", WIDE, "light", "#view=restore", afterReboot],
   ["website-restore-phone", PHONE, "light", "#view=restore", afterReboot],
   ["wide-pane-dark", WIDE, "dark", "#pane=%259"],
@@ -133,6 +132,51 @@ function openScratch(name) {
     await stillFrame(page, "#scratch-viewer iframe");
     await page.waitForSelector("#viewer-form:not([hidden])") // the shot is the reply box: no gallery in its place
       .catch((e) => { throw Object.assign(new Error(`no reply box: ${e.message}`), { loud: true }); });
+  };
+}
+
+// The website's Fleet graph, close up on the tmux-rc session that only its demo has
+// (TMUXRC_DEMO_GRAPH=1, demo_fleet.py): every label a node carries, readable.
+const GRAPH = [["website-graph", WIDE, "light", "#view=graph", closeUp("tmux-rc")]];
+// Full screen, its neighbours folded, then Jump to the longest-waiting pane (the session's question), which centres
+// it at zoom 1.4; Zoom in twice (x1.35 about the centre) passes 2, where each pane adds its
+// numbers. Then drag the session's hub, panes and sub-agents to the middle of the room the HUD
+// leaves, and tap an empty spot so nothing stays selected (a selection dims the rest).
+function closeUp(session) {
+  return async (page) => {
+    const tool = (name) => page.locator(`.fg-tools button[aria-label="${name}"]`).click();
+    await tool("Full screen");
+    // Fold the sessions either side (a tap on a ring, here its button), so none of their panes
+    // is cut by the frame's edges.
+    const others = page.locator(".fg-nodes button").filter({ hasText: /^(misc|shop-api): .*panes, unfolded$/ });
+    while (await others.count()) await others.first().evaluate((b) => b.click()); // off screen, for the keyboard
+    const jump = page.locator(".fg-call button.need");
+    await loud(jump.waitFor(), "no Longest waiting callout");
+    await jump.click();
+    await page.locator(".fg-pop .fg-x").click(); // focus() opens the pane's popover
+    for (let i = 0; i < 2; i++) await tool("Zoom in");
+    const plan = await page.evaluate(([session, id]) => {
+      const nodes = [...document.querySelectorAll(".fg-nodes button")].map((b) => b._n), k = 1.4 * 1.35 ** 2;
+      const hub = nodes.find((n) => n.kind === "group" && n.label === session), at = nodes.find((n) => n.p?.pane_id === id);
+      const mine = nodes.filter((n) => n === hub || n.up === hub || n.up?.up === hub), xs = mine.map((n) => n.tx), ys = mine.map((n) => n.ty);
+      const r = (e) => document.querySelector(e).getBoundingClientRect(), box = r(".fg-box");
+      const top = Math.max(r(".fg-lenses").bottom, r(".fg-call").bottom), left = r(".fg-stats").right, bottom = r(".fg-legend").top, right = box.right - 52;
+      const c = { x: box.left + box.width / 2, y: box.top + box.height / 2 }, screen = (x, y) => ({ x: c.x + (x - at.tx) * k, y: c.y + (y - at.ty) * k });
+      const from = screen((Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2), to = { x: (left + right) / 2 + 20, y: (top + bottom) / 2 }; // a little right: the left side's words run out leftward
+      // The emptiest point of the room once dragged: the farthest from every node.
+      const placed = nodes.map((n) => screen(n.tx, n.ty)).map((p) => ({ x: p.x + to.x - from.x, y: p.y + to.y - from.y }));
+      let empty = to, best = 0;
+      for (let x = left + 20; x < right; x += 20) for (let y = top + 20; y < bottom; y += 20) {
+        const d = Math.min(...placed.map((p) => Math.hypot(p.x - x, p.y - y)));
+        if (d > best) { best = d; empty = { x, y }; }
+      }
+      return { from, to, empty };
+    }, [session, await jump.getAttribute("data-id")]);
+    // The drag starts mid-room: the session's middle may lie under the HUD, which takes no pan.
+    await page.mouse.move(plan.to.x, plan.to.y); await page.mouse.down();
+    await page.mouse.move(2 * plan.to.x - plan.from.x, 2 * plan.to.y - plan.from.y, { steps: 8 }); await page.mouse.up();
+    await page.mouse.click(plan.empty.x, plan.empty.y);
+    await page.mouse.move(1, 1); // off the canvas: a hovered node would light only itself
   };
 }
 
@@ -359,6 +403,7 @@ const demos = [];
 try {
   demos.push([SHOTS, await startDemo(tree)]); // each pushed as it starts, so a later failure closes it
   demos.push([TWO_ACCOUNTS, await startDemo(tree, { TMUXRC_DEMO_ACCOUNTS: "2" })]);
+  demos.push([GRAPH, await startDemo(tree, { TMUXRC_DEMO_GRAPH: "1" })]);
   for (const [shots, demo] of demos) for (const [name, viewport, colorScheme, hash, step, crop] of shots) {
     const speaking = name === "website-voice" || name === "website-voice-phone";
     const page = await demo.open(viewport, colorScheme, hash, speaking ? stubVoice : undefined, async (page) => {
@@ -376,7 +421,7 @@ try {
       if (name.startsWith("website-")) await page.route("**/api/state*", async (route) => {
         try {
           const response = await route.fetch({ timeout: 0 }), data = await response.json();
-          data.panes = data.panes.filter((p) => p.waiting_on !== "user" || p.title === "refunds");
+          data.panes = data.panes.filter((p) => p.waiting_on !== "user" || p.title === "refunds" || p.session === "tmux-rc");
           await route.fulfill({ response, json: data });
         } catch { /* page gone */ }
       });

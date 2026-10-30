@@ -31,37 +31,30 @@
     <p class="agent-line">Claude Code <span>·</span> Codex <span>·</span> Gemini CLI <span>·</span> OpenCode <span>·</span> omp</p>
     <nav class="feature-links" aria-label="Explore features"><span>Explore</span><a href="#voice">Voice &amp; chat</a><a href="#restore">Session restore</a><a href="#scratch">Scratch</a><a href="#usage-limits">Usage limits</a><a href="#activity">Activity dashboard</a></nav>
     <div class="tour">
-      <div class="tour-bar">
-        <div class="chips" role="group" aria-label="Jump to a feature">{{ range slice "Sessions" "Needs you" "Terminal" "Chat & voice" "Scratch" "Restore" "Usage" "Graph" "Dashboard" }}<button data-feature="{{ . }}" aria-pressed="false">{{ . }}</button>{{ end }}</div>
-        <div class="tabs" role="group" aria-label="Show screenshots from">{{ range slice "All" "Desktop" "Phone" }}<button data-filter="{{ lower . }}" aria-pressed="{{ eq . "All" }}">{{ . }}</button>{{ end }}</div>
-      </div>
       <div class="strip-box">
+        <div class="tabs strip-filter" role="group" aria-label="Show screenshots from">{{ range slice "All" "Desktop" "Phone" }}<button data-filter="{{ lower . }}" aria-pressed="{{ eq . "All" }}">{{ . }}</button>{{ end }}</div>
         <button class="strip-arrow" data-step="-1" aria-label="Previous screenshots"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
         <div class="strip" id="strip" tabindex="0" role="region" aria-label="Screenshots: scroll sideways or use the arrow keys">
         {{- range $i, $s := slice
           (dict "img" "mobile-list" "f" "Sessions" "cap" "Every agent at a glance, each with a one-line summary." "alt" "The phone session list: usage gauges above a fleet of agents, most of them running, each with a one-line summary")
-          (dict "img" "website-desktop" "f" "Sessions" "cap" "Your fleet in the sidebar; the live terminal and overview beside it." "alt" "Desktop agent manager: one agent needs attention, with working sessions and subagents below, alongside the live terminal and agent overview")
-          (dict "img" "one-tap-list" "f" "Needs you" "cap" "Only the panes waiting on you, each answerable in one tap." "alt" "Phone list of the panes that need you, each question answerable in one tap")
-          (dict "img" "one-tap-pane" "f" "Needs you" "cap" "Read what it asks, then answer with a button." "alt" "An agent asking whether to merge two green PRs, with Merge both and Just #413 buttons")
-          (dict "img" "mobile-terminal" "f" "Terminal" "cap" "The live terminal, with the keys a phone keyboard lacks." "alt" "An agent's live terminal on the phone: a traced test rerun, its task list, and a reply composer")
-          (dict "img" "website-chat" "f" "Chat & voice" "cap" "Ask about the fleet, direct an agent, approve its actions." "alt" "Desktop chat proposing a message to the e2e triage agent for approval")
-          (dict "img" "website-chat-phone" "f" "Chat & voice" "cap" "The same chat and approvals on your phone." "alt" "The same chat action and approval controls on a phone")
-          (dict "img" "website-voice" "f" "Chat & voice" "cap" "Talk to your fleet; hear back as the work moves." "alt" "Active desktop voice conversation sending a tracing request, then reporting the agent's progress with an Open button")
-          (dict "img" "website-voice-phone" "f" "Chat & voice" "cap" "Live Mode voice, hands free on the phone." "alt" "Active phone voice session with the microphone on, spoken instructions, and an assistant follow-up")
-          (dict "img" "wide-scratch" "f" "Scratch" "cap" "Pages your agents publish, each linked to the pane that made it." "alt" "Scratch in the wide layout: a grid of cards beside the session list, each with the page's thumbnail, title, description and the agent that made it")
-          (dict "img" "mobile-scratch" "f" "Scratch" "cap" "Browse Scratch from your phone." "alt" "The Scratch gallery on a phone: page thumbnails with titles and the agent that made each")
-          (dict "img" "mobile-scratch-page" "f" "Scratch" "cap" "Read a page and reply to the agent that made it." "alt" "A Scratch page on the phone: an interim results table and diagram, with a reply box to the agent below")
-          (dict "img" "website-restore" "f" "Restore" "cap" "After a reboot, the whole fleet back in one tap." "alt" "The Restore view after a reboot: two sessions of agents with their conversations' titles, most ticked, a long-idle one unticked and one already running greyed out")
-          (dict "img" "website-restore-phone" "f" "Restore" "cap" "Restore from your phone, too." "alt" "The Restore view on a phone, with agents ticked by session and a Restore button")
+          (dict "img" "website-graph" "f" "Graph" "cap" "Zoom into a session: each agent, its sub-agents, and what it costs." "alt" "The Fleet graph full screen, zoomed into the tmux-rc session: six agents labelled with model, context and cost, sub-agents branching off with their tasks, and an amber edge to the agent that needs you")
+          (dict "img" "one-tap-pane" "f" "Needs you" "cap" "Read what an agent asks, then answer with a button." "alt" "An agent asking whether to merge two green PRs, with Merge both and Just #413 buttons")
           (dict "img" "website-usage-detail" "f" "Usage" "cap" "Plan windows per account, with resets and a forecast." "alt" "Plan usage over the last seven days: the 5-hour and weekly windows charted for each account, with resets, a red full-in warning on Codex, and the forecast dashed ahead")
-          (dict "img" "website-graph" "f" "Graph" "cap" "The full-screen Graph: every pane and its sub-agents." "alt" "The full-screen Fleet graph: every session as a cluster of its panes and sub-agents, with running, waiting and idle colours and fleet totals beside it")
+          (dict "img" "mobile-scratch" "f" "Scratch" "cap" "The pages your agents publish, in your pocket." "alt" "The Scratch gallery on a phone: page thumbnails with titles and the agent that made each")
+          (dict "img" "wide-scratch" "f" "Scratch" "cap" "Each page linked to the pane that made it." "alt" "Scratch in the wide layout: a grid of cards beside the session list, each with the page's thumbnail, title, description and the agent that made it")
+          (dict "img" "website-chat-phone" "f" "Chat & voice" "cap" "Ask about the fleet, direct an agent, approve its actions." "alt" "Chat on a phone proposing a message to the e2e triage agent, with Send, Cancel and Open")
+          (dict "img" "website-voice" "f" "Chat & voice" "cap" "Talk to your fleet; hear back as the work moves." "alt" "Active desktop voice conversation sending a tracing request, then reporting the agent's progress with an Open button")
+          (dict "img" "website-restore-phone" "f" "Restore" "cap" "After a reboot, the whole fleet back in one tap." "alt" "The Restore view on a phone, with agents ticked by session and a Restore button")
           (dict "img" "website-dashboard" "f" "Dashboard" "cap" "Activity over time, open loops, and running by hour." "alt" "The dashboard: a Fleet graph of every session and its panes, open loops, running by hour, and activity over time with a moving average and a goal")
+          (dict "img" "mobile-terminal" "f" "Terminal" "cap" "The live terminal, with the keys a phone keyboard lacks." "alt" "An agent's live terminal on the phone: a diff, a traced test rerun, its task list, and a reply composer")
+          (dict "img" "website-desktop" "f" "Terminal" "cap" "The live terminal and the agent's overview, side by side." "alt" "Desktop agent manager: the session list, an agent's live terminal full of test runs and a diff, and its overview with tasks and sub-agents")
         }}{{ $phone := or (hasPrefix $s.img "mobile") (hasPrefix $s.img "one-tap") (hasSuffix $s.img "phone") }}
           <figure class="shot {{ cond $phone "phone" "desktop" }}" data-feature="{{ $s.f }}"><img src="{{ printf "img/%s.png" $s.img | relURL }}" width="{{ cond $phone 780 2880 }}" height="{{ cond $phone 1688 1800 }}" alt="{{ $s.alt }}"{{ if lt $i 2 }}{{ if eq $i 0 }} fetchpriority="high"{{ end }}{{ else }} loading="lazy"{{ end }}><figcaption>{{ $s.cap }}</figcaption></figure>
         {{- end }}
         </div>
         <button class="strip-arrow" data-step="1" aria-label="Next screenshots"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
       </div>
+      <div class="chips" role="group" aria-label="Jump to a feature">{{ range slice "Sessions" "Graph" "Needs you" "Usage" "Scratch" "Chat & voice" "Restore" "Dashboard" "Terminal" }}<button data-feature="{{ . }}" aria-pressed="false">{{ . }}</button>{{ end }}</div>
       <p class="demo-note">Current UI, fictional demo fleet. Your sessions stay on your host.</p>
     </div>
   </section>

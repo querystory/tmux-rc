@@ -657,26 +657,21 @@ footer p,footer>a:last-child {
   --shot-height:clamp(210px,55vw,440px);
   margin-top:40px
 }
-.tour-bar {
-  display:flex;
-  flex-wrap:wrap;
-  align-items:center;
-  justify-content:space-between;
-  gap:12px 24px;
-  margin-bottom:14px
-}
+/* The features as an index under the strip; the device filter floats on the strip's corner. */
 .chips {
   display:flex;
   flex-wrap:wrap;
-  gap:8px
+  justify-content:center;
+  gap:6px;
+  margin-top:14px
 }
 .chips button {
-  padding:5px 13px;
+  padding:2px 10px;
   border:1px solid var(--line);
   border-radius:999px;
   background:var(--surface);
   color:var(--muted);
-  font-size:13px
+  font-size:12px
 }
 .chips button:hover {
   color:var(--ink)
@@ -689,6 +684,23 @@ footer p,footer>a:last-child {
 .strip-box {
   position:relative
 }
+.strip-filter {
+  position:absolute;
+  z-index:2;
+  top:0;
+  right:6px;
+  padding:3px;
+  border:1px solid var(--line);
+  border-radius:8px;
+  background:color-mix(in srgb,var(--surface) 85%,transparent);
+  -webkit-backdrop-filter:blur(8px);
+  backdrop-filter:blur(8px);
+  box-shadow:0 4px 14px #0002
+}
+.strip-filter button {
+  padding:3px 10px;
+  font-size:12px
+}
 /* The fade and the peeking next shot say there is more; the end padding lets the last shot clear the fade. */
 .strip {
   display:flex;
@@ -696,7 +708,7 @@ footer p,footer>a:last-child {
   overflow-x:auto;
   scroll-snap-type:x mandatory;
   overscroll-behavior-x:contain;
-  padding:6px 56px 14px 6px;
+  padding:36px 56px 14px 6px;
   scroll-padding-inline:6px;
   scrollbar-width:thin;
   -webkit-mask-image:linear-gradient(to right,#000 calc(100% - 56px),transparent);
@@ -736,7 +748,7 @@ footer p,footer>a:last-child {
 .strip-arrow {
   position:absolute;
   z-index:1;
-  top:calc(6px + var(--shot-height) / 2 - 20px);
+  top:calc(36px + var(--shot-height) / 2 - 20px);
   display:inline-flex;
   padding:9px;
   border:1px solid var(--line);
@@ -745,10 +757,10 @@ footer p,footer>a:last-child {
   color:var(--ink);
   box-shadow:0 4px 14px #0003
 }
-.strip-arrow:first-child {
+.strip-arrow[data-step="-1"] {
   left:-20px
 }
-.strip-arrow:last-child {
+.strip-arrow[data-step="1"] {
   right:-20px
 }
 .strip-arrow:disabled {
@@ -774,12 +786,12 @@ footer p,footer>a:last-child {
   .tour {
     margin-top:30px
   }
-  .chips button,.tour .tabs button {
-    padding:4px 11px;
-    font-size:12px
-  }
   .strip {
     gap:14px
+  }
+  .strip-filter button {
+    padding:1px 8px;
+    font-size:11px
   }
   .shot figcaption {
     font-size:12px
