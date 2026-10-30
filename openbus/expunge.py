@@ -23,6 +23,8 @@ from .classify import _codex_model_segments, _session_chrome
 # Claude's session ids are uuid4s and Codex's thread ids uuid7s. Nothing else is accepted,
 # so an id can never carry a path separator or a glob character into the patterns below.
 _ID = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
+# The status bar cut to a phone's width: "<thread> · GPT…  ⚠ 2 warnings · f2 to view".
+_CLIPPED_BAR = re.compile(rf"\s+{_ID.pattern}(?: · [^·]+)+")
 _ENTRY = re.compile(r"[A-Za-z0-9_-]{1,128}")  # any agent-history entry id (agent-history validID)
 
 # Per harness: the session's own files and dirs, relative to its config dir, and the
@@ -46,8 +48,14 @@ _lock = threading.Lock()
 
 def codex_status_segments(text: str) -> list[str]:
     """The segments, in order, of the Codex status line the parser validates as live
-    chrome. One is the thread id when the status line is configured with `session-id`."""
-    lines = [line for line in _session_chrome(text) if _codex_model_segments(line)]
+    chrome. One is the thread id when the status line is configured with `session-id`.
+    At phone width the bar is cut short (its model to "GPT…", or crowded by a warnings
+    segment) and no longer reads as chrome, but in a Codex pane its bottom row, indented,
+    a thread and `·`-separated segments, is the bar; a bare id or unindented line there is
+    output (`ps` listing `codex resume <id>`). Callers check Codex is running."""
+    lines = ([line for line in _session_chrome(text) if _codex_model_segments(line)]
+             or [line for line in tmux.strip_dim(text).rstrip().splitlines()[-1:]
+                 if _CLIPPED_BAR.fullmatch(line)])
     return [s.strip() for s in lines[-1].split("·")] if lines else []
 
 
