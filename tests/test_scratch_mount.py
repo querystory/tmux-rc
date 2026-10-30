@@ -23,7 +23,7 @@ for path in ("/scratch/mock.html", "/scratch/%2e%2e/secret.txt", "/scratch/link.
     print(c.get(path).status_code)
 wip = c.get("/scratch/wip/")  # a 202 passes `curl -f`: it says so, and its title is not the page's
 print(int(wip.headers.get("x-scratch-pending") == "1" and "Retry-After" in wip.headers
-          and "<title>In progress · Being made</title>" in wip.text))
+          and "<title>In progress · A new page</title>" in wip.text))
 # Scratch's own tab icon, on every page the daemon renders there (the placeholder's spins)
 print(int(all('<link rel="icon" href="/scratch.svg">' in c.get(p).text
               for p in ("/scratch/", "/scratch/notes.md", "/scratch/wip/"))
@@ -74,7 +74,7 @@ def test_scratch_serves_only_inside_the_configured_dir(tmp_path):
     (scratch / ".git" / "config").write_text("[core]")
     (scratch / ".git" / "index.html").write_text("hidden")
     (scratch / "wip").mkdir()
-    (scratch / "wip" / "meta.json").write_text('{"title": "Being made"}')
+    (scratch / "wip" / "meta.json").write_text('{"title": "A new page"}')
     (tmp_path / "secret.txt").write_text("outside")
     (scratch / "link.txt").symlink_to(tmp_path / "secret.txt")
     # file, traversal and a symlink out both refused, directory index, bare prefix
@@ -83,7 +83,7 @@ def test_scratch_serves_only_inside_the_configured_dir(tmp_path):
     # scripts can't drive /api/* (nor frame it, or /m), and a nested directory's slash
     # redirect path-only (an absolute one would be http:// behind the tunnel), the
     # bare-prefix one keeping its query; and only the folder's page (or the placeholder of
-    # one being made, answering 202) counted as a visit.
+    # one in progress, answering 202) counted as a visit.
     # Hidden files and directories (an .env, a .git) are refused, as the gallery skips them.
     # The placeholder marks itself apart from the page, and a plain 404 scans no accounts.
     assert _probe({"TMUXRC_SCRATCH_DIR": str(scratch)}, tmp_path) == [
