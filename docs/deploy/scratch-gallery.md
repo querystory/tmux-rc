@@ -125,7 +125,7 @@ where the line would run as a command) and opens its own sheet, outside the fram
 the pane, the page that asked, and Send, Edit in composer, Cancel. Only that tap sends,
 through the composer's own path, bound to the pane's process as it was when asked (a pane
 that has since become a shell, or a recycled id, gets nothing), and the user stays on the
-page. Only the page the viewer opened can ask: from its first load on, the app sandboxes the
+page. Only the page the viewer opened can ask: once it starts loading, the app sandboxes the
 frame for every later document, so a page it navigates to, or a reload, runs no script and posts
 nothing. A token handed to the page would not do: the page can pass it on (in a link's
 fragment, say), and the next document can post it before its own load tells the app it arrived.
