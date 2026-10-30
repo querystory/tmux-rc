@@ -6,7 +6,7 @@ import { Composer, bindAttach, enterSubmits, sendBlock, block } from "/m/compose
 import { answerBody, pickCursorRow, STALE, UNTAKEN } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { linkGroups, askLink } from "/pr-links.js";
-import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf, tabTitle } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode, PAGES, scratchUrl } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { dragToDismiss } from "/m/drag-dismiss.js";
@@ -168,7 +168,7 @@ const ofAgent = (p) => !scope.tools.length || scope.tools.includes(p.tool || "ot
 try { pinNeeds = localStorage.getItem("tmuxrc-pin-needs") !== "off"; } catch {}
 const setPinNeeds = (v) => { pinNeeds = v === "on"; try { localStorage.setItem("tmuxrc-pin-needs", v); } catch {} renderList(); paintSettings(); };
 const setSort = (v) => { sort = v; try { localStorage.setItem("tmuxrc-sort", v); } catch {} renderList(); paintSettings(); };
-let sending = false, prefix = "C-b", stateController, detailController, detailId = null, fitCols = 0, fitAlt; // see fitTo; fitAlt: is the streamed app full screen
+let sending = false, prefix = "C-b", host = "", stateController, detailController, detailId = null, fitCols = 0, fitAlt; // see fitTo; fitAlt: is the streamed app full screen
 let streamedLayout = null;
 let eventsKey = null, latestCapture = "", fontSize = 13;
 // Answers tapped and not yet reflected, per pane (pane id -> { key, option, index, note }): the
@@ -915,6 +915,7 @@ function render() {
   // has nothing to go back TO — the sidebar it would return you to is already there.
   // The brand keeps its slot for the same reason. Narrow is unchanged.
   const wide = WIDE.matches;
+  document.title = tabTitle({ pane: active, page, dashboard: dashboardVisible(), filter }, panes, panes.filter(asks).length, host);
   show("sessions", (!inPane && !dashboard) || wide); show("list-nav", !inPane && !wide);
   const list = !inPane && !dashboard; // a phone's list screen: the only one with search and sort
   show("brand", wide || !list); show("find", wide || list);
@@ -1543,10 +1544,10 @@ async function streamTerminal(id, signal) {
 function startState() {
   stateController?.abort();
   stateController = new AbortController();
-  if (!document.hidden) {
-    refreshHistory(); refreshCached();
-    pollState(stateController.signal);
-  }
+  // State keeps coming while the tab is hidden: a background tab's title is what the tab strip
+  // shows (docs/design/tab-icons.md). The history and meters wait to be seen.
+  if (!document.hidden) { refreshHistory(); refreshCached(); }
+  pollState(stateController.signal);
 }
 // Panes of windows this page is closing, by pane id: { birth, pane, label } while the request
 // runs, then { birth, done } for each pane the server says it killed. A killed pane stays
@@ -1609,10 +1610,10 @@ async function pollState(signal) {
       const ids = (data.panes || []).map((p) => `${p.pane_id}:${p.birth}:${p.tool}`).join(); // birth: a recycled id is a new pane
       if (ids !== paneIds || Date.now() - accountsAt > 20000) { paneIds = ids; accountsAt = Date.now(); accounts.refresh(); }
       const wasRunning = loaded ? tmuxRunning : null; // null: the first answer always asks
-      statePanes = data.panes || []; showPanes(); loaded = true; booted = data.booted !== false; tmuxRunning = data.tmux_running !== false; prefix = data.prefix || "C-b";
+      statePanes = data.panes || []; showPanes(); loaded = true; booted = data.booted !== false; tmuxRunning = data.tmux_running !== false; prefix = data.prefix || "C-b"; host = data.host || "";
       if (wasRunning !== tmuxRunning || restore.due()) restore.refresh(); // a server came or went: the offer changes
       $("ctrl-b").hidden = data.prefix === "C-b"; // absent prefix: can't know it's C-b, so show it
-      refreshHistory(); refreshCached();
+      if (!document.hidden) { refreshHistory(); refreshCached(); }
       pruneDrafts();
       text($("connection"), data.stale ? "Stalled" : "Live");
       $("connection").classList.toggle("online", !data.stale);
