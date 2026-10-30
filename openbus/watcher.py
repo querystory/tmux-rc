@@ -133,8 +133,9 @@ _VOLATILE_RE = re.compile(
     # durations; fractional seconds only as omp's job timer ("· 3.4s"), so "1.2s" elsewhere
     # stays content rather than leaving a "1." that half-tracks it
     # Each match takes the spaces before it: they right-align the value, so they shift
-    # when it changes width (9s→10s, 99.9k→100.0k) and would sign as new content.
-    r"[ \t]*(?:\d+h\s*\d+m|\d+m\s*\d+s|(?<=· )\d+\.\d+s\b|(?<!\.)\d+s\b"
+    # when it changes width (9s→10s, 99.9k→100.0k) and would sign as new content. The run
+    # is taken whole and only from its start, so a wide padded row is scanned once.
+    r"(?:(?<![ \t])[ \t]++)?(?:\d+h\s*\d+m|\d+m\s*\d+s|(?<=· )\d+\.\d+s\b|(?<!\.)\d+s\b"
     r"|↓\s*[\d.]+k?|[\d.]+k tokens"  # token counts
     r"|\$[\d.]+"  # cost
     r"|\d+%\s*ctx"  # context percent
@@ -155,7 +156,7 @@ _VOLATILE_RE = re.compile(
     rf"|^ ?\S(?= [\dhms ]+ > {_OMP_ROW})"
     r"|[⏳✳✻✶✷✽❋⣾⣽⣻⢿⡿⣟⣯⣷◐◓◑◒]"  # spinner glyphs
     # (Codex's moving "sparkle" animation needs more than deletion — see _SPARKLE_RE.)
-    r"|[ \t]+$)",  # trailing whitespace
+    r")|[ \t]+$",  # trailing whitespace (outside the group, so one run has one quantifier)
     re.MULTILINE,
 )
 
