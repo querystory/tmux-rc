@@ -149,6 +149,23 @@ def test_tall_screen_old_question_is_off_the_gated_screen(monkeypatch):
     assert classify.screen_offers(["Done: banner is teal."], text) == ["Done: banner is teal."]
 
 
+def test_blank_rows_above_a_pinned_input_box_keep_the_reply_visible(monkeypatch):
+    # Claude Code pins its input box to a tall window's bottom: the note it just wrote to
+    # paste elsewhere sits above 200 empty rows, and is still the screen, so still copyable.
+    note = ("Thanks for spotting the stale cache, Priya! The nightly job now clears it "
+            "first, so tomorrow's report should load in seconds.")
+    rows = [*[f"step {i}" for i in range(50)], "● Here's a note you can send to Priya:", "",
+            "  \x1b[2m▎ \x1b[0mThanks for spotting the stale cache, Priya! The nightly job",
+            "  \x1b[2m▎ \x1b[0mnow clears it first, so tomorrow's report should load in seconds.",
+            *[""] * 200, "─" * 80, "❯ ", "─" * 80, "  ⏵⏵ auto mode on"]
+    monkeypatch.setattr(tmux, "_run", lambda args: f"{args[9]}\n" + "\n".join(rows) + "\n-3 80\n")
+    text = tmux.capture_pane("%1", mark_dim=True)
+    pane = tmux.Pane("work", "0", "bash", "0", "%1", "claude", "t", "/home/x")
+    result = classify.classify(pane, text, lambda system, user: {
+        "activity": "idle", "copyables": [{"label": "Note to Priya", "text": note}]})
+    assert result["copyables"] == [{"label": "Note to Priya", "text": note}]
+
+
 def test_wrapped_output_counts_its_physical_rows(monkeypatch):
     # -J joins each 200-cell line from the three 80-cell rows it wrapped across.
     rows = ["Which color?", *[f"{i:03} " + "x" * 196 for i in range(100)], "❯ "]

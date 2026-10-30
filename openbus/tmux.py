@@ -911,14 +911,16 @@ def _mark_dim(text: str) -> str:
 
 # Agent windows run hundreds of rows tall so the browser can scroll an app that keeps no
 # tmux history, and then the whole screen reads as current: old, answered turns included.
-# For the parser only the last VIEWPORT_ROWS rows down to the last inked one are labeled
+# For the parser only the last VIEWPORT_ROWS inked rows down to the last one are labeled
 # the visible screen; the rows above it are relabeled history, but all of them are still
-# sent: the model writes better headlines from the whole screen than from a crop.
+# sent: the model writes better headlines from the whole screen than from a crop. Blank
+# rows count for nothing: Claude Code pins its input box to the window's bottom, and the
+# empty rows it leaves above must not push the reply just written into history.
 VIEWPORT_ROWS = 150
 
 
 def _bottom_viewport(out: str, width: int) -> str:
-    """Move the VISIBLE_SCREEN boundary down to VIEWPORT_ROWS above the last inked row,
+    """Move the VISIBLE_SCREEN boundary down to VIEWPORT_ROWS inked rows above the last,
     counted in the physical rows a -J-joined line wrapped across at `width` cells."""
     head, mark, screen = out.rpartition(VISIBLE_SCREEN)
     rows = screen.split("\n")  # rows[0] ends the boundary's own line
@@ -926,7 +928,7 @@ def _bottom_viewport(out: str, width: int) -> str:
     cut, height = last + 1, 0
     while cut > 1 and height < VIEWPORT_ROWS:
         cut -= 1
-        height += max(1, -(-sum(map(_cell_width, _ANSI.sub("", rows[cut]).rstrip())) // width))
+        height += -(-sum(map(_cell_width, _ANSI.sub("", rows[cut]).rstrip())) // width)
     if not mark or cut < 2:
         return out
     return "\n".join([head + "\n".join(rows[1:cut]), mark, *rows[cut:]])
