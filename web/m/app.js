@@ -2310,13 +2310,17 @@ $("close-launch").onclick = () => $("launch-dialog").close();
 const kindRow = $("launch-kind");
 const pressKind = (b) => kindRow.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
 const kindHome = () => { $("launch-sub").before(kindRow); pressKind(kindRow.firstElementChild); };
-$("voice-dialog").addEventListener("close", kindHome);
+// The event is queued: crossing the breakpoint closes and reopens the sheet before it runs.
+$("voice-dialog").addEventListener("close", () => $("voice-dialog").open || kindHome());
 kindRow.onclick = (e) => {
-  const b = e.target.closest("button");
+  const b = e.target.closest("button"), kind = b?.dataset.start, busy = kind && live.kind();
   if (!b) return;
-  if (b.dataset.why) { text(b.closest("dialog").querySelector("[role=status]"), b.dataset.why); return; } // the sheet's own line
-  if (!b.dataset.start) { if (kindRow.closest("#voice-dialog")) { $("voice-close").click(); $("launch-dialog")._opener.click(); } return; }
-  pressKind(b); $("launch-dialog").close(); live.open[b.dataset.start]();
+  // Greyed, or the other mode while a conversation runs (opening would only bring that one
+  // back, so the pick would not take): the sheet's own line says why.
+  const why = b.dataset.why || (busy && busy !== kind && `End ${busy === "chat" ? "the chat" : "Live Mode"} first.`);
+  if (why) { text(b.closest("dialog").querySelector("[role=status]"), why); return; }
+  if (!kind) { if (kindRow.closest("#voice-dialog")) { $("voice-close").click(); $("launch-dialog")._opener.click(); } return; }
+  pressKind(b); $("launch-dialog").close(); live.open[kind]();
   $("voice-dialog").querySelector(".dialog-heading").after(kindRow);
 };
 let launching = false, launched = null;

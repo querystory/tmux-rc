@@ -137,7 +137,9 @@ user's sheet is unchanged. The row goes with the choice: picking Chat or Voice c
 the top of that sheet, pressed on the pick, so Session is one tap back rather than a close
 and a second + (the first version dropped it with the sheet, and there was no way back). It
 returns to New session when the Chat sheet closes, or when New session opens over a docked
-one; Chat opened from its own button never shows it.
+one; Chat opened from its own button never shows it. While a conversation runs, the other
+mode is a reason on the line ("End the chat first"), not a pressed choice that did not take:
+Chat and Voice each only bring a running conversation back, whichever mode it is in.
 
 ## The collapsed rail keeps working
 
