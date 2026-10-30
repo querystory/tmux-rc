@@ -138,6 +138,7 @@ def _item(root: Path, folder: Path, files: list[tuple[float, str]]) -> dict | No
             "href": quote(page.relative_to(root).as_posix() if page != index and not pending
                           else folder.name + "/"),
             "created": _when(meta.get("created")) or min(files)[0], "updated": max(files)[0],
+            "stamped": _when(meta.get("created")),  # the agent's own word, never a guess
             "inode": folder.stat().st_ino,  # the folder until replaced, however rewritten
             "page": page, "pending": pending, "thumb": inside(thumb, folder)
             and thumb.is_file() and thumb.stat().st_mtime}
@@ -389,7 +390,9 @@ def placeholder(root: Path, name: str, who) -> str | None:
     headline = next((s.get("headline") for s in states if s.get("pane_id") == i["pane"]), "")
     where = _where(i, e)
     age = int(time.time() - i["created"]) // 60
+    icon = json.dumps((style.parent.parent / "scratch.svg").read_text())  # spun by the page
     fill = {"tokens": scratch_markdown.tokens(style), "title": e["title"], "state": i["state"],
+            "label": "Stopped" if i["state"] == "stopped" else "In progress", "icon": icon,
             "say": STATES[i["state"]][1], "who": e["who"], "where": where and f" · {where}",
             "desc": f'<p>{e["description"]}</p>' if i["description"] else "",
             "now": f'<p class="now">Now: {escape(str(headline))}</p>' if headline else "",

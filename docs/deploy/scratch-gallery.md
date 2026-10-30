@@ -86,7 +86,8 @@ crashes, and it survives a daemon restart, since the state is read from the fold
   started. It reloads itself, every 5 seconds and every 30 after ten minutes, so it turns
   into the page once that lands. A 202 passes `curl -f`, `raise_for_status()` and
   `fetch().ok`, so the snippet says exactly 200; the placeholder also sends `Retry-After` and
-  `X-Scratch-Pending: 1`, and its `<title>` reads "In progress: …", not the page's own.
+  `X-Scratch-Pending: 1`, and its `<title>` reads "In progress · …" (or "Stopped · …"), not the page's own. Its tab
+  icon is scratch's, with an arc running round it while the page is in progress.
 - **Its state** comes from the pane named in `meta.json`. While that pane runs, waits on a
   tool or has subagents out, the page is being made. While it idles, the placeholder says
   so but keeps waiting, since a background subagent can build the page while its
@@ -98,11 +99,20 @@ crashes, and it survives a daemon restart, since the state is read from the fold
   reloads every 30 seconds (not while a filter is being typed), since the thumbnail never
   comes without a browser to shoot it.
 - **When the page lands** (the daemon looks every ten seconds), every subscribed device gets one push, `Ready: <title>`, whose
-  tap opens the page in the app's scratch viewer. It shares its tag with the pane's
-  Needs-you notification, and for two minutes after it that pane's plain "turn ended"
-  Needs-you is skipped (any question still notifies), so one finish buzzes once: a
-  Needs-you already shown is replaced silently, and a question with buttons keeps its
-  notification, the Ready arriving beside it. A page published in one go was never promised and does not notify.
+  tap opens the page in the app's scratch viewer. A page made faster than that, its
+  `meta.json` and page arriving between two looks, was never seen pending but was promised
+  all the same, so it notifies too while the `created` in its `meta.json` is under a minute
+  old. Only the agent writes `created`, so a `meta.json` tmux-rc generated (a description
+  for a page published in one go) promises nothing, and a half-written one is read again
+  once it is whole. A page published in one go was never promised and does not notify, and
+  neither does anything already there when the daemon starts.
+- **The Ready push has a tag of its own**, `scratch:<folder>`. It once shared the pane's
+  Needs-you tag, so a finish would buzz once, but iOS replaces a notification with the same
+  tag in place and silently: a Ready landing after a Needs-you never made a sound, and the
+  page could go unnoticed. A page landing is news of its own and must not be swallowed. What
+  still keeps one finish to one buzz is the other direction: for two minutes after a Ready,
+  that pane's plain "turn ended" Needs-you is skipped, since it says nothing the Ready did
+  not (any question still notifies). A Needs-you already shown stays beside the Ready.
 
 An orchestrator that hands a subagent's link out writes `meta.json` itself, with its own
 `$TMUX_PANE`: in Claude Code and Codex the subagent runs in that pane. A worker in another
