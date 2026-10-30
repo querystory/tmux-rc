@@ -888,6 +888,8 @@ async def get_state(v: int | None = None, client: str = "", visible: bool = Fals
         "usage": usage_totals(),  # running tokens/cost/calls/errors for the top-bar readout
         "prefix": tmux.prefix_key(),  # auto-detected tmux prefix, so the phone button matches
         "tmux_running": w.tmux_running,  # False = no server at all (e.g. after a reboot)
+        # The machine's name for the app's tab titles (docs/design/tab-icons.md): zero setup.
+        "host": os.environ.get("TMUXRC_HOST_NAME") or socket.gethostname().split(".")[0],
         "panes": panes,
     }
 
@@ -2302,6 +2304,12 @@ if _scratch_dir:
         states = list(watcher.states)
         return (states, accounts.report(states, watcher.pane_birth)["profiles"],
                 WEB_DIR / "m" / "style.css", lambda entry: live.running_pane(entry, watcher))
+
+    @app.get("/api/panes/{pane_id}/scratch")
+    def pane_scratch(pane_id: str) -> list[dict]:
+        """The scratch pages this pane's session made, for its overview's Links."""
+        states, profiles, _style, pane_of = _who()
+        return scratch.made_by(Path(_scratch_dir), pane_id, states, profiles, pane_of)
 
     @app.get("/scratch/", include_in_schema=False)
     async def scratch_listing() -> HTMLResponse:

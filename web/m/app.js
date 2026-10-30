@@ -2,11 +2,11 @@ import { headerPicker, dismissable } from "/m/header-picker.js";
 import { renderAtlas, renderFleet, refreshAtlasHistory, renderHeatView, detailCard, pageHead } from '/m/atlas.js';
 import { renderCaptureLines, linkifyText, besideHeld, keptRows } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
-import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
+import { Composer, bindAttach, enterSubmits, sendBlock, block } from "/m/composer.js";
 import { answerBody, pickCursorRow, STALE, UNTAKEN } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
-import { paneLinks, askLink } from "/pr-links.js";
-import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf } from "/m/pane-model.js";
+import { linkGroups, askLink } from "/pr-links.js";
+import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf, tabTitle } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode, PAGES, scratchUrl } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { dragToDismiss } from "/m/drag-dismiss.js";
@@ -85,6 +85,7 @@ const LUCIDE = {
   rows: '<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/><path d="M14 4h7M14 9h7M14 15h7M14 20h7"/>',
   unfold: '<path d="m7 15 5 5 5-5M7 9l5-5 5 5"/>',
   fold: '<path d="m7 20 5-5 5 5M7 4l5 5 5-5"/>',
+  pie: '<path d="M21 12c.55 0 1-.45.95-1a10 10 0 0 0-8.95-8.95c-.55-.05-1 .4-1 .95v8a1 1 0 0 0 1 1z"/><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/>',
   gauge: '<path d="m12 14 4-4M3.34 19a10 10 0 1 1 17.32 0"/>',
   images: '<path d="M18 22H4a2 2 0 0 1-2-2V6"/><path d="m22 13-1.296-1.296a2.41 2.41 0 0 0-3.408 0L11 18"/><circle cx="12" cy="8" r="2"/><rect width="16" height="16" x="6" y="2" rx="2"/>',
   arrowUpDown: '<path d="m21 16-4 4-4-4M17 20V4M3 8l4-4 4 4M7 4v16"/>',
@@ -153,7 +154,7 @@ let dashboard = false, page = null;
 const CARDS = { heat: "heat-card", usage: "usage-panel", loops: "loops-card", graph: "graph-card" };
 const dashboardVisible = () => !active && (WIDE.matches || dashboard);
 let panes = [], statePanes = [], paneIds = null, accountsAt = 0, active = null, view = "summary", filter = [], loaded = false, booted = false, tmuxRunning = true;
-let focusPushComposer = false;
+let focusPushComposer = false, linked = null; // linked: a link's draft, offered once its pane's state is in (offerDraft)
 // The sort is a per-browser preference, as the sidebar's grouping is: how you like to read the
 // list, not what a link should show. A phone's Settings and the wide filter menu share it.
 let sort = "updated";
@@ -167,7 +168,7 @@ const ofAgent = (p) => !scope.tools.length || scope.tools.includes(p.tool || "ot
 try { pinNeeds = localStorage.getItem("tmuxrc-pin-needs") !== "off"; } catch {}
 const setPinNeeds = (v) => { pinNeeds = v === "on"; try { localStorage.setItem("tmuxrc-pin-needs", v); } catch {} renderList(); paintSettings(); };
 const setSort = (v) => { sort = v; try { localStorage.setItem("tmuxrc-sort", v); } catch {} renderList(); paintSettings(); };
-let sending = false, prefix = "C-b", stateController, detailController, detailId = null, fitCols = 0, fitAlt; // see fitTo; fitAlt: is the streamed app full screen
+let sending = false, prefix = "C-b", host = "", stateController, detailController, detailId = null, fitCols = 0, fitAlt; // see fitTo; fitAlt: is the streamed app full screen
 let streamedLayout = null;
 let eventsKey = null, latestCapture = "", fontSize = 13;
 // Answers tapped and not yet reflected, per pane (pane id -> { key, option, index, note }): the
@@ -270,8 +271,11 @@ const restore = setupRestore({ mount: $("restore"), request, slow: NO_TIMEOUT, l
   open: () => openPage("restore"),
   opened: () => { if (!active && !page && !dashboard) navigate(null, "restore", { mode: "replace" }); },
   closed: () => { if (page === "restore") closePage(); } });
+// shared: a link shared to the app (boot, below), pending while its notice asks for a pane.
+// Any other notice replaces that ask, and so drops the link: nothing pending goes unseen.
+let shared = null;
 function notice(message = "", ms = 0, action = null) {
-  clearTimeout(noticeTimer); text($("notice"), message); show("notice", !!message);
+  shared = null; clearTimeout(noticeTimer); text($("notice"), message); show("notice", !!message);
   if (action) $("notice").append(" ", Object.assign(document.createElement("button"), { type: "button", textContent: action[0], onclick: () => { notice(); action[1](); } }));
   if (message && ms) noticeTimer = setTimeout(() => notice(), ms);
 }
@@ -302,8 +306,9 @@ const paneLink = (a, id) => { a.href = `#${hashFor(id)}`; a.onclick = inApp(() =
 // Every user-driven move goes through here: the URL is written first, then the view is
 // routed synchronously (pushState/replaceState fire no hashchange). Back/Forward and edits
 // by hand reach route() through hashchange instead. Never call this from a poll.
-function navigate(id = null, nextView = "summary", { mode, acct = accounts.key() } = {}) {
-  const next = hashFor(id, nextView, acct);
+// `draft`: a scratch page's suggested reply, offered by route() as a link's would be.
+function navigate(id = null, nextView = "summary", { mode, acct = accounts.key(), draft } = {}) {
+  const next = hashFor(id, nextView, acct) + (typeof draft === "string" ? `&draft=${encodeURIComponent(draft)}` : "");
   const current = location.hash.slice(1);
   if (next !== current) {
     // A replaced entry keeps its state (a card's view stays "from its card"); a new screen starts bare.
@@ -319,17 +324,20 @@ function navigate(id = null, nextView = "summary", { mode, acct = accounts.key()
 // Opened from its card, a view's entry says so in history.state, which survives a reload and
 // Back/Forward; its Back then steps back rather than stacking a second dashboard entry.
 // Not the view already open: that adds no entry, so its Back would leave the app.
+// The dashboard's views with a place of their own: the sidebar's rows and the phone's tabs.
+const PLACES = ["scratch-nav", "graph-nav", "scratch-tab", "usage-tab"];
 const openPage = (name) => { if (page !== name) { navigate(null, name); history.replaceState({ fromCard: true }, ""); } };
 const closePage = () => history.state?.fromCard ? history.back() : navigate(null, "dashboard", { mode: "replace" });
 const stayPut = (opts) => navigate(active, active ? view : dashboard ? page || "dashboard" : "summary", opts);
 // Clear all: every filter (the states, the accounts and the search), not the grouping or the
 // sort, which are not filters; focus goes to the search box, else (a phone's dashboard or
 // pane, where it is hidden) the tab bar's pressed tab or Back; in the rail, to the filter
-// button, since focusing search would expand it.
+// button, since focusing search would expand it; under the graph's full screen, which leaves
+// the page inert, to that button seated in the graph (placePill).
 function clearFilters() {
   filter = []; scope.tools = []; scope.session = ""; $("search").value = ""; renderSidebar.picker.open = false; stayPut({ acct: [] });
-  ($("app").classList.contains("rail") ? [renderSidebar.picker.firstChild] : [$("search"), document.querySelector('#list-nav [aria-pressed="true"]'), $("back")])
-    .find((el) => el?.getClientRects().length)?.focus();
+  ($("app").classList.contains("rail") ? [renderSidebar.picker.firstChild] : [$("search"), document.querySelector('#list-nav [aria-pressed="true"]'), $("back"), renderSidebar.picker.firstChild])
+    .find((el) => el?.getClientRects().length && !el.closest("[inert]"))?.focus();
 }
 
 // Leaving a pane the user did not choose to leave: it closed under them, or a deep link
@@ -341,10 +349,23 @@ function clearFilters() {
 function leaveMissingPane(id) {
   if (!stillOnPane(location.hash, id) || (ending.has(id) && !ending.get(id).done)) return;
   navigate(null, "summary", { mode: "replace" });
-  notice("That pane is no longer available.");
+  notice("That pane isn't running.");
+}
+// A link's draft (url-state.js linkDraft), once its pane's state is in (render): into the
+// composer, never sent. One the user is already writing stays; the link's waits in the notice.
+// A password prompt hides the composer (and pruneDrafts would empty it): the notice only shows it.
+function offerDraft(id, value, replace = false) {
+  if (active !== id) return;
+  const composer = draft(id), offer = `A link offered a draft: "${value}".`;
+  if (panes.find((p) => p.pane_id === id)?.secret) notice(`${offer} This pane is at a password prompt.`);
+  else if (composer.segments().length && !replace) notice(`${offer} Yours is kept.`, 0, ["Use the link's", () => offerDraft(id, value, true)]);
+  else { composer.replace([{ text: value }]); requestAnimationFrame(() => composer.editor.focus()); notice("Draft from a link: check it, then Send."); }
 }
 
 function route() {
+  // A shared link (boot, below) rides on the pane picked as a draft link's would: never sent.
+  const to = parseHash(location.hash); // formatHash drops any other draft: the shared link is the one
+  if (shared && to.pane) { history.replaceState(history.state, "", `#${formatHash(to)}&draft=${encodeURIComponent(shared)}`); shared = null; }
   const wasDashboardVisible = dashboardVisible(), wasPage = page;
   const state = parseHash(location.hash, defaultView());
   const changed = state.pane !== active;
@@ -352,17 +373,21 @@ function route() {
   if (drawer.open) settle(false); // a move the drawer did not make (the browser's own Back) must not carry it over the next screen
   active = state.pane;
   focusPushComposer = state.compose;
+  linked = state.draft || (changed ? null : linked); // a reroute on the same pane (a resize) keeps it
   ({ dashboard, view, filter, page } = state);
   scope.tools = state.agent;
   if (state.q !== $("search").value.trim()) $("search").value = state.q; // a reload, a link or Back: typing writes the URL, not this
   if (accounts.follow(state.acct)) paintUsage(); // the strip and meters are filtered too
   if (page !== wasPage) { $("dash-page").replaceChildren(); $("dash-page")._signature = null; } // each view builds afresh
   if (viewer.open && page !== "scratch") viewer.close(); // Back, a push or Safari's swipe left Scratch: its viewer goes too
+  if (page !== "scratch") scratchFrom = null; // and its pane filter
   const opening = page === "scratch" && scratchUrl(state.open, location.href); // a "Ready" push's page, opened once
   if (opening) { history.replaceState(null, "", "#" + formatHash(state)); viewScratch(opening, ""); }
+  if (state.draft) writeHash(formatHash(state)); // offered once: a reload offers nothing
   if (changed) {
     if (active) $("reply").replaceWith(draft().editor);
     $("secret").value = ""; // a password is for the pane it was typed at
+    foldPrs(false); // another pane's PRs start folded
     $("overview").scrollTop = 0;
     text($("draft-status"), "");
     show("keys", false);
@@ -374,6 +399,7 @@ function route() {
   // aborted at once, so every navigation fetched events twice.
   restartDetail();
   render();
+  if (page !== "graph" || !dashboardVisible()) graphView._full?.(false); // its full screen left the page inert, and focus goes there next
   // Focus follows: into the view's Back, then back to the card's Details.
   if (CARDS[wasPage] && !page && dashboardVisible()) { $(CARDS[wasPage]).scrollIntoView({ block: "center" }); $(CARDS[wasPage]).querySelector('[data-key^="details:"]')?.focus({ preventScroll: true }); }
   // Not into Restore: its first button is the Restore itself, which an Enter would press.
@@ -416,7 +442,7 @@ function updateRow(button, pane) {
   markLine(button.querySelector(".row-status"), paneActivity(pane), pane);
   const sessionChip = button.querySelector(".session-chip");
   const session = sessionOf(pane);
-  sessionChip.hidden = sort !== "updated" || !session; // a session label already says it
+  sessionChip.hidden = sort !== "updated" && !shared || !session; // a session label already says it
   text(sessionChip, session);
   sessionChip.title = session ? `Session: ${session}` : "";
   html(button.querySelector(".row-acct"), accounts.badge(pane.pane_id));
@@ -462,6 +488,8 @@ function renderList() {
   // A phone's list narrowed by the filter menu says so at its foot too, a tap from all of them.
   const scopedOn = !hidden && !WIDE.matches && accts.length + filter.length + scope.tools.length > 0, scoped = subset.filter((p) => !outside.has(p.pane_id)).length; // not the pinned
   show("empty-needs", hidden > 0 || scopedOn);
+  // A search nothing open matches may be work from an earlier session: Chat can look.
+  show("empty-history", !subset.length && !!$("search").value.trim() && !$("chat").hidden);
   $("empty-needs").dataset.all = scopedOn ? "filters" : "needs";
   // "On other accounts" only when that is what hides every one of them.
   text($("empty-needs"), scopedOn ? `${scoped} ${[...scope.tools, ...accts].map((a) => `${a} `).join("or ")}pane${scoped === 1 ? "" : "s"} of ${panes.length} · Show all`
@@ -471,7 +499,8 @@ function renderList() {
   const tab = String(filter) === "attention" ? "attention" : "all";
   $("list-nav").querySelectorAll("[data-filter]").forEach((button) => button.setAttribute("aria-pressed", !dashboard && tab === button.dataset.filter));
   // Restore rides the dashboard's view machinery but is its own screen: its row is the one pressed.
-  $("dashboard-tab").setAttribute("aria-pressed", String(dashboard && page !== "restore"));
+  $("dashboard-tab").setAttribute("aria-pressed", String(dashboard && !["restore", "usage", "scratch"].includes(page)));
+  for (const id of PLACES) $(id).setAttribute("aria-pressed", String(page === id.split("-")[0]));
   // The places are links: their hrefs carry the filters, as a click would. The one you are at is
   // pressed (style.css draws it, the drawer reads it) and, as a link, current for assistive tech.
   for (const [id, nav, at] of [["dash-nav", "dashboard", dashboardVisible() && !["restore", "scratch", "graph"].includes(page)], ["scratch-nav", "scratch", page === "scratch"], ["graph-nav", "graph", page === "graph"]])
@@ -493,8 +522,10 @@ function renderList() {
 }
 // Needs-you rows are cards answerable in place (the sidebar's answers and Reply), left in their
 // sorted place: pinning them on top shoved the list around whenever a pane started asking.
+// Picking a pane for a shared link (boot) is the exception: Needs you first, as the sidebar has
+// it, then the newest, whatever the saved sort.
 function renderPhoneList(subset, query) {
-  const rows = sort === "updated" ? subset.sort(newestFirst) : oneSession() ? subset
+  const rows = sort === "updated" || shared ? subset.sort((a, b) => (shared ? needsYou(b) - needsYou(a) : 0) || newestFirst(a, b)) : oneSession() ? subset
     // Sessions as the watcher lists them: tmux's own order.
     : [...new Set(subset.map((p) => p.session))].flatMap((session) => [{ heading: session || "Session", key: `session:${session}` }, ...subset.filter((p) => p.session === session)]);
   // A card for answers to tap: a question's, or a finished turn's offers.
@@ -776,7 +807,7 @@ const paintUsage = steady(() => {
   if (focused) $("usage-more")?.focus({ preventScroll: true });
   $("usage-handle").hidden = $("usage").hidden;
   // The dashboard's card draws every meter as a trend whatever the mode; its view (#view=usage)
-  // draws them over time (usage-view.js). The dashboard's tool chips filter both, and a
+  // draws them over time (usage-view.js). The dashboard's tool chips filter the card, and a
   // tool with no plan meters hides the card. Several accounts: a labelled group each when
   // wide, the strip on a phone.
   const tools = scope.tools, board = tools.length ? all.filter((a) => tools.includes(a.provider)) : all;
@@ -788,10 +819,9 @@ const paintUsage = steady(() => {
   accounts.strip(el, several); // grouped too: a line too narrow for its charts scrolls rather than wraps
   if (page !== "usage") return;
   if (usagePast !== usageDays()) refreshCached(true); // past windows: only this view asks for them
-  // Every account's meters, whatever the list's account filter: the view picks its own
-  // (usage-view.js). Named and chipped as the list names them; a tool filter with no meters
-  // (reached by Forward, say) shows them all rather than a blank view.
-  const scoped = usage.filter((a) => tools.includes(a.provider)), list = (scoped.length ? scoped : usage).map((a) => {
+  // Every account's meters, whatever the list's filters: the view picks its own (usage-view.js).
+  // Named and chipped as the list names them.
+  const list = usage.map((a) => {
     const p = (a.dirs || []).map(accounts.profile).find((p) => p?.signed_in);
     return { ...a, acct: p, chip: p ? accounts.chip(p) : "" };
   }).filter((a) => a.acct || !accounts.list().length); // a removed account drops out, as in accounts.usage()
@@ -807,7 +837,7 @@ loopsView.ariaLabel = "Open loops";
 detailCard($("loops-card"), "Open loops", "", () => openPage("loops"));
 // The Fleet graph (graph.js): the card's at a glance, the view's to pan, zoom and regroup.
 const graphView = Object.assign(document.createElement("section"), { className: "fg-view", ariaLabel: "Fleet graph" });
-const graphCtx = { icon: licon, logos: LOGOS, open: (id) => navigate(id), owner: accounts.owner, several: accounts.any };
+const graphCtx = { icon: licon, logos: LOGOS, open: (id) => navigate(id), close: closePage, owner: accounts.owner, several: accounts.any };
 detailCard($("graph-card"), "Fleet graph", "", () => openPage("graph"));
 // A lane's count on the card opens the view at that lane, unfolded.
 function openLane(lane) {
@@ -825,20 +855,27 @@ const scratchFrame = Object.assign(document.createElement("iframe"), { src: "/sc
 // the app's theme, so the app keeps the one and tells the page both (scratch.html listens).
 let scratchView = "grid";
 try { scratchView = localStorage.getItem("tmuxrc-scratch-view") || "grid"; } catch {}
-const tellScratch = () => scratchFrame.contentWindow?.postMessage({ view: scratchView, light: document.documentElement.classList.contains("light") }, "*"); // its origin is opaque
+// The open viewer's page hears the theme too: a Markdown page follows it (scratch_markdown.html).
+const tellScratch = () => [scratchFrame, viewer.querySelector("iframe")].forEach((f) => f?.contentWindow?.postMessage({ view: scratchView, light: document.documentElement.classList.contains("light") }, "*")); // their origin is opaque
 scratchFrame.addEventListener("load", tellScratch);
 // Only the gallery is heard: it opens a pane, keeps its view, or opens one of its pages, a path
 // under /scratch/ here and nothing else (url-state.js). A page the viewer shows (a page still
-// being made links the pane making it) may open a pane, and nothing else: its origin is opaque,
+// in progress links the pane making it) may open a pane, with a draft for its composer, and nothing else: its origin is opaque,
 // so the placeholder can't be told from another page, and a pane opened is only navigation.
 addEventListener("message", (e) => {
-  const { pane, view, open, title } = e.data || {}, href = scratchUrl(open, location.href);
-  if (/^%\d+$/.test(pane) && [scratchFrame, viewer.querySelector("iframe")].some((f) => f?.contentWindow === e.source)) navigate(pane);
+  const { pane, view, open, title, draft: offered } = e.data || {}, href = scratchUrl(open, location.href);
+  if (/^%\d+$/.test(pane) && [scratchFrame, viewer.querySelector("iframe")].some((f) => f?.contentWindow === e.source)) navigate(pane, "summary", { draft: offered });
   if (e.source !== scratchFrame.contentWindow) return;
   if (["grid", "list"].includes(view)) { scratchView = view; try { localStorage.setItem("tmuxrc-scratch-view", view); } catch {} }
   if (href) viewScratch(href, title);
 });
-function scratchPage() { return cardView("Scratch", scratchFrame); }
+// The pane whose pages it shows (?pane=, scratch.html), opened from that pane's Links.
+let scratchFrom = null;
+function scratchPage() {
+  const src = scratchFrom ? `/scratch/?pane=${encodeURIComponent(scratchFrom)}` : "/scratch/";
+  if (scratchFrame.getAttribute("src") !== src) scratchFrame.src = src;
+  return cardView("Scratch", scratchFrame);
+}
 // A gallery page, full screen over the app in a frame of its own (sandboxed by the daemon's CSP
 // like every /scratch/ page), under a bar: Back, its title, and a real link out to a tab.
 // A fresh frame each time, so its loads add nothing to the app's history; gone once closed.
@@ -848,7 +885,9 @@ function viewScratch(href, title) {
   text($("viewer-title"), title);
   $("viewer-out").href = href;
   viewer.querySelector("iframe")?.remove();
-  viewer.append(Object.assign(document.createElement("iframe"), { src: href, title }));
+  const frame = Object.assign(document.createElement("iframe"), { src: href, title });
+  frame.addEventListener("load", tellScratch);
+  viewer.append(frame);
   viewer.showModal(); viewer.focus();
 }
 $("close-viewer").onclick = () => viewer.close();
@@ -887,17 +926,14 @@ function render() {
   // has nothing to go back TO — the sidebar it would return you to is already there.
   // The brand keeps its slot for the same reason. Narrow is unchanged.
   const wide = WIDE.matches;
+  document.title = tabTitle({ pane: active, page, dashboard: dashboardVisible(), filter }, panes, panes.filter(asks).length, host);
   show("sessions", (!inPane && !dashboard) || wide); show("list-nav", !inPane && !wide);
-  // A phone's Chat and mic ride its tab bar either side of Sessions; a pane hides the bar, so
-  // its heading takes them, by the overflow menu. Moved only when they are elsewhere: a move
-  // on every repaint would drop their focus.
-  const callTo = inPane ? $("pane-menu") : $("all-tab");
-  if (!wide && $("chat").nextElementSibling !== callTo) inPane ? callTo.before($("live-mode"), $("chat")) : callTo.replaceWith($("chat"), callTo, $("live-mode"));
   const list = !inPane && !dashboard; // a phone's list screen: the only one with search and sort
   show("brand", wide || !list); show("find", wide || list);
-  // A phone's title heads the overview and scrolls off under the bar, as Gmail's subject does.
-  const head = $("pane-title").parentElement, headTo = wide ? $("heading") : $("overview");
-  if (head.parentElement !== headTo) wide ? $("back").after(head) : headTo.prepend(head);
+  // A phone's title heads the overview and scrolls off under the bar, as Gmail's subject does;
+  // its terminal has no overview, so the bar carries the title and its line, as a wide header does.
+  const head = $("pane-title").parentElement, headTo = wide || view === "terminal" ? $("heading") : $("overview");
+  if (head.parentElement !== headTo) headTo === $("heading") ? $("back").after(head) : headTo.prepend(head);
   show("back", inPane && !wide); show("close-pane", wide); show("heading", inPane); show("detail", inPane);
   // The main column is never blank on a wide screen: with no pane chosen it answers the
   // question the sidebar cannot, which is what the whole fleet is doing right now.
@@ -931,11 +967,12 @@ function render() {
   text($("pane-title"), (pane && paneName(pane)) || (settled ? "Pane unavailable" : "Loading pane"));
   // Expunge is offered only where it can work: a Claude Code or Codex pane (the server refuses the rest anyway).
   for (const id of ["expunge-rule", "expunge-pane"]) show(id, ["claude", "codex"].includes(pane?.tool));
-  show("move-pane", !!pane && accounts.moveTargets(pane.pane_id, pane.tool).length > 0);
-  markEnding($("detail"), pane);
-  text($("pane-location"), pane ? [sessionOf(pane), pane.window_name || pane.pane_id].filter(Boolean).join(" / ") : "Waiting for session state");
   // Which account it runs on, when that needs saying: first on a phone, which ellipsizes the end.
   const account = pane && accounts.badge(pane.pane_id);
+  show("move-pane", !!pane && accounts.moveTargets(pane.pane_id, pane.tool).length > 0);
+  html($("move-pane"), `${licon("users", 18)}<span>Move to another account…${account ? `<small class="acct-on">Now on ${account}</small>` : ""}</span>`);
+  markEnding($("detail"), pane);
+  text($("pane-location"), pane ? [sessionOf(pane), pane.window_name || pane.pane_id].filter(Boolean).join(" / ") : "Waiting for session state");
   if (account) $("pane-location").insertAdjacentHTML(wide ? "beforeend" : "afterbegin", wide ? ` · ${account}` : `${account} `);
   for (const id of ["pane-title", "pane-location"]) $(id).title = $(id).textContent; // both ellipsize: hover shows the full text
   $("heading").dataset.title = $("pane-title").textContent; // a phone's bar shows it once the title is out of sight
@@ -1003,7 +1040,7 @@ function render() {
     button.onclick = () => answer(active, button._option.option, button._option.index, !!button._option.offer);
     return button;
   }, (button, option) => {
-    button._option = option; text(button, option.option); button.disabled = sending || !!answered;
+    button._option = option; text(button, option.option); block(button, answered?.note || sendBlock({ sending }));
     button.classList.toggle("picked", picked(pane, option));
   });
   // A command offer: its exact text once, folded to a row (a tap unfolds it), then Send it and Copy.
@@ -1018,12 +1055,13 @@ function render() {
     return node;
   }, (node, value) => {
     node._offer = value; text(node.querySelector("code"), value);
-    const send = node.querySelector(".offer-choices button"); send.disabled = sending || !!answered; send.classList.toggle("picked", picked(pane, { option: value, index: -1 }));
+    const send = node.querySelector(".offer-choices button"); block(send, answered?.note || sendBlock({ sending })); send.classList.toggle("picked", picked(pane, { option: value, index: -1 }));
   });
   for (const fold of $("offers").querySelectorAll('[aria-expanded="false"]')) fold.classList.toggle("fits", fold.firstChild.scrollWidth <= fold.firstChild.clientWidth);
   renderTasks(pane);
   renderRichContent(pane);
   updateComposer();
+  if (pane && linked) { offerDraft(active, linked); linked = null; }
   if (focusPushComposer && pane?.question && needsYou(pane)) {
     focusPushComposer = false;
     requestAnimationFrame(() => $(pane.secret ? "secret" : "reply").focus({ preventScroll: true }));
@@ -1078,17 +1116,38 @@ function renderLinks(el, links) {
     anchor.href = link.href;
     text(anchor.firstChild, Array.from(String(link.text || host).replace(/[\u202A-\u202E\u2066-\u2069]/g, "")).slice(0, 160).join(""));
     text(anchor.querySelector("small"), link.detail || host);
+    anchor.querySelector("small").classList.toggle("pending", !!link.pending);
   });
+}
+
+// The scratch pages a pane's session made (GET /api/panes/{id}/scratch), asked again at
+// most once a minute while its overview shows: they stay in Links as long as they exist.
+const scratchPages = new Map();
+function pageLinks(pane) {
+  const id = pane?.pane_id, key = paneKey(id), had = scratchPages.get(key); // a reused id is another pane
+  if (id && overviewVisible() && !(had?.at > Date.now() - 60000)) {
+    scratchPages.set(key, { at: Date.now(), links: had?.links || [] });
+    request(`/api/panes/${encodeURIComponent(id)}/scratch`).then((pages) => {
+      scratchPages.set(key, { at: Date.now(), links: pages.map((p) => ({ href: new URL(`/scratch/${p.href}`, location.href).href, text: p.title, pending: p.pending,
+        detail: p.pending ? "In progress" : `Scratch · ${since({ state_since: p.at })} ago` })) });
+      if (paneKey(active) === key) renderRichContent(panes.find((p) => p.pane_id === active));
+    }, () => {});
+  }
+  return had?.links || [];
 }
 
 function renderRichContent(pane) {
   accounts.paneCard(pane, $("signin-section"));
   // The link the question asks you to open leads its card instead of waiting in Links.
   const ask = pane?.question && needsYou(pane) ? askLink(pane) : null;
-  const links = paneLinks(pane).filter((link) => link.href !== ask?.href);
+  const { top, pages, prs } = linkGroups(pane, pageLinks(pane)), links = top.filter((link) => link.href !== ask?.href);
+  const more = { "more-pages": pages.some((p) => !top.includes(p)) && pages.length, "more-prs": prs.length }, making = pages.filter((p) => p.pending).length;
   renderLinks($("ask-link"), ask ? [ask] : []);
-  show("link-section", !!links.length);
+  show("link-section", !!(links.length || more["more-pages"] || prs.length));
   renderLinks($("links"), links);
+  for (const [id, n] of Object.entries(more)) { show(id, !!n); text($(id).querySelector(".count"), n); }
+  text($("more-pages").querySelector("small"), making ? `${making} In progress` : "From this pane");
+  renderLinks($("pr-links"), prs);
   const tables = (Array.isArray(pane?.tables) ? pane.tables : []).filter((table) => table && Array.isArray(table.rows));
   show("table-section", !!tables.length);
   // Reconcile inside stable scroll containers so a poll never resets a table's position.
@@ -1109,6 +1168,12 @@ function renderRichContent(pane) {
     });
   });
 }
+
+// The rest of the Links: this pane's pages open in Scratch, filtered to it; its PRs unfold here.
+$("more-pages").onclick = () => { scratchFrom = active; openPage("scratch"); };
+$("more-prs").onclick = () => foldPrs($("more-prs").getAttribute("aria-expanded") !== "true");
+function foldPrs(open) { $("more-prs").setAttribute("aria-expanded", String(open)); show("pr-links", open); }
+for (const id of ["more-pages", "more-prs"]) $(id).insertAdjacentHTML("beforeend", licon("chevron", 16));
 
 function renderTasks(pane) {
   // A copyable of an offer's text would repeat the question card's.
@@ -1490,10 +1555,10 @@ async function streamTerminal(id, signal) {
 function startState() {
   stateController?.abort();
   stateController = new AbortController();
-  if (!document.hidden) {
-    refreshHistory(); refreshCached();
-    pollState(stateController.signal);
-  }
+  // State keeps coming while the tab is hidden: a background tab's title is what the tab strip
+  // shows (docs/design/tab-icons.md). The history and meters wait to be seen.
+  if (!document.hidden) { refreshHistory(); refreshCached(); }
+  pollState(stateController.signal);
 }
 // Panes of windows this page is closing, by pane id: { birth, pane, label } while the request
 // runs, then { birth, done } for each pane the server says it killed. A killed pane stays
@@ -1556,10 +1621,10 @@ async function pollState(signal) {
       const ids = (data.panes || []).map((p) => `${p.pane_id}:${p.birth}:${p.tool}`).join(); // birth: a recycled id is a new pane
       if (ids !== paneIds || Date.now() - accountsAt > 20000) { paneIds = ids; accountsAt = Date.now(); accounts.refresh(); }
       const wasRunning = loaded ? tmuxRunning : null; // null: the first answer always asks
-      statePanes = data.panes || []; showPanes(); loaded = true; booted = data.booted !== false; tmuxRunning = data.tmux_running !== false; prefix = data.prefix || "C-b";
+      statePanes = data.panes || []; showPanes(); loaded = true; booted = data.booted !== false; tmuxRunning = data.tmux_running !== false; prefix = data.prefix || "C-b"; host = data.host || "";
       if (wasRunning !== tmuxRunning || restore.due()) restore.refresh(); // a server came or went: the offer changes
       $("ctrl-b").hidden = data.prefix === "C-b"; // absent prefix: can't know it's C-b, so show it
-      refreshHistory(); refreshCached();
+      if (!document.hidden) { refreshHistory(); refreshCached(); }
       pruneDrafts();
       text($("connection"), data.stale ? "Stalled" : "Live");
       $("connection").classList.toggle("online", !data.stale);
@@ -1611,18 +1676,35 @@ function updateComposer() {
   // The editor is never locked: a newly opened pane takes typing before its state lands.
   // Only delivery waits: Send, and Enter (the submit checks Send), do nothing until the pane
   // exists, keeping the text; a password prompt arriving with it empties the draft instead.
-  $("send").disabled = sending || !available || (secret ? !$("secret").value : !value.segments().length && !value.pendingEnter);
-  $("attach").disabled = sending;
-  $("keys").querySelectorAll("button").forEach((button) => { button.disabled = sending || !available; });
+  block($("send"), sendWhy());
+  block($("attach"), sendBlock({ sending }));
+  const why = sendBlock({ sending, available, online: online() });
+  $("keys").querySelectorAll("button").forEach((button) => block(button, why));
 }
+const online = () => $("connection").classList.contains("online");
+// Why the open pane's Send can't go now ("" when it can), from live state: the submit asks
+// again rather than trusting the button's last look.
+function sendWhy() {
+  const pane = panes.find((p) => p.pane_id === active), value = draft();
+  const secret = !!pane?.secret, empty = secret ? !$("secret").value : !value.segments().length && !value.pendingEnter;
+  return sendBlock({ sending, available: !!pane, online: online(), secret, empty });
+}
+// A greyed button (block()) says why when tapped. A submit is left to its form, which asks
+// afresh (sendWhy), so a stale look can never refuse a send that may go.
+document.addEventListener("click", (event) => {
+  const button = event.target.closest?.('button[aria-disabled="true"]');
+  if (!button || button.type === "submit" && button.form) return;
+  event.preventDefault(); event.stopPropagation(); notice(button.dataset.why, 4000);
+}, true);
 // Returns whether the keys were DELIVERED. Most callers ignore it; the cursor walk
 // (web/cursor-pick.js) cannot — a move it wrongly believes happened leaves every later
 // step one row out and commits the wrong row.
 async function sendKeys(body, id = active) {
   if (sending || !panes.some((p) => p.pane_id === id)) return false;
   let delivered = false;
-  sending = true; notice(); render();
+  sending = true;
   try {
+    notice(); render(); // inside the try: a render that throws must not keep `sending` held
     const sent = await paneInput.run(id, () => post(paneUrl(id, "send"), body));
     // A menu answer the widget ignored went out, but the card goes live again (answer()).
     if (sent?.took === false) notice(UNTAKEN);
@@ -1756,15 +1838,15 @@ async function compose(id, value) {
   }
   if (secret) value.value = "";
   else { value.replace([]); value.pendingEnter = false; }
-  sending = true; notice(); render();
+  sending = true;
   try {
+    notice(); render(); // inside the try, as sendKeys
     await paneInput.run(id, () => request(paneUrl(id, "compose"), { method: "POST", body: form }, 45000));
     // Not over a next draft typed while this one went: that one is unsent.
     if (active === id && !(secret ? value.value : draft(id).segments().length)) text($("draft-status"), "Sent");
     settle(true); startState();
     return true;
   } catch {
-    settle(false);
     if (secret) { if (active === id && !value.value) value.value = sent; } // the one field is the open pane's
     else {
       // Into whichever composer holds this pane's draft now: opening the pane mid-send moves
@@ -1772,12 +1854,14 @@ async function compose(id, value) {
       const owner = renderSidebar.drafts.get(id) === value ? value : draft(id), typed = owner.segments();
       owner.replace([...owner.adopt(sent), ...typed.length ? [{ text: "\n" }] : [], ...typed]);
     }
-    notice("Delivery could not be confirmed. Draft kept; check the terminal before retrying."); return false;
+    notice("Delivery could not be confirmed. Draft kept; check the terminal before retrying.");
+    settle(false); return false; // last: it renders, and a render that throws must not lose the draft
   } finally { sending = false; render(); }
 }
 $("reply-form").onsubmit = (event) => {
   event.preventDefault();
-  if (!sending && !$("send").disabled) compose(active, $("secret").hidden ? draft() : $("secret"));
+  const why = active && sendWhy();
+  if (why) notice(why, 4000); else if (active) compose(active, $("secret").hidden ? draft() : $("secret"));
 };
 $("secret").oninput = updateComposer;
 // Enter SENDS, Shift+Enter inserts a newline — the standard chat-composer contract.
@@ -1796,10 +1880,12 @@ enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("attach-file"), () => active && !sending ? draft() : null);
 
 for (const [id, name] of Object.entries({ "menu-open": "menu", collapse: "panel", "dash-nav": "gauge", "graph-nav": "network", "scratch-nav": "images", "close-viewer": "back", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-export": "x", "close-move": "x", "close-rename": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down", "view-summary": "fileText", "view-terminal": "terminal" })) icon(id, name);
-// The phone's tab bar: Sessions, home, in the middle (Chat and Voice are live.js's). The gauge is Dashboard's
-// everywhere; the 2×2 grid is the layout picker's. Only Needs you carries a count.
-for (const [id, label, glyph] of [["dashboard", "Dashboard", "gauge"], ["all", "Sessions", "layers"], ["attention", "Needs you", "alert"]]) {
-  html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}${id === "attention" ? '<span id="attention-count" class="count"></span>' : ""}</span><span>${label}</span>`);
+// The phone's tab bar: Sessions, home, in the middle, Usage and Scratch either end. The gauge is Dashboard's
+// everywhere; the 2×2 grid is the layout picker's. Only Needs you carries a count. The ☰ drawer
+// lists the same five (below), so one list names them.
+const TABS = [["dashboard-tab", "Dashboard", "gauge"], ["usage-tab", "Usage", "pie"], ["all-tab", "Sessions", "layers"], ["attention-tab", "Needs you", "alert"], ["scratch-tab", "Scratch", "images"]];
+for (const [id, label, glyph] of TABS) {
+  html($(id), `<span class="nav-icon">${licon(glyph)}${id === "attention-tab" ? '<span id="attention-count" class="count"></span>' : ""}</span><span>${label}</span>`);
 }
 // The keys worth a thumb on a phone.
 //
@@ -1850,14 +1936,15 @@ new ResizeObserver(fadeKeys).observe($("keys"));
 $("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); if (open) fadeKeys(); };
 $("dashboard-tab").onclick = () => openDashboard();
 $("dash-nav").onclick = inApp(openDashboard);
-// A phone's ☰ drawer: each row presses the control that already goes there (a tab, Scratch,
+// A phone's ☰ drawer: every destination, each row pressing the control that already goes there
+// (the five tabs in the bar's order, Graph under the Dashboard it opens within, then Chat, Voice,
 // Settings, the docs link), shown when it is and current while it is pressed. A modal
 // dialog, so focus stays in it and returns to ☰; a tap off it, Escape or a drag left closes it.
 // It slides every way it comes and goes (settle, below), a row's place opening once it is gone.
-html($("drawer-nav"), [["dashboard-tab", "Dashboard", "gauge"], ["graph-nav", "Graph", "network"], ["all-tab", "Sessions", "layers"], ["attention-tab", "Needs you", "alert"], ["scratch-nav", "Scratch", "images"], ["settings-open", "Settings", "settings"], ["docs", "Documentation", "book"]]
+html($("drawer-nav"), [TABS[0], ["graph-nav", "Graph", "network"], ...TABS.slice(1), ["chat", "Chat", "message"], ["live-mode", "Voice", "mic"], ["settings-open", "Settings", "settings"], ["docs", "Documentation", "book"]]
   .map(([via, label, glyph]) => `<button type="button" data-via="${via}">${licon(glyph)}<span>${label}</span><span class="count"></span></button>`).join(""));
 $("menu-open").onclick = (e) => {
-  // One current row, the most specific pressed (rows run general to specific): Scratch, not
+  // One current row, the most specific pressed (rows run general to specific): Graph, not
   // also the Dashboard it opens within.
   const rows = [...$("drawer-nav").children], here = [...rows].reverse().find((row) => $(row.dataset.via).getAttribute("aria-pressed") === "true");
   for (const row of rows) { row.hidden = $(row.dataset.via).hidden; row.setAttribute("aria-current", row === here ? "page" : "false"); }
@@ -1922,7 +2009,8 @@ addEventListener("touchmove", (e) => {
   drag.v = (t.clientX - drag.at) / Math.max(1, e.timeStamp - drag.t); drag.at = t.clientX; drag.t = e.timeStamp;
   slide(Math.min(0, Math.max(-drawer.offsetWidth, drag.base + dx)));
 }, { passive: true });
-for (const nav of ["scratch", "graph"]) $(`${nav}-nav`).onclick = inApp(() => openPage(nav));
+for (const id of PLACES) $(id).onclick = inApp(() => openPage(id.split("-")[0]));
+$("empty-history").onclick = () => live.ask(`Find my previous sessions about "${$("search").value.trim()}".`);
 $("empty-needs").onclick = () => { const needs = $("empty-needs").dataset.all === "needs"; if (needs) $("search").value = ""; filter = needs ? ["attention"] : []; scope.tools = []; stayPut({ acct: [] }); };
 // Close only leaves the pane, exactly like Back (which stands in for it on a narrow screen).
 $("back").onclick = $("close-pane").onclick = () => navigate();
@@ -2105,9 +2193,9 @@ $("close-settings").onclick = () => $("settings").close();
 // non-modal, so the list stays in view and live, and closed by Escape or a click anywhere
 // but the panel or the button that opened it. A phone keeps its sheet.
 function openBeside(dialog, opener) {
+  dialog._opener = opener; // on a phone too: what reopens it (the Start row's Session)
   if (!WIDE.matches) return dialog.showModal();
   besides().forEach((d) => d !== dialog && d.close()); // one panel at a time
-  dialog._opener = opener;
   dialog.classList.add("beside"); dialog.show();
   dialog.focus(); // show() does not move focus as showModal() does: the next Tab enters the panel
 }
@@ -2330,6 +2418,11 @@ async function openLaunch(fresh, opener) {
   $("launch-name").value = ""; // the placeholder (the directory's name) is the default
   try { $("launch-dir").value = localStorage.getItem(LAST_DIR) || "~"; } catch { $("launch-dir").value = "~"; }
   $("launch-dir").oninput(); launchMode();
+  // Chat and Voice start as their own buttons do; greyed, the line under them says why.
+  kindHome(); // the Start row may still sit in a docked Chat panel (its pick moves it there)
+  const kinds = [...$("launch-kind").querySelectorAll("[data-start]")];
+  kinds.forEach((b) => { b.dataset.why = live.why(b.dataset.start === "chat"); });
+  show("launch-kind", kinds.some((b) => !b.dataset.why)); text($("launch-sub"), "Start an agent or shell in a new tmux window.");
   // Suggestions only (open panes' and past agent sessions' directories); any path works.
   request("/api/sessions/dirs").then((d) => $("launch-dirs").replaceChildren(...d.dirs.map((dir) => new Option(dir))), () => {});
   try {
@@ -2360,13 +2453,34 @@ async function openLaunch(fresh, opener) {
       if (!launcher.unavailable) button.insertAdjacentHTML("beforeend", licon("plus"));
       button.disabled = !!launcher.unavailable;
       button.dataset.provider = launcher.provider || "";
-      button.onclick = () => launchWindow(launcher.label, button);
+      button.onclick = () => launchPick.pick(launcher.provider, () => launchWindow(launcher.label, button));
       return button;
     }));
     launchPick = accounts.picker($("launch-choices"), $("launch-session"));
   } catch { if (load === launchLoad) text($("launch-error"), "Could not load launchers. Close and try again."); }
 }
 $("close-launch").onclick = () => $("launch-dialog").close();
+// The Start row goes with the choice: Chat or Voice carries it to the top of their sheet,
+// pressed on the pick, so Session is one tap back (it reopens the sheet as its opener did).
+// The row comes home when that sheet closes, or when New session opens over a docked Chat.
+const kindRow = $("launch-kind");
+const pressKind = (b) => kindRow.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+const kindHome = () => { $("launch-sub").before(kindRow); pressKind(kindRow.firstElementChild); };
+// The event is queued: crossing the breakpoint closes and reopens the sheet before it runs.
+$("voice-dialog").addEventListener("close", () => $("voice-dialog").open || kindHome());
+kindRow.onclick = (e) => {
+  const b = e.target.closest("button"), kind = b?.dataset.start, busy = kind && live.kind();
+  if (!b) return;
+  // Greyed (asked afresh: a conversation that ended since the sheet opened was what made the
+  // other mode available), or the other mode while a conversation runs (opening would only
+  // bring that one back, so the pick would not take): the sheet's own line says why.
+  if (kind) b.dataset.why = live.why(kind === "chat");
+  const why = b.dataset.why || (busy && busy !== kind && `End ${busy === "chat" ? "the chat" : "Live Mode"} first.`);
+  if (why) { text(b.closest("dialog").querySelector("[role=status]"), why); return; }
+  if (!kind) { if (kindRow.closest("#voice-dialog")) { $("voice-close").click(); $("launch-dialog")._opener.click(); } return; }
+  pressKind(b); $("launch-dialog").close(); live.open[kind]();
+  $("voice-dialog").querySelector(".dialog-heading").after(kindRow);
+};
 let launching = false, launched = null;
 // Go to a window the daemon just opened (a launcher, or a chat resume). Record the id BEFORE
 // navigating to it: startState only *starts* a fetch, so the hashchange this triggers
@@ -2464,9 +2578,14 @@ function placeChrome() {
 // too, beside New window: the dashboard's filter row folds behind it (style.css). A card's own
 // view follows the same filters, and on a phone its head is the bar: the button and the chips go
 // in it, which a view's rebuild keeps (atlas.js renderHeatView), so neither loses focus.
+// Plan usage follows none of them: it charts its own pick of accounts (usage-view.js), so its
+// head holds that pick's button instead, the one funnel there, and wide it sits by the range.
 function placePill() {
-  const phone = !WIDE.matches, bar = phone && $("dash-page").querySelector(":scope > .landing-head");
-  const head = CARDS[page] && bar, dash = phone && dashboard;
+  const phone = !WIDE.matches, bar = phone && $("dash-page").querySelector(":scope > .landing-head"), dash = phone && dashboard;
+  const own = page === "usage" && (usageView._filter ||= usageView.querySelector(".uv-filter")), to = own && (bar || usageView.firstChild);
+  if (own && own.parentElement !== to) to.append(own); // held by the view: another view drops the head it sat in
+  // The graph's full screen covers its bar (graph.js), so there the scope heads the view instead.
+  const head = !own && CARDS[page] && bar && (page === "graph" ? graphView.querySelector(".fg-scope") : bar);
   const picker = renderSidebar.picker, at = head ? picker : bar ? $("find") : dash ? document.querySelector(".app-header") : $("find");
   if (head) { if (picker.parentElement !== head) head.append(picker); }
   else if (dash && picker.nextElementSibling !== $("new-window")) $("new-window").before(picker);
@@ -2492,7 +2611,9 @@ else if (WIDE.addListener) WIDE.addListener(resizeWorkspace);
 // as "close this view", and pressing it should never end a process. 404 means it is already
 // gone, the outcome asked for.
 dismissable($("pane-menu"));
-const closePaneMenu = () => { $("pane-menu").open = false; $("pane-menu-button").focus(); }; // the item just hid: keep keyboard focus on a visible control
+// The item just hid: a keyboard's focus moves to the menu's button. A tap's is dropped, or the
+// sheet the item opens hands it back on close and iOS paints a ring on the button.
+const closePaneMenu = () => { const keyed = document.activeElement?.matches(":focus-visible"); $("pane-menu").open = false; keyed ? $("pane-menu-button").focus() : document.activeElement?.blur(); };
 // The Layout picker's trigger: one fixed layout glyph (a grid, as Meet's "Adjust view"); its value says which layout is on.
 $("review-layout-picker").querySelector("summary").insertAdjacentHTML("afterbegin", licon("dashboard", 18));
 html($("kill-pane"), `${licon("power", 18)}<span>Kill window</span>`);
@@ -2598,7 +2719,6 @@ $("expunge-pane").onclick = async () => {
 // Move to another account: copy the pane's agent session into another account's dir and
 // resume it there in a new window; this pane and the original are left alone
 // (docs/design/agent-accounts.md).
-html($("move-pane"), `${licon("users", 18)}<span>Move to another account…</span>`);
 // Not while a choice runs: the sheet is where its outcome shows.
 $("close-move").onclick = () => $("move-choices").inert || $("move-dialog").close();
 $("move-dialog").addEventListener("cancel", (e) => { if ($("move-choices").inert) e.preventDefault(); });
@@ -2669,17 +2789,24 @@ document.addEventListener("visibilitychange", () => { sendPresence(); startState
 window.addEventListener("online", () => { startState(); restartDetail(); });
 window.addEventListener("pageshow", () => { startState(); restartDetail(); fitViewport(); });
 window.addEventListener("pagehide", () => { stateController?.abort(); detailController?.abort(); });
+// A link shared to the app, by Android's share sheet (the manifest's share_target) or an iOS
+// Shortcut opening /m?url=…: the list is the picker, and route() hands it to the pane picked.
+// A draft link holds 500 characters (url-state.js linkDraft): a longer one is refused, not cut.
+const sharing = new URLSearchParams(location.search), link = sharing.get("url") || sharing.get("text") || sharing.get("title");
+if (link) history.replaceState(null, "", location.pathname + location.hash);
 fitViewport(); route(); startState();
+if (link?.length > 500) notice("That link is too long for a draft (over 500 characters). Copy and paste it instead.");
+else if (link) { notice(`Pick a pane for ${link.length > 80 ? `${link.slice(0, 80)}…` : link}`, 0, ["Cancel", renderList]); shared = link; }
 setupPush($("push"), notice, licon("bell"));
 // A chat Open button offered within the launch grace may name a window too new for
 // /api/state; a stale one whose pane has since closed takes the normal gone-pane path.
 const openOffered = (id, at) => !panes.some((p) => p.pane_id === id) && awaitingLaunch({ id, at }, id)
   ? openLaunched(id, at) : navigate(id);
-const live = setupLiveMode({ request, session: liveSession, licon, wide: WIDE, open: openOffered, report: reportError, onVersion: observeVersion, account: accounts.consent, panes: () => panes, logos: LOGOS });
+const live = setupLiveMode({ request, session: liveSession, licon, wide: WIDE, open: openOffered, report: reportError, onVersion: observeVersion, onChat: () => renderList(), account: accounts.consent, panes: () => panes, logos: LOGOS });
 document.documentElement.classList.add("booted"); // icons in, chrome placed: unveil (style.css)
 let assetVersion = null;
 function hasDrafts() {
-  return [...drafts.values(), ...renderSidebar.drafts.values()].some((value) => value.pendingEnter || value.files.size || value.editor.textContent.length);
+  return !!shared || [...drafts.values(), ...renderSidebar.drafts.values()].some((value) => value.pendingEnter || value.files.size || value.editor.textContent.length);
 }
 function observeVersion(version) {
   if (typeof version !== "string" || !version) return;

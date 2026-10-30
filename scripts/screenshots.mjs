@@ -11,6 +11,8 @@ import { PHONE, WIDE, chat, pace, settle, startDemo } from "./demo_browser.mjs";
 
 const [out = ".screenshots", tree = process.cwd()] = process.argv.slice(2);
 const HD = { width: 1920, height: 1080 };
+// A wait a shot requires: its failure fails the run (the runner shoots past any other step error).
+const loud = (wait, what) => wait.catch((e) => { throw Object.assign(new Error(`${what}: ${e.message}`), { loud: true }); });
 
 // name, viewport, colour scheme, URL hash, and an optional step before the shot.
 const SHOTS = [
@@ -45,10 +47,9 @@ const SHOTS = [
   ["wide-open-loops", WIDE, "dark", "#view=loops", showLoops],
   ["wide-sessions", WIDE, "light", "#view=dashboard", reach(".atlas-multiples")],
   ["mobile-open-loops", PHONE, "light", "#view=loops", showLoops],
-  // The Fleet graph (docs/design/fleet-graph.md): the Worktree lens wide, the default on a phone.
+  // The Fleet graph (docs/design/fleet-graph.md): the Worktree lens wide, the default on a phone (full screen there).
   ["wide-graph", WIDE, "light", "#view=graph", (page) => page.click('.fg-lenses [data-lens="worktree"]')],
   ["mobile-graph", PHONE, "dark", "#view=graph"],
-  ["mobile-graph-full", PHONE, "dark", "#view=graph", (page) => page.click('.fg-tools [aria-label="Full screen"]')],
   ["mobile-loops-card", PHONE, "dark", "#view=dashboard", reach("#loops-card [data-lane]")],
   ["mobile-sessions", PHONE, "dark", "#view=dashboard", reach(".atlas-multiples")],
   ["wide-activity", WIDE, "light", "#view=dashboard", reach(".atlas-pulse", true)],
@@ -80,6 +81,21 @@ const SHOTS = [
   ["wide-settings", WIDE, "dark", "#view=dashboard", (page) => page.click("#settings-open")],
   ["wide-rail", WIDE, "light", "#pane=%259", async (page) => { await page.click("#collapse"); await page.hover("#side-list .sb-rail >> nth=2"); await page.locator("#side-hover").waitFor(); }],
   ["wide-new-session", WIDE, "light", "", async (page) => { await noTmux(page); await page.click(".start-session:not([hidden])"); }],
+  // New session's Start row rides into the Chat sheet and back; a head that loses it fails the
+  // run. A base keeps the row in New session and, on a phone, records no opener: shot as is.
+  ["mobile-new-session-chat", PHONE, "light", "", async (page) => {
+    await page.locator("#chat").waitFor(); // the chat capability, which the row is gated on
+    await page.click("#new-window");
+    if (!await page.evaluate(() => !!document.getElementById("launch-dialog")._opener)) return;
+    await loud((async () => { // every click and wait: a control gone is a failure, not a skipped check
+      await page.click("#launch-kind [data-start=chat]");
+      await page.waitForSelector("#voice-dialog[open] #launch-kind [data-start=chat][aria-pressed=true]");
+      await page.click("#launch-kind button:not([data-start])");
+      await page.waitForSelector("#launch-dialog[open] #launch-kind");
+      await page.click("#launch-kind [data-start=chat]");
+      await page.waitForSelector("#voice-dialog[open] #launch-kind");
+    })(), "the Start row did not go with Chat and back");
+  }],
   // The scratch gallery (openbus/scratch.py), the daemon's page rather than the app's.
   ["mobile-scratch", PHONE, "dark", "", scratch],
   ["mobile-scratch-view", PHONE, "light", "#view=scratch"],
@@ -97,7 +113,7 @@ const TWO_ACCOUNTS = [
   ["accounts-wide-dashboard", WIDE, "light", "#view=dashboard", two()],
   ["accounts-hd-dashboard", HD, "dark", "#view=dashboard", two()],
   ["accounts-wide-pane", WIDE, "light", "#pane=%2513", two()],
-  ["accounts-wide-new-window", WIDE, "dark", "", two(async (page) => { await page.click("#new-window"); await page.click('.acct-pick [data-dir="~/.claude-personal"]'); })],
+  ["accounts-wide-new-window", WIDE, "dark", "", two(async (page) => { await accountStep(page); await page.click('.acct-pick [data-dir="~/.claude-personal"]'); })],
   ["accounts-wide-usage-tall", WIDE, "dark", "#pane=%2513", two(async (page) => { // the sidebar strip dragged to two rows
     const handle = page.locator("#usage-handle");
     if (!await handle.count()) return; // a base without the seam (boundingBox would wait for it)
@@ -117,13 +133,13 @@ const TWO_ACCOUNTS = [
   ["accounts-mobile-pane-menu", PHONE, "dark", "#pane=%2513", moveMenu()],
   ["accounts-mobile-move", PHONE, "light", "#pane=%2513", moveMenu("#move-pane"), "#move-dialog"],
   ["accounts-mobile-moved", PHONE, "light", "#pane=%2513", moveMenu("#move-pane", "Exit the old pane"), "#move-dialog"],
-  ["accounts-mobile-new-window", PHONE, "light", "", two(async (page) => { await page.click("#new-window"); await page.waitForSelector(".acct-pick"); })],
+  ["accounts-mobile-new-window", PHONE, "light", "", two(accountStep)],
   ["accounts-mobile-consent", PHONE, "light", "", two(chat("Tell e2e triage to rerun it headed", "#voice-log .propose .acct-badge"))],
   ["accounts-mobile-accounts", PHONE, "dark", "", two(async (page) => { await phoneSettings(page); await page.click("#accounts-open"); })],
   ["accounts-mobile-add", PHONE, "light", "", two(async (page) => { await phoneSettings(page); await page.click("#accounts-open"); await page.click("#acct-dialog [data-add]"); await page.fill("#acct-name", "Side project"); })],
   // Adding "Demo", step by step, each cropped to its sheet (docs/design/agent-accounts.md).
   // Last, and in this order: opening the sign-in window changes the demo server's state.
-  ["accounts-add-1-new-window", PHONE, "light", "", two(async (page) => { await page.click("#new-window"); await page.waitForSelector(".acct-pick"); }), "#launch-dialog"],
+  ["accounts-add-1-new-window", PHONE, "light", "", two(accountStep), "#launch-dialog"],
   ["accounts-add-2-name", PHONE, "light", "", two(addFlow("name")), "#acct-dialog"],
   ["accounts-add-3-share", PHONE, "light", "", two(addFlow("share")), "#acct-dialog"],
   ["accounts-add-4-sign-in", PHONE, "light", "", two(addFlow("login")), "#acct-dialog"],
@@ -132,6 +148,15 @@ const TWO_ACCOUNTS = [
   ["accounts-add-6-done", PHONE, "light", "", two(addFlow("done")), "#acct-dialog"],
   ["accounts-add-7-list", PHONE, "light", "", two((page) => page.fill("#search", "sign in"))],
 ];
+// New session's account step: a step after picking Claude here; a base shows the grid at once,
+// and its Claude row would start a window instead.
+async function accountStep(page) {
+  await page.click("#new-window");
+  const claude = page.locator('#launch-choices [data-provider="claude"]');
+  await claude.waitFor(); // the agents and the picker render together
+  if (!await page.locator(".acct-pick").count()) await claude.click();
+  await page.waitForSelector(".acct-pick");
+}
 // A phone opens Settings from the ☰ drawer, its own button being a wide screen's.
 async function phoneSettings(page) {
   await page.click("#menu-open"); await page.click('#drawer-nav [data-via="settings-open"]');
@@ -178,8 +203,7 @@ function two(step) {
   return async (page) => {
     if (!await page.locator('link[href$="/m/accounts.js"]').count()) return;
     // Attached, not visible: a phone's dashboard has its badged rows hidden.
-    await page.locator(".acct-badge").first().waitFor({ state: "attached" })
-      .catch((e) => { throw Object.assign(new Error(`no account badge: ${e.message}`), { loud: true }); });
+    await loud(page.locator(".acct-badge").first().waitFor({ state: "attached" }), "no account badge");
     await step?.(page);
   };
 }
