@@ -654,5 +654,6 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   });
   window.addEventListener("focus", pullTaps);
   paint(); capabilities(); pullTaps();
-  return { isActive: () => !!run, refresh: capabilities, why, open: { chat, voice } };
+  // kind: the mode a running conversation is in (open[] of the other one only brings it back).
+  return { isActive: () => !!run, kind: () => run && (run.text ? "chat" : "voice"), refresh: capabilities, why, open: { chat, voice } };
 }
