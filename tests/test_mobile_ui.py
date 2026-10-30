@@ -51,6 +51,7 @@ def test_mobile_assets_and_manifest():
     manifest = client.get("/m/manifest.json").json()
     assert manifest["start_url"] == "/m"
     assert manifest["scope"] == "/m"
+    assert manifest["share_target"]["action"] == "/m"  # in scope, read by app.js's boot
     assert 'id="push"' in client.get("/m").text
     assert 'addEventListener("fetch"' not in client.get("/sw.js").text
 
@@ -250,6 +251,20 @@ def test_chat_pasted_image_keeps_input_height_and_header_ends_chat():
     assert '$("voice-end").onclick = () => { stop(); dialog.close(); }' in live
 
 
+def test_new_session_start_row_follows_the_pick_and_comes_back():
+    # Picking Chat or Voice moves the Session|Chat|Voice row into that sheet (pressed on the
+    # pick), so Session is still a tap away; the row returns when that sheet closes.
+    app = (Path(__file__).resolve().parents[1] / "web/m/app.js").read_text()
+    assert 'pressKind(b); $("launch-dialog").close(); live.open[kind]();' in app
+    assert '$("voice-dialog").querySelector(".dialog-heading").after(kindRow)' in app
+    # The close event is queued: the breakpoint handler's close-and-reopen must leave the row.
+    assert ('$("voice-dialog").addEventListener("close", () => $("voice-dialog").open || '
+            'kindHome())' in app)
+    assert '$("voice-close").click(); $("launch-dialog")._opener.click();' in app
+    # The other mode while a conversation runs is a reason on the line, not a pick that failed.
+    assert "busy && busy !== kind && `End ${" in app
+
+
 def test_voice_sheet_takes_initial_focus_not_its_first_button():
     """showModal() focuses the first button (the minimize button) and its :focus-visible ring
     paints on open; the sheet itself takes focus instead, with no ring on that container."""
@@ -292,18 +307,22 @@ def test_wide_sidebar_answers_through_the_pane_views_own_send_path():
     app, side = (root / "app.js").read_text(), (root / "sidebar.js").read_text()
     assert ("answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, "
             "compose") in app
-    assert 'reconcile($("options"), answerOptions(question)' in app
+    # One answerOptions(question, pane) feeds both: a question's answers, then the finished turn's
+    # reply offers as pills; the mono Send it row is only for "! command" offers.
+    assert "options = answerOptions(question, pane);" in app
+    assert 'reconcile($("options"), options,' in app
+    assert "ctx.answers(needsYou(p) ? p.question : null, p)" in side
     assert 'compose(active, $("secret").hidden ? draft() : $("secret"))' in app
     assert "await ctx.compose(id, value)" in side
-    assert "ctx.answer(node._p.pane_id, o.option, o.index, !!o.part)" in side
+    assert "ctx.answer(node._p.pane_id, o.option, o.index, !!o.part || !!o.offer)" in side
     # An offer is sent by the same path, from the card and the list, never via the composer.
     assert "send.onclick = () => answer(active, node._offer, -1, true);" in app
     assert "takeOffer" not in app + side
     assert 'show("list-nav", !inPane && !wide)' in app
-    # The tab bar hides in a pane, so Chat and the mic move to its heading rather than vanish.
-    assert 'const callTo = inPane ? $("pane-menu") : $("all-tab");' in app
-    assert ('callTo.before($("live-mode"), $("chat")) : '
-            'callTo.replaceWith($("chat"), callTo, $("live-mode"))') in app
+    # Chat and the mic sit in a pane's heading, by its menu; on the list, the ☰ drawer has them.
+    html = (root / "index.html").read_text()
+    assert html.index('id="heading"') < html.index('id="chat"') < html.index('id="pane-menu"')
+    assert '["chat", "Chat", "message"], ["live-mode", "Voice", "mic"]' in app
     assert "if (WIDE.matches) $(slot).append($(id)); else homes[id].after($(id));" in app
     assert ".sb-only { display: none !important; }" in (root / "style.css").read_text()
     # Every group starts open (Idle too, by the user's call); only a fold the user made persists
@@ -337,3 +356,16 @@ def test_phone_drawer_scrolls_itself_and_never_the_view_behind_it():
     css = (Path(__file__).resolve().parents[1] / "web/m/style.css").read_text()
     drawer = next(line for line in css.splitlines() if line.startswith("#drawer {"))
     assert "overflow-y: auto" in drawer and "overscroll-behavior: contain" in drawer
+
+
+def test_tab_title_keeps_its_count_while_the_tab_is_hidden():
+    """The title's Needs-you count is read from OTHER tabs, so it is only worth having if a
+    background tab keeps receiving state. The state long poll (answered only on change) runs
+    whatever the visibility; the history and meter fetches still wait for the tab to be seen
+    (docs/design/tab-icons.md)."""
+    app = (Path(__file__).resolve().parents[1] / "web/m/app.js").read_text()
+    start = app.index("function startState()")
+    body = app[start:app.index("\n}", start)]
+    assert "if (!document.hidden) { refreshHistory(); refreshCached(); }" in body
+    assert "\n  pollState(stateController.signal);" in body, "the poll must not wait to be seen"
+    assert "document.title = tabTitle(" in app
