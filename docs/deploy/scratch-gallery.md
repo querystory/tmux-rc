@@ -126,6 +126,10 @@ crashes, and it survives a daemon restart, since the state is read from the fold
   still keeps one finish to one buzz is the other direction: for two minutes after a Ready,
   that pane's plain "turn ended" Needs-you is skipped, since it says nothing the Ready did
   not (any question still notifies). A Needs-you already shown stays beside the Ready.
+- **When a revision ends** (meta.json's `updating` removed), the same push says `Updated: <title>`
+  under the page's own tag, not a pane's: whoever revised it, a second revision replaces the
+  first notification instead of stacking. Presence does not hold it back, so it reaches a
+  phone that is not showing the page.
 
 An orchestrator that hands a subagent's link out writes `meta.json` itself, with its own
 `$TMUX_PANE`: in Claude Code and Codex the subagent runs in that pane. A worker in another
