@@ -23,7 +23,7 @@ a question, tappable answers, and a snapshot timeline.
 
 <p align="center">
   <img src="docs/img/mobile-list.png" alt="The phone session list: every tmux pane grouped by session, each row showing the agent's name, its state badge, and a one-line summary of what it is doing" width="240">
-  <img src="docs/img/one-tap-list.png" alt="Needs you on the phone: an agent asks whether to merge two green, reviewed PRs, with Merge both and Just #413 buttons right on its row" width="240">
+  <img src="docs/img/one-tap-pane.png" alt="Needs you in an agent's overview: it asks whether to merge two green, reviewed PRs, with a summary, both answers as buttons, and both PRs under Links with their titles" width="240">
   <img src="docs/img/mobile-scratch.png" alt="The Scratch tab on the phone: cards with a thumbnail of each page, its title, a one-line description, when it was made and which session made it; one card is marked Updating" width="240">
 </p>
 
@@ -34,7 +34,6 @@ a question, tappable answers, and a snapshot timeline.
 </p>
 
 <p align="center">
-  <img src="docs/img/one-tap-pane.png" alt="The same question in the agent's overview: a summary, both answers as buttons, and both PRs under Links with their titles" width="280">
   <img src="docs/img/mobile-pane.png" alt="A single pane on the phone: headline, plain-English summary, the model and how much of its context window is used, the sub-agents it spawned, a timestamped activity list, and a box to message the pane" width="280">
 </p>
 
