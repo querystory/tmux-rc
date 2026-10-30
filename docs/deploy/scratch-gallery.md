@@ -18,7 +18,10 @@ swipe from the left edge returns to the gallery, and "Open in browser" opens the
 a tab of its own. While the pane its `meta.json` names is still open, a box at the
 bottom messages that agent ("Message qs:0 (Triage recent bugs)"), the way the pane's own
 composer does, opening with `Re scratch <folder>: ` so the agent knows which page it is
-about. The box is the app's, not the page's: a page cannot send to a pane.
+about. A screenshot of the whole page goes with it, drawn by the daemon at the phone's width,
+pixel ratio and theme (the app cannot read the sandboxed page), cut at 6000 px with a note
+saying so; tap "Screenshot attached ✕" to leave it off.
+The box is the app's, not the page's: a page cannot send to a pane.
 Settings links to the gallery's own page under More.
 
 A pane's overview lists only the few links that matter: its pages still In progress, its
@@ -229,3 +232,18 @@ tmux-rc fills in the rest in the background, so the gallery never waits for it:
 Pages are shot offline. Each shot uses a throwaway browser profile and a listener that
 serves scratch and nothing else, so a page can't put anything but scratch into its
 thumbnail. The [design note](../design/scratch-previews.md) explains why.
+
+## Pinning a page to the menu
+
+The viewer's **Pin** puts a page in the app's own menu: rows after a divider in the
+sidebar, and a Pinned group in the phone's ☰. A phone's tab bar never changes, so someone
+who pins nothing sees the app as before. A pin opens the page in the same viewer.
+
+The daemon keeps the pins in `pins.json`, beside `accounts.json` in its state directory,
+so the laptop shows what the phone pinned. There are at most six, which keeps the sidebar
+from overflowing. A pinned folder that is deleted or archived drops out of the menu.
+
+A pin is labelled with the page's title. Its icon is `meta.json`'s optional `icon`, a
+[Lucide](https://lucide.dev/icons/) name such as `network`, drawn only when the app ships
+that glyph, and the page icon otherwise. The app never draws markup a page supplies: its
+menu is same-origin with the API, so an agent-written icon could run script there.

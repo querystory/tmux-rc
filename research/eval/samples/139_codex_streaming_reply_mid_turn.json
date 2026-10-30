@@ -1,0 +1,19 @@
+{
+  "description": "Codex mid-turn, printing a reply to a message the user sent while it worked. Codex hides its 'Working (… • esc to interrupt)' row while that message prints, so the current frame shows only a new bullet message above the input, with no 'Worked for …' line closing the turn; the earlier frames show the Working row. The model reads this as a finished turn (idle) even when told about the hidden row, so a long Codex turn flapped to idle every time it printed a mid-turn message. Codex's own rollout still has the turn open (task_started with no task_complete), which `turn_live` replays as the watcher reads it: the turn is running.",
+  "current_command": "node",
+  "processes": [
+    "bash",
+    "node /usr/local/bin/codex",
+    "codex"
+  ],
+  "turn_live": true,
+  "prior": [
+    "• Explored\n  └ Read RecipeCard.tsx\n    Search unitSystem in src/hooks\n    Read useUnits.ts\n\n• Ran npm test -- RecipeCard\n  └ PASS src/RecipeCard.test.tsx\n    … +6 lines (^t to view transcript)\n\nWorking (12m 5s • esc to interrupt)\n\n\n› Ask Codex to do anything\n\n  7c3e91a0-2f4b-4d18-9a6e-5b0d2e8c4f17 · gpt-6.1-sol high",
+    "• Explored\n  └ Read RecipeCard.tsx\n    Search unitSystem in src/hooks\n    Read useUnits.ts\n\n• Ran npm test -- RecipeCard\n  └ PASS src/RecipeCard.test.tsx\n    … +6 lines (^t to view transcript)\n\n› Also make the toggle remember the choice\n  per recipe, not globally\n\n\nWorking (12m 41s • esc to interrupt)\n\n\n› Ask Codex to do anything\n\n  7c3e91a0-2f4b-4d18-9a6e-5b0d2e8c4f17 · gpt-6.1-sol high"
+  ],
+  "capture": "• Explored\n  └ Read RecipeCard.tsx\n    Search unitSystem in src/hooks\n    Read useUnits.ts\n\n• Ran npm test -- RecipeCard\n  └ PASS src/RecipeCard.test.tsx\n    … +6 lines (^t to view transcript)\n\n› Also make the toggle remember the choice\n  per recipe, not globally\n\n\n• Yes. I’ll store the unit choice per recipe id\n  instead of in the global settings, and keep the\n  global value as the default for new recipes.\n  You’ll be able to flip one card to metric and\n  leave the rest alone.\n\n\n› Ask Codex to do anything\n\n  7c3e91a0-2f4b-4d18-9a6e-5b0d2e8c4f17 · gpt-6.1-sol high",
+  "expected": {
+    "tool": "codex",
+    "activity": "running"
+  }
+}
