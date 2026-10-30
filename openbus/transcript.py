@@ -9,6 +9,7 @@ The watcher asks on every tick, so a transcript written after the screen settled
 re-parses the card. Each lookup is therefore cached on the stat of what it read, and an
 unchanged tick costs a few stat calls."""
 
+import hashlib
 import json
 import os
 import re
@@ -23,6 +24,9 @@ from .tmux import Pane
 # The final message sits at the end, but a session's file grows to megabytes (pasted
 # images, tool output); reading only its tail keeps this cheap on every parse.
 _TAIL = 1 << 20
+# Conversation entries: Claude's messages and tool calls, Codex's response items and events
+# (all but its token counts).
+_SAID = frozenset({"user", "assistant", "response_item", "event_msg"})
 _UUID_RE = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
 
 
@@ -111,18 +115,38 @@ def _text(blocks) -> str | None:
     return "\n\n".join(texts) or None
 
 
-def last_reply(pane: Pane, text: str) -> str | None:
-    """The agent's latest message in its current turn: a new user message clears it, so
-    a reply from an earlier turn is never mistaken for what is on screen now."""
+def _path(pane: Pane, text: str) -> Path | None:
     claude = _home(pane, "claude")
     registry = tuple((p.name, _stamp(p)) for p in sorted((claude / "sessions").glob("*.json")))
     # Checked afresh: the process can exit (and its pid be reused) and the transcript
     # appear after its registration, all with the registry unchanged.
     pid, started, sid = _claude_session(claude, pane.pid, registry) or (0, None, None)
-    path = ((sid and _started(pid) == started
+    return ((sid and _started(pid) == started
              and next((claude / "projects").glob(f"*/{sid}.jsonl"), None))
             or _codex_file(pane, text))
+
+
+def last_reply(pane: Pane, text: str) -> str | None:
+    """The agent's latest message in its current turn: a new user message clears it, so
+    a reply from an earlier turn is never mistaken for what is on screen now."""
+    path = _path(pane, text)
     return path and _reply(path, _stamp(path))
+
+
+def turn(pane: Pane, text: str) -> str | None:
+    """Where the agent's conversation stands: its transcript's last message or tool call.
+    Only the conversation moving on changes it; bookkeeping (token counts, hook summaries),
+    a restart, a resize or a new reading of the same screen leave it be."""
+    path = _path(pane, text)
+    return path and _turn(path, _stamp(path))
+
+
+@lru_cache(maxsize=256)
+def _turn(path: Path, _stat: tuple) -> str | None:
+    said = [e for e in _entries(path) if e.get("type") in _SAID and not e.get("isSidechain")
+            and not (isinstance(p := e.get("payload"), dict) and p.get("type") == "token_count")]
+    last = json.dumps(said[-1], sort_keys=True).encode() if said else None
+    return last and f"{path.name}:{hashlib.sha256(last).hexdigest()}"
 
 
 # rollout -> (file identity, bytes read, turn open)

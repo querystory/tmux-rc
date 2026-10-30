@@ -299,6 +299,68 @@ def test_reply_landing_after_the_screen_settled_reparses_once(monkeypatch):
     assert calls["n"] == 3
 
 
+def test_an_ask_whose_agent_moved_on_reparses_with_its_new_turn(monkeypatch):
+    """A second, identical approval: the screen and the reply are the first one's, but the
+    transcript moved on, so the card is read again and carries the new turn (push needs it
+    to tell the two apart). An idle card does not re-read for it."""
+    w, calls = _harness(monkeypatch, [" Run ls?\n ❯ 1. Yes\n   2. No"])
+    activity, said = ["waiting"], ["s.jsonl:10"]
+
+    def classify(pane, _text, **_kw):
+        calls["n"] += 1
+        return {"activity": activity[0], "events": [], "label": pane.label, "tool": "claude"}
+
+    monkeypatch.setattr(W, "classify", classify)
+    monkeypatch.setattr(W.transcript, "turn", lambda _pane, _text: said[0])
+    pane = _Pane()
+    for turn in ("s.jsonl:10", "s.jsonl:10", "s.jsonl:20", "s.jsonl:20"):
+        said[0] = turn
+        w._forced_this_tick = set()
+        assert w._tick_pane(pane)["turn"] == turn
+    assert calls["n"] == 2
+    # A turn whose parse keeps failing retires like a screen: no call past the retries.
+    monkeypatch.setattr(W, "classify", lambda pane, text, **_kw: (
+        classify(pane, text) and {"activity": "unknown", "parse_ok": False, "events": []}))
+    said[0] = "s.jsonl:25"
+    for _ in range(W.PARSE_RETRIES + 3):
+        w._forced_this_tick = set()
+        w._tick_pane(pane)
+    assert calls["n"] == 2 + W.PARSE_RETRIES
+    monkeypatch.setattr(W, "classify", classify)
+    calls["n"] = 2
+    activity[0], said[0] = "idle", "s.jsonl:30"
+    w._forced_this_tick = {pane.id}
+    w._tick_pane(pane)
+    said[0] = "s.jsonl:40"
+    w._forced_this_tick = set()
+    w._tick_pane(pane)
+    assert calls["n"] == 3
+
+
+def test_a_reflow_keeps_a_screen_s_turn(monkeypatch):
+    """No transcript: a resize moving rows across the visible screen's top re-reads the
+    card (a menu is pending) but keeps its turn, so push does not take it for a new ask;
+    nor does a restart onto a new CARD_VERSION, which re-reads it with no history."""
+    vs = W.tmux.VISIBLE_SCREEN
+    frame = [f"$ make\n{vs}Run ls?\n 1. Yes\n 2. No"]
+    w, calls = _harness(monkeypatch, frame)
+    monkeypatch.setattr(W.transcript, "turn", lambda _pane, _text: None)
+    pane = _Pane()
+    w._forced_this_tick = set()
+    turn = w._tick_pane(pane)["turn"]
+    frame[0] = f"$ make\nRun ls?\n{vs} 1. Yes\n 2. No"
+    w._forced_this_tick = {pane.id}
+    assert w._tick_pane(pane)["turn"] == turn and calls["n"] == 2
+    monkeypatch.setattr(W, "CARD_VERSION", -1)
+    restarted, _ = _harness(monkeypatch, frame)
+    restarted._forced_this_tick = set()
+    assert restarted._tick_pane(pane)["turn"] == turn
+    for changed in ("Run l s?", "Run ls 20s?"):  # however alike: not a reflow
+        frame[0] = f"$ make\nRun ls?\n{vs} 1. Yes\n 2. No".replace("Run ls?", changed)
+        w._forced_this_tick = {pane.id}
+        assert w._tick_pane(pane)["turn"] != turn
+
+
 def test_content_change_reparses(monkeypatch):
     frame = ["$ idle prompt"]
     w, calls = _harness(monkeypatch, frame)

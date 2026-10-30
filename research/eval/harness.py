@@ -239,8 +239,8 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
                  if not any(all(a.get(k) == v for k, v in want.items()) for a in subs))
     # question — presence + answer_style, plus whichever cursor/context fields the sample pins
     want_q = expected.get("question")
-    extra = tuple(k for k in ("selected", "keymap", "context", "items",
-                              "subject", "ask")  # ask: only its absence
+    extra = tuple(k for k in ("selected", "keymap", "context", "items", "subject",
+                              "options", "ask")  # ask: only its absence
                   if isinstance(want_q, dict) and k in want_q and (k != "ask" or not want_q[k]))
     cq, eq = _shape(candidate.get("question"), extra), _shape(want_q, extra)
     if cq != eq:
