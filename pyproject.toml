@@ -114,11 +114,9 @@ ignore = [
   "UP042",     # str+Enum -> StrEnum needs a migration; revisit later
 
   # ── tmux-rc only ───────────────────────────────────────────────────────────
-  # Complexity limits. Seven functions exceed these today: watcher._tick (21) and
-  # ._tick_pane (15), docs-site/check-links.main (18), render.render_png, tmux._mark_dim,
-  # live._receiver and live._run_session. Turning them on now would mean either a big
-  # refactor buried inside a lint PR or a scatter of per-function noqa. Left off until
-  # that refactor happens on its own; see issue #205 for the inventory.
+  # Complexity limits. Dozens of functions exceed these today (`ruff check --select
+  # C901,PLR0911,PLR0912,PLR0915 openbus` lists them); that refactor is issue #205's,
+  # and the rules come back on when it lands.
   "C901",      # Cyclomatic complexity
   "PLR0911",   # Too many return statements
   "PLR0912",   # Too many branches
