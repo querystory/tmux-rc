@@ -148,6 +148,16 @@ export function tabTitle({ pane, page, dashboard, filter }, panes, count, host) 
   const subject = pane ? (open ? paneName(open) : "Loading pane") : PAGE_TITLES[page] || (dashboard ? "Dashboard" : String(filter) === "attention" ? "Needs you" : "Sessions");
   return [count ? `(${count}) ${subject}` : subject, host].filter(Boolean).join(" · ");
 }
+// The tab's icon, as "glyph:state" (docs/design/tab-icons.md): the surface's Lucide glyph (the
+// app's own mark for the sessions home), and the state of the tab's own subject. A pane shows
+// its own, "done" while it finished with the tab hidden (`away`); the home a dot while anything
+// needs you; a view of the fleet none, the title's count covers it.
+const PAGE_GLYPHS = { heat: "activity", usage: "gauge", loops: "listTodo", restore: "history", scratch: "files", graph: "network" };
+export function tabIconKey({ pane, page, dashboard }, panes, asks, away) {
+  const open = pane && panes.find((p) => p.pane_id === pane);
+  if (pane) return `terminal:${!open ? "" : asks(open) ? "needs" : isRunning(open) ? "working" : away ? "done" : ""}`;
+  return page || dashboard ? `${PAGE_GLYPHS[page] || "dashboard"}:` : `home:${panes.some(asks) ? "needs" : ""}`;
+}
 // The session a pane is in, where that tells it apart: "" when every pane shares one, so a
 // single-session user never sees tmux plumbing. Every surface that names a session asks
 // here; app.js notes the panes on each poll (noteSessions).
