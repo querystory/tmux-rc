@@ -30,10 +30,37 @@
     <div class="hero-actions"><a class="button primary" href="#get-started">Set up tmux-rc <span aria-hidden="true">→</span></a><a class="button" href="{{ "documentation/" | relURL }}">Read the docs</a></div>
     <p class="agent-line">Claude Code <span>·</span> Codex <span>·</span> Gemini CLI <span>·</span> OpenCode <span>·</span> omp</p>
     <nav class="feature-links" aria-label="Explore features"><span>Explore</span><a href="#voice">Voice &amp; chat</a><a href="#restore">Session restore</a><a href="#scratch">Scratch</a><a href="#usage-limits">Usage limits</a><a href="#activity">Activity dashboard</a></nav>
-    <figure class="hero-shot">
-      <div class="phones"><img src="{{ "img/mobile-list.png" | relURL }}" width="780" height="1688" alt="The phone session list: usage gauges above a fleet of agents, most of them running, each with a one-line summary" fetchpriority="high"><img src="{{ "img/mobile-terminal.png" | relURL }}" width="780" height="1688" alt="An agent's live terminal on the phone: a traced test rerun, its task list, and a reply composer"><img src="{{ "img/mobile-ask.png" | relURL }}" width="780" height="1688" alt="Chat on the phone answering what the agents are doing: two panes need you, the rest are running"></div>
-      <figcaption>Watch your agents, read their terminals, and ask about the fleet, from your phone.</figcaption>
-    </figure>
+    <div class="tour">
+      <div class="strip-box">
+        <div class="strip-filter" role="group" aria-label="Show screenshots from">
+          <button data-filter="desktop" aria-pressed="false" aria-label="Desktop" title="Desktop screenshots"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/></svg></button>
+          <button data-filter="phone" aria-pressed="false" aria-label="Phone" title="Phone screenshots"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg></button>
+          <button data-filter="both" aria-pressed="true" aria-label="Both" title="Desktop and phone screenshots"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="1.5" y="4" width="14" height="10" rx="1.5"/><path d="M5.5 18h6m-3-4v4"/><rect x="16.5" y="8" width="6" height="12" rx="1.2"/></svg></button>
+        </div>
+        <button class="strip-arrow" data-step="-1" aria-label="Previous screenshots"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+        <div class="strip" id="strip" tabindex="0" role="region" aria-label="Screenshots: scroll sideways or use the arrow keys">
+        {{- range $i, $s := slice
+          (dict "img" "mobile-list" "f" "Sessions" "cap" "Every agent at a glance, each with a one-line summary." "alt" "The phone session list: usage gauges above a fleet of agents, most of them running, each with a one-line summary")
+          (dict "img" "website-graph" "f" "Graph" "cap" "Zoom into a session: each agent, its sub-agents, and what it costs." "alt" "The Fleet graph full screen, zoomed into the tmux-rc session: six agents labelled with model, context and cost, sub-agents branching off with their tasks, and an amber edge to the agent that needs you")
+          (dict "img" "one-tap-pane" "f" "Needs you" "cap" "Read what an agent asks, then answer with a button." "alt" "An agent asking whether to merge two green PRs, with Merge both and Just #413 buttons")
+          (dict "img" "website-usage-detail" "f" "Usage" "cap" "Plan windows per account, with resets and a forecast." "alt" "Plan usage over the last seven days: the 5-hour and weekly windows charted for each account, with resets, a red full-in warning on Codex, and the forecast dashed ahead")
+          (dict "img" "mobile-scratch" "f" "Scratch" "cap" "The pages your agents publish, in your pocket." "alt" "The Scratch gallery on a phone: page thumbnails with titles and the agent that made each")
+          (dict "img" "wide-scratch" "f" "Scratch" "cap" "Each page linked to the pane that made it." "alt" "Scratch in the wide layout: a grid of cards beside the session list, each with the page's thumbnail, title, description and the agent that made it")
+          (dict "img" "website-chat-phone" "f" "Chat & voice" "cap" "Ask about the fleet, direct an agent, approve its actions." "alt" "Chat on a phone proposing a message to the e2e triage agent, with Send, Cancel and Open")
+          (dict "img" "website-voice" "f" "Chat & voice" "cap" "Talk to your fleet; hear back as the work moves." "alt" "Active desktop voice conversation sending a tracing request, then reporting the agent's progress with an Open button")
+          (dict "img" "website-restore-phone" "f" "Restore" "cap" "After a reboot, the whole fleet back in one tap." "alt" "The Restore view on a phone, with agents ticked by session and a Restore button")
+          (dict "img" "website-dashboard" "f" "Dashboard" "cap" "Activity over time, open loops, and running by hour." "alt" "The dashboard: a Fleet graph of every session and its panes, open loops, running by hour, and activity over time with a moving average and a goal")
+          (dict "img" "mobile-terminal" "f" "Terminal" "cap" "The live terminal, with the keys a phone keyboard lacks." "alt" "An agent's live terminal on the phone: a diff, a traced test rerun, its task list, and a reply composer")
+          (dict "img" "website-desktop" "f" "Terminal" "cap" "The live terminal and the agent's overview, side by side." "alt" "Desktop agent manager: the session list, an agent's live terminal full of test runs and a diff, and its overview with tasks and sub-agents")
+        }}{{ $phone := or (hasPrefix $s.img "mobile") (hasPrefix $s.img "one-tap") (hasSuffix $s.img "phone") }}
+          <figure class="shot {{ cond $phone "phone" "desktop" }}" data-feature="{{ $s.f }}"><img src="{{ printf "img/%s.png" $s.img | relURL }}" width="{{ cond $phone 780 2880 }}" height="{{ cond $phone 1688 1800 }}" alt="{{ $s.alt }}"{{ if lt $i 2 }}{{ if eq $i 0 }} fetchpriority="high"{{ end }}{{ else }} loading="lazy"{{ end }}><figcaption>{{ $s.cap }}</figcaption></figure>
+        {{- end }}
+        </div>
+        <button class="strip-arrow" data-step="1" aria-label="Next screenshots"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
+      </div>
+      <div class="chips" role="group" aria-label="Jump to a feature">{{ range slice "Sessions" "Graph" "Needs you" "Usage" "Scratch" "Chat & voice" "Restore" "Dashboard" "Terminal" }}<button data-feature="{{ . }}" aria-pressed="false">{{ . }}</button>{{ end }}</div>
+      <p class="demo-note">Current UI, fictional demo fleet. Your sessions stay on your host.</p>
+    </div>
   </section>
 
   <section class="setup wrap" id="get-started">
@@ -68,33 +95,6 @@
         </div>
       </div>
     </div>
-  </section>
-
-  <section class="showcase wrap" aria-label="See tmux-rc on desktop and phone">
-    <div class="showcase-top"><span class="section-label">ONE FLEET. EVERY SCREEN.</span><div class="tabs" role="tablist" aria-label="Dashboard previews" data-tabs>
-      <button id="desktop-tab" role="tab" aria-selected="true" aria-controls="desktop-preview" data-panel="desktop-preview">Desktop</button>
-      <button id="phone-tab" role="tab" aria-selected="false" aria-controls="phone-preview" data-panel="phone-preview" tabindex="-1">Phone</button>
-      <button id="chat-tab" role="tab" aria-selected="false" aria-controls="chat-preview" data-panel="chat-preview" tabindex="-1">Chat</button>
-      <button id="voice-tab" role="tab" aria-selected="false" aria-controls="voice-preview" data-panel="voice-preview" tabindex="-1">Voice</button>
-    </div></div>
-    <figure id="desktop-preview" role="tabpanel" aria-labelledby="desktop-tab">
-      <!-- A phone opens on the Phone tab: an empty source keeps it from fetching this until Desktop is chosen (landing.js). -->
-      <div class="screen"><picture style="display:contents"><source media="(max-width:700px)" srcset="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-defer><img src="{{ "img/website-desktop.png" | relURL }}" width="2880" height="1800" alt="Desktop agent manager: one agent needs attention, with working sessions and subagents below, alongside the live terminal and agent overview" fetchpriority="high"></picture></div>
-      <figcaption>Your fleet in the sidebar. The live terminal and agent overview together.</figcaption>
-    </figure>
-    <figure id="phone-preview" role="tabpanel" aria-labelledby="phone-tab" hidden>
-      <div class="phones"><img src="{{ "img/one-tap-list.png" | relURL }}" width="780" height="1688" alt="Phone list of the panes that need you, each question answerable in one tap" loading="lazy"><img src="{{ "img/mobile-pane.png" | relURL }}" width="780" height="1688" alt="Phone view of an agent's summary, activity, and reply composer" loading="lazy"></div>
-      <figcaption>Browse your agents, read updates, and reply from your phone.</figcaption>
-    </figure>
-    <figure id="chat-preview" role="tabpanel" aria-labelledby="chat-tab" hidden>
-      <div class="preview-pair"><img src="{{ "img/website-chat.png" | relURL }}" width="2880" height="1800" alt="Desktop chat proposing a message to the e2e triage agent for approval" loading="lazy"><img src="{{ "img/website-chat-phone.png" | relURL }}" width="780" height="1688" alt="The same chat action and approval controls on a phone" loading="lazy"></div>
-      <figcaption>Desktop or phone: ask about the fleet, direct an agent, and approve actions in chat.</figcaption>
-    </figure>
-    <figure id="voice-preview" role="tabpanel" aria-labelledby="voice-tab" hidden>
-      <div class="preview-pair"><img src="{{ "img/website-voice.png" | relURL }}" width="2880" height="1800" alt="Active desktop voice conversation sending a tracing request, then reporting the agent's progress with an Open button" loading="lazy"><img src="{{ "img/website-voice-phone.png" | relURL }}" width="780" height="1688" alt="Active phone voice session with the microphone on, spoken instructions, and an assistant follow-up" loading="lazy"></div>
-      <figcaption>Talk to your fleet. Hear follow-ups as the work you directed progresses.<br><a href="#voice">Ask, navigate, send instructions, press keys, and resume sessions <span aria-hidden="true">→</span></a></figcaption>
-    </figure>
-    <p class="demo-note">Current UI, fictional demo fleet. Your sessions stay on your host.</p>
   </section>
 
   <section class="capabilities wrap" aria-label="Managing your agents">
