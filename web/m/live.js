@@ -22,13 +22,13 @@ const CHAT_MODEL_KEY = "tmuxrc-chat-model"; // Chat's last model, apart from the
 const TAP_CACHE = "chat-tap", TAP_KEY = "/__tapped-chat", TAP_FRESH_MS = 60000;
 const TAP_READS_MS = [0, 1000, 3000]; // when a page coming back reads it, the worker maybe not yet run
 
-export function setupLiveMode({ request, session, licon, wide, open, report = () => {}, onVersion = () => {}, account = () => "", panes = () => [], logos = {} }) {
+export function setupLiveMode({ request, session, licon, wide, open, report = () => {}, onVersion = () => {}, onChat = () => {}, account = () => "", panes = () => [], logos = {} }) {
   const $ = (id) => document.getElementById(id);
   const mic = licon("mic"), dialog = $("voice-dialog"), log = $("voice-log");
   $("live-mode").innerHTML = $("voice-mute").innerHTML = mic;
   $("voice-end").innerHTML = licon("x");
   $("chat").innerHTML = licon("message");
-  let run = null, sequence = 0, fetching = false, modelSignature = null, menu = [], unread = false, composing = false;
+  let run = null, enabled = false, sequence = 0, fetching = false, modelSignature = null, menu = [], unread = false, composing = false;
   // Voice comes from the mic button, through the model picker. Chat (typed turns and
   // written replies, no mic and no playback) comes from the chat button, straight in.
   let mode = "voice";
@@ -130,17 +130,21 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
       const data = await request("/api/version");
       onVersion(data.version);
       if (!run) { menu = data.live_models || [{ label: "Default", value: "" }]; renderModels(); }
-      // Each button only with something to start: the mic needs a voice row (a keyless one
-      // still says what to set), Chat a usable chat model.
-      $("live-mode").hidden = !(data.live_enabled && menu.some((model) => !model.text)) && !run;
-      $("chat").hidden = !(data.live_enabled && chatModels().length) && !run;
+      enabled = data.live_enabled;
+      $("live-mode").hidden = !!why(false);
+      const noChat = !!why(true);
+      if (noChat !== $("chat").hidden) { $("chat").hidden = noChat; onChat(); } // the app offers Chat elsewhere too
       $("docs").hidden = !data.docs; // not live, but this is the boot capabilities fetch
-      $("scratch").hidden = $("scratch-nav").hidden = !data.scratch;
+      $("scratch-tab").hidden = $("scratch-nav").hidden = !data.scratch;
     } catch { /* Retain the last confirmed capabilities during a tunnel reconnect. */ }
     finally { fetching = false; }
   }
   const saved = (key) => { try { return localStorage.getItem(key); } catch { return null; } };
   const chatModels = () => menu.filter((model) => model.text && !model.unavailable);
+  // Why Chat (text) or Voice can't open, "" when it can. Chat starts straight in, so it needs a
+  // usable model; Voice opens its picker, which shows a keyless row greyed with what to set.
+  const why = (text) => (run || (enabled && menu.some((model) => !!model.text === text && !(text && model.unavailable)))) ? ""
+    : menu.find((model) => !!model.text === text && model.unavailable)?.hint || `No ${text ? "chat" : "voice"} model is set up`;
   // The voice picker (a keyless entry greyed, with why), and Chat's switcher options.
   function renderModels() {
     const models = menu.filter((model) => !model.text), last = saved("tmuxrc-live-model");
@@ -484,7 +488,8 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
         current.up = true; current.listening = message.status === "listening";
         if (!current.listening) drop(current);
         current.held = message.status === "reconnecting"; current.dirty = false; // see viewing()
-        if (current.listening) { clearTimeout(current.deadline); current.tries = 0; viewing(current); if (current.text) restore(current); resync(current); }
+        if (current.listening) { clearTimeout(current.deadline); current.tries = 0; viewing(current); if (current.text) restore(current); resync(current);
+          for (const frame of current.pending.splice(0)) sendText(frame); }
         current.connectionStatus = message.status === "reconnecting" ? "Reconnecting..." : "Connecting...";
         audioStatus(current);
       } else if (message.type === "transcript") add(message.role, message.text, message.new_segment, "images" in message ? current.thumbs.shift() : []);
@@ -530,7 +535,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   }
   async function start() {
     const token = ++sequence;
-    const current = { model: $("voice-model").value, text: mode === "text", proposals: new Map(), sending: new Map(), thumbs: [], turns: 0, nodes: [], queued: new Set(), playAt: 0, tries: 0, up: false, listening: false, muted: false };
+    const current = { model: $("voice-model").value, text: mode === "text", proposals: new Map(), sending: new Map(), thumbs: [], pending: [], turns: 0, nodes: [], queued: new Set(), playAt: 0, tries: 0, up: false, listening: false, muted: false };
     run = current; log.replaceChildren(); heard.clear(); status(current.text ? "Connecting..." : "Connecting microphone..."); paint();
     if (current.text) {
       $("voice-switch").value = current.model;
@@ -581,18 +586,27 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
       stop(`${error.name === "NotAllowedError" ? "Microphone access denied. Allow microphone access for this site." : "Live Mode could not start: " + error.message}`);
     }
   }
-  $("live-mode").onclick = () => { if (!run) mode = "voice"; paint(); show(); if (run) resumeAudio(run, true); };
+  const voice = () => { if (!run) mode = "voice"; paint(); show(); if (run) resumeAudio(run, true); };
   // Chat: straight into a text session on the last chat model used (else the first), no
   // picker and no mic. A conversation already running (either mode) is just brought back.
-  $("chat").onclick = () => {
-    if (docked()) return hide(); // a docked panel toggles: nothing covers the button
+  function openChat() {
     const models = chatModels(), model = models.find((entry) => entry.label === saved(CHAT_MODEL_KEY)) || models[0];
     show(); // first, so a new chat's handshake says it opened in view
     if (!run && model) { mode = "text"; $("voice-model").value = model.label; start(); }
-  };
+  }
+  $("live-mode").onclick = voice;
+  $("chat").onclick = () => docked() ? hide() : openChat(); // a docked panel toggles: nothing covers the button
+  // A question from elsewhere in the app: into the open conversation, else a new chat's
+  // first turn once it is listening.
+  function ask(text) {
+    openChat();
+    const frame = { action: "text", text, images: [] };
+    if (run && sendText(frame) === false) run.pending.push(frame); // in order: none is dropped
+  }
   $("voice-switch").onchange = () => {
     if (!run?.text || $("voice-switch").value === run.model) return;
-    $("voice-model").value = $("voice-switch").value; stop(); start();
+    const pending = run.pending; $("voice-model").value = $("voice-switch").value; stop(); start();
+    run.pending.push(...pending); // a first turn queued for the old model goes to the new one
   };
   $("voice-close").onclick = hide;
   dialog.addEventListener("cancel", minimize); // Escape, modal only
@@ -651,5 +665,6 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   });
   window.addEventListener("focus", pullTaps);
   paint(); capabilities(); pullTaps();
-  return { isActive: () => !!run, refresh: capabilities };
+  // kind: the mode a running conversation is in (open[] of the other one only brings it back).
+  return { isActive: () => !!run, kind: () => run && (run.text ? "chat" : "voice"), refresh: capabilities, ask, why, open: { chat: openChat, voice } };
 }

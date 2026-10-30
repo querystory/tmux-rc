@@ -1,0 +1,12 @@
+{
+  "description": "Claude Code in auto mode, its turn closed with background agents still running, and the last line of its report tells the user how to unblock a DIFFERENT pane: 'tap Reply and type \"1\"'. That \"1\" is advice about another pane's menu, quoted inside a sentence, not a reply this pane is asking for: the card must offer no \"1\" button (it did, as a question with option \"1\"). Fictional screen (tmux-rc, 2026-10-25).",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n● Nothing new: the greenhouse-sensor worker is still on its checks.\n\n✻ Waiting for 1 background agent to finish\n\n❯ the watering pane is stuck on a menu and the phone shows no buttons for it\n\n  Read 1 file\n\n● Agent(Fix missing buttons on the watering card)\n  ⎿  Backgrounded agent (↓ to manage · ctrl+o to expand)\n\n● That's a regression: the watering pane's card shows the menu as plain text and its first option is missing. A worker is checking which\n  change did it and will put the fix on its own branch.\n\n  - How it's checked: it reads the card and the pane's screen without typing anything.\n  - The fix: it lands in whichever layer is at fault, with a test case of the same menu.\n\n  To unblock that pane now, answer it in the terminal, or tap Reply and type \"1\".\n\n✻ Waiting for 2 background agents to finish\n\n⟪dim⟫──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n⟪/dim⟫❯ check the soil probe next\n⟪dim⟫──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n  ⏵⏵ auto mode on · 3 shells · ↓ to manage⟪/dim⟫\n\n  ● main\n  ◯ general-purpose  Fixing missing buttons on the watering card          4m 10s · ↓ 61.2k tokens\n  ◯ general-purpose  Checking the greenhouse-sensor PR                     12m 3s · ↓ 88.0k tokens\n",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "external",
+    "question": null,
+    "headline": "Waiting for a background agent to fix the watering card's missing buttons"
+  }
+}
