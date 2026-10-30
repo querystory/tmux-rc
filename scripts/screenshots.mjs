@@ -88,12 +88,14 @@ const SHOTS = [
     await page.locator("#chat").waitFor(); // the chat capability, which the row is gated on
     await page.click("#new-window");
     if (!await page.evaluate(() => !!document.getElementById("launch-dialog")._opener)) return;
-    await page.click("#launch-kind [data-start=chat]");
-    await loud(page.waitForSelector("#voice-dialog[open] #launch-kind [data-start=chat][aria-pressed=true]"), "the Start row did not go with Chat");
-    await page.click("#launch-kind button:not([data-start])");
-    await loud(page.waitForSelector("#launch-dialog[open] #launch-kind"), "Session did not bring the Start row home");
-    await page.click("#launch-kind [data-start=chat]");
-    await loud(page.waitForSelector("#voice-dialog[open] #launch-kind"), "the Start row did not go with Chat again");
+    await loud((async () => { // every click and wait: a control gone is a failure, not a skipped check
+      await page.click("#launch-kind [data-start=chat]");
+      await page.waitForSelector("#voice-dialog[open] #launch-kind [data-start=chat][aria-pressed=true]");
+      await page.click("#launch-kind button:not([data-start])");
+      await page.waitForSelector("#launch-dialog[open] #launch-kind");
+      await page.click("#launch-kind [data-start=chat]");
+      await page.waitForSelector("#voice-dialog[open] #launch-kind");
+    })(), "the Start row did not go with Chat and back");
   }],
   // The scratch gallery (openbus/scratch.py), the daemon's page rather than the app's.
   ["mobile-scratch", PHONE, "dark", "", scratch],
