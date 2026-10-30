@@ -1008,8 +1008,10 @@ def screen_offers(offers: object, text: str) -> list[str]:
     keep it") is the user's words, so it is on the screen word by word rather than whole."""
     listed = offers if isinstance(offers, list) else ()
     visible = _ask_view(text)
-    # The final assistant message, above any unsent draft; none once the user typed after it.
-    reply = _below_turn(visible, ("\n" + visible).rfind("\n● ")) if "● " in visible else ""
+    # The final assistant message (from its bullet, or the top when the view begins inside
+    # it), above any unsent draft; none once the user typed after it.
+    above = _below_turn(visible, 0)
+    reply = above[max(0, ("\n" + above).rfind("\n● ")):]
     turn = "" if _USER_ROW_RE.search(reply) else reply
     whole = (f"! {o}" if not o.startswith("!") and _quoted(f"! {o}", turn, rows=True)
              and _quoted(o, visible) == 1 else o

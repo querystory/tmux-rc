@@ -91,6 +91,9 @@ def test_a_handed_over_command_keeps_its_bash_prefix():
     assert classify_mod.screen_offers(["make tea"], typed) == ["make tea"]
     draft = "● Run it:\n\n  ! make tea\n\n────────────\n❯ check the result\n────────────\n"
     assert classify_mod.screen_offers(["make tea"], draft) == ["! make tea"]
+    # A long final message begins above the viewport: its handoff is still this turn's.
+    long = "● Run it:\n\x1e[visible screen]\x1f\n  first rows of it.\n\n  ! make tea\n\n❯ "
+    assert classify_mod.screen_offers(["make tea"], long) == ["! make tea"]
 
 
 def _pane(cmd="bash", title="t"):
