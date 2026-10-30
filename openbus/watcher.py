@@ -64,7 +64,7 @@ CHECKPOINT_EVENTS = 100
 DEAD_SERVER_RETENTION = 30 * 86400
 # Bump when classification or the fingerprint changes meaning: stored cards then miss
 # their hash once and every pane is re-read, instead of restoring an older parser's card.
-CARD_VERSION = 53
+CARD_VERSION = 54
 # LLM parse cadence. We capture every tick (cheap, for the snapshot buffer) but only
 # PARSE when the content fingerprint CHANGED vs. the last parse (or on a forced reparse).
 # `changed` compares against _prev_fp, which is written only on a SUCCESSFUL parse — so a
@@ -859,7 +859,7 @@ class Watcher:
         # (Activity grouping is a client concern now; we used to sort waiting-first.)
         self._checkpoint(states, panes)
         if self._recorder:
-            self._recorder.tick(states)
+            self._recorder.tick(states, screens=self.snapshots)
         self._collection_failed = not collected
         self._publish_states(states, record_history=history_complete and history_server is not None,
                              history_server=history_server, unread=unread)

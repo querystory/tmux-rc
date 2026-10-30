@@ -267,11 +267,19 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .link-pair a { min-width: 0; user-select: none; -webkit-user-select: none; }
 .link-copy { color: var(--muted); }
 /* A pane's link rows: a long press copies (app.js renderLinks), so no callout or selection. */
-#links a, #ask-link a { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: center; min-height: 52px; padding: 8px 0; border-bottom: 1px solid var(--line); text-decoration: none; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
-#links a:last-child { border-bottom: 0; }
-#links a span, #links a small, #ask-link a span, #ask-link a small { overflow-wrap: anywhere; }
-#links a small, #ask-link a small { color: var(--muted); font-size: 12px; grid-column: 1; }
-#links a svg, #ask-link a svg { grid-column: 2; grid-row: 1 / 3; }
+:is(#links, #pr-links, #ask-link) a, .more-links { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: center; min-height: 52px; padding: 8px 0; text-decoration: none; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+:is(#links, #pr-links) a, .more-links { border-top: 1px solid var(--line); }
+#links a:first-child { border-top: 0; }
+:is(#links, #pr-links, #ask-link) a :is(span, small) { overflow-wrap: anywhere; }
+:is(#links, #pr-links, #ask-link) a small, .more-links small { color: var(--muted); font-size: 12px; grid-column: 1; }
+:is(#links, #pr-links, #ask-link) a svg, .more-links svg { grid-column: 2; grid-row: 1 / 3; }
+#links small.pending { color: var(--amber); }
+/* The rest of the Links (app.js renderRichContent): this pane's Scratch pages, its other PRs. */
+.more-links { width: 100%; border-width: 1px 0 0; border-radius: 0; background: none; color: var(--fg); font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
+.more-links :is(small, .count) { color: var(--muted); font-weight: 400; }
+#more-prs svg { transform: rotate(90deg); }
+#more-prs[aria-expanded="true"] svg { transform: rotate(-90deg); }
+#pr-links a { padding-left: 14px; }
 /* The link a question asks you to open leads its card, framed like its answers. */
 #ask-link a { margin-top: 14px; padding: 8px 14px; border: 1px solid var(--amber); border-radius: 6px; }
 .pane-table + .pane-table { margin-top: 20px; }
@@ -408,6 +416,7 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 #launch-choices .desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 #launch-choices [data-unavailable] :is(small, .desc) { white-space: normal; } /* why it cannot run: read in full */
 .panel-sub { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+#launch-kind { display: flex; margin-top: 8px; } #launch-kind button { flex: 1; min-height: 36px; font-size: 14px; } #launch-kind [data-why]:not([data-why=""]) { opacity: .45; }
 .acct-why { margin-left: 4px; font-size: 12px; font-weight: 400; color: var(--muted); }
 .acct-default input { margin: 0 6px 0 0; vertical-align: -2px; accent-color: var(--accent); }
 .acct-else { display: block; margin-left: 20px; font-size: 12px; color: var(--muted); }
@@ -953,6 +962,11 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 #review-layout-picker label { gap: 10px; }
 #review-layout-picker label > span:not(.thumb) { display: flex; flex-direction: column; line-height: 1.3; }
 .header-picker-menu small { font-size: 12px; color: var(--muted); }
+/* Its "Now on" line sits under the label, and a long account name ellipsizes inside the menu. */
+#move-pane { text-align: start; }
+#move-pane > span { min-width: 0; }
+#move-pane small { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+#move-pane .acct-badge { flex-shrink: 1; min-width: 0; }
 .thumb { flex: none; display: grid; place-items: center; width: 44px; height: 30px; margin-left: auto; padding: 2px; box-sizing: border-box; border: 1px solid var(--line); border-radius: 4px; color: var(--accent); font-size: 16px; }
 label:has(:checked) > .thumb { border-color: var(--accent); }
 label:has([value="auto"]) > .thumb { border-style: dashed; }
@@ -1290,9 +1304,10 @@ button.picked:disabled { opacity: 1; }
   #back { order: -2; margin-right: 8px; }
   #heading::after { content: attr(data-title); order: -1; flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0; transition: opacity .15s; }
   #detail[data-title-away] > #heading::after { opacity: 1; }
+  #heading:has(> .pane-heading-text)::after { content: none; } /* the terminal's bar holds the title itself (app.js) */
   #overview > .pane-heading-text { padding: 12px 20px 0; }
   #pane-title { font-size: 20px; line-height: 1.25; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
-  #pane-location { margin-top: 6px; }
+  #overview #pane-location { margin-top: 6px; }
   #side-filter-picker[open] .header-picker-menu { position: fixed; inset: auto 0 0; z-index: 30; width: auto; max-width: none; max-height: 75dvh; overflow-y: auto; padding-bottom: max(8px, env(safe-area-inset-bottom)); border-radius: 12px 12px 0 0; box-shadow: 0 -6px 24px rgb(0 0 0 / .25); }
   #side-filter-picker .header-picker-menu::before { content: ""; display: block; width: 32px; height: 4px; margin: 4px auto 8px; border-radius: 2px; background: var(--line); } /* the grab handle: drag it down to close */
   #side-filter-picker [aria-label="Group by"] { display: none; }

@@ -15,6 +15,7 @@ minimal dict (idle vs running) so the pipe never breaks.
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 import subprocess
 import textwrap
@@ -34,6 +35,8 @@ from .tmux import (
     program,
     strip_dim,
 )
+
+logger = logging.getLogger(__name__)
 
 # Cheap fast-path only (NOT semantic parsing): a bare shell prompt at the tail lets the
 # watcher/fallback call an obviously-idle shell "idle" without an LLM call.
@@ -1646,12 +1649,19 @@ def classify(
     # target intact) or as shown.
     copy_sources = {copy_source, _LINK_TARGET_RE.sub(r"\1", copy_source)}
 
+    def _word(word):
+        # A narrow pane's program hard-breaks a long URL or path with its own newline,
+        # which `capture-pane -J` cannot rejoin; the model offers the token whole, as
+        # the prompt asks, so let such a token span a row boundary.
+        wrap = r"(?:\n[ \t]*)?" if len(word) >= 24 or "/" in word else ""
+        return wrap.join(map(re.escape, word))
+
     def _shown(text):
         # Copy whole displayed blocks/inline code, not invented summaries or
         # fragments cut out of a longer prose paragraph. Permit terminal wraps, and
         # line continuations kept as shown or joined (both sides drop them alike).
         text = text.replace("\\\n", "")
-        words = r"\s+".join(re.escape(word) for word in text.split())
+        words = r"\s+".join(map(_word, text.split()))
         row = re.compile(r"(?m)^[ \t]*(?:[•●›❯$][ \t]+)?" + words + r"[ \t]*$")
         return any(f"`{text}`" in src or row.search(src) for src in copy_sources)
 
@@ -1672,6 +1682,7 @@ def classify(
                 continue
             lines = stripped.replace("\\\n", "").splitlines()  # as copy_source joins them
             if not _shown("\n".join(lines[-3:]) if transcript else stripped):
+                logger.info("%s: copyable %r is not on screen, dropped", pane.id, c.get("label"))
                 continue
             yield {"label": str(c.get("label") or "")[:200], "text": c["text"]}
 
