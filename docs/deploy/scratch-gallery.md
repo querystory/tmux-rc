@@ -15,7 +15,14 @@ to narrow the list. Grid and List switch between cards across the full width and
 rows with a small thumbnail. The app shows the gallery as Scratch, in the wide sidebar
 and in a phone's ☰ menu. There a card opens full screen over the app. Back, Escape or a
 swipe from the left edge returns to the gallery, and "Open in browser" opens the page in
-a tab of its own. Settings links to the gallery's own page under More.
+a tab of its own. While the pane its `meta.json` names is still open, a box at the
+bottom messages that agent ("Message qs:0 (Triage recent bugs)"), the way the pane's own
+composer does, opening with `Re scratch <folder>: ` so the agent knows which page it is
+about. A screenshot of the whole page goes with it, drawn by the daemon at the phone's width,
+pixel ratio and theme (the app cannot read the sandboxed page), cut at 6000 px with a note
+saying so; tap "Screenshot attached ✕" to leave it off.
+The box is the app's, not the page's: a page cannot send to a pane.
+Settings links to the gallery's own page under More.
 
 A pane's overview lists only the few links that matter: its pages still In progress, its
 newest page, and the PR it was last seen working on (the watcher's own order; there is no
@@ -25,6 +32,27 @@ cards raised and a "From this pane" chip to drop the filter, and "More pull requ
 unfolds the rest in place. A pane's pages go to the gallery rather than a longer list
 because the gallery already has thumbnails, search and the viewer; PRs stay in place
 because the gallery cannot list them and a pane rarely has more than a few.
+
+An open gallery keeps itself current: every five seconds while it is on screen, it asks
+whether anything changed and reloads if so. That covers a new folder, a page or a
+thumbnail landing, and a folder archived. It holds off while a filter is typed or cards
+are selected.
+
+## Cleaning up
+
+In the app's Scratch, a long press on a card starts selecting with that card ticked, as in
+a phone's photo gallery or mail; with a mouse, Select (shown only for a mouse) does the same. Tap more to tick or
+untick them (All takes every card the filter shows; unticking the last ends it), then
+Archive. On a phone the bar sits at the bottom, in reach however far the list scrolls. Archived folders leave the gallery but
+are not gone. Their links keep working until a new folder takes the name, and Archived
+lists them at links of their own, where Restore brings
+them back and Delete removes them for good, after asking. Archive offers an Undo for a
+few seconds. Delete is only offered in Archived, so nothing is deleted in one step.
+
+On disk, archiving moves the folder into `.archive/` in the scratch directory, which the
+gallery skips like any hidden folder; Restore moves it back. A folder whose name has been
+taken meanwhile stays where it is. The gallery's own page, opened in a tab, can't change
+files (it is sandboxed like every scratch page), so there Select opens the app's Scratch.
 
 ## Setting it up
 
@@ -91,16 +119,18 @@ would load a second app in the frame, so a page there posts
 `{pane, draft}` to its parent instead, as the placeholder's pane link does.
 
 Inside the app (the viewer, or a pinned page), a page may instead *ask* to send:
-`{intent: "send", pane, text, token}`. The app checks it (one line, at most 500 characters, no
+`{intent: "send", pane, text}`. The app checks it (one line, at most 500 characters, no
 control or format characters, a pane in the feed that runs an agent, never a plain shell,
 where the line would run as a command) and opens its own sheet, outside the frame: the line,
 the pane, the page that asked, and Send, Edit in composer, Cancel. Only that tap sends,
 through the composer's own path, bound to the pane's process as it was when asked (a pane
 that has since become a shell, or a recycled id, gets nothing), and the user stays on the
-page. The `token` is the one the app posts the page (`{token}`, by message) once its first
-load completes; only that document can ask. One the frame navigated to, or a reload, can't be
-told from the page the sheet names, so its load voids the token and the user reopens the page. Send ignores taps for half
-a second, so one already in flight can't land on it, and there is no "don't ask again":
+page. Only the page the viewer opened can ask: from its first load on, the app sandboxes the
+frame for every later document, so a page it navigates to, or a reload, runs no script and posts
+nothing. A token handed to the page would not do: the page can pass it on (in a link's
+fragment, say), and the next document can post it before its own load tells the app it arrived.
+The cost: a page reached by a link inside the viewer shows without its scripts (open it from the
+gallery, or in a tab, for those). Send ignores taps for half a second, so one already in flight can't land on it, and there is no "don't ask again":
 a silent send is exactly what an injected page would want. A standalone tab can't ask at
 all: the app hears only the frame it opened, so a page in a tab, even one that opens the app
 in a popup and posts to it, is ignored; its buttons stay same-tab draft links.
@@ -133,10 +163,8 @@ crashes, and it survives a daemon restart, since the state is read from the fold
   session's prompt looks idle. Once the pane is closed, or idle for 30 minutes, it says
   the agent stopped without publishing (without a pane, 30 minutes after `created`).
 - **The gallery** and the drawer's Recent show the folder with a spinner while its agent
-  works (once stopped, the gallery says so). Once the page lands, its thumbnail is queued and the spinner
-  turns into it (it stops asking after about 18 minutes); while one spins, the gallery also
-  reloads every 30 seconds (not while a filter is being typed), since the thumbnail never
-  comes without a browser to shoot it.
+  works (once stopped, the gallery says so). The gallery lists pages still in progress
+  first. Once the page lands, its thumbnail is queued and the spinner turns into it.
 - **When the page lands** (the daemon looks every ten seconds), every subscribed device gets one push, `Ready: <title>`, whose
   tap opens the page in the app's scratch viewer. A page made faster than that, its
   `meta.json` and page arriving between two looks, was never seen pending but was promised
@@ -195,3 +223,18 @@ tmux-rc fills in the rest in the background, so the gallery never waits for it:
 Pages are shot offline. Each shot uses a throwaway browser profile and a listener that
 serves scratch and nothing else, so a page can't put anything but scratch into its
 thumbnail. The [design note](../design/scratch-previews.md) explains why.
+
+## Pinning a page to the menu
+
+The viewer's **Pin** puts a page in the app's own menu: rows after a divider in the
+sidebar, and a Pinned group in the phone's ☰. A phone's tab bar never changes, so someone
+who pins nothing sees the app as before. A pin opens the page in the same viewer.
+
+The daemon keeps the pins in `pins.json`, beside `accounts.json` in its state directory,
+so the laptop shows what the phone pinned. There are at most six, which keeps the sidebar
+from overflowing. A pinned folder that is deleted or archived drops out of the menu.
+
+A pin is labelled with the page's title. Its icon is `meta.json`'s optional `icon`, a
+[Lucide](https://lucide.dev/icons/) name such as `network`, drawn only when the app ships
+that glyph, and the page icon otherwise. The app never draws markup a page supplies: its
+menu is same-origin with the API, so an agent-written icon could run script there.

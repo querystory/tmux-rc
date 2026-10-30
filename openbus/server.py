@@ -74,6 +74,7 @@ from fastapi.responses import (  # noqa: E402
     HTMLResponse,
     PlainTextResponse,
     RedirectResponse,
+    Response,
     StreamingResponse,
 )
 from fastapi.staticfiles import StaticFiles  # noqa: E402
@@ -581,11 +582,26 @@ app.include_router(live_router)
 
 @app.middleware("http")
 async def no_cache(request, call_next):
-    """Never let the browser cache anything. StaticFiles sends an ETag but no
-    Cache-Control, so phones serve stale JS/HTML heuristically and edits never appear.
-    Force no-store on every response — fine for a live dev tool on the LAN."""
+    """Cache nothing but the assets' versioned copies. StaticFiles sends an ETag but no
+    Cache-Control, so phones serve stale JS/HTML heuristically and edits never appear:
+    force no-store on every response. The exception is /v/<today's version>/, where the
+    URL names the assets' contents (mobile_ui; /api/version): a hit there can be kept for
+    good, and a deploy is a fresh set of URLs, so a cold PWA start over LTE stops
+    re-downloading app code and chart libraries that did not change. The mount answers
+    any token with today's files, so a page from before a deploy fetching under its old
+    token gets those bytes as before, uncached: an immutable URL never lies."""
     resp = await call_next(request)
-    resp.headers["Cache-Control"] = "no-store, must-revalidate"
+    # Match paths as StaticFiles resolves them, so /docs//mocks/ can't dodge a policy.
+    path = posixpath.normpath("/" + request.url.path.lstrip("/")) + "/"
+    # The version (a scan of web/) is computed only for a hit under /v/, never for the API.
+    versioned = path.startswith("/v/") and resp.status_code < 400
+    if versioned and path.startswith(f"/v/{_web_version()}/"):
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    else:
+        resp.headers["Cache-Control"] = "no-store, must-revalidate"
+        for h in ("etag", "last-modified"):
+            if h in resp.headers:
+                del resp.headers[h]
     # Live Mode's getUserMedia needs microphone permission granted to THIS origin. An
     # installed PWA / any embedding context can have the mic feature gated off by the
     # default Permissions-Policy even over HTTPS; explicitly allow it for self so the
@@ -598,9 +614,7 @@ async def no_cache(request, call_next):
     # daemon's API is cross-origin to them, exactly as from any other site. That only stops
     # reading responses, so also refuse the blind writes (form posts, no-cors fetches) that
     # would still carry the front door's cookie. Resource loads stay open: a bundle needs
-    # them, the API's GETs only read, and 'self' is unreliable in an opaque origin. Match
-    # the path as StaticFiles resolves it, so /docs//mocks/ can't dodge the policy.
-    path = posixpath.normpath("/" + request.url.path.lstrip("/")) + "/"
+    # them, the API's GETs only read, and 'self' is unreliable in an opaque origin.
     if path.startswith(("/scratch/", "/docs/mocks/")):
         resp.headers["Content-Security-Policy"] = scratch.SANDBOX
         # A browser opening a page from a folder of scratch, in a tab or the app's viewer (not
@@ -619,9 +633,6 @@ async def no_cache(request, call_next):
     base = str(request.base_url)
     if resp.headers.get("location", "").startswith(base):
         resp.headers["location"] = "/" + resp.headers["location"][len(base):]
-    for h in ("etag", "last-modified"):
-        if h in resp.headers:
-            del resp.headers[h]
     # Byte size for the live stream, so the payload cost is visible when debugging.
     # DEBUG, not INFO: a busy pane (or several viewers) emits back-to-back responses
     # and this would drown the normal INFO log. endswith, not substring, so it can't
@@ -2144,7 +2155,7 @@ async def _compose(pane_id: str, request: Request):
     pane = tmux.find_pane(pane_id)
     if pane is None:
         raise HTTPException(404, "pane not found")
-    segments, secret, birth = [], None, None
+    segments, secret, birth, page, shot, view = [], None, None, None, None, ""
     # Multipart parsing finishes before delivery. Limits also bound the time a single
     # draft can occupy the pane lock; no client round trips happen inside that lock.
     async with request.form(max_files=16, max_fields=128, max_part_size=UPLOAD_MAX_BYTES) as form:
@@ -2168,6 +2179,12 @@ async def _compose(pane_id: str, request: Request):
                 if not re.fullmatch(r"\d{1,10}", value):  # a pane's pid (tmux.py), nothing else
                     raise HTTPException(400, "birth is a pane's pid")
                 birth = value
+            elif kind == "scratch" and isinstance(value, str):  # sent from the scratch viewer
+                page = value
+            elif kind == "shot" and isinstance(value, str):  # the viewer's size and theme
+                shot = re.fullmatch(r"(\d{2,4})x(\d{2,4})@([1-3])( dark)?", value)  # WxH@dpr
+            elif kind == "view" and isinstance(value, str):  # its path and query in the folder
+                view = value
             elif kind == "secret" and isinstance(value, str) and secret is None:
                 if len(value.encode()) > 4095:  # the tty's line, less its newline
                     raise HTTPException(413, "password too long")
@@ -2181,6 +2198,20 @@ async def _compose(pane_id: str, request: Request):
         raise HTTPException(400, "send a draft or a secret")
     if not (secret or "").isprintable():  # a newline or ^D would end the read early,
         raise HTTPException(400, "a password is printable text")  # the rest run as input
+    if birth and birth != pane.pid:  # a draft or a password, never into another incarnation
+        raise tmux.PaneChangedError("Pane changed; nothing was sent.")
+    if page is not None:  # which page it is about, from the folder, never from the client
+        line = _scratch_dir and await asyncio.to_thread(scratch.about, Path(_scratch_dir), page)
+        if secret or not line:
+            raise HTTPException(400, "no such scratch page")
+        # The whole page the user saw, attached as a pasted image is, and said so when cut
+        # short; a failed render sends the words alone.
+        drawn = shot and await asyncio.to_thread(
+            scratch_sidecars.capture, Path(_scratch_dir), WEB_DIR, page, view,
+            (min(int(shot[1]), 2000), min(int(shot[2]), 2000)), int(shot[3]), dark=bool(shot[4]))
+        png, height, full = drawn or (None, 0, 0)
+        cut = [f" (screenshot cut at {height} of {full} px) "] if full > height else []
+        segments[:0] = [line, *([(png, _stage_file(png, "image/png")), *cut] if png else [])]
     if secret:
         await asyncio.to_thread(_input_attempt, pane.id, tmux.send_secret, pane, secret)
     else:
@@ -2323,13 +2354,67 @@ if _scratch_dir:
         return scratch.made_by(Path(_scratch_dir), pane_id, states, profiles, pane_of)
 
     @app.get("/scratch/", include_in_schema=False)
-    async def scratch_listing() -> HTMLResponse:
-        """The gallery of scratch's folders (openbus/scratch.py), ahead of the mount."""
+    async def scratch_listing(archived: str | None = None, seen: str | None = None) -> Response:
+        """The gallery of scratch's folders (openbus/scratch.py), ahead of the mount;
+        `?archived`, the archive's. `?seen=<its tag>` is the open gallery asking whether to
+        reload, as an image that loads only on a change. Not a fetch: the gallery keeps the
+        sandbox of every /scratch/ page (no same origin, connect-src 'none'). Opening it
+        to fetches would need CORS for the opaque origin "null", which every agent page
+        shares, or the app's own origin, for a page that renders agent-written text."""
+        if seen is not None:
+            listed = await asyncio.to_thread(scratch.listing, Path(_scratch_dir),
+                                             archived=archived is not None)
+            return Response(None, 204) if seen == scratch.tag(listed) else Response(
+                _PIXEL, media_type="image/gif")
         use_llm = getattr(app.state.watcher, "use_llm", False)
         return HTMLResponse(await asyncio.to_thread(lambda: scratch.page(
             Path(_scratch_dir), *_who(),
             lambda listed: scratch_sidecars.queue(Path(_scratch_dir), WEB_DIR, listed, use_llm),
-            "/docs/deploy/scratch-gallery/" if DOCS_MOUNTED else scratch.DOCS)))
+            "/docs/deploy/scratch-gallery/" if DOCS_MOUNTED else scratch.DOCS,
+            archived=archived is not None)))
+
+    _PIXEL = bytes.fromhex("47494638396101000100000000002c00000000010001000002024401003b")
+
+    class ScratchBody(BaseModel):
+        action: Literal["archive", "unarchive", "delete"]
+        names: list[str]
+
+    @app.post("/api/scratch")
+    def scratch_act(body: ScratchBody, request: Request) -> dict:
+        """Archive, unarchive or delete (from the archive) the gallery's selected folders."""
+        try:
+            done = scratch.act(Path(_scratch_dir), body.action, body.names)
+            scratch_sidecars.forget(done)
+        except (ValueError, PermissionError) as e:
+            raise HTTPException(400, str(e)) from e
+        _audit(request, f"scratch_{body.action}", "-", ",".join(done))
+        return {"done": done}
+
+    @app.get("/api/scratch/{name}/pane")
+    def scratch_maker(name: str) -> dict:
+        """The open pane that made a scratch folder (scratch.maker): the viewer's composer."""
+        pane = scratch.maker(Path(_scratch_dir), name, list(app.state.watcher.states)) or {}
+        return {"pane": pane.get("pane_id"), "birth": pane.get("birth"),
+                "about": scratch.about(Path(_scratch_dir), name)}
+
+    def _pins() -> Path:
+        return accounts.store_path().with_name("pins.json")  # the state dir: every device's
+
+    @app.get("/api/pins")
+    def get_pins() -> list[dict]:
+        """The scratch pages pinned to the app's menu (scratch.pinned)."""
+        return scratch.pinned(Path(_scratch_dir), _pins())
+
+    @app.put("/api/pins")
+    def put_pins(names: list[str], request: Request) -> list[dict]:
+        """Pin exactly these folders, in order (scratch.pin)."""
+        detail = repr(names)[:240]
+        try:
+            pins = scratch.pin(Path(_scratch_dir), _pins(), names)
+        except ValueError as e:
+            _refuse(request, "pin", detail, 422, str(e))
+        _audit(request, "pin", "-", detail)
+        return pins
 
     _mount_static("/scratch", _scratch_dir, partial(
         scratch_markdown.Files, web=WEB_DIR,
