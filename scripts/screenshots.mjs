@@ -80,6 +80,14 @@ const SHOTS = [
   ["wide-settings", WIDE, "dark", "#view=dashboard", (page) => page.click("#settings-open")],
   ["wide-rail", WIDE, "light", "#pane=%259", async (page) => { await page.click("#collapse"); await page.hover("#side-list .sb-rail >> nth=2"); await page.locator("#side-hover").waitFor(); }],
   ["wide-new-session", WIDE, "light", "", async (page) => { await noTmux(page); await page.click(".start-session:not([hidden])"); }],
+  // New session's Start row rides into the Chat sheet and back: each wait fails the shot if it doesn't.
+  ["mobile-new-session-chat", PHONE, "light", "", async (page) => {
+    await page.locator("#chat").waitFor(); // the chat capability, which the row is gated on
+    await page.click("#new-window"); await page.click("#launch-kind [data-start=chat]");
+    await page.waitForSelector("#voice-dialog[open] #launch-kind [data-start=chat][aria-pressed=true]");
+    await page.click("#launch-kind button:not([data-start])"); await page.waitForSelector("#launch-dialog[open] #launch-kind");
+    await page.click("#launch-kind [data-start=chat]"); await page.waitForSelector("#voice-dialog[open] #launch-kind");
+  }],
   // The scratch gallery (openbus/scratch.py), the daemon's page rather than the app's.
   ["mobile-scratch", PHONE, "dark", "", scratch],
   ["mobile-scratch-view", PHONE, "light", "#view=scratch"],

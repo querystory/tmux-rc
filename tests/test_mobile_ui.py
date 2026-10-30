@@ -250,6 +250,16 @@ def test_chat_pasted_image_keeps_input_height_and_header_ends_chat():
     assert '$("voice-end").onclick = () => { stop(); dialog.close(); }' in live
 
 
+def test_new_session_start_row_follows_the_pick_and_comes_back():
+    # Picking Chat or Voice moves the Session|Chat|Voice row into that sheet (pressed on the
+    # pick), so Session is still a tap away; the row returns when that sheet closes.
+    app = (Path(__file__).resolve().parents[1] / "web/m/app.js").read_text()
+    assert 'pressKind(b); $("launch-dialog").close(); live.open[b.dataset.start]();' in app
+    assert '$("voice-dialog").querySelector(".dialog-heading").after(kindRow)' in app
+    assert '$("voice-dialog").addEventListener("close", kindHome)' in app
+    assert '$("voice-close").click(); $("launch-dialog")._opener.click();' in app
+
+
 def test_voice_sheet_takes_initial_focus_not_its_first_button():
     """showModal() focuses the first button (the minimize button) and its :focus-visible ring
     paints on open; the sheet itself takes focus instead, with no ring on that container."""

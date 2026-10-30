@@ -133,7 +133,11 @@ Chat and Voice hand over to their own buttons rather than repeating their start 
 row is a segmented control, not a first sheet, so the common case (a session) costs no extra
 tap. A choice that can't start here is greyed, and tapping it puts the reason on the line
 below; with neither available (Live Mode is off by default) the row is hidden, so a casual
-user's sheet is unchanged.
+user's sheet is unchanged. The row goes with the choice: picking Chat or Voice carries it to
+the top of that sheet, pressed on the pick, so Session is one tap back rather than a close
+and a second + (the first version dropped it with the sheet, and there was no way back). It
+returns to New session when the Chat sheet closes, or when New session opens over a docked
+one; Chat opened from its own button never shows it.
 
 ## The collapsed rail keeps working
 

@@ -2037,9 +2037,9 @@ $("close-settings").onclick = () => $("settings").close();
 // non-modal, so the list stays in view and live, and closed by Escape or a click anywhere
 // but the panel or the button that opened it. A phone keeps its sheet.
 function openBeside(dialog, opener) {
+  dialog._opener = opener; // on a phone too: what reopens it (the Start row's Session)
   if (!WIDE.matches) return dialog.showModal();
   besides().forEach((d) => d !== dialog && d.close()); // one panel at a time
-  dialog._opener = opener;
   dialog.classList.add("beside"); dialog.show();
   dialog.focus(); // show() does not move focus as showModal() does: the next Tab enters the panel
 }
@@ -2263,6 +2263,7 @@ async function openLaunch(fresh, opener) {
   try { $("launch-dir").value = localStorage.getItem(LAST_DIR) || "~"; } catch { $("launch-dir").value = "~"; }
   $("launch-dir").oninput(); launchMode();
   // Chat and Voice start as their own buttons do; greyed, the line under them says why.
+  kindHome(); // the Start row may still sit in a docked Chat panel (its pick moves it there)
   const kinds = [...$("launch-kind").querySelectorAll("[data-start]")];
   kinds.forEach((b) => { b.dataset.why = live.why(b.dataset.start === "chat"); });
   show("launch-kind", kinds.some((b) => !b.dataset.why)); text($("launch-sub"), "Start an agent or shell in a new tmux window.");
@@ -2303,9 +2304,20 @@ async function openLaunch(fresh, opener) {
   } catch { if (load === launchLoad) text($("launch-error"), "Could not load launchers. Close and try again."); }
 }
 $("close-launch").onclick = () => $("launch-dialog").close();
-$("launch-kind").onclick = (e) => {
-  const b = e.target.closest("[data-start]");
-  if (b?.dataset.why) text($("launch-sub"), b.dataset.why); else if (b) { $("launch-dialog").close(); live.open[b.dataset.start](); }
+// The Start row goes with the choice: Chat or Voice carries it to the top of their sheet,
+// pressed on the pick, so Session is one tap back (it reopens the sheet as its opener did).
+// The row comes home when that sheet closes, or when New session opens over a docked Chat.
+const kindRow = $("launch-kind");
+const pressKind = (b) => kindRow.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+const kindHome = () => { $("launch-sub").before(kindRow); pressKind(kindRow.firstElementChild); };
+$("voice-dialog").addEventListener("close", kindHome);
+kindRow.onclick = (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.dataset.why) { text(b.closest("dialog").querySelector("[role=status]"), b.dataset.why); return; } // the sheet's own line
+  if (!b.dataset.start) { if (kindRow.closest("#voice-dialog")) { $("voice-close").click(); $("launch-dialog")._opener.click(); } return; }
+  pressKind(b); $("launch-dialog").close(); live.open[b.dataset.start]();
+  $("voice-dialog").querySelector(".dialog-heading").after(kindRow);
 };
 let launching = false, launched = null;
 // Go to a window the daemon just opened (a launcher, or a chat resume). Record the id BEFORE
