@@ -2315,8 +2315,10 @@ $("voice-dialog").addEventListener("close", () => $("voice-dialog").open || kind
 kindRow.onclick = (e) => {
   const b = e.target.closest("button"), kind = b?.dataset.start, busy = kind && live.kind();
   if (!b) return;
-  // Greyed, or the other mode while a conversation runs (opening would only bring that one
-  // back, so the pick would not take): the sheet's own line says why.
+  // Greyed (asked afresh: a conversation that ended since the sheet opened was what made the
+  // other mode available), or the other mode while a conversation runs (opening would only
+  // bring that one back, so the pick would not take): the sheet's own line says why.
+  if (kind) b.dataset.why = live.why(kind === "chat");
   const why = b.dataset.why || (busy && busy !== kind && `End ${busy === "chat" ? "the chat" : "Live Mode"} first.`);
   if (why) { text(b.closest("dialog").querySelector("[role=status]"), why); return; }
   if (!kind) { if (kindRow.closest("#voice-dialog")) { $("voice-close").click(); $("launch-dialog")._opener.click(); } return; }
