@@ -283,8 +283,8 @@ figcaption {
 }
 .capabilities {
   display:grid;
-  grid-template-columns:repeat(4,1fr);
-  gap:36px;
+  grid-template-columns:repeat(3,1fr);
+  gap:44px;
   padding:72px 0;
   border-bottom:1px solid var(--line)
 }
@@ -755,7 +755,6 @@ footer p,footer>a:last-child {
 .showcase { --caption-height:3.2em; }
 .showcase figcaption { min-height:var(--caption-height); }
 @media(max-width:900px) { .showcase { --caption-height:4.8em; } }
-@media(min-width:701px) and (max-width:1000px) { .capabilities { grid-template-columns:repeat(2,1fr); } }
 @media(max-width:700px) { .showcase { --caption-height:8em; } }
 .feature-detail>img { height:auto; }
 /* Wide screens alternate the image's side; phones keep the one-column stack. */
