@@ -96,8 +96,9 @@ key** rather than developer ADC (which expires and needs a browser reauth — se
 `GOOGLE_APPLICATION_CREDENTIALS` at the key file — an **absolute** path, since google-auth
 does not expand `~` (`.env.example` has the mint command).
 
-**Live Mode (voice) needs an OpenAI API key:** set `OPENAI_API_KEY` and `TMUXRC_LIVE_MODE=1`
-and it uses `gpt-live-1` by default ([details](docs/design/live-mode.md#gpt-live-1)).
+**Live Mode (voice) with `gpt-live-1`:** set `OPENAI_API_KEY` and `TMUXRC_LIVE_MODE=1`, and
+voice uses `gpt-live-1` by default. Without the key it falls back to Gemini on Vertex
+([details](docs/design/live-mode.md#gpt-live-1)).
 
 ```bash
 uv sync
