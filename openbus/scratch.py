@@ -56,6 +56,9 @@ DOCS = "https://github.com/querystory/tmux-rc/blob/main/docs/scratch.md"
 SIDECARS = ("meta.json", "thumb.webp")  # what tmux-rc and agents add beside a page
 # What every /scratch/ response is served under (see server.py's no_cache middleware).
 SANDBOX = "sandbox allow-scripts allow-popups; form-action 'none'; connect-src 'none'"
+# The placeholder is the daemon's own page, everything in it escaped: on the real origin, as
+# an opaque one is never granted notifications (its "Notify me when it's ready").
+PLACEHOLDER = SANDBOX.replace(";", " allow-same-origin;", 1)
 PINS = 6  # pages pinned to the app's menu, at most: the sidebar's nav can't overflow
 
 

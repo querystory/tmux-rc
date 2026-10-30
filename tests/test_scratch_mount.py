@@ -25,7 +25,10 @@ for path in ("/scratch/mock.html", "/scratch/%2e%2e/secret.txt", "/scratch/link.
     print(c.get(path).status_code)
 wip = c.get("/scratch/wip/")  # a 202 passes `curl -f`: it says so, and its title is not the page's
 print(int(wip.headers.get("x-scratch-pending") == "1" and "Retry-After" in wip.headers
-          and "<title>In progress · A new page</title>" in wip.text))
+          and "<title>In progress · A new page</title>" in wip.text
+          # on the real origin, for its notifications: the daemon's page, not the agent's
+          and wip.headers["content-security-policy"] == server.scratch.PLACEHOLDER
+          and "allow-same-origin" in server.scratch.PLACEHOLDER))
 # Scratch's own tab icon, on every page the daemon renders there (the placeholder's spins)
 print(int(all('<link rel="icon" href="/scratch.svg">' in c.get(p).text
               for p in ("/scratch/", "/scratch/notes.md", "/scratch/wip/"))
@@ -81,7 +84,7 @@ print(int(old.headers["content-type"] == "image/gif" and now.status_code == 204)
 print(int(act("delete", "viewed").json() == {"done": ["viewed"]}),
       c.get("/scratch/viewed/").status_code)
 # The placeholder asks by image whether to reload: a 1px-wide answer while it is unchanged,
-# 2px once it changed or its page landed (never a navigation on a failed ask: client side).
+# 2px once it changed, 3px once its page landed (never a navigation on a failed ask: client side).
 if server._scratch_dir:
     from PIL import Image
     width = lambda q: Image.open(io.BytesIO(c.get(f"/scratch/wip/?seen={q}").content)).width
@@ -90,7 +93,7 @@ if server._scratch_dir:
     (server.Path(server._scratch_dir) / "wip" / "index.html").write_text("landed")
     print(*before, width(mine))
     # An updating folder's Markdown page wears the bar and asks the same way: unchanged, then
-    # its files change (a revision lands), then the mark goes (the update is done).
+    # its files change (a revision lands), then the mark goes (the update is done: 3px).
     rev = server.Path(server._scratch_dir) / "rev"
     scanned.clear()
     page = c.get("/scratch/rev/").text  # asked every few seconds: no accounts scanned
@@ -153,8 +156,8 @@ def test_scratch_serves_only_inside_the_configured_dir(tmp_path):
     # The placeholder marks itself apart from the page, and a plain 404 scans no accounts.
     assert _probe({"TMUXRC_SCRATCH_DIR": str(scratch)}, tmp_path) == [
         200, 404, 404, 200, 307, 200, 404, 404, 404, 202, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-        1, 1, 200, 200, 202, 200, 202, 202, 400, 1, 1, 1, 404, 2, 1, 2,
-        1, 1, 1, 1, 1, 1, 2, 2, 1]
+        1, 1, 200, 200, 202, 200, 202, 202, 400, 1, 1, 1, 404, 2, 1, 3,
+        1, 1, 1, 1, 1, 1, 2, 3, 1]
 
 
 def test_scratch_is_off_unless_configured(tmp_path):

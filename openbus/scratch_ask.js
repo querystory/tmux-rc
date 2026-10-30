@@ -3,12 +3,22 @@
 // landed, the placeholder moved on, the update finished or its files changed): a wider image says
 // yes, and only a yes reloads. A failed ask (the tunnel down) never navigates, or an error page
 // with no script would be left in its place for good: it says so and asks again, backing off to 30s.
+// A wider image says it is done: a hidden tab tells so (tell) and reloads once it is looked at.
 const SEEN = "{seen}";
+// While the tab is hidden, a notification that brings it back when clicked, one per folder: each
+// replaces the last, and its push's Ready (push.py's tag). Only the placeholder may notify: an
+// opaque origin never gets the permission.
+const tell = (title, body) => { if (!document.hidden || window.Notification?.permission !== "granted") return false;
+  new Notification(title, { body, tag: "scratch:" + location.pathname.split("/").filter(Boolean).pop(), renotify: true }).onclick = (e) => { focus(); e.target.close(); };
+  return true; };
 let fails = 0;
 const ask = () => { const img = new Image(); let late; // an ask unanswered in 10s failed too
   const end = (ok) => { if (!late) return; clearTimeout(late); late = null; img.onload = img.onerror = null;
     document.getElementById("offline").hidden = ok || ++fails < 2;
     if (ok) fails = 0;
+    if (ok && img.naturalWidth > 2) window.name = ""; // the placeholder's memory, done with
+    if (ok && img.naturalWidth > 2 && tell("Ready: " + document.title.replace(/^.*? · /, "")))
+      return document.addEventListener("visibilitychange", () => location.reload(), { once: true });
     if (ok && img.naturalWidth > 1 && !document.querySelector("a:hover")) return location.reload();
     setTimeout(ask, ok ? {every} : Math.min({every} * 2 ** fails, 30000)); };
   late = setTimeout(() => { end(false); img.src = ""; }, 10000);

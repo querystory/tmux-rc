@@ -69,6 +69,13 @@ Needs-you; what keeps one finish to one buzz is that for two minutes after a Rea
 pane's plain "turn ended" Needs-you is skipped (a question still notifies). A page
 published in one go was never promised and does not notify.
 
+The placeholder's tab notifies too, for a browser with no push subscription: its **Notify
+me when it's ready** asks for the permission, and from then on a hidden tab shows
+`Ready: <title>` when the page lands (a click brings the tab back, which then opens the
+page). It also says when the agent's state changes (its pane gone idle, the agent
+stopped) and, at most every two minutes, what the pane is doing now. It shares the push's
+tag, so a device that gets both shows one.
+
 The same holds for revisions. An agent reworking a published page marks its `meta.json`
 `"updating": "<what's changing>"`; the card and the viewer read **Updating**, and the
 mark's removal sends a push, `Updated: <title>`. A Markdown page also carries a thin bar

@@ -114,10 +114,11 @@ def page(path: Path, web: Path, notice: tuple[str, str] | None = None) -> str:
 
 
 ARCHIVE = ".archive"  # scratch's archived folders: hidden, like any dot folder
-# A 1x1 and a 2x1 GIF: a placeholder's ask answered "no change" and "reload" (Files).
+# A 1x1, 2x1 and 3x1 GIF: a placeholder's ask answered "no change", "reload" and "reload:
+# it is done", its page landed or its update finished (Files).
 PIXEL = bytes.fromhex("47494638396101000100800000000000ffffff21f90401000000002c"
                       "00000000010001000002024401003b")
-WIDE = PIXEL[:6] + b"\x02" + PIXEL[7:]
+WIDE, DONE = (PIXEL[:6] + bytes([n]) + PIXEL[7:] for n in (2, 3))
 
 
 class Files(StaticFiles):
@@ -152,10 +153,10 @@ class Files(StaticFiles):
     async def get_response(self, path, scope):
         seen = parse_qs(scope["query_string"].decode()).get("seen")
         folder = "/" not in path.removeprefix(ARCHIVE + "/")  # a folder's own URL
-        if seen and folder:  # a placeholder or bar asking: wide says reload
+        if seen and folder:  # a placeholder or bar asking: wide says reload, wider it is done
             wait = await anyio.to_thread.run_sync(lambda: self.pending(path) or self.updating(path))
             same = wait == ("", "") or (wait and f'const SEEN = "{seen[0]}";' in "".join(wait))
-            return Response(PIXEL if same else WIDE, media_type="image/gif")
+            return Response(PIXEL if same else WIDE if wait else DONE, media_type="image/gif")
         try:
             response = await super().get_response(path, scope)
         except HTTPException as e:
