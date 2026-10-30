@@ -96,6 +96,9 @@ key** rather than developer ADC (which expires and needs a browser reauth — se
 `GOOGLE_APPLICATION_CREDENTIALS` at the key file — an **absolute** path, since google-auth
 does not expand `~` (`.env.example` has the mint command).
 
+**Live Mode (voice) needs an OpenAI API key:** set `OPENAI_API_KEY` and `TMUXRC_LIVE_MODE=1`
+and it uses `gpt-live-1` by default ([details](docs/design/live-mode.md#gpt-live-1)).
+
 ```bash
 uv sync
 cp .env.example .env          # then edit .env: GOOGLE_CLOUD_PROJECT + GOOGLE_APPLICATION_CREDENTIALS
@@ -245,6 +248,7 @@ Loaded from `.env` at startup (real shell env vars still override). See `.env.ex
 | `TMUXRC_TMUX_SOCKET` | unset (default server) | a `tmux -L` socket name; every tmux call the daemon makes goes to that server instead. For a dev daemon or test that creates sessions without touching your real tmux |
 | `TMUXRC_HOST` / `TMUXRC_PORT` | `127.0.0.1` / `18030` | HTTP bind |
 | `TMUXRC_HOST_NAME` | the hostname, up to its first dot | this machine's name at the end of each app tab's title, to tell machines apart |
+| `OPENAI_API_KEY` | unset | Live Mode's voice key (keep it in `~/.config/tmux-rc/openai.env`); when set, voice uses `gpt-live-1` by default. Live Mode also needs `TMUXRC_LIVE_MODE=1` — see [Live Mode](docs/design/live-mode.md#gpt-live-1) |
 | `TMUXRC_NO_LLM` | unset | set `1` to run heuristics-only (no Vertex calls) |
 | `TMUXRC_ENTER_SETTLE_S` | `0.3` | pause between typed text and the Return that submits it. Agent TUIs tell "submit" from "newline" by timing, so a Return arriving inside the paste burst is read as a newline and the message sits composed but unsent. Raise it if a TUI still swallows submits; `0` disables the wait |
 | `TMUXRC_LAUNCHERS` | Claude/Codex/OpenCode/omp/Gemini/Shell | "New window" dialog entries — inline JSON or a path to a JSON file: `[{"label":"Codex (high)","command":"codex -c model_reasoning_effort=high","icon":"codex"}, …]`; `icon` is a built-in logo name (claude/codex/gemini/opencode/omp/shell) or an image URL; `provider` (`claude` or `codex`) says whose [accounts](docs/design/agent-accounts.md) it can launch on, read from `icon` when that is claude or codex, so it is needed only with another icon |

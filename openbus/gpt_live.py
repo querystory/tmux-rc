@@ -26,7 +26,7 @@ MODEL = "gpt-live-1"
 LABEL = "GPT-Live 1"
 # GPT-Live's stand-in table entry. The adapter owns a whole SESSION, not the connection
 # the seam knows how to open, so it is deliberately not in the configured table — but
-# live.offered() appends it to the one menu the picker and the socket share, and _Meter is
+# live.offered() puts it first in the one menu the picker and the socket share, and _Meter is
 # constructed from a table entry, so it needs to BE one. It lives here beside the label and
 # id it is built from rather than repeating those two strings in live.py. The rate card is
 # never consulted — the adapter installs its own Usage, which prices voice by duration —
