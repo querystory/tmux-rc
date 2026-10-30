@@ -23,6 +23,15 @@ contentDir = "../docs"
 [module]
   [[module.imports]]
     path = "github.com/imfing/hextra"
+  # Raw <img> tags skip render-image.html, so a top-level doc (docs/scratch.md, served at
+  # /scratch/) writes ../docs/img/: right from the file on GitHub, and right on the site
+  # through this second copy of img/ at /docs/img/. A mount replaces the default static one.
+  [[module.mounts]]
+    source = "static"
+    target = "static"
+  [[module.mounts]]
+    source = "../docs/img"
+    target = "static/docs/img"
 
 [markup]
   [markup.goldmark.renderer]

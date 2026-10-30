@@ -7,7 +7,7 @@
 // could vary on.
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { PHONE, WIDE, chat, pace, settle, startDemo } from "./demo_browser.mjs";
+import { PHONE, STILL, WIDE, chat, pace, settle, start, startDemo } from "./demo_browser.mjs";
 
 const [out = ".screenshots", tree = process.cwd()] = process.argv.slice(2);
 const HD = { width: 1920, height: 1080 };
@@ -26,9 +26,9 @@ const SHOTS = [
   ["mobile-ask", PHONE, "light", "", chat("What are my agents doing?")],
   ["website-voice", WIDE, "light", "#pane=%259", voice],
   ["website-voice-phone", PHONE, "light", "", voice],
-  ["website-usage", PHONE, "light", "#view=dashboard", reach("#usage-panel"), "#usage-panel"],
+  ["website-usage-detail", WIDE, "light", "#view=usage"],
   ["website-dashboard", WIDE, "light", "#view=dashboard"],
-  ["website-atlas", WIDE, "light", "#view=dashboard", reach(".atlas-multiples")],
+  ["website-graph", WIDE, "light", "#view=graph"],
   ["website-restore", WIDE, "light", "#view=restore", afterReboot],
   ["website-restore-phone", PHONE, "light", "#view=restore", afterReboot],
   ["wide-pane-dark", WIDE, "dark", "#pane=%259"],
@@ -96,14 +96,44 @@ const SHOTS = [
       await page.waitForSelector("#voice-dialog[open] #launch-kind");
     })(), "the Start row did not go with Chat and back");
   }],
-  // The scratch gallery (openbus/scratch.py), the daemon's page rather than the app's.
-  ["mobile-scratch", PHONE, "dark", "", scratch],
-  ["mobile-scratch-view", PHONE, "light", "#view=scratch"],
-  ["wide-scratch", WIDE, "light", "", scratch],
+  // The scratch gallery (openbus/scratch.py) in the app's Scratch tab, a page open in the
+  // app's viewer with the message box to its maker, and the daemon's own page.
+  ["mobile-scratch", PHONE, "light", "#view=scratch", stillFrame],
+  ["mobile-scratch-page", PHONE, "light", "#view=scratch", openScratch("ab-sweep-interim")],
+  ["mobile-scratch-dark", PHONE, "dark", "", scratch],
+  ["wide-scratch", WIDE, "light", "#view=scratch", stillFrame],
+  // New session's sheet, a file on the pane's composer, and a reply's code blocks with Copy.
+  ["mobile-new-session", PHONE, "light", "", (page) => page.click("#new-window")],
+  ["mobile-attach", PHONE, "light", "#pane=%259", attachFile],
+  ["mobile-copy-block", PHONE, "light", "#pane=%2510"],
 ];
 
-function scratch(page) {
-  return page.goto(new URL("/scratch/", page.url()).href);
+// The gallery's badge and an updating page's bar spin: STILL again for the daemon's own page,
+// and for the app's frames of them (sandboxed, so the app's copy does not reach them).
+async function scratch(page) {
+  await page.goto(new URL("/scratch/", page.url()).href);
+  await page.addStyleTag({ content: STILL });
+}
+async function stillFrame(page, selector = ".scratch-frame") {
+  const frame = await (await page.waitForSelector(selector)).contentFrame();
+  await frame.waitForLoadState();
+  await frame.addStyleTag({ content: STILL });
+  return frame;
+}
+// A small invented file picked through the composer's Attach button (its chooser).
+async function attachFile(page) {
+  const chooser = page.waitForEvent("filechooser");
+  await page.click("#attach");
+  await (await chooser).setFiles({ name: "checkout-trace.zip", mimeType: "application/zip", buffer: Buffer.from("demo") });
+}
+// A card's page in the app's viewer, its message box shown once the maker's pane is found.
+function openScratch(name) {
+  return async (page) => {
+    await (await stillFrame(page)).locator(`article[data-name="${name}"] h2 a`).click();
+    await stillFrame(page, "#scratch-viewer iframe");
+    await page.waitForSelector("#viewer-form:not([hidden])") // the shot is the reply box: no gallery in its place
+      .catch((e) => { throw Object.assign(new Error(`no reply box: ${e.message}`), { loud: true }); });
+  };
 }
 
 // The same fleet with a second Claude account (TMUXRC_DEMO_ACCOUNTS=2, demo_fleet.PERSONAL):
@@ -297,7 +327,7 @@ function pickRange(label) {
 }
 
 async function voice(page) {
-  await page.click("#live-mode");
+  await start(page, "voice");
   await page.locator("#voice-models button").click();
   await page.waitForFunction(() => document.getElementById("voice-status")?.textContent.startsWith("Listening /"));
   await page.waitForSelector("#voice-log .voice-open button");

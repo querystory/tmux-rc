@@ -1,7 +1,7 @@
 # Markdown in scratch
 
 Status: implemented (`openbus/scratch_markdown.py`). How to use it:
-[Scratch gallery](../deploy/scratch-gallery.md#markdown-pages).
+[Scratch](../scratch.md#markdown-pages).
 
 ## Why
 

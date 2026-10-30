@@ -4,7 +4,7 @@ title: "Benchmarks"
 
 # LLM Benchmarks
 
-Ad-hoc measurements of the hot-path classifier (`openbus/classify.py`'s `PARSER_PROMPT`)
+Ad-hoc measurements of the hot-path classifier (`openbus/parser_prompt.txt`)
 across models/providers.
 
 {{< cards >}}
@@ -39,7 +39,7 @@ parity.
 
 Same sample (`research/samples/working.txt`, a working Claude Code pane, since rebuilt as an
 invented pane of the same shape), same
-`PARSER_PROMPT`, `temperature=0`, JSON mode. Non-streaming total latency unless noted.
+the production parser prompt, `temperature=0`, JSON mode. Non-streaming total latency unless noted.
 
 | Model | Provider | Median total | Out tokens | Result |
 |---|---|---:|---:|---|
@@ -63,7 +63,7 @@ Notes:
 If latency matters, the evidence says attack the **input**, not the provider:
 
 - Trim `PRIOR_FRAMES` (`openbus/watcher.py`) — fewer continuity frames = less prefill.
-- Shrink the static `PARSER_PROMPT`. It's the bulk of the 2,900 tokens.
+- Shrink the static parser prompt (`openbus/parser_prompt.txt`). It is the bulk of the 2,900 tokens.
 - Output is already small; little to gain there.
 
 A genuinely faster path would be a *non-reasoning* small model on fast silicon, but
@@ -76,4 +76,4 @@ synthetic-harness idea — see `docs/design/`). Real-world comparison is done by
 the daemon's model live and reading per-call OTLP telemetry in QueryStory (metrics by
 default; pane text + output JSON under `TMUXRC_QSDEBUG=1`). Cerebras is OpenAI-compatible
 (`base_url=https://api.cerebras.ai/v1`); Flash Lite runs via Vertex (`project=<your-gcp-project>`,
-`location=global`). Both used the live `PARSER_PROMPT` and a saved sample.
+`location=global`). Both used the live parser prompt and a saved sample.

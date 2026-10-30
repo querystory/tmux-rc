@@ -22,7 +22,7 @@ there is no public surface to misconfigure.
 
 ## The cheat sheet
 
-Seven commands. **Do them in this order** — step 4 is what stops the daemon being
+**Do these in this order** — step 4 is what stops the daemon being
 published to the internet without a login, and step 6 is how you prove it worked.
 
 ```bash
@@ -35,6 +35,10 @@ cloudflared tunnel route dns tmux-rc tmux.example.com
 
 # 3. write the ingress config (see below) then check it WITHOUT connecting
 cloudflared tunnel --config ~/.cloudflared/tmux-rc.yml ingress validate
+
+# 3b. in the checkout: tell the daemon its public name, then restart it
+printf 'TMUXRC_ALLOWED_HOSTS=tmux.example.com\nTMUXRC_ALLOWED_ORIGINS=https://tmux.example.com\n' >> .env
+systemctl --user restart tmux-rc
 ```
 
 ```yaml
@@ -242,6 +246,11 @@ Notes that are easy to get wrong:
 - **You do not need `originRequest: websocket: true`.** WebSockets are proxied by default;
   that setting exists for other purposes. See [WebSockets](#websockets-live-mode) below.
 
+**Tell the daemon its public name.** cloudflared forwards the request's own `Host`
+(`tmux.example.com`), which the daemon refuses with `400 Host is not allowed` until it is
+in `TMUXRC_ALLOWED_HOSTS`; browser writes likewise need `TMUXRC_ALLOWED_ORIGINS`. Add both
+to the checkout's `.env` and restart the daemon ([Deploying](../) has the details).
+
 **Do not start the tunnel yet.** The obvious next move — run it in the foreground to
 "see if the config works" — is the exact mistake this doc is ordered to prevent: it
 publishes the daemon with no authentication in front of it. Validate the file without
@@ -289,7 +298,8 @@ private → Add public hostname.**
   `/api/*` and the `/api/live-mode` WebSocket. Protecting only `/` would leave the
   keystroke-injection API wide open, which is the entire failure mode this doc exists to
   prevent.
-- **Session duration**: see [session length](#session-length-and-phone-re-auth) below.
+- **Session duration**: the default (24 hours) is fine; shorter means logging in
+  constantly on the phone.
 - **Identity providers**: select the ones you enabled.
 
 ### Add policies
@@ -635,7 +645,6 @@ session that goes quiet for a long stretch can therefore drop; the client reconn
 Note also that Argo Smart Routing is not compatible with WebSockets, and Cloudflare's own
 code releases terminate open connections.
 
-<a id="session-length-and-phone-re-auth"></a>
 ## Troubleshooting
 
 **`curl` returns HTML with a Cloudflare login form instead of JSON.**
@@ -679,8 +688,10 @@ policy-rejected. **1006/immediate close** with everything else healthy = check t
 zone's **Network → WebSockets** toggle.
 
 **Everything works but you are asked to log in constantly.**
-Application session duration is too short, or the global session expired. See
-[session length](#session-length-and-phone-re-auth).
+Application session duration is too short, or the global session expired.
+
+**`400 Host is not allowed` through the tunnel; `localhost:18030` works.**
+The public hostname is missing from `TMUXRC_ALLOWED_HOSTS` (step 4).
 
 **You unproxied the DNS record to "fix" something.**
 Re-proxy it immediately. A grey-cloud record bypasses Cloudflare, and therefore bypasses

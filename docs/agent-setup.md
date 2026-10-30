@@ -6,24 +6,9 @@ that it watches what a pane *renders* and integrates with no agent in particular
 unconfigured agent works. These settings make it work *better*, and two of them make it
 work considerably cheaper.
 
-## Antigravity CLI
-
-Install Google's [Antigravity CLI](https://antigravity.google/docs/getting-started?tab=cli)
-(`agy`), then choose **Antigravity** in the **+** launcher. It is a separate program
-from Gemini CLI (`gemini`); both launchers remain available. Complete sign-in and
-workspace setup in the terminal on first use.
-
-The launcher respects Antigravity's configured model. Use `/model` or `agy models`
-to see models available to your account before pinning one in `TMUXRC_LAUNCHERS`.
-An unavailable model can fall back to another model in interactive mode.
-
-For fewer approval prompts, set `enableTerminalSandbox: true` and
-`toolPermission: "proceed-in-sandbox"` in
-`~/.gemini/antigravity-cli/settings.json` (or launch `agy --sandbox` with that
-permission mode). Both settings are required: the mode only auto-approves commands
-that actually run inside the sandbox. Antigravity's settings persist separately
-from tmux-rc; the launcher does not bypass permissions. Agent identification, model badges, activity history, and arrow-driven
-menu selection recognize Antigravity independently of the model it runs.
+tmux-rc recognises Claude Code, Codex, Gemini CLI, Antigravity CLI (`agy`), OpenCode and
+omp, and the **+** menu launches each of them (`TMUXRC_LAUNCHERS` adds variants such as a
+pinned model). Anything else is read as a shell.
 
 ## Why your agent's settings are tmux-rc's business at all
 
@@ -52,11 +37,11 @@ That is the one setting worth changing for Codex: **include `"thread-title"` in
 line. Once observed, the watcher retains the name while the same agent remains, even
 when that line scrolls away. Keeping it in the status bar also supports restart recovery.
 
-Agents that set the *terminal* title get a second route on **both desktop and phone**.
-An explicit terminal title wins over the classifier's retained conversation name and
-bootstrap fallback. Both clients prefer `title` over `label`; the phone falls back to `window_name`, then
-`pane_id`, when neither is available. Keeping a session name on screen still helps
-the classifier identify the work when the agent does not publish a terminal title.
+Agents that set the *terminal* title get a second route. An explicit terminal title wins
+over the classifier's retained conversation name and bootstrap fallback: the card shows
+`title`, then `label`, then the window name, then the pane id. Keeping a session name on
+screen still helps the classifier identify the work when the agent does not publish a
+terminal title.
 
 ### Keep the model name on screen
 
@@ -109,7 +94,8 @@ column of identical headings.
 
 "Looks deliberate" is judged on the name itself, not on who set it. tmux names a window
 after the command that launched it, so the rejected set names the shells and runtimes
-*and the agent CLIs it knows about* (`claude`, `codex`, `gemini`, `opencode`, `omp`, `aider`): they
+*and the agent CLIs it knows about* (`claude`, `codex`, `gemini`, `agy`, `antigravity`,
+`opencode`, `omp`, `aider`): they
 would otherwise be rows headed only by the command name, and a qualified coordinate tells
 them apart. It is a literal list, so a CLI that is not on it is taken at face value and
 its auto-name collides as before — one more reason to rename the window yourself. The
@@ -166,11 +152,9 @@ same request on a normal pane returns everything it has. The daemon's bootstrap 
 800 lines of history to reconstruct the story so far, so on an alternate-screen pane it
 gets a fraction of that and the card's summary starts thinner than it should.
 
-Claude Code has the analogous setting as `"tui"` in `~/.claude/settings.json`, which
-accepts `"fullscreen"`. I have confirmed the effect from the tmux side — Claude Code panes
-here report `alternate_on=1` and truncate to the visible rows exactly as above — but **I
-have not confirmed the value that disables it**, so I am deliberately not printing one
-here rather than inventing a key. Check `/config` in Claude Code for the current option.
+Claude Code's full-screen mode (`"tui"` in `~/.claude/settings.json`) has the same effect:
+its panes report `alternate_on=1` and truncate to the visible rows. Check `/config` in
+Claude Code for the value that keeps it on the normal screen.
 
 ## Terminal width: narrower panes are cheaper
 

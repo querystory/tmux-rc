@@ -248,7 +248,7 @@ def test_an_empty_gallery_says_how_agents_publish_there(tmp_path):
     assert '<section id="empty">' in page and '<input hidden type="search"' in page
     assert page.count('href="/docs/x/"') == 2  # the header's About, and the empty state's
     # the snippet shown is the one documented, word for word
-    doc = (WEB_DIR.parent / "docs/deploy/scratch-gallery.md").read_text()
+    doc = (WEB_DIR.parent / "docs/scratch.md").read_text()
     block = doc.split("## The agent snippet\n\n", 1)[1].split("\n\n", 1)[0]
     shown = re.search(r"<pre>(.*?)</pre>", page, re.DOTALL).group(1)
     assert unescape(shown) == " ".join(line.strip() for line in block.splitlines())  # unwrapped

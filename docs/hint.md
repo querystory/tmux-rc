@@ -50,6 +50,8 @@ telemetry.
   screen frames (for continuity) + the current screen. Typically thousands (≈3k–9k). This
   is the dominant driver of `latency_s` and `cost_usd`. When latency varies across
   records, `in_tokens` is usually why.
+- **`cached_tokens`** — the part of `in_tokens` served from the provider's cache (the
+  static parser prompt), billed at the cached rate. A subset of `in_tokens`, never added.
 - **`out_tokens`** — output tokens: the JSON the parser returned. Small (≈150–300) for
   non-reasoning models; much larger for reasoning models (which spend tokens on hidden
   reasoning before the JSON).
@@ -58,20 +60,24 @@ telemetry.
   billed amount.
 - **`activity`** — the parser's verdict on the pane's state, one of:
   - `running` — an agent is actively working (spinner, elapsed timer, streaming output).
-  - `waiting` — the agent is blocked awaiting user input (a question, menu, or rewind
-    picker is on screen). These are the "actionable" panes.
+  - `waiting` — the agent is blocked awaiting input (a question, menu, or rewind picker
+    is on screen, or `waiting_on = external`: a build, a background agent). The
+    `user` waits are the "actionable" panes.
   - `idle` — nothing happening; a bare shell prompt or a finished agent.
+  - `compacting` — the agent is compacting its context; briefly busy, not actionable.
+  - `quota_blocked` — the agent hit its plan limit; `resets` carries the reset time.
   - `unknown` — the watcher couldn't classify the pane (e.g. a parse-failure stub);
     rare, but consumers should tolerate it.
   This is a property of the **screen being classified**, not of the API call. "Running
   state handles the most requests" means "most parses happened while a pane was in the
   running state," i.e. agents are most often actively working — NOT that running is a
   request type or batch mode.
-- **`kind`** — `parse` (a live screen classification, the overwhelming majority) or
+- **`kind`** — `parse` (a live screen classification, the overwhelming majority),
   `bootstrap` (a one-time deep read of a pane's scrollback that seeds the card's
   session summary and reconstructed history — one per pane per daemon run, much larger
-  `in_tokens`). **Exclude `kind = 'bootstrap'` from parse-latency/cost benchmarks** or
-  they'll skew; analyze bootstraps separately.
+  `in_tokens`), or `replies` (a small follow-up call that restates a widget question and
+  drafts its reply buttons; no `activity`). **Keep parse-latency/cost benchmarks to
+  `kind = 'parse'`** or the other two skew them; analyze them separately.
 - **`changed`** — `true` if this parse was triggered by a real content change on screen;
   `false` if it was a periodic "heartbeat" re-parse of an unchanged screen. Volatile churn
   (spinners, ticking timers/token counts) is stripped before deciding "changed," so a
@@ -116,11 +122,16 @@ audit trail for "what is making changes to my terminals, and who?". These are US
 not parser activity — don't mix them into parse metrics. Each record has a matching
 `AUDIT ...` line in the daemon's journal.
 
-- **`event`** — phone: `send_keys` | `click` | `select_pane` | `kill_window` | `new_window`
-  | `paste_image` | `compose` | `push_subscribe` | `push_unsubscribe` | `push_revoke_all` |
-  `push_answer`. Live Mode: `live_session` (start/end, with `turns`, `cost_usd`,
-  `duration_s`) and one `live_<tool>` per tool call (`live_type_in_pane`,
-  `live_press_key`, `live_find_sessions`, `live_resume_session`).
+- **`event`** — phone: `send_keys` | `click` | `wheel` | `fit` | `select_pane` | `rename` |
+  `kill_window` | `expunge` | `new_window` | `new_session` | `paste_image` | `compose` |
+  `move_session` | `exit_agent` | `add_account` | `edit_account` | `account_login` |
+  `account_login_close` | `account_default` | `restore` | `restore_dismiss` | `export` |
+  `set_goal` | `pin` | `scratch_archive` | `scratch_unarchive` | `scratch_delete` |
+  `push_subscribe` | `push_unsubscribe` | `push_revoke_all` | `push_answer`. Live Mode:
+  `live_session` (start/end, with `turns`, `cost_usd`, `duration_s`) and one
+  `live_<tool>` per tool call (`live_type_in_pane`, `live_press_key`,
+  `live_send_image_to_pane`, `live_open_pane`, `live_find_sessions`,
+  `live_resume_session`).
 - Live records also carry **`session`** (the voice session id that joins to its
   `live_turn` rows), **`model`**, **`provider`**, and for tool calls **`latency_ms`**.
   `live_find_sessions` adds `results` (count) and `top` (first three session ids);
@@ -182,7 +193,7 @@ that's what makes watch-time summable (below). Attributes:
   identity) — those rounds still carry `session`, just no account attribution.
 - **`pane_uid`**, **`pane_label`** — same pane identity as parse/lifecycle records; join
   on `pane_uid` to see which pane / tool was being watched live. Always present.
-- **`tool`** — `claude` | `codex` | `gemini` | `opencode` | `omp` | `shell` for the watched pane. NULLABLE
+- **`tool`** — `claude` | `codex` | `gemini` | `antigravity` | `opencode` | `omp` | `shell` for the watched pane. NULLABLE
   (absent if the pane's tool wasn't known yet). Tells you what kinds of panes get watched
   live.
 - **`changed`** — `true` = the round ended because the screen changed (a frame was sent);
@@ -198,8 +209,9 @@ that's what makes watch-time summable (below). Attributes:
 
 ### Live Mode voice turns (`scope_name = 'tmux-rc.live'`, `kind = 'live_turn'`)
 
-Live Mode is the spoken-agent surface: a voice session that watches the whole tmux state,
-talks back by voice, and acts via two tools (type into a pane, press a key). WHICH model
+Live Mode is the spoken-agent surface: a voice (or text chat) session that watches the
+whole tmux state, talks back, and acts via tools (type into a pane, press a key, send an
+image, open a pane, find and resume past sessions). WHICH model
 answers is a server-side table (`TMUXRC_LIVE_MODELS`), so these rows span providers —
 Gemini Live on Vertex or AI Studio, OpenAI Realtime on OpenAI or Azure, and GPT-Live, which
 bills differently again (see `voice_seconds`). **Always group by `model`/`provider` before
@@ -356,10 +368,14 @@ like `"$9.99"` scraped off someone's status bar.
 Fields (include a field only when determinable, so most are frequently absent — treat
 missing as "not shown on screen / not applicable," not zero):
 
-- **`tool`** — which program occupies the pane: `claude` | `codex` | `gemini` | `opencode` | `omp` | `shell` |
-  `unknown`. The kind of thing being watched. (Observed mostly `claude`, some `shell`.)
-- **`activity`** — `running` | `waiting` | `idle` (| `unknown` in daemon-generated stub
-  states). Same meaning as the top-level `activity` column (that column is derived from this).
+- **`tool`** — which program occupies the pane: `claude` | `codex` | `gemini` | `antigravity` |
+  `opencode` | `omp` | `shell` | `unknown`. The kind of thing being watched.
+- **`activity`** — `running` | `waiting` | `idle` | `compacting` | `quota_blocked` (| `unknown`
+  in daemon-generated stub states). Same meaning as the top-level `activity` column (that
+  column is derived from this).
+- **`waiting_on`** — only with `waiting`: `user` (the amber "needs you" badge) or `external`
+  (a build, a background agent; shown as ordinary busy).
+- **`resets`** — only with `quota_blocked`: the reset time the agent printed.
 - **`headline`** — one human sentence summarizing what's happening / being worked on. The
   main line of the card, written like a mobile push notification: it carries the SUBSTANCE
   (the actual question/decision/result), not a meta-description. Good for "what was the
@@ -389,11 +405,17 @@ missing as "not shown on screen / not applicable," not zero):
   side-note (e.g. `"ran 3 commands"`, `"exit 1"`). This is the activity feed — good for
   "what kinds of actions happen most" analysis. Newest-relevant first.
 - **`tasks`** — array of `{text, done}` — a TODO/checklist visible on screen.
+- **`subagents`** — array of `{label, state, elapsed, tokens}` — the agent's background
+  workers, `state` in `running|waiting|idle|compacting|unknown|done`.
+- **`working_prs`** — array of `{repo, number}` — the PRs this session is working on.
+- **`offers`** — short replies the agent offered; **`copyables`** — `{label, text, send?}`
+  blocks the user may want on the clipboard or typed back.
 - **`question`** — present only when the agent is BLOCKED awaiting input:
-  `{prompt, options[], answer_style}`. `prompt` is the (context-rich) question; `options`
-  are candidate answers; `answer_style` is `text` (parser will TYPE the chosen option +
-  Enter — normal conversational questions) or `menu` (an on-screen picker; options map to
-  keystrokes). When `question` is present the pane is `waiting`.
+  `{prompt, options[], answer_style, ...}`. `prompt` is the (context-rich) question;
+  `options` are candidate answers; `answer_style` is `text` (the chosen option is TYPED +
+  Enter), `menu` (a numbered picker; options map to keystrokes) or `cursor` (an
+  arrow-driven picker, with `selected` and a `keymap`). When `question` is present the
+  pane is `waiting`.
 - **`tables`** — array of `{title?, headers[], rows[][]}` — tabular data extracted from the
   screen (ASCII/box-drawn tables), so it renders as a real table rather than prose.
 - **`links`** — array of `{href, text}`: URLs the screen was OFFERING the user to open

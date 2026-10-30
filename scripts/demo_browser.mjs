@@ -23,11 +23,20 @@ export const STILL = `/* demo-still: a mock snapshot drops this */ body { font-f
 *, *::before, *::after { animation: none !important; transition: none !important;
   caret-color: transparent !important; scroll-behavior: auto !important; scrollbar-width: none !important; }`;
 
+// Start Chat or Voice: a wide screen's bar has their buttons; a phone starts either from New
+// session's sheet.
+export async function start(page, kind) {
+  const button = kind === "chat" ? "#chat" : "#live-mode";
+  if (await page.locator(button).isVisible()) return page.click(button);
+  await page.click("#new-window");
+  await page.click(`#launch-kind [data-start="${kind}"]`);
+}
+
 // Type `ask` into the chat and wait for the canned reply (and `until`, a frame after it).
 export function chat(ask, until) {
   return async (page) => {
-  await page.click("#chat");
-  await page.waitForFunction(() => document.getElementById("voice-status")?.textContent === "Connected");
+  await start(page, "chat");
+  await page.locator("#chat-input").waitFor(); // the first turn starts the chat
   await page.fill("#chat-input", ask);
   await page.press("#chat-input", "Enter");
   await page.waitForFunction(() => document.querySelectorAll("#voice-log .voice-entry").length >= 2);

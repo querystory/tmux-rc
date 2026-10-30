@@ -1,4 +1,4 @@
-# Design: push notifications — "needs you" and "milestone" pushes, with reply
+# Design: push notifications — "Needs you" and "milestone" pushes, with reply
 
 Status: **blocking pushes + replies implemented; milestone pushes remain planned**.
 

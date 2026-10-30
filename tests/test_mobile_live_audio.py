@@ -124,7 +124,9 @@ def test_chat_starters_follow_connection_and_conversation_lifecycle():
   $('voice-end').onclick(); $('chat').onclick(); await flush();
   assert.equal(starters.hidden, false); // new conversation, including a model switch
   $('voice-end').onclick();
-  assert.equal(starters.hidden, true);
+  assert.equal(sockets.length, 2); // ended: the next turn starts a new chat, so the choices stay
+  starters.children[0].onclick(); // New session's Chat tab shows them before any chat exists
+  assert.equal(sockets.length, 3); assert.equal(starters.hidden, true);
 })().catch(error => {console.error(error); process.exitCode = 1;});
 """, {"version": "v", "live_enabled": True,
       "live_models": [{"label": "Sonnet", "text": True}]})
@@ -139,7 +141,8 @@ const thumbs = []; // every image put ahead of a transcript row's text
 const element = () => {
   const classes = new Set();
   const node = Object.assign(new EventTarget(), {
-    classList: {add: (c) => classes.add(c), contains: (c) => classes.has(c),
+    classList: {add: (c) => classes.add(c), remove: (c) => classes.delete(c),
+      contains: (c) => classes.has(c),
       toggle: (c, on = !classes.has(c)) => on ? classes.add(c) : classes.delete(c)},
     setAttribute() {}, insertAdjacentHTML() {}, remove() {},
     querySelector: (s) => node.children.find((c) => s === `.${c.className}`), // children only

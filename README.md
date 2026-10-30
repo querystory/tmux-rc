@@ -16,38 +16,57 @@ a question, tappable answers, and a snapshot timeline.
 - **Reboot without losing your fleet.** Sessions, windows, splits and names come back, and
   each agent resumes its own conversation, in one tap
   ([below](#reboot-without-losing-your-fleet)).
+- **Review agents' work.** Where it happens: [Scratch](docs/scratch.md) pages are files on
+  the machine your agents run on, with nothing to upload and no hosted, vendor-locked
+  service. Artifacts for any model or harness: planning docs, drafts, mocks and reports, as
+  HTML or in a Markdown viewer with tables, mermaid and callouts ([below](#review-agents-work)).
 
 <p align="center">
-  <img src="docs/img/one-tap-list.png" alt="Needs you on the phone: an agent asks whether to merge two green, reviewed PRs, with Merge both and Just #413 buttons right on its row" width="240">
-  <img src="docs/img/one-tap-pane.png" alt="The same question in the agent's overview: a summary, both answers as buttons, and both PRs under Links with their titles" width="240">
-  <img src="docs/img/mobile-offers.png" alt="An agent hands you a command to run: make test, and a reply, each with Send it and Copy buttons" width="240">
+  <img src="docs/img/mobile-list.png" alt="The phone session list: every tmux pane grouped by session, each row showing the agent's name, its state badge, and a one-line summary of what it is doing" width="240">
+  <img src="docs/img/one-tap-pane.png" alt="Needs you in an agent's overview: it asks whether to merge two green, reviewed PRs, with a summary, both answers as buttons, and both PRs under Links with their titles" width="240">
+  <img src="docs/img/mobile-scratch.png" alt="The Scratch tab on the phone: cards with a thumbnail of each page, its title, a one-line description, when it was made and which session made it; one card is marked Updating" width="240">
 </p>
 
-<p align="center"><em>Answer your agents in one tap, from your phone.</em></p>
+<p align="center"><em>Every agent at a glance, answers in one tap, and the pages they made.</em></p>
 
 <p align="center">
   <img src="docs/img/hero.png" alt="The wide layout: the session list on the left with panes that need you highlighted, one pane's live terminal in the middle, and its Overview on the right with the headline, summary, links, tasks and sub-agents">
 </p>
 
 <p align="center">
-  <img src="docs/img/mobile-list.png" alt="The phone session list: every tmux pane grouped by session, each row showing the agent's name, a running or idle badge, and a one-line summary of what it is doing" width="280">
   <img src="docs/img/mobile-pane.png" alt="A single pane on the phone: headline, plain-English summary, the model and how much of its context window is used, the sub-agents it spawned, a timestamped activity list, and a box to message the pane" width="280">
 </p>
 
-<p align="center"><em>Every screenshot here is the real UI rendering an invented fleet (<code>make screenshots</code>). The phone UI at <code>/m</code>. Left: every pane on the tmux server, filtered by All / Running / Recent / Needs&nbsp;you. Right: one pane's Overview — what the agent is doing, and a composer to answer it.</em></p>
+<p align="center"><em>Every screenshot here is the real UI rendering an invented fleet (<code>make screenshots</code>). The phone UI at <code>/m</code>. Left: every pane on the tmux server, grouped by state (Needs&nbsp;you, Working, Quota&nbsp;blocked, Just&nbsp;finished, Idle) or by session; the tab bar switches between Dashboard, Usage, Sessions, Needs&nbsp;you and Scratch, and the menu (☰) holds Chat, Voice and Settings. Right: one pane's Overview — what the agent is doing, and a composer to answer it.</em></p>
+
+The Overview also lifts what the agent printed for you to use elsewhere: a commit
+message, a command, a token, each under **From the terminal** with a **Copy** button. The
+composer attaches any file from the phone, not only photos; the pane receives a path the
+agent can open. Pane rows and places are links, so a middle or Ctrl-click opens one in a
+new tab. Share a link from another app into a pane and the list asks which pane
+([how](docs/iphone-setup.md#share-a-link-into-a-pane)).
+
+<p align="center">
+  <img src="docs/img/mobile-copy-block.png" alt="A pane's Overview on the phone with From the terminal: a commit command and a push command, each in a code block with a Copy button" width="240">
+  <img src="docs/img/mobile-attach.png" alt="The phone composer with a file attached: a checkout-trace.zip chip in the message box, ready to send to the pane" width="240">
+  <img src="docs/img/mobile-new-session.png" alt="The New session sheet on the phone: Session, Chat and Voice at the top, a session picker, then Claude, Codex, OpenCode, omp, Gemini, Antigravity and Shell, each with a + button" width="240">
+</p>
 
 Switch a pane to the **Terminal** tab for the live screen, plus a key row for the
-keystrokes a phone keyboard can't send (Esc, Tab, arrows, Ctrl-C, Ctrl-D, Ctrl-O, and
-the tmux prefix):
+keystrokes a phone keyboard can't send (Esc, Tab, arrows, Page Up/Down, Enter, Ctrl
+chords and the tmux prefix):
 
 <p align="center">
   <img src="docs/img/mobile-terminal.png" alt="The Terminal tab on the phone, showing the live tmux pane rendered in colour above a horizontally scrolling row of Esc, Tab, arrow, Enter and Ctrl key buttons" width="280">
 </p>
 
 On a wide window the same page lays out as three columns — the session list, the
-pane's Overview, and its live terminal — and `/` redirects to it. Start a new agent in a
-new window without touching the machine: tap **+** beside the Sessions heading and pick
-a session and an agent (`TMUXRC_LAUNCHERS` sets the choices).
+pane's Overview, and its live terminal — and `/` redirects to it. Start something new
+without touching the machine: tap **+** (**New session**) beside Sessions and pick
+**Session** (an agent or shell in a new tmux window, in an existing session or a new one
+from a directory; `TMUXRC_LAUNCHERS` sets the agent choices), **Chat** or **Voice**
+([Live Mode](docs/design/live-mode.md)). Agents' previews live under **Scratch**, and a
+page can be pinned to the app's menu: [docs/scratch.md](docs/scratch.md).
 
 **Why not `/remote-control`?** Every vendor's coordination story stops at its own
 walls, and Claude Code's remote control is the clearest example: it is locked to the
@@ -77,11 +96,41 @@ each agent pane holds. When that tmux server is gone, the app offers it back.
 
 Why it works this way: [docs/design/reboot-restore.md](docs/design/reboot-restore.md).
 
-> **Status: proof of concept.** The all-pane watch/control slice works end to end,
-> across every pane on the tmux server: watch → classify → phone card → detect a
-> waiting prompt → tap → answer round-trips into the pane. Remaining PRD milestone-2
-> items (floating waiting panes to the top) are next; the PRD's non-goals stay out of
-> scope.
+## Review agents' work
+
+Scratch is Artifacts for any agent: you review the planning docs, drafts, mocks and reports
+your agents make where the work happens, on their own machine. It is a folder on your own machine that any agent
+in any pane writes pages into, and the daemon serves it at `/scratch/` behind the same
+front door as the app, so a page is on your phone with no second server or tunnel.
+
+<img src="docs/img/wide-scratch.png" alt="Scratch in the wide layout: a grid of cards beside the session list, each with the page's thumbnail, title, description, the agent and account that made it linked to its pane, and when it was made and updated; one card is marked Updating">
+
+<p align="center">
+  <img src="docs/img/mobile-scratch-page.png" alt="A scratch page open in the app's viewer, with a message box at the bottom addressed to the pane that made it, a Screenshot attached chip and a Send button" width="280">
+</p>
+
+- **A gallery that knows the fleet.** Each card shows a thumbnail, a title and which session
+  made the page, linked to that pane while it runs; a pane's overview lists its pages.
+- **A link before the page.** An agent writes the folder's `meta.json` first, so the link
+  shows **In progress** and turns into the page when it lands, with a push. A page being
+  revised reads **Updating**, and a Markdown page reloads itself when done.
+- **Reply to the maker.** The viewer's message box goes to the agent that wrote the page,
+  with a screenshot of the page at your screen's width.
+
+### Where the work happens
+
+You review a page on the agents' own machine, beside the repo, the build and the pane that
+made it. There is nothing to upload and no hosted service in between, so private work can
+go there (only a page without a description has its text sent to the parse model, for one
+sentence). And nothing locks you to a vendor: any model, any harness, any script that writes
+a file can publish one. The full comparison with claude.ai Artifacts, and setup:
+[Scratch](docs/scratch.md#scratch-and-claudes-artifacts).
+
+> **Status.** In daily use on real fleets: every pane on the server is watched,
+> classified and answerable from the phone, with push notifications, chat and voice over
+> the fleet, restore after a reboot, scratch previews, agent accounts and a history
+> dashboard. It is a single-user tool with no authentication of its own (see
+> [Run](#run)); the [PRD](docs/PRD.md)'s non-goals stay out of scope.
 
 [Why tmux-rc](docs/comparisons/_index.md): the existing tmux workflow we wanted to
 keep, the requirements other tools left open for us, and the alternatives we researched.
@@ -139,8 +188,9 @@ systemctl --user restart tmux-rc.target   # both halves (daemon + tunnel)
 ```
 
 `make install-units` stamps the unit's `WorkingDirectory` with the checkout you run it
-from, so it works wherever you cloned. On a host with an encrypted `$HOME`, install with
-`make install-units LINGER=0`: lingering units would crash-loop before you log in.
+from, so it works wherever you cloned, and builds the `agent-history` helper when Go is
+installed. On a host with an encrypted `$HOME`, install with `make install-units
+LINGER=0`: lingering units would crash-loop before you log in.
 
 **Exposing it off-LAN** is optional and yours to choose — this repo doesn't ship a tunnel.
 `tmux-rc-tunnel.service` is a slot for whichever reverse-tunnel client you use
@@ -151,47 +201,19 @@ binary, put the client's config in `~/.config/tmux-rc/tunnel.env` (see
 so you can ignore it entirely on a LAN-only setup. Whatever you pick should
 **authenticate** — the daemon itself has no auth.
 
-### iPhone: Live Mode and notifications
+### Phone: notifications, Chat and Voice
 
-Follow the [iPhone happy-path setup guide](docs/iphone-setup.md) for Home Screen installation,
-permissions, a real notification test, screen timeout/lock behavior, and audio recovery.
-Use **Safari or Chrome → Share → Add to Home Screen**, then launch the installed app—not
-a browser tab—for this workflow. Push continues independently of Live Mode; uninterrupted
-background voice is not guaranteed by iOS.
-
-Open `/m` in Safari or Chrome, use **Add to Home Screen**, launch that installed app, then turn on
-Push notifications in its Settings (the gear in the header). iOS only permits Web Push permission from an installed web app
-and a user gesture. A notification tap opens the exact pane that needs attention, where
-you can use its answer buttons or composer. iOS Web Push does not expose inline text
-replies or notification action buttons; platforms that do support action buttons can
-send the first two structured options directly from the notification.
-
-Subscriptions and the VAPID key are stored owner-only at
-`~/.local/state/tmux-rc/push.json`, outside the checkout. Removing a device is available
-from the same Push notifications switch; `POST /api/push/revoke-all` revokes every saved device.
-Delivery is deliberately best-effort: relay failures are logged and dropped instead of
-replaying a stale question after an outage.
-The push sender contact defaults to `mailto:tmux-rc@openbus.io`; operators can override
-it with `TMUXRC_PUSH_SUBJECT=mailto:<real-contact-address>` in the daemon environment.
+Install the app from your daemon's address ([Install the client](docs/client-setup.md)),
+then turn on **Push notifications** in its Settings: a pane that **Needs you** notifies
+every subscribed device, and a tap opens that pane. iOS grants Web Push only to an
+installed Home Screen app, so follow [iPhone setup](docs/iphone-setup.md) there; it also
+covers Voice (Live Mode), lock-screen behaviour and what triggers a notification.
 
 The checkout *is* the deploy — the unit runs this directory and loads its `.env`, so
 upgrading is `git pull` + `restart`. For iterating on the daemon itself, stop the unit
 and run `make dev` in a pane as usual; the two modes share the same command and config.
 See [docs/design/deployment.md](docs/design/deployment.md) for why user units + linger
 (and not containers, system units, or a supervising parent).
-
-### Previews at `/scratch/`
-
-Set `TMUXRC_SCRATCH_DIR` in `.env` and restart, and the daemon serves that directory
-read-only at `<your tmux-rc URL>/scratch/<folder>/`, behind whatever already guards the
-app (Tailscale, a tunnel, a proxy, or localhost). Drop in anything static (a mock an agent wrote, another project's built site, a
-report, images, PDFs) and open it on the phone, with no second server or tunnel. Unset
-means nothing is served. Everything there is visible to everyone who can reach tmux-rc, and
-pages are sandboxed so their scripts cannot make requests (no `fetch`, XHR or WebSocket)
-or post forms: self-contained bundles work, anything that calls a backend does not. It
-serves files and is not a proxy. Mocks worth keeping go in `docs-site/static/mocks/`
-instead. Set `TMUXRC_SCRATCH_ADVERTISE=1` to let agents in new panes find it. Setup per
-access method, security and troubleshooting: [Previewing work](docs/deploy/previews.md).
 
 ### Run without cloning
 
@@ -243,24 +265,44 @@ Loaded from `.env` at startup (real shell env vars still override). See `.env.ex
 | var | default | meaning |
 | --- | --- | --- |
 | `GOOGLE_CLOUD_PROJECT` | — | GCP project for Vertex (required for the LLM pass) |
-| `GOOGLE_APPLICATION_CREDENTIALS` | — | absolute path to the Vertex service-account key (durable auth; see `.env.example`) |
+| `GOOGLE_APPLICATION_CREDENTIALS` | — | absolute path to the Vertex service-account key ([why](docs/design/durable-vertex-auth.md)) |
 | `VERTEX_AI_REGION_GEMINI` | `global` | Vertex region |
-| `TMUXRC_TARGET` | unset (all panes) | restrict watching to one pane. Always reliable: a pane id (`%3`) or a numeric tmux address (`session:window_index[.pane_index]`, e.g. `work:0.0` — indices, not the window name). Also accepted: the pane's derived label (`name` / `name.N`). That is a window name that doesn't look like a tmux default, used *verbatim*; failing that, `<base>:<window_index>` where base is the session name, or the cwd basename when the session name looks like a default too. Only the fallback carries the index, so a bare session or cwd name matches nothing unless a window is actually named that. A card's title in the UI is not reliably a target — it may be the agent's own pane title or an LLM-refined name rather than the label — so use a pane id when in doubt |
-| `TMUXRC_TMUX_SOCKET` | unset (default server) | a `tmux -L` socket name; every tmux call the daemon makes goes to that server instead. For a dev daemon or test that creates sessions without touching your real tmux |
+| `TMUXRC_GEMINI_MODEL` | `gemini-3.1-flash-lite` | the classifier model |
+| `TMUXRC_IN_PER_M` / `TMUXRC_OUT_PER_M` | `0.25` / `1.50` | its USD prices per 1M tokens, for the cost figures |
+| `TMUXRC_LLM_TIMEOUT_MS` | `20000` | per-call timeout |
+| `TMUXRC_NO_LLM` | unset | `1` runs heuristics-only (no Vertex calls) |
+| `TMUXRC_TARGET` | unset (all panes) | watch one pane: a pane id (`%3`) or `session:window[.pane]` by index. The derived labels `.env.example` describes also work; a card's title does not |
+| `TMUXRC_TMUX_SOCKET` | unset (default server) | a `tmux -L` socket name, for a dev daemon that must not touch your real server |
 | `TMUXRC_HOST` / `TMUXRC_PORT` | `127.0.0.1` / `18030` | HTTP bind |
 | `TMUXRC_HOST_NAME` | the hostname, up to its first dot | this machine's name at the end of each app tab's title, to tell machines apart |
-| `OPENAI_API_KEY` | unset | Live Mode's voice key (keep it in `~/.config/tmux-rc/openai.env`); when set, voice uses `gpt-live-1` by default. Live Mode also needs `TMUXRC_LIVE_MODE=1` — see [Live Mode](docs/design/live-mode.md#gpt-live-1) |
-| `TMUXRC_NO_LLM` | unset | set `1` to run heuristics-only (no Vertex calls) |
-| `TMUXRC_ENTER_SETTLE_S` | `0.3` | pause between typed text and the Return that submits it. Agent TUIs tell "submit" from "newline" by timing, so a Return arriving inside the paste burst is read as a newline and the message sits composed but unsent. Raise it if a TUI still swallows submits; `0` disables the wait |
-| `TMUXRC_LAUNCHERS` | Claude/Codex/OpenCode/omp/Gemini/Shell | "New window" dialog entries — inline JSON or a path to a JSON file: `[{"label":"Codex (high)","command":"codex -c model_reasoning_effort=high","icon":"codex"}, …]`; `icon` is a built-in logo name (claude/codex/gemini/opencode/omp/shell) or an image URL; `provider` (`claude` or `codex`) says whose [accounts](docs/design/agent-accounts.md) it can launch on, read from `icon` when that is claude or codex, so it is needed only with another icon |
-| `TMUXRC_SCRATCH_DIR` | unset (not served) | directory served read-only at `/scratch/` for throwaway previews — see [Previewing work](docs/deploy/previews.md) |
-| `TMUXRC_SCRATCH_ADVERTISE` | unset (off) | `1` exports `TMUXRC_SCRATCH_DIR` and `TMUXRC_SCRATCH_LOCAL_URL` (when scratch is served) and `TMUXRC_SCRATCH_URL` (when also set) to tmux's global environment at startup, removing any that is no longer configured, so agents in new panes can find scratch and check their pages locally |
-| `TMUXRC_SCRATCH_URL` | unset | the base URL you open tmux-rc at, plus `/scratch` (e.g. `https://<machine>.<tailnet>.ts.net/scratch`), advertised with the dir |
-| `TMUXRC_PUSH_SUBJECT` | `mailto:tmux-rc@openbus.io` | optional operator `mailto:` contact override for VAPID; unrelated to the tunnel URL |
-| `TMUXRC_PUSH_ALLOWED_HOSTS` | Apple, Google, Mozilla, Microsoft push relays | comma-separated exact hosts or dot-prefixed domain suffixes accepted as subscription endpoints; extend only for a trusted browser push service |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | OTLP/gRPC receiver for per-parse benchmark telemetry; unset = telemetry off |
-| `OTEL_EXPORTER_OTLP_HEADERS` | — | e.g. `authorization=Bearer <token>` for the receiver |
-| `TMUXRC_QSDEBUG` | unset | set `1` to also send raw pane text + model output JSON (privacy: content leaves the host) |
+| `TMUXRC_ALLOWED_HOSTS` | loopback names and the bind address | extra `Host` names the daemon answers to, comma-separated: the tunnel's upstream host, a LAN name |
+| `TMUXRC_ALLOWED_ORIGINS` | the local origins on `TMUXRC_PORT` | extra browser origins allowed to write and open Live sockets: your tunnel's `https://host`. Not auth |
+| `TMUXRC_TUNNEL_SECRET_FILE` | unset | opt-in: the tunnel client must echo this file's secret before its `X-Tunnel-User` is trusted ([SECURITY.md](SECURITY.md)) |
+| `TMUXRC_AUDIT_KEYS` | `1` | `0` logs actions without the keys typed (no-echo passwords would otherwise reach the journal) |
+| `TMUXRC_API_DOCS` | unset | `1` serves `/apidocs` and `/apiredoc` (they load third-party JS); `/openapi.json` is always on |
+| `TMUXRC_DOCS_DIR` | `docs-site/serve` beside the package | the built docs site served at `/docs/` (`make docs`); absent = no Docs button |
+| `TMUXRC_ENTER_SETTLE_S` | `0.3` | pause between typed text and the Return that submits it; agent TUIs read a Return inside a paste burst as a newline. Raise it if a TUI swallows submits, `0` disables |
+| `TMUXRC_LAUNCHERS` | Claude, Codex, OpenCode, omp, Gemini, Antigravity, Shell | New session entries, inline JSON or a path to it: `[{"label":"Codex (high)","command":"codex -c model_reasoning_effort=high","icon":"codex"}]`. `icon`: a built-in logo (claude/codex/gemini/antigravity/opencode/omp/shell) or an image URL; `provider` (`claude`/`codex`) picks whose [accounts](docs/design/agent-accounts.md) it runs on when the icon does not say |
+| `TMUXRC_LIVE_MODE` | unset (off) | `1` enables Chat and Voice ([Live Mode](docs/design/live-mode.md)) |
+| `TMUXRC_LIVE_REGION` | `us-central1` | Vertex region for voice models (needs one that serves them; not `global`) |
+| `TMUXRC_LIVE_MODELS` | Gemini 2.5 voice on Vertex, plus the chat defaults | the models Chat and Voice offer, inline JSON or a path (`.env.example` has the shape, backends and rates) |
+| `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `AZURE_OPENAI_API_KEY` + `AZURE_OPENAI_ENDPOINT` | — | keys for the other Live backends, read from `~/.config/tmux-rc/openai.env`, never `.env`; a model whose key is missing is listed greyed with the reason |
+| `TMUXRC_GPT_LIVE_VOICE` / `TMUXRC_GPT_LIVE_BACKEND` | `marin` / `gpt-5.6-luna` | GPT-Live 1's voice and backend model; `OPENAI_API_KEY` makes it the default voice model ([details](docs/design/live-mode.md#gpt-live-1)); `TMUXRC_GPT_LIVE_{INPUT,CACHED,OUTPUT}_PER_M` price a backend override |
+| `TMUXRC_PUSH_SUBJECT` | `mailto:tmux-rc@openbus.io` | VAPID contact; a real `mailto:`, or Apple rejects delivery |
+| `TMUXRC_PUSH_ALLOWED_HOSTS` | Apple, Google, Mozilla, Microsoft relays | push endpoints accepted at subscribe, hosts or `.suffix`es |
+| `TMUXRC_SCRATCH_DIR` | unset (not served) | directory served read-only at `/scratch/` for agents' previews — [docs/scratch.md](docs/scratch.md) |
+| `TMUXRC_SCRATCH_ADVERTISE` | unset (off) | `1` exports the scratch dir and URLs to tmux's global environment, so agents in new panes find it |
+| `TMUXRC_SCRATCH_URL` | unset | the URL you open tmux-rc at, plus `/scratch`, advertised with the dir |
+| `TMUXRC_THUMB_BROWSER` | Playwright's bundled headless Chromium | the browser that renders scratch thumbnails; never your own profile |
+| `TMUXRC_HISTORY_DB` | `~/.local/state/tmux-rc/history.sqlite3` | the history database (pane history, usage, layouts for restore) |
+| `TMUXRC_WORKSTREAMS` | unset | `{"name": ["keyword", …]}`: your own grouping of open loops on the dashboard, when nothing better links them |
+| `TMUXRC_AGENT_HISTORY` / `AGENT_HISTORY_DIR` | on `PATH` or `~/.local/bin` / `~/agent-history` | the `agent-history` binary Chat uses to find past conversations, and its index |
+| `TMUXRC_PREFER_IPV4` | `1` | outbound connections prefer IPv4; `0` if your v6 works and v4 does not |
+| `TMUXRC_RELOAD` | `1` from a checkout, `0` installed | restart on source changes (`make dev`); the unit sets `0` |
+| `TMUXRC_LOG_LEVEL` | `INFO` | daemon log level |
+| `TMUXRC_METRICS_LOG` / `TMUXRC_LLM_LOG` | `/tmp/tmux-rc-metrics.jsonl` / `/tmp/tmux-rc-llm.log` | per-call cost ledger (JSONL) and the model's inputs and outputs, for debugging |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_HEADERS` | unset | OTLP/gRPC receiver for per-call telemetry, and its `authorization=Bearer <token>`; unset = off |
+| `TMUXRC_QSDEBUG` | unset | `1` also sends raw pane text and model output to telemetry (privacy: content leaves the host) |
 
 ### What it costs
 
@@ -279,25 +321,33 @@ across 3 hosts, agents running most of the day), at Gemini 3.1 Flash Lite list p
 
 ## API
 
-The daemon serves the phone's PWA and a small HTTP API on `:18030` — usable by anything
-(curl, scripts, agents), not just the phone:
+The daemon serves the phone's PWA and an HTTP API on `:18030` — usable by anything
+(curl, scripts, agents), not just the phone. The ones to start with:
 
 | Endpoint | What it gives you |
 |---|---|
-| `GET /api/digest` | **Start here for "what's going on":** per pane — headline, activity (`running`/`waiting`/`idle`), idle time, pending question, LLM idle-summary, recent timestamped event history |
-| `GET /api/state` | The phone's live view: current cards, usage totals, `llm_error`. `events` carries only what's NEW since the last parse — history lives in `/api/digest` |
-| `GET /api/panes/{id}/snapshots` (+ `/{snap_id}`) | Raw screen captures over time |
-| `POST /api/panes/{id}/send`, `/select`, `/image` | Act on a pane (these exist for the phone's audited path; local consumers can equally use `tmux send-keys` directly) |
+| `GET /api/digest` | **"What's going on":** per pane — headline, activity, pending question, summary, recent events |
+| `GET /api/state` | The phone's live view: current cards, usage totals, `llm_error` |
+| `POST /api/panes/{id}/send` | Type text or keys, or answer a prompt, in a real tmux pane |
+| `POST /api/panes/{id}/compose` | Send a draft of text and files to a pane |
+
+The full list, and `/openapi.json` for the exact version you run:
+[docs/api-reference.md](docs/api-reference.md).
 
 ## How it works
 
 - **`tmux.py`** — non-disruptive `capture-pane` reads + `send-keys` writes.
-- **`classify.py`** — heuristics first (tool, activity, context %, y/n & menu prompts);
-  a lazy Gemini Flash Lite pass fills gaps only when the pane changed and heuristics
-  are weak (empty status, unparsed prompt, or a box-drawing TUI frame).
 - **`watcher.py`** — polls every 1.5s, tracks idle time, keeps a snapshot ring buffer.
-- **`server.py`** — FastAPI: `/api/state`, snapshot endpoints, `/api/panes/{id}/send`.
+- **`classify.py`** — heuristics first (tool, activity, context %, y/n & menu prompts);
+  a Gemini Flash Lite pass reads the screen only when the pane changed, and decides the
+  card: headline, question and answers, offers, copyables, links.
+- **`server.py`** — FastAPI: the API, the PWA, `/scratch/`, `/docs/`.
+- **`push.py`**, **`live.py`**, **`restore.py`**, **`history.py`**, **`scratch.py`**,
+  **`accounts.py`** — notifications, Chat and Voice, reboot restore, the history
+  database, previews, agent accounts.
 - **`web/`** — installable vanilla-JS PWA.
+
+The end-to-end tour, with diagrams: [docs/design/architecture.md](docs/design/architecture.md).
 
 ## License
 
