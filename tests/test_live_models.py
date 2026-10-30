@@ -259,4 +259,6 @@ def test_nothing_offered_greys_every_row_and_names_the_cause(monkeypatch):
     v = c.get("/api/version").json()
     assert v["live_enabled"] is True
     assert all(m.get("unavailable") for m in v["live_models"])
+    flash = next(m for m in v["live_models"] if m["label"] == "Gemini 3 Flash")
+    assert flash["hint"].endswith("GOOGLE_CLOUD_PROJECT or GEMINI_API_KEY")
     assert "key" in _refused(c, "/api/live-mode").reason
