@@ -255,11 +255,19 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
         first = [str(o).lower() for o in opts[:2]] if isinstance(opts, list) else []
         if len(first) < 2 or not re.match(r"yes\b", first[0]) or not re.match(r"no\b", first[1]):
             diffs.append(f"question.options: want accept then decline, got {opts!r}")
-    # Opt-in: how many reply buttons the card may draw (its options and offers, as
-    # app.js answerOptions joins them), so a list of points stays one ask's few replies.
-    buttons = {str(o).casefold() for o in [*(opts or []), *(candidate.get("offers") or [])]}
-    if len(buttons) > expected.get("buttons_at_most", len(buttons)):
-        diffs.append(f"buttons: {len(buttons)} over {expected['buttons_at_most']}: {buttons!r}")
+    # Opt-in: how many reply pills the card may draw, so a list of points stays one ask's
+    # few replies. Counted as app.js answerOptions does: the question's options bar its
+    # free-text row, then each reply offer (not a `! command`) not already among them.
+    if "buttons_at_most" in expected:
+        listed = lambda v: v if isinstance(v, list) else []  # noqa: E731  untrusted model JSON
+        free = got_q.get("free_text") if isinstance(got_q, dict) else None
+        pills = [o for i, o in enumerate(listed(opts))
+                 if isinstance(o, str) and o.strip() and i != free]
+        said = {o.strip().lower() for o in pills}
+        pills += [o for o in listed(candidate.get("offers")) if isinstance(o, str)
+                  and not o.startswith("! ") and o.strip().lower() not in said]
+        if len(pills) > expected["buttons_at_most"]:
+            diffs.append(f"buttons: {len(pills)} over {expected['buttons_at_most']}: {pills!r}")
     # Opt-in: text the question's prompt must not quote (a panel drawn beside the message).
     prompt = str(got_q.get("prompt")) if isinstance(got_q, dict) else ""
     if quoted := [t for t in (want_q or {}).get("prompt_excludes", []) if t in prompt]:
