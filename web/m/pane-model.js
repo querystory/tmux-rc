@@ -148,7 +148,10 @@ export const oneSession = () => solo !== null;
 export const sessionOf = (pane) => pane?.session === solo ? "" : pane?.session || "";
 // What a question decides, then the list rows it names ("do 1 now?", "A or B?"), one per
 // line, so it reads alone.
-export const questionItems = (question) => Array.isArray(question?.items) ? [question.subject, ...question.items].filter(Boolean).join("\n") : "";
+// `said`: answer labels on buttons beside it, whose rows (numbered or not) it leaves to them.
+const bare = (row) => String(row).trim().replace(/^\(?\w{1,2}[.)]\s+/, "");
+export const questionItems = (question, said = []) => Array.isArray(question?.items)
+  ? [question.subject, ...question.items.filter((row) => !said.some((label) => bare(label) === bare(row)))].filter(Boolean).join("\n") : "";
 // The line a list shows under the name: the question it is stuck on, else what it is doing,
 // else the headline (a daemon restart regenerates session_summary lazily).
 // A held widget's question reads as its plain restatement (`ask`, classify._restate): a bare

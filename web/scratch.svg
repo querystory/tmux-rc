@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+  <!-- Scratch pages' tab icon: the app icon's dark tile and green status bar, with Lucide's
+       file-text (ISC) in place of the tmux mark, so a scratch tab is family but not the app.
+       See docs/design/tab-icons.md. -->
+  <rect width="192" height="192" rx="40" fill="#0b0f14"/>
+  <g transform="translate(30,18) scale(5.4)" fill="none" stroke="#adbac7" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>
+  </g>
+  <rect x="34" y="158" width="124" height="20" rx="10" fill="#1BB91F"/>
+</svg>

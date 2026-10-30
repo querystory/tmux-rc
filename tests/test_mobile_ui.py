@@ -51,6 +51,7 @@ def test_mobile_assets_and_manifest():
     manifest = client.get("/m/manifest.json").json()
     assert manifest["start_url"] == "/m"
     assert manifest["scope"] == "/m"
+    assert manifest["share_target"]["action"] == "/m"  # in scope, read by app.js's boot
     assert 'id="push"' in client.get("/m").text
     assert 'addEventListener("fetch"' not in client.get("/sw.js").text
 
@@ -250,6 +251,20 @@ def test_chat_pasted_image_keeps_input_height_and_header_ends_chat():
     assert '$("voice-end").onclick = () => { stop(); dialog.close(); }' in live
 
 
+def test_new_session_start_row_follows_the_pick_and_comes_back():
+    # Picking Chat or Voice moves the Session|Chat|Voice row into that sheet (pressed on the
+    # pick), so Session is still a tap away; the row returns when that sheet closes.
+    app = (Path(__file__).resolve().parents[1] / "web/m/app.js").read_text()
+    assert 'pressKind(b); $("launch-dialog").close(); live.open[kind]();' in app
+    assert '$("voice-dialog").querySelector(".dialog-heading").after(kindRow)' in app
+    # The close event is queued: the breakpoint handler's close-and-reopen must leave the row.
+    assert ('$("voice-dialog").addEventListener("close", () => $("voice-dialog").open || '
+            'kindHome())' in app)
+    assert '$("voice-close").click(); $("launch-dialog")._opener.click();' in app
+    # The other mode while a conversation runs is a reason on the line, not a pick that failed.
+    assert "busy && busy !== kind && `End ${" in app
+
+
 def test_voice_sheet_takes_initial_focus_not_its_first_button():
     """showModal() focuses the first button (the minimize button) and its :focus-visible ring
     paints on open; the sheet itself takes focus instead, with no ring on that container."""
@@ -292,22 +307,27 @@ def test_wide_sidebar_answers_through_the_pane_views_own_send_path():
     app, side = (root / "app.js").read_text(), (root / "sidebar.js").read_text()
     assert ("answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, "
             "compose") in app
-    assert 'reconcile($("options"), answerOptions(question)' in app
+    # One answerOptions(question, pane) feeds both: a question's answers, then the finished turn's
+    # reply offers as pills; the mono Send it row is only for "! command" offers.
+    assert "options = answerOptions(question, pane);" in app
+    assert 'reconcile($("options"), options,' in app
+    assert "ctx.answers(needsYou(p) ? p.question : null, p)" in side
     assert 'compose(active, $("secret").hidden ? draft() : $("secret"))' in app
     assert "await ctx.compose(id, value)" in side
-    assert "ctx.answer(node._p.pane_id, o.option, o.index, !!o.part)" in side
+    assert "ctx.answer(node._p.pane_id, o.option, o.index, !!o.part || !!o.offer)" in side
     # An offer is sent by the same path, from the card and the list, never via the composer.
     assert "send.onclick = () => answer(active, node._offer, -1, true);" in app
     assert "takeOffer" not in app + side
     assert 'show("list-nav", !inPane && !wide)' in app
-    # The tab bar hides in a pane, so Chat and the mic move to its heading rather than vanish.
-    assert 'const callTo = inPane ? $("pane-menu") : $("all-tab");' in app
-    assert ('callTo.before($("live-mode"), $("chat")) : '
-            'callTo.replaceWith($("chat"), callTo, $("live-mode"))') in app
+    # Chat and the mic sit in a pane's heading, by its menu; on the list, the ☰ drawer has them.
+    html = (root / "index.html").read_text()
+    assert html.index('id="heading"') < html.index('id="chat"') < html.index('id="pane-menu"')
+    assert '["chat", "Chat", "message"], ["live-mode", "Voice", "mic"]' in app
     assert "if (WIDE.matches) $(slot).append($(id)); else homes[id].after($(id));" in app
     assert ".sb-only { display: none !important; }" in (root / "style.css").read_text()
-    # Every group starts open (Idle too, by the user's call); only a fold the user made persists.
-    assert "g.open = !!query || !prefs.fold[g.id];" in side
+    # Every group starts open (Idle too, by the user's call); only a fold the user made persists
+    # (tests/test_sidebar_fold.mjs: a fold made during a search lasts as long as the search).
+    assert "g.open = !g.folds[g.id];" in side
     # Hover shows the overview's own facts (shared helpers, /api/state only), mouse or keyboard
     # focus only, described for screen readers; no native title tooltip competes with it.
     assert 'text($("metadata"), paneMeta(pane));' in app

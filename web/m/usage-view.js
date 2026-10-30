@@ -206,6 +206,7 @@ export function renderUsageView(root, all, options) {
   // Every window type of every account, picked or not, so a chart the pick empties says so.
   const types = [...new Set([...all.flatMap(a => (a.windows || []).map(w => w.window)), ...Object.keys(byType)])].sort((a, b) => order(a) - order(b) || a.localeCompare(b));
   if (types.join() !== view.types.join()) build(types);
+  view.empty.hidden = types.length > 0; view.root.classList.toggle('uv-blank', !types.length);
   const times = Object.values(byType).flat().flatMap(m => [m.past[0]?.[0], m.cur[0]?.[0], m.w.resets_at]).filter(Boolean);
   // At least the days loaded, so a new account's 30d still spans 30 days; All, what there is.
   view.extent = { min: Math.min(now - (usageDays() === Infinity ? D : usageDays() * D), ...times), max: Math.max(now + 6 * H, ...times) + H };
@@ -230,9 +231,12 @@ export function renderUsageView(root, all, options) {
 
 function setup(root, refetch, icon) {
   root.innerHTML = '<div class="uv-bar"><div class="uv-errs"></div><span class="uv-span"></span></div><div class="uv-stack"></div>'
+    // No plan, no meters: say how to get them rather than show empty charts.
+    + '<p class="uv-empty" hidden>No plan limits yet. Usage charts the 5-hour and weekly limits of a Claude or Codex subscription: '
+    + 'start a Claude Code or Codex pane signed in with a plan (not an API key) and its meters appear here within a few minutes.</p>'
     // What the shading and the dashes mean, once under the charts.
     + '<div class="uv-key" aria-hidden="true"><span><i class="now"></i>current window</span><span><i class="was"></i><i></i>earlier windows</span><span><i class="fc"></i>forecast</span></div>';
-  const v = { root, types: [], cards: [], bar: root.firstChild, span: root.querySelector('.uv-span'), stack: root.querySelector('.uv-stack'), errs: root.querySelector('.uv-errs') };
+  const v = { root, types: [], cards: [], bar: root.firstChild, span: root.querySelector('.uv-span'), stack: root.querySelector('.uv-stack'), errs: root.querySelector('.uv-errs'), empty: root.querySelector('.uv-empty') };
   v.range = segmented('Time range', Object.keys(RANGES), rangeOf(), r => {
     const more = usageDays();
     picked = r; zoom = null;
@@ -331,15 +335,15 @@ async function paint() {
         zoomTo(z.startValue, z.endValue - z.startValue);
         if (zoom.startValue !== z.startValue || zoom.endValue !== z.endValue) paint(); else spanText(); // corrected: held back from all-forecast, or to an hour
       });
-      (c.sized = new ResizeObserver(() => c.chart.resize())).observe(c.chartEl);
+      // ECharts redraws on every resize: only a real new size, not the 0 of a page left and the same size back.
+      (c.sized = new ResizeObserver(([{ contentRect: r }]) => { const size = r.width && `${r.width}x${r.height}`; if (size && size !== c.size) { c.size = size; c.chart.resize(); } })).observe(c.chartEl);
       c.chart.on('updateAxisPointer', e => strip(c, e));
     }
     c.el.classList.toggle('slid', c === on[on.length - 1]); // the slider's chart: a phone gives it the room
     c.tipEl.style.top = `${c.chartEl.offsetTop}px`;
     // How it moves, as the layout has it: a phone's drag scrolls the page, so it zooms by the range and the slider.
     c.chartEl.title = `${narrow ? 'Pick a range above, or drag the slider under the last chart' : 'Scroll to zoom, drag to pan'}; touch or hover for the exact %. Keyboard: + or − to zoom, arrows to pan.`;
-    c.chart.setOption(option(c, view.extent, view.now, c === on[on.length - 1], css), true);
-    c.chart.resize();
+    c.chart.setOption(option(c, view.extent, view.now, c === on[on.length - 1], css), true); // the observer above resizes it
   }
   echarts.connect('usage');
   spanText();
