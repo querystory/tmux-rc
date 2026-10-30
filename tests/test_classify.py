@@ -139,6 +139,11 @@ def test_a_command_among_a_questions_replies_is_one_offer():
     r = classify(_pane("claude"), _TEA.replace("❯ brew coffee", "! brew coffee"),
                  read("! brew coffee"))
     assert (r.get("offers"), r["question"]["options"]) == (None, [])
+    # Under a live background-agent wait, a command only among the replies still offers.
+    waiting = (f"{VISIBLE_SCREEN}● Ready:\n\n  ! make tea\n\n✻ Waiting for 2 background agents "
+               f"to finish… (4m 12s)\n\n{_RULE}\n❯ \n{_RULE}\n  ⏵⏵ auto mode on")
+    r = classify(_pane("claude"), waiting, read("! make tea"))
+    assert (r["offers"], r.get("question")) == (["! make tea"], None)
 
 
 def _pane(cmd="bash", title="t"):

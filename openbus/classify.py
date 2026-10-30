@@ -710,7 +710,7 @@ def _ground_visible_fields(
     ) if llm_fn and (bad_action or identity_chrome) else None
     retry = dict(retry) if isinstance(retry, dict) else None
     if retry:
-        _fold_sends(retry)
+        _fold_sends(retry, text)
         _unblocked_ask(retry)  # before its ask is validated: a bad one costs no quota read
     if retry and receipt and kind == "prompt":
         # The cursor rests below everything printed since the answer: nothing there asks.
@@ -1027,7 +1027,7 @@ def _sends_out_of_options(result: dict, text: str) -> None:
     question["options"] = [o for o in options if o not in sends
                            and not (_quoted(o, view) and not _quoted(o, above))]
     if sends:
-        result["offers"] = [*(result.get("offers") or ()), *sends]
+        result["offers"] = [*sends, *result["offers"]]  # first, so the cap of three keeps it
         if not question["options"]:
             del result["question"]
 
@@ -1347,13 +1347,15 @@ def _from_reply(offer: str, reply: str | None) -> str:
     return offer
 
 
-def _fold_sends(result: dict) -> None:
+def _fold_sends(result: dict, text: str) -> None:
     """What to send is the model's call: the text it gives copyables to send here leads
-    its offers, so a corrective re-read replaces both together."""
+    its offers, so a corrective re-read replaces both together. A `! command` among its
+    question's replies joins them before that question is checked (_sends_out_of_options)."""
     cps, offers = result.get("copyables"), result.get("offers")
     result["offers"] = [*(c["send"] for c in (cps if isinstance(cps, list) else ())
                           if isinstance(c, dict) and isinstance(c.get("send"), str)),
                         *(offers if isinstance(offers, list) else ())]
+    _sends_out_of_options(result, text)
 
 
 def classify(
@@ -1443,7 +1445,7 @@ def classify(
         result.update(tool="shell", activity="idle")
         result.pop("question", None)
         result.pop("rewind", None)
-    _fold_sends(result)
+    _fold_sends(result, text)
     # Before grounding, since a misquoted ask would otherwise send the re-read a viewport
     # cut above the quota notice (the re-read's own ask is dropped inside it).
     _unblocked_ask(result)
@@ -1550,7 +1552,6 @@ def classify(
     over = spent or blocked
     # Claude's final message is read on the ask view: a long one begins above the viewport.
     final = not over and tool in _TURN_ERROR_RE and _final_message(view, tool)
-    _sends_out_of_options(result, text)
     if (offers := screen_offers(result.pop("offers", None), text)) and not over:
         result["offers"] = offers = [_from_reply(offer, reply) for offer in offers]
     # The model's own read of this screen (not an activity carried over a failed parse) that
