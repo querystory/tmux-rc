@@ -28,7 +28,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   $("live-mode").innerHTML = $("voice-mute").innerHTML = mic;
   $("voice-end").innerHTML = licon("x");
   $("chat").innerHTML = licon("message");
-  let run = null, sequence = 0, fetching = false, modelSignature = null, menu = [], unread = false, composing = false;
+  let run = null, enabled = false, sequence = 0, fetching = false, modelSignature = null, menu = [], unread = false, composing = false;
   // Voice comes from the mic button, through the model picker. Chat (typed turns and
   // written replies, no mic and no playback) comes from the chat button, straight in.
   let mode = "voice";
@@ -130,10 +130,9 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
       const data = await request("/api/version");
       onVersion(data.version);
       if (!run) { menu = data.live_models || [{ label: "Default", value: "" }]; renderModels(); }
-      // Each button only with something to start: the mic needs a voice row (a keyless one
-      // still says what to set), Chat a usable chat model.
-      $("live-mode").hidden = !(data.live_enabled && menu.some((model) => !model.text)) && !run;
-      const noChat = !(data.live_enabled && chatModels().length) && !run;
+      enabled = data.live_enabled;
+      $("live-mode").hidden = !!why(false);
+      const noChat = !!why(true);
       if (noChat !== $("chat").hidden) { $("chat").hidden = noChat; onChat(); } // the app offers Chat elsewhere too
       $("docs").hidden = !data.docs; // not live, but this is the boot capabilities fetch
       $("scratch").hidden = $("scratch-nav").hidden = !data.scratch;
@@ -142,6 +141,10 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   }
   const saved = (key) => { try { return localStorage.getItem(key); } catch { return null; } };
   const chatModels = () => menu.filter((model) => model.text && !model.unavailable);
+  // Why Chat (text) or Voice can't open, "" when it can. Chat starts straight in, so it needs a
+  // usable model; Voice opens its picker, which shows a keyless row greyed with what to set.
+  const why = (text) => (run || (enabled && menu.some((model) => !!model.text === text && !(text && model.unavailable)))) ? ""
+    : menu.find((model) => !!model.text === text && model.unavailable)?.hint || `No ${text ? "chat" : "voice"} model is set up`;
   // The voice picker (a keyless entry greyed, with why), and Chat's switcher options.
   function renderModels() {
     const models = menu.filter((model) => !model.text), last = saved("tmuxrc-live-model");
@@ -583,7 +586,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
       stop(`${error.name === "NotAllowedError" ? "Microphone access denied. Allow microphone access for this site." : "Live Mode could not start: " + error.message}`);
     }
   }
-  $("live-mode").onclick = () => { if (!run) mode = "voice"; paint(); show(); if (run) resumeAudio(run, true); };
+  const voice = () => { if (!run) mode = "voice"; paint(); show(); if (run) resumeAudio(run, true); };
   // Chat: straight into a text session on the last chat model used (else the first), no
   // picker and no mic. A conversation already running (either mode) is just brought back.
   function openChat() {
@@ -591,6 +594,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     show(); // first, so a new chat's handshake says it opened in view
     if (!run && model) { mode = "text"; $("voice-model").value = model.label; start(); }
   }
+  $("live-mode").onclick = voice;
   $("chat").onclick = () => docked() ? hide() : openChat(); // a docked panel toggles: nothing covers the button
   // A question from elsewhere in the app: into the open conversation, else a new chat's
   // first turn once it is listening.
@@ -661,5 +665,5 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   });
   window.addEventListener("focus", pullTaps);
   paint(); capabilities(); pullTaps();
-  return { isActive: () => !!run, refresh: capabilities, ask };
+  return { isActive: () => !!run, refresh: capabilities, ask, why, open: { chat: openChat, voice } };
 }
