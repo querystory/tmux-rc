@@ -42,7 +42,7 @@ def test_project_picks_vertex_else_api_key(monkeypatch):
     monkeypatch.setattr(genai, "Client", lambda **kw: kw)
     monkeypatch.setenv("GEMINI_API_KEY", "k")
     cases = [("example-project", {"vertexai": True, "project": "example-project"}),
-             (None, {"api_key": "k"})]
+             (None, {"vertexai": False, "api_key": "k"})]
     try:
         for project, want in cases:
             if project:
@@ -52,7 +52,7 @@ def test_project_picks_vertex_else_api_key(monkeypatch):
             llm._build_client.cache_clear()
             got = llm._build_client()
             assert want.items() <= got.items() and got["http_options"].timeout == llm._TIMEOUT_MS
-            assert ("api_key" in got) != ("vertexai" in got)
+            assert ("api_key" in got) != got["vertexai"]
             assert llm.provider() == ("vertex" if project else "gemini-api")  # telemetry, hints
         monkeypatch.delenv("GEMINI_API_KEY")
         llm._build_client.cache_clear()

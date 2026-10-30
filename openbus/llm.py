@@ -176,7 +176,7 @@ def _build_client():
             "location": os.environ.get("VERTEX_AI_REGION_GEMINI", "global"),
         }
     elif key := os.environ.get("GEMINI_API_KEY"):
-        where = {"api_key": key}
+        where = {"vertexai": False, "api_key": key}  # False beats an inherited GOOGLE_GENAI_USE_* env
     else:
         raise RuntimeError(
             "Neither GOOGLE_CLOUD_PROJECT (Vertex) nor GEMINI_API_KEY (AI Studio) is set; "
