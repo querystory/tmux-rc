@@ -154,9 +154,14 @@ class Files(StaticFiles):
         seen = parse_qs(scope["query_string"].decode()).get("seen")
         folder = "/" not in path.removeprefix(ARCHIVE + "/")  # a folder's own URL
         if seen and folder:  # a placeholder or bar asking: wide says reload, wider it is done
-            wait = await anyio.to_thread.run_sync(lambda: self.pending(path) or self.updating(path))
-            same = wait == ("", "") or (wait and f'const SEEN = "{seen[0]}";' in "".join(wait))
-            return Response(PIXEL if same else WIDE if wait else DONE, media_type="image/gif")
+            def asked():  # what it waits on, else whether its page is there
+                wait = self.pending(path) or self.updating(path)
+                return wait, not wait and self.lookup_path(path + "/index.html")[1] is not None
+            wait, done = await anyio.to_thread.run_sync(asked)
+            # neither (meta.json mid-write, the folder gone): nothing landed, so ask again
+            same = wait == ("", "") or (wait and f'const SEEN = "{seen[0]}";' in "".join(wait)) \
+                or not (wait or done)
+            return Response(PIXEL if same else DONE if done else WIDE, media_type="image/gif")
         try:
             response = await super().get_response(path, scope)
         except HTTPException as e:

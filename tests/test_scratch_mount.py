@@ -90,8 +90,12 @@ if server._scratch_dir:
     width = lambda q: Image.open(io.BytesIO(c.get(f"/scratch/wip/?seen={q}").content)).width
     mine = server.re.search(r'const SEEN = "([^"]+)"', c.get("/scratch/wip/").text)[1]
     before = width("stale"), width(mine)
-    (server.Path(server._scratch_dir) / "wip" / "index.html").write_text("landed")
-    print(*before, width(mine))
+    wip = server.Path(server._scratch_dir) / "wip"
+    (wip / "meta.json").write_text('{"title": "A n')  # mid-write: nothing landed, ask again
+    mid = width(mine)
+    (wip / "meta.json").write_text('{"title": "A new page"}')
+    (wip / "index.html").write_text("landed")
+    print(*before, mid, width(mine))
     # An updating folder's Markdown page wears the bar and asks the same way: unchanged, then
     # its files change (a revision lands), then the mark goes (the update is done: 3px).
     rev = server.Path(server._scratch_dir) / "rev"
@@ -156,7 +160,7 @@ def test_scratch_serves_only_inside_the_configured_dir(tmp_path):
     # The placeholder marks itself apart from the page, and a plain 404 scans no accounts.
     assert _probe({"TMUXRC_SCRATCH_DIR": str(scratch)}, tmp_path) == [
         200, 404, 404, 200, 307, 200, 404, 404, 404, 202, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-        1, 1, 200, 200, 202, 200, 202, 202, 400, 1, 1, 1, 404, 2, 1, 3,
+        1, 1, 200, 200, 202, 200, 202, 202, 400, 1, 1, 1, 404, 2, 1, 1, 3,
         1, 1, 1, 1, 1, 1, 2, 3, 1]
 
 
