@@ -179,11 +179,8 @@ a.icon-button { color: var(--fg); text-decoration: none; }
   --lens: blur(8px) saturate(220%) brightness(1.03); --drop: 0 10px 28px rgb(0 0 0 / .16), 0 1px 3px rgb(0 0 0 / .12); }
 #list-nav button { flex: 1 1 0; min-width: 0; width: auto; height: auto; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 2px; border-radius: 28px; font-size: 10.5px; font-weight: 600; white-space: nowrap; color: var(--ink); text-shadow: 0 0 4px var(--halo); box-shadow: none; }
 #list-nav svg { width: 22px; height: 22px; filter: drop-shadow(0 0 3px var(--halo)); }
-#list-nav :is([aria-pressed="true"], #chat.active) { background: var(--accent-bg); color: var(--accent); }
+#list-nav [aria-pressed="true"] { background: var(--accent-bg); color: var(--accent); }
 #list-nav #attention-tab[aria-pressed="true"] { background: var(--amber-bg); color: var(--amber); }
-#list-nav #chat::after { content: attr(aria-label); }
-#list-nav #live-mode::after { content: "Voice"; }
-#list-nav #live-mode.active { color: var(--red); }
 .nav-icon { position: relative; display: grid; place-items: center; }
 .count { font-size: 11px; font-variant-numeric: tabular-nums; }
 #list-nav .count { position: absolute; left: calc(50% + 5px); top: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--amber); color: var(--surface); line-height: 18px; font-weight: 700; text-align: center; }
@@ -1301,7 +1298,7 @@ button.picked:is(:disabled, [aria-disabled="true"]) { opacity: 1; }
   #find .search { flex: 1; min-width: 0; margin: 0; padding: 0 0 0 4px; background: none; box-shadow: none; }
   #find + .acct-pill { display: none; }
   #side-filter-picker summary { width: 40px; height: 40px; min-height: 40px; border-radius: 10px; }
-  :is(.app-header, .landing-head) #side-filter-picker summary[data-n=""] { width: 44px; height: 44px; border-color: transparent; background: none; }
+  :is(.app-header, .landing-head, .fg-scope) #side-filter-picker summary[data-n=""] { width: 44px; height: 44px; border-color: transparent; background: none; }
   /* The bar stays slim: Back, then the pane's name once its title has gone (app.js), then the actions. */
   #heading { gap: 0; padding: 4px 4px 4px 16px; }
   #back { order: -2; margin-right: 8px; }
@@ -1377,6 +1374,8 @@ button.picked:is(:disabled, [aria-disabled="true"]) { opacity: 1; }
 .uv-card.empty { padding-bottom: 10px; }
 .uv-card.empty .uv-chart { display: none; }
 .uv-none { color: var(--muted); font-size: 13px; }
+.uv-empty { margin: 4px; color: var(--muted); line-height: 1.5; }
+.uv-blank :is(.uv-span, .uv-key, .fleet-seg, .uv-bar:has(> .uv-errs:empty)) { display: none; }
 .uv-filter summary { min-height: 38px; padding: 0 8px; border: 1px solid var(--line); border-radius: 7px; }
 .uv-filter summary::after { display: none; }
 .uv-filter summary.on { color: var(--accent); border-color: var(--accent); background: var(--accent-bg); }
@@ -1386,7 +1385,7 @@ button.picked:is(:disabled, [aria-disabled="true"]) { opacity: 1; }
 @media (max-width: 699px) { #dash-page:has(> .usage-view) { height: auto; } }
 @container dash-page (max-width: 699px) {
   /* A phone: the charts stacked to scroll, each landscape, 5-hour and Weekly on the first screen. */
-  #landing .usage-view { flex: none; min-height: 0; gap: 8px; padding: 10px 6px 4px; }
+  #landing .usage-view { flex: none; min-height: 0; gap: 8px; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; } /* edge to edge under the head: no card */
   .uv-bar { justify-content: space-between; gap: 6px 8px; }
   .uv-bar .fleet-seg button { min-width: 0; padding: 2px 8px; }
   .uv-span { order: 2; flex-basis: 100%; font-size: 12px; }
@@ -1507,7 +1506,6 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 .fg-mini canvas, .fg-box canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 #dash-page:has(> .fg-view) { display: flex; flex-direction: column; height: 100%; box-sizing: border-box; }
 .fg-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-@media (max-width: 699px) { .fg-view { min-height: 360px; } }
 /* The HUD over the canvas: the lens chips and jump-to callouts on top, the counts down the left
    (a row at the bottom on a phone), the key along the foot. Its empty middle passes touches
    through to the canvas, and its words don't select: a double tap on Jump to toggles it, not
@@ -1558,6 +1556,12 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
   .fg-hud::before { grid-row: stats / key; margin: -14px -52px -8px -10px; } /* the fade backs the counts too */
   .fg-legend { margin-right: -42px; } .fg-key { font-size: 8.5px; gap: 3px 10px; }
 }
+/* The account scope's strip over the canvas (graph.js, seated by app.js placePill on a narrow
+   screen): the filter button, then the active chips; nothing, and it takes no room. */
+.fg-scope { display: flex; flex: none; align-items: center; gap: 4px; padding: 6px 6px 4px; overflow-x: auto; scrollbar-width: none; }
+.fg-scope:empty { display: none; }
+.fg-scope > #side-filter-picker { flex: none; }
+.fg-scope > .acct-pill { flex-wrap: nowrap; padding: 0 4px; }
 /* Full screen (graph.js): the view over everything, edge to edge inside the safe area. A phone
    opens the view this way. */
 .fg-view.full { position: fixed; inset: 0; z-index: 40; min-height: 0; background: var(--surface); padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }

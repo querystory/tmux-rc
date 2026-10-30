@@ -5,7 +5,8 @@
 // nothing under it, and because the installed PWA's start_url stays the plain list. Unknown
 // fields (push's `from=push`) are ignored on read and dropped on write; `compose=1` is
 // read-only, set by push links to focus the reply box, and so is `open`, a scratch page a
-// "Ready" push opens in the Scratch view's viewer. `filter`, `acct` and `agent` are lists (a
+// "Ready" push opens in the Scratch view's viewer, and so is `draft`, text a link offers for the
+// pane's composer (linkDraft). `filter`, `acct` and `agent` are lists (a
 // pane shows if it matches any state, any account and any agent; empty is all), comma-separated, so an old
 // single-value link reads as a list of one. The sort is a per-browser preference, not here.
 //
@@ -39,8 +40,14 @@ export function parseHash(hash, tab = "summary") {
     q: params.get("q")?.trim() || "", // the list's search box
     compose: params.get("compose") === "1",
     open: params.get("open"),
+    draft: linkDraft(params.get("draft")),
   };
 }
+
+// A link's draft is only ever put in the composer, never sent: the user's Send confirms it. Still,
+// a link is anyone's, so it is cut to 500 characters and control and format characters (a hidden
+// newline, a bidi override) become spaces. Null when nothing is left.
+export const linkDraft = (s) => [...String(s ?? "").replace(/[\p{Cc}\p{Cf}]/gu, " ")].slice(0, 500).join("").trim() || null;
 
 // Defaults are omitted so the bare list is the bare URL.
 export function formatHash({ pane = null, view = "summary", dashboard = false, page = null, filter = [], acct = [], agent = [], q = "" }) {

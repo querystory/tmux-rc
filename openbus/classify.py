@@ -62,6 +62,22 @@ _CHECKLIST_LINE_RE = re.compile(
     r"(?im)^[ \t│├└─|+*-]*(?:(?P<done>☑|✓|✔|\uf14a|\[[x✓]\])|☐|\uf096|\[[ •]\])"
     r"[ \t]*(?P<text>\S.*)$",
 )
+# Claude's AskUserQuestion draws each question's header as a ☐/☒/✔ tab on the row right
+# under the dialog's top rule (a lone tab for a single question, "← … →" around several):
+# picker chrome, so a task that is only a tab's label (no checkbox row of its own
+# elsewhere on screen) is the model misreading it. The arrows come as a pair: a lone
+# tab's label keeps a trailing →.
+_PICKER_TABS_RE = re.compile(
+    r"(?m)^[ \t]*[─━▔]{3,}[ \t]*\n[ \t]*(←[ \t]*)?([☐☒✔].*?)(?(1)[ \t]*→)[ \t]*$")
+# Its footer is the evidence a picker is open at all: a plan's checklist under a rule
+# has none, and keeps every row. A narrow pane wraps the footer onto a second row.
+_PICKER_FOOTER_RE = re.compile(
+    r"(?m)^[ \t]*Enter to select\b[^\n]*(?:\n[ \t]*[^\n]*)?"
+    r"\bEsc[ \t]*\n?[ \t]*to[ \t]*\n?[ \t]*cancel[ \t]*$")
+_PICKER_TAB_RE = re.compile(r"[☐☒✔][ \t]*([^☐☒✔\n]*[^☐☒✔\s])")
+# A label's own checkbox row elsewhere: behind any gutter (⎿ ☐, ├─ [X], •), and before a
+# barred transcript's right border. A real task there keeps a tab's label.
+_OWN_ROW = r"(?im)^[^\w\n]*?(?:[☐☒☑✔✓•]|\[[ x✓•]\])[ \t]*{}[ \t│┃║]*$"
 _OPENCODE_RUNNING_RE = re.compile(
     # OpenCode 1.18's spinner is ■/⬝ blocks, or "[⋯]" with animations off; a first Esc
     # press turns the label into "esc again to interrupt".
@@ -1399,10 +1415,22 @@ def classify(
             and isinstance(task.get("text"), str)
             and _checklist_text(task["text"]) in visible_tasks
         ] if isinstance(tasks, list) else []
-        if validated:
-            result["tasks"] = validated
-        else:
-            result.pop("tasks", None)
+        result["tasks"] = validated
+    footer = (result.get("tool") == "claude" and isinstance(result.get("tasks"), list)
+              and _PICKER_FOOTER_RE.search(visible))
+    # The open picker's header is the last tab row above its footer; a plan under a rule
+    # higher up is a checklist, and its rows stay evidence.
+    headers = list(_PICKER_TABS_RE.finditer(visible, endpos=footer.start())) if footer else []
+    if headers:
+        header = headers[-1]
+        rest = visible[:header.start()] + visible[header.end():]
+        tabs = {_checklist_text(tab) for tab in _PICKER_TAB_RE.findall(header[2])
+                if not re.search(_OWN_ROW.format(r"[ \t]+".join(map(re.escape, tab.split()))),
+                                 rest)}
+        result["tasks"] = [task for task in result["tasks"] if not isinstance(task, dict)
+                           or _checklist_text(str(task.get("text"))) not in tabs]
+    if result.get("tasks") == []:
+        result.pop("tasks")
     # Apply authoritative live chrome AFTER a bounded retry can replace activity.
     if result.get("tool") == "opencode" and _opencode_running(text):
         result["activity"] = "running"

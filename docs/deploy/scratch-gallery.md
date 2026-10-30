@@ -79,6 +79,17 @@ scratch page. Nothing needs setting up: the renderer ships with the daemon, and
 mermaid.js is served from the app's own files. The
 [design note](../design/scratch-markdown.md) explains the choices.
 
+## A page that suggests a reply
+
+A sandboxed page can't act, but it can link: `/m/#pane=%25N&draft=<text>` opens that pane
+with the text in its composer, so a status page's "Merge" button is one tap plus the
+user's own Send. The draft is never sent and never typed as keys; Send is the confirmation.
+It is cut to 500 characters with control characters removed, a draft already being written
+is kept (the link's is offered in a notice), a pane that is gone says so, and the parameter
+leaves the URL once used, so a reload offers nothing. Inside the app's viewer a plain link
+would load a second app in the frame, so a page there posts
+`{pane, draft}` to its parent instead, as the placeholder's pane link does.
+
 ## A link handed out before its page
 
 Agents often hand out a link before the page behind it exists ("a subagent is building it,
@@ -92,8 +103,12 @@ crashes, and it survives a daemon restart, since the state is read from the fold
 
 - **The link** answers **202** with a placeholder: the title and description, who is making
   it (linked to the pane), that pane's current headline, a spinner and how long ago it
-  started. It reloads itself, every 5 seconds and every 30 after ten minutes, so it turns
-  into the page once that lands. A 202 passes `curl -f`, `raise_for_status()` and
+  started. It asks the daemon every 5 seconds (every 30 after ten minutes) whether the page
+  has landed or what it says has changed, and reloads only when the daemon says yes. A
+  reload sent blind would, during a tunnel blip, swap the placeholder for the tunnel's
+  error page, which has no script to recover. A failed ask only shows "Reconnecting…"
+  and tries again, backing off to every 30 seconds, so the tab turns into the page on its
+  own once the connection is back. A 202 passes `curl -f`, `raise_for_status()` and
   `fetch().ok`, so the snippet says exactly 200; the placeholder also sends `Retry-After` and
   `X-Scratch-Pending: 1`, and its `<title>` reads "In progress · …" (or "Stopped · …"), not the page's own. Its tab
   icon is scratch's, with an arc running round it while the page is in progress.
@@ -122,6 +137,10 @@ crashes, and it survives a daemon restart, since the state is read from the fold
   still keeps one finish to one buzz is the other direction: for two minutes after a Ready,
   that pane's plain "turn ended" Needs-you is skipped, since it says nothing the Ready did
   not (any question still notifies). A Needs-you already shown stays beside the Ready.
+- **When a revision ends** (meta.json's `updating` removed), the same push says `Updated: <title>`
+  under the page's own tag, not a pane's: whoever revised it, a second revision replaces the
+  first notification instead of stacking. Presence does not hold it back, so it reaches a
+  phone that is not showing the page.
 
 An orchestrator that hands a subagent's link out writes `meta.json` itself, with its own
 `$TMUX_PANE`: in Claude Code and Codex the subagent runs in that pane. A worker in another
@@ -146,7 +165,10 @@ tmux-rc fills in the rest in the background, so the gallery never waits for it:
   one sentence, written into its `meta.json` and marked `"generated": ["description"]`.
   A description already there is never replaced.
 - **Who made it.** While the pane named in `meta.json` is open, the card shows its
-  session and window, its agent and its account, and links to it. Otherwise tmux-rc asks
+  session and window, its agent and its account, and links to it. A Codex pane is the
+  exception: Codex's shared app-server daemon stamps every session's `meta.json` with the
+  first Codex pane, so the transcript is asked and the named pane is kept only when it
+  has no answer. Otherwise tmux-rc asks
   [agent-history](https://github.com/querystory/tmux-rc/tree/main/agent-history) which
   session was active when the folder appeared and mentioned its path. If several were,
   it picks the most recently started one, since a long-running session that only passed

@@ -455,6 +455,55 @@ def test_omp_ask_radios_do_not_become_tasks(checked, unchecked):
     ]
 
 
+@pytest.mark.parametrize("rule", ["─", "▔"])
+@pytest.mark.parametrize(("tabs", "label"), [
+    (" ☐ Fruit ", "Fruit"), ("←  ☒ Beds  ☐ Fruit  ✔ Submit  →", "Fruit"),
+    (" ☐ API → UI", "API → UI"), (" ☐ API  →  UI", "API → UI"),
+    (" ☐ Fruit →", "Fruit →"),  # a lone tab keeps its trailing arrow
+])
+def test_claude_picker_header_tabs_are_not_tasks(tabs, label, rule):
+    screen = (
+        "  ⎿  ☐ Plant the seedlings\n" + rule * 40 + f"\n{tabs}\n\nWhich fruit should we plant?"
+        "\n\n❯ 1. Apple\n  2. Pear\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n"
+    )
+    tasks = [{"text": text, "done": False} for text in ("Plant the seedlings", label)]
+    result = classify(_pane("claude"), screen, _llm({
+        "tool": "claude", "activity": "waiting", "tasks": tasks,
+    }))
+    assert result["tasks"] == tasks[:1]
+    narrow = screen.replace("Esc to cancel", "Esc\nto cancel")  # wrapped in a narrow pane
+    assert classify(_pane("claude"), narrow, _llm({
+        "tool": "claude", "activity": "waiting", "tasks": tasks,
+    }))["tasks"] == tasks[:1]
+    assert "tasks" not in classify(_pane("claude"), screen, _llm({
+        "tool": "claude", "activity": "waiting", "tasks": tasks[1:],
+    }))
+    # A real task with the tab's label stays, barred (│ … │) or not.
+    for row in [f"  ⎿  {box} {label}" for box in ("☐", "☒", "☑", "✓", "•", "[x]", "[X]", "[ ]")] + [
+            f"│ ⎿  ☐ {label}      │"]:
+        assert classify(_pane("claude"), f"{row}\n" + screen, _llm({
+            "tool": "claude", "activity": "waiting", "tasks": tasks[1:],
+        }))["tasks"] == tasks[1:]
+    for row in (f"❯ {label}", f"│ {label}"):  # the label in prose is no checkbox row
+        assert "tasks" not in classify(_pane("claude"), f"{row}\n" + screen, _llm({
+            "tool": "claude", "activity": "waiting", "tasks": tasks[1:],
+        }))
+    plan = "─" * 40 + f"\n☐ {label}\nOpenCode 1.18.32"  # another agent's plan under a rule
+    assert classify(_pane(cmd="opencode"), plan, _llm({
+        "tool": "opencode", "activity": "running", "tasks": tasks[1:],
+    }))["tasks"] == tasks[1:]
+    # Claude's own plan under a rule, no picker footer: a checklist, every row kept.
+    plan = rule * 40 + f"\n☐ Water the beds\n☐ {label}"
+    assert classify(_pane("claude"), plan, _llm({
+        "tool": "claude", "activity": "running", "tasks": tasks[1:],
+    }))["tasks"] == tasks[1:]
+    # The same plan above the open picker: only the picker's own header is chrome.
+    rows = [{"text": "Water the beds", "done": False}, *tasks[1:]]
+    assert classify(_pane("claude"), f"  {plan}\n\n" + screen, _llm({
+        "tool": "claude", "activity": "waiting", "tasks": rows,
+    }))["tasks"] == rows
+
+
 def test_opencode_stale_interrupt_row_does_not_override_idle_footer():
     r = classify(
         _pane(cmd="opencode"),
