@@ -19,6 +19,22 @@ the daemon *is* the access-control system — see [docs/deploy/](docs/deploy/). 
 amount to "the API is unauthenticated" will be closed as working-as-documented; reports
 that it can be reached in a way the docs say is safe are very much in scope.
 
+## Browser origins
+
+Browser writes and Live WebSocket handshakes must have an allowed Origin. By default
+only `http://localhost`, `http://127.0.0.1` and `http://[::1]` on `TMUXRC_PORT`
+(18030 by default) are allowed. For remote browser access, set
+`TMUXRC_ALLOWED_ORIGINS=https://console.example.com` to the public origin your browser
+uses. Multiple origins are comma-separated; paths, credentials and wildcards are not
+allowed. This configuration is independent of the incoming Host and proxy headers, so
+a TLS-terminating tunnel can preserve or rewrite Host without changing this policy.
+
+Foreign, malformed and opaque (`null`) origins are rejected before request bodies or
+provider sessions are opened. Read-only HTTP methods are unchanged. Non-browser clients
+may omit Origin and Fetch Metadata, as ordinary curl does; browser metadata saying
+cross-site or same-site without an Origin is refused. These headers are not credentials,
+and this does not authenticate the daemon or protect it from an already-local process.
+
 ## Tunnel identity (`X-Tunnel-User`)
 
 The tunnel relay authenticates the phone through IAP and the tunnel client forwards the

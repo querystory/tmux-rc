@@ -63,7 +63,14 @@ def test_starts_the_server_when_none_is_running(sock, audits, tmp_path, monkeypa
     r = TestClient(S.app).post("/api/sessions", json={"name": "work", "cwd": str(tmp_path)})
     assert r.status_code == 200, r.text
     pane = r.json()["pane_id"]
-    assert _fmt(pane, "#{session_name} #{pane_current_path}") == f"work {tmp_path}"
+    # tmux 3.6 (Ubuntu 26.04) chdirs the pane only after its systemd scope setup, so
+    # for a moment the path reads as the server's (tmux issue 4719, fixed in 3.7).
+    where = "#{session_name} #{pane_current_path}"
+    for _ in range(50):
+        if _fmt(pane, where) == f"work {tmp_path}":
+            break
+        time.sleep(0.02)
+    assert _fmt(pane, where) == f"work {tmp_path}"
     # The server it started carries a user's environment, not the daemon's.
     env = T._run(["show-environment", "-g"])
     assert "OPENAI_API_KEY" not in env and "VIRTUAL_ENV" not in env and "/opt/venv/bin" not in env
