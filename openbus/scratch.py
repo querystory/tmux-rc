@@ -637,7 +637,7 @@ def placeholder(root: Path, name: str, who) -> str | None:
     for any other folder. `who()` gives the panes, their accounts, the stylesheet and,
     optionally, pane_of (as page's); it scans every account, so only a pending folder asks.
     An archived folder answers at ARCHIVE/<name>, and at <name> while that is not taken."""
-    i = _at(root, name)
+    i = found(root, name)
     if not (i and i["pending"]):
         return None
     states, profiles, style, *pane_of = who()
@@ -667,7 +667,7 @@ def _ask(seen, every: int) -> str:
     return f"<script>{script}</script>"
 
 
-def _at(root: Path, name: str) -> dict | None:
+def found(root: Path, name: str) -> dict | None:
     """The card of the folder a link to `name` answers with: an archived one's at
     ARCHIVE/<name>, and at <name> while that is not taken."""
     under = name.startswith(scratch_markdown.ARCHIVE + "/") or not os.path.lexists(root / name)
@@ -686,7 +686,7 @@ def bar(root: Path, name: str, states: list[dict],
     its files change. None for any other folder. `states` and `pane_of` find its reviser as
     the gallery does (no accounts: it is asked every few seconds). Archived, as
     placeholder's. ("", "") while meta.json is unreadable (mid-write): no answer yet."""
-    i = _at(root, name)
+    i = found(root, name)
     if i and not i["read"]:
         return "", ""
     if not (i and i["updating"]):

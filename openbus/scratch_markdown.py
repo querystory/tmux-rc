@@ -131,12 +131,13 @@ class Files(StaticFiles):
     folder (in ARCHIVE) is served at ARCHIVE/<name>/, where the Archived gallery links it,
     and at its old link while no folder has taken that name since, so links handed out keep
     working. Which tree answers is decided by the folder alone: a page never mixes files of
-    an archived folder and a new one of the same name."""
+    an archived folder and a new one of the same name. `there` says whether a folder with
+    neither has a card (scratch.found): its wait is over only then."""
 
     def __init__(self, *, web: Path, pending=lambda _name: None, updating=lambda _name: None,
-                 **kwargs):
+                 there=lambda _name: True, **kwargs):
         super().__init__(**kwargs)
-        self.web, self.pending, self.updating = web, pending, updating
+        self.web, self.pending, self.updating, self.there = web, pending, updating, there
 
     def lookup_path(self, path):
         parts = Path(path).parts
@@ -154,10 +155,9 @@ class Files(StaticFiles):
         seen = parse_qs(scope["query_string"].decode()).get("seen")
         folder = "/" not in path.removeprefix(ARCHIVE + "/")  # a folder's own URL
         if seen and folder:  # a placeholder or bar asking: wide says reload, wider it is done
-            def asked():  # what it waits on, else whether the folder has a page (as pending)
-                wait, full = self.pending(path) or self.updating(path), self.lookup_path(path)[0]
-                return wait, not wait and os.path.isdir(full) and any(
-                    f.suffix in (".html", ".htm", ".md") for f in Path(full).iterdir())
+            def asked():  # what it waits on, else whether the folder is there to show
+                wait = self.pending(path) or self.updating(path)
+                return wait, not wait and self.there(path)
             wait, done = await anyio.to_thread.run_sync(asked)
             # neither (meta.json mid-write, the folder gone): nothing landed, so ask again
             same = wait == ("", "") or (wait and f'const SEEN = "{seen[0]}";' in "".join(wait)) \

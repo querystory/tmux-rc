@@ -119,7 +119,8 @@ if server._scratch_dir:
     print(width(mine))
     (rev / "meta.json").write_text('{"title": "Rev"}')
     print(before, landed, width(mine), int("Updating" not in c.get("/scratch/rev/").text))
-    (rev / "index.md").rename(rev / "page.md")  # done too when its page is not the index
+    (rev / "docs").mkdir()  # done too when its page is not the index, nor at the top
+    (rev / "index.md").rename(rev / "docs" / "page.md")
     print(width(mine))
 """
 

@@ -2422,7 +2422,8 @@ if _scratch_dir:
         pending=lambda name: scratch.placeholder(Path(_scratch_dir), name, _who),
         updating=lambda name: scratch.bar(
             Path(_scratch_dir), name, list(app.state.watcher.states),
-            lambda entry: live.running_pane(entry, app.state.watcher))))
+            lambda entry: live.running_pane(entry, app.state.watcher)),
+        there=lambda name: scratch.found(Path(_scratch_dir), name) is not None))
 
 
 def _visited(kind: str, key: str) -> None:
