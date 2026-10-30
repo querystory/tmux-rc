@@ -255,6 +255,11 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
         first = [str(o).lower() for o in opts[:2]] if isinstance(opts, list) else []
         if len(first) < 2 or not re.match(r"yes\b", first[0]) or not re.match(r"no\b", first[1]):
             diffs.append(f"question.options: want accept then decline, got {opts!r}")
+    # Opt-in: how many reply buttons the card may draw (its options and offers, as
+    # app.js answerOptions joins them), so a list of points stays one ask's few replies.
+    buttons = {str(o).casefold() for o in [*(opts or []), *(candidate.get("offers") or [])]}
+    if len(buttons) > expected.get("buttons_at_most", len(buttons)):
+        diffs.append(f"buttons: {len(buttons)} over {expected['buttons_at_most']}: {buttons!r}")
     # Opt-in: text the question's prompt must not quote (a panel drawn beside the message).
     prompt = str(got_q.get("prompt")) if isinstance(got_q, dict) else ""
     if quoted := [t for t in (want_q or {}).get("prompt_excludes", []) if t in prompt]:

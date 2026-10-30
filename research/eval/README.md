@@ -98,6 +98,8 @@ strictness is correct:
 - `question.reply_buttons` — opt-in: the model-written reply buttons must be an accept
   ("Yes…") then a decline ("No…"); their wording is not pinned. Pinned `false`, there
   must be none (a handed-over `! command` is not a question to reply to).
+- `buttons_at_most` — opt-in: how many reply buttons the card may draw (the question's
+  options and the offers, together), so a list put to the user stays one ask's few replies.
 - `question.prompt_excludes` — opt-in list of strings the question's prompt must not
   contain (text drawn beside the message, such as a side panel's rows).
 - `links` — opt-in list of URLs, each of which must be offered whole among the candidate's
@@ -223,6 +225,7 @@ actually hit:
 | `136_claude_quota_blocked_with_subagent_row` | synthetic: the limit hit again after a new message, a sub-agent row still listed → `quota_blocked`, the worker quota_blocked too, no running agent counted |
 | `137_claude_working_on_usage_limit_handling` | synthetic: a live spinner while editing code that handles "usage limit reached" → running, no reset time |
 | `138_claude_quota_blocked_after_a_closing_question` | synthetic: an auto-mode turn ending "Want me to merge…?", then the limit hit → `quota_blocked`, no question, not Needs you |
+| `156_claude_decision_list_with_defaults_is_one_ask` | synthetic: a finished auto-mode turn sets out seven decisions with proposed defaults → one text user-wait, at most three reply buttons, none a list row |
 
 Sample 16 originally exposed a table-extraction failure: the prompt said to carry a
 question's supporting list but also to omit tables unless an actual table was shown.
