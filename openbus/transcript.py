@@ -28,6 +28,7 @@ _TAIL = 1 << 20
 # (all but its token counts).
 _SAID = frozenset({"user", "assistant", "response_item", "event_msg"})
 _UUID_RE = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
+_CLIPPED_BAR = re.compile(rf"\s*{_UUID_RE.pattern} · [\w.-]+…?\s*")  # "<thread> · gpt-6-…"
 
 
 def _home(pane: Pane, tool: str) -> Path:
@@ -98,9 +99,11 @@ def _codex_file(pane: Pane, text: str) -> Path | None:
     comes from the status bar (when configured to show it), as live._codex_pane does.
     A shell can print a captured footer, so Codex must also be running in the pane. At
     phone width the bar is cut short ("<thread> · gpt-6-…") and no longer reads as chrome,
-    but with Codex running there its bottom row still names the thread."""
+    but with Codex running there its bottom row, still shaped as a thread and a model,
+    names the thread; a bare id there is output (`ps` listing `codex resume <id>`)."""
     rows = ([line for line in _session_chrome(text) if _codex_model_segments(line)]
-            or tmux.strip_dim(text).rstrip().splitlines()[-1:])
+            or [line for line in tmux.strip_dim(text).rstrip().splitlines()[-1:]
+                if _CLIPPED_BAR.fullmatch(line)])
     ids = {s.strip() for line in rows for s in line.split("·") if _UUID_RE.fullmatch(s.strip())}
     if len(ids) != 1 or not (pane.pid and "codex" in _programs(pane.pid)):
         return None
