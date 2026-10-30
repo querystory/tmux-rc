@@ -598,13 +598,7 @@ def placeholder(root: Path, name: str, who) -> str | None:
     for any other folder. `who()` gives the panes, their accounts, the stylesheet and,
     optionally, pane_of (as page's); it scans every account, so only a pending folder asks.
     An archived folder answers at ARCHIVE/<name>, and at <name> while that is not taken."""
-    under = name.startswith(scratch_markdown.ARCHIVE + "/") or not os.path.lexists(root / name)
-    name = name.removeprefix(scratch_markdown.ARCHIVE + "/")
-    try:
-        base = archive(root) if under else root
-    except PermissionError:
-        return None
-    i = read(base, base / name)
+    i = _at(root, name)
     if not (i and i["pending"]):
         return None
     states, profiles, style, *pane_of = who()
@@ -634,12 +628,24 @@ def _ask(seen, every: int) -> str:
     return f"<script>{script}</script>"
 
 
+def _at(root: Path, name: str) -> dict | None:
+    """The card of the folder a link to `name` answers with: an archived one's at
+    ARCHIVE/<name>, and at <name> while that is not taken."""
+    under = name.startswith(scratch_markdown.ARCHIVE + "/") or not os.path.lexists(root / name)
+    name = name.removeprefix(scratch_markdown.ARCHIVE + "/")
+    try:
+        base = archive(root) if under else root
+    except PermissionError:
+        return None
+    return read(base, base / name)
+
+
 def bar(root: Path, name: str, states: list[dict]) -> tuple[str, str] | None:
     """An updating folder's notice on its rendered (Markdown) pages: the tab's label and a
     thin bar, whose ask (as the placeholder's) reloads the page once the update is done or
     its files change. None for any other folder. `states`: the panes (no accounts: it is
-    asked every few seconds)."""
-    i = read(root, root / name)
+    asked every few seconds). Archived, as placeholder's."""
+    i = _at(root, name)
     if not (i and i["updating"]):
         return None
     _progress([i], states)

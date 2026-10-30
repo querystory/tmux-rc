@@ -151,7 +151,8 @@ class Files(StaticFiles):
 
     async def get_response(self, path, scope):
         seen = parse_qs(scope["query_string"].decode()).get("seen")
-        if seen and "/" not in path:  # a placeholder or bar asking: wide says reload
+        folder = "/" not in path.removeprefix(ARCHIVE + "/")  # a folder's own URL
+        if seen and folder:  # a placeholder or bar asking: wide says reload
             wait = await anyio.to_thread.run_sync(
                 lambda: self.pending(path) or "".join(self.updating(path) or ()))
             same = wait and f'const SEEN = "{seen[0]}";' in wait
@@ -159,8 +160,8 @@ class Files(StaticFiles):
         try:
             response = await super().get_response(path, scope)
         except HTTPException as e:
-            wait = e.status_code == 404 and "/" not in path.removeprefix(
-                ARCHIVE + "/") and await anyio.to_thread.run_sync(self.pending, path)
+            wait = e.status_code == 404 and folder and await anyio.to_thread.run_sync(
+                self.pending, path)
             if not wait:
                 raise
             return HTMLResponse(wait, status_code=202,  # `curl -f` and .ok pass a 202
@@ -172,5 +173,6 @@ class Files(StaticFiles):
             response.headers["content-type"] = "text/plain; charset=utf-8"
             return response
         parts = Path(os.path.relpath(file, self.directory)).parts  # a folder's page, not loose
+        n = 1 + (parts[0] == ARCHIVE)  # an archived one's folder is ARCHIVE/<name>
         return HTMLResponse(await anyio.to_thread.run_sync(lambda: page(
-            file, self.web, self.updating(parts[0]) if len(parts) > 1 else None)))
+            file, self.web, self.updating("/".join(parts[:n])) if len(parts) > n else None)))
