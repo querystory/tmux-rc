@@ -114,9 +114,9 @@ front door as the app, so a page is on your phone with no second server or tunne
   made the page, linked to that pane while it runs; a pane's overview lists its pages.
 - **A link before the page.** An agent writes the folder's `meta.json` first, so the link
   shows **In progress** and turns into the page when it lands, with a push. A page being
-  revised reads **Updating** and reloads when done.
+  revised reads **Updating**, and a Markdown page reloads itself when done.
 - **Reply to the maker.** The viewer's message box goes to the agent that wrote the page,
-  with a screenshot of what you are looking at.
+  with a screenshot of the page at your screen's width.
 - **Yours.** The files never leave your machine except to your own phone (only a page
   without a description has its text sent to the parse model, for one sentence), so an agent
   can put private work there; anyone can write one (Claude Code, Codex, Gemini CLI, a script).

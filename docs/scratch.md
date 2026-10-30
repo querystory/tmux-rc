@@ -40,10 +40,11 @@ shows it as **Scratch**: a tab in the phone's tab bar, a place in the wide sideb
   **Scratch pages** opens the gallery filtered to that pane.
 - **Filter** by typing, or tap an agent's chip; **Grid** and **List** switch between full
   cards and compact rows.
-- **Select**, then **Archive** or **Delete**. Archiving moves a folder to the **Archived**
-  shelf, where it can be restored or deleted for good; its link keeps working, because
-  links sit in chats and notes and a 404 there would make archiving feel like deleting. Only
-  the archive deletes, so a slip in the gallery costs an Undo, never a page.
+- **Select** (on a phone, press and hold a card), then **Archive**. An archived folder
+  moves to the **Archived** shelf, where it is restored or deleted for good; its link keeps
+  working, because links sit in chats and notes and a 404 there would make archiving feel
+  like deleting. Only the Archived shelf deletes, so a slip in the gallery costs an Undo,
+  never a page.
 - **Pin** a page from the viewer's bar and it joins the app's menu, up to six, on every
   device.
 
@@ -63,9 +64,10 @@ pane's plain "turn ended" Needs-you is skipped (a question still notifies). A pa
 published in one go was never promised and does not notify.
 
 The same holds for revisions. An agent reworking a published page marks its `meta.json`
-`"updating": "<what's changing>"`; the card and the page's tab read **Updating**, a thin
-bar on the page says what is changing, and the page reloads itself when the mark is
-removed, with a push, `Updated: <title>`. There is no status database behind any of this:
+`"updating": "<what's changing>"`; the card and the viewer read **Updating**, and the
+mark's removal sends a push, `Updated: <title>`. A Markdown page also carries a thin bar
+saying what is changing and reloads itself when done; an HTML page is served as it is, so
+reopen it. There is no status database behind any of this:
 the state is read from the folder itself, so an agent that crashes cannot leave a stale
 "done", and it survives a daemon restart.
 
@@ -73,9 +75,10 @@ the state is read from the folder itself, so an agent that crashes cannot leave 
 
 The viewer's footer is a message box addressed to the pane that made the page, the same
 composer as the pane's own. A message opens with `Re scratch <folder>: ` so the agent knows
-which page you mean, and by default carries a screenshot of the page as you see it (the
-size, theme and scroll of your screen), so "the chart on the right is wrong" needs no
-further description; **Screenshot attached** toggles it off. The box appears only while
+which page you mean, and by default carries a screenshot of the page: the daemon draws
+it afresh at your screen's width and theme, the whole page from the top (cut at 6000
+pixels), so "the chart on the right is wrong" needs no further description;
+**Screenshot attached** toggles it off. The box appears only while
 that very pane is still open, never for another pane that later took its id.
 
 A page can also offer replies of its own, two ways, and neither sends anything by itself.
