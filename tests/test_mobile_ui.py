@@ -24,8 +24,18 @@ def test_mobile_entrypoint(path, method):
         assert f'src="/v/{version}/m/app.js"' in response.text
         assert "/v/0/" not in response.text
         assert client.get(f"/v/{version}/m/sidebar.js").text == client.get("/m/sidebar.js").text
-        assert 'href="/m/style.css"' in response.text
+        assert f'href="/v/{version}/m/style.css"' in response.text
     assert "no-store" in response.headers["cache-control"]
+
+
+def test_versioned_assets_cache_forever_and_entry_points_do_not():
+    client = TestClient(app)
+    version = client.get("/api/version").json()["version"]
+    hit = client.get(f"/v/{version}/m/app.js")
+    assert hit.headers["cache-control"] == "public, max-age=31536000, immutable"
+    stale = ("/v/stale/m/app.js", f"/v/{version}/missing.js")  # an old deploy's token; a 404
+    for path in ("/m/", "/m/app.js", "/api/version", *stale):
+        assert client.get(path).headers["cache-control"] == "no-store, must-revalidate"
 
 
 def test_mobile_assets_and_manifest():

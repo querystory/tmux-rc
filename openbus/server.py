@@ -582,11 +582,26 @@ app.include_router(live_router)
 
 @app.middleware("http")
 async def no_cache(request, call_next):
-    """Never let the browser cache anything. StaticFiles sends an ETag but no
-    Cache-Control, so phones serve stale JS/HTML heuristically and edits never appear.
-    Force no-store on every response — fine for a live dev tool on the LAN."""
+    """Cache nothing but the assets' versioned copies. StaticFiles sends an ETag but no
+    Cache-Control, so phones serve stale JS/HTML heuristically and edits never appear:
+    force no-store on every response. The exception is /v/<today's version>/, where the
+    URL names the assets' contents (mobile_ui; /api/version): a hit there can be kept for
+    good, and a deploy is a fresh set of URLs, so a cold PWA start over LTE stops
+    re-downloading app code and chart libraries that did not change. The mount answers
+    any token with today's files, so a page from before a deploy fetching under its old
+    token gets those bytes as before, uncached: an immutable URL never lies."""
     resp = await call_next(request)
-    resp.headers["Cache-Control"] = "no-store, must-revalidate"
+    # Match paths as StaticFiles resolves them, so /docs//mocks/ can't dodge a policy.
+    path = posixpath.normpath("/" + request.url.path.lstrip("/")) + "/"
+    # The version (a scan of web/) is computed only for a hit under /v/, never for the API.
+    versioned = path.startswith("/v/") and resp.status_code < 400
+    if versioned and path.startswith(f"/v/{_web_version()}/"):
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    else:
+        resp.headers["Cache-Control"] = "no-store, must-revalidate"
+        for h in ("etag", "last-modified"):
+            if h in resp.headers:
+                del resp.headers[h]
     # Live Mode's getUserMedia needs microphone permission granted to THIS origin. An
     # installed PWA / any embedding context can have the mic feature gated off by the
     # default Permissions-Policy even over HTTPS; explicitly allow it for self so the
@@ -599,9 +614,7 @@ async def no_cache(request, call_next):
     # daemon's API is cross-origin to them, exactly as from any other site. That only stops
     # reading responses, so also refuse the blind writes (form posts, no-cors fetches) that
     # would still carry the front door's cookie. Resource loads stay open: a bundle needs
-    # them, the API's GETs only read, and 'self' is unreliable in an opaque origin. Match
-    # the path as StaticFiles resolves it, so /docs//mocks/ can't dodge the policy.
-    path = posixpath.normpath("/" + request.url.path.lstrip("/")) + "/"
+    # them, the API's GETs only read, and 'self' is unreliable in an opaque origin.
     if path.startswith(("/scratch/", "/docs/mocks/")):
         resp.headers["Content-Security-Policy"] = scratch.SANDBOX
         # A browser opening a page from a folder of scratch, in a tab or the app's viewer (not
@@ -620,9 +633,6 @@ async def no_cache(request, call_next):
     base = str(request.base_url)
     if resp.headers.get("location", "").startswith(base):
         resp.headers["location"] = "/" + resp.headers["location"][len(base):]
-    for h in ("etag", "last-modified"):
-        if h in resp.headers:
-            del resp.headers[h]
     # Byte size for the live stream, so the payload cost is visible when debugging.
     # DEBUG, not INFO: a busy pane (or several viewers) emits back-to-back responses
     # and this would drown the normal INFO log. endswith, not substring, so it can't
@@ -2145,7 +2155,7 @@ async def _compose(pane_id: str, request: Request):
     pane = tmux.find_pane(pane_id)
     if pane is None:
         raise HTTPException(404, "pane not found")
-    segments, secret, birth, page = [], None, None, None
+    segments, secret, birth, page, shot, view = [], None, None, None, None, ""
     # Multipart parsing finishes before delivery. Limits also bound the time a single
     # draft can occupy the pane lock; no client round trips happen inside that lock.
     async with request.form(max_files=16, max_fields=128, max_part_size=UPLOAD_MAX_BYTES) as form:
@@ -2169,6 +2179,10 @@ async def _compose(pane_id: str, request: Request):
                 birth = value
             elif kind == "scratch" and isinstance(value, str):  # sent from the scratch viewer
                 page = value
+            elif kind == "shot" and isinstance(value, str):  # the viewer's size and theme
+                shot = re.fullmatch(r"(\d{2,4})x(\d{2,4})@([1-3])( dark)?", value)  # WxH@dpr
+            elif kind == "view" and isinstance(value, str):  # its path and query in the folder
+                view = value
             elif kind == "secret" and isinstance(value, str) and secret is None:
                 if len(value.encode()) > 4095:  # the tty's line, less its newline
                     raise HTTPException(413, "password too long")
@@ -2188,7 +2202,14 @@ async def _compose(pane_id: str, request: Request):
         line = _scratch_dir and await asyncio.to_thread(scratch.about, Path(_scratch_dir), page)
         if secret or not line:
             raise HTTPException(400, "no such scratch page")
-        segments.insert(0, line)
+        # The whole page the user saw, attached as a pasted image is, and said so when cut
+        # short; a failed render sends the words alone.
+        drawn = shot and await asyncio.to_thread(
+            scratch_sidecars.capture, Path(_scratch_dir), WEB_DIR, page, view,
+            (min(int(shot[1]), 2000), min(int(shot[2]), 2000)), int(shot[3]), dark=bool(shot[4]))
+        png, height, full = drawn or (None, 0, 0)
+        cut = [f" (screenshot cut at {height} of {full} px) "] if full > height else []
+        segments[:0] = [line, *([(png, _stage_file(png, "image/png")), *cut] if png else [])]
     if secret:
         await asyncio.to_thread(_input_attempt, pane.id, tmux.send_secret, pane, secret)
     else:
