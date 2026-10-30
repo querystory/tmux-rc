@@ -85,7 +85,9 @@ about it.
     meta.json ({"title", "description", "pane": "$TMUX_PANE", "created": ISO 8601 time})
     first, before the page: until index.html or index.md lands, the link shows that the
     page is in progress, so it is safe to hand out early, and the user is notified when it
-    is ready.
+    is ready. To revise a published page, set "updating": "<what's changing>" and
+    "pane": "$TMUX_PANE" in its meta.json before you start, and remove "updating" when you
+    are done.
 
 ## Markdown pages
 
@@ -172,6 +174,29 @@ An orchestrator that hands a subagent's link out writes `meta.json` itself, with
 `$TMUX_PANE`: in Claude Code and Codex the subagent runs in that pane. A worker in another
 pane rewrites it with its own pane when it starts.
 
+## A page being updated
+
+An agent revising a page that is already published (a status page, a design being
+reworked) marks it in `meta.json`: `"updating": "<what's changing>"`, with its own `pane`, before it
+starts, and the field removed when it is done. A page is otherwise either in progress (not yet
+published) or done, and a rewrite would look finished while it is half-way. The mark is
+explicit because the daemon cannot tell a revision from its files: they change only as
+each write lands, so a long rework shows nothing until its last write, and an edit seen
+"in the last minute" lingers after the agent is done.
+
+- **The gallery** keeps the page's thumbnail and puts an **Updating** badge on it, with a
+  spinner, and reloads every 30 seconds while one spins, so the badge goes once the field
+  does.
+- **A Markdown page** (rendered by the daemon) shows a line at the top of its toolbar,
+  "Updating: <what's changing> · reloads when done", and its tab reads "Updating · <title>".
+  It asks the daemon every 5 seconds, as the in-progress placeholder does, and reloads when
+  the field goes or the folder's files change, so the reader sees each revision land. An
+  agent's own HTML page is served as written, so only its card shows the update.
+- **Its state** is read like an in-progress page's, from the pane in `meta.json`, timed
+  from when `meta.json` was last written. If that pane closes, or idles for 30 minutes,
+  while the field is still there, the badge and the bar say **Update stopped**, and the
+  spinner stops.
+
 ## What a card shows
 
 A folder describes itself in an optional `meta.json` beside its page: `title`,
@@ -194,7 +219,8 @@ tmux-rc fills in the rest in the background, so the gallery never waits for it:
   session and window, its agent and its account, and links to it. A Codex pane is the
   exception: Codex's shared app-server daemon stamps every session's `meta.json` with the
   first Codex pane, so the transcript is asked and the named pane is kept only when it
-  has no answer. Otherwise tmux-rc asks
+  has no answer. For a page being updated, the session asked for is the reviser, active
+  when the `updating` mark was written; the author's session is not used. Otherwise tmux-rc asks
   [agent-history](https://github.com/querystory/tmux-rc/tree/main/agent-history) which
   session was active when the folder appeared and mentioned its path. If several were,
   it picks the most recently started one, since a long-running session that only passed

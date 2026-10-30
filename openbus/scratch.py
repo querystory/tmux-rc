@@ -39,11 +39,12 @@ _RETRY = 600
 _LOCK = threading.Lock()
 _ACT = threading.Lock()  # one Archive, Restore or Delete batch at a time
 _META = threading.Lock()  # one meta.json read-merge-replace at a time (authors, descriptions)
-_missed: dict[tuple[str, int], float] = {}  # when each (name, inode) was last not found
-_found: dict[tuple[str, int], str] = {}  # for a refusing meta.json, or a listing older than it
+_missed: dict[tuple, float] = {}  # when each (name, inode, update mark) was last not found
+_found: dict[tuple, str] = {}  # for a refusing meta.json, or a listing older than it
 _reconciled = [0.0]
 _PAGE = Path(__file__).resolve().parent / "scratch.html"
 _PENDING = Path(__file__).resolve().parent / "scratch_pending.html"
+_ASK = Path(__file__).resolve().parent / "scratch_ask.js"
 STALL = 30 * 60  # an in-progress folder's agent quiet this long has stopped
 # What a card, then the placeholder, says of a page in progress, by progress().
 STATES = {"working": ("In progress",
@@ -120,7 +121,9 @@ def _item(root: Path, folder: Path, files: list[tuple[float, str]]) -> dict | No
     hidden (a sidecar half-written, a .git) are not the page and do not date it. A folder
     whose meta.json came first is `pending` until its index lands: its page is in progress
     (a site's assets may land ahead of its index, for a minute; loose files older than
-    that are the publish)."""
+    that are the publish). A published folder whose meta.json says `updating` is being
+    revised: its state is read from its pane since that mark (meta.json's time). A pane is
+    the one meta.json names if it was open when meta.json was last written."""
     sidecars = {str(folder / name) for name in SIDECARS}  # its own, not a page's images/thumb.webp
     files = [(at, f) for at, f in files if f not in sidecars]
     meta, thumb, names = _meta(folder), folder / "thumb.webp", {f for _, f in files}
@@ -136,6 +139,7 @@ def _item(root: Path, folder: Path, files: list[tuple[float, str]]) -> dict | No
         f.endswith((".html", ".htm", ".md")) for f in names) and (
         not page or time.time() - max(files)[0] < 60)
     # The page is read: checked again, as it may have become a link out since find listed it.
+    updating = "" if pending else meta.get("updating", "")
     title = meta.get("title") or (None if not page or inside(page, folder) else folder.name)
     if not title and page and page.suffix == ".md":
         title = scratch_markdown.render(page)[2]
@@ -143,14 +147,19 @@ def _item(root: Path, folder: Path, files: list[tuple[float, str]]) -> dict | No
         with page.open(errors="replace") as f:
             m = _TITLE.search(f.read(65536))
         title = m and unescape(m.group(1)).strip()
+    created = _when(meta.get("created")) or min(files)[0]
+    named = (folder / "meta.json").stat().st_mtime if meta else created
     return {"name": folder.name, "title": title or folder.name,
             "description": meta.get("description", ""), "pane": meta.get("pane"),
             "icon": meta.get("icon"),  # a Lucide name, drawn only if the app ships it
-            "session_id": meta.get("agent_session"), "folder": folder,
+            # an update's writer is its reviser, searched for from its mark, never the author
+            "session_id": None if updating else meta.get("agent_session"), "folder": folder,
             "href": quote(page.relative_to(root).as_posix() if page != index and not pending
                           else folder.name + "/"),
-            "created": _when(meta.get("created")) or min(files)[0], "updated": max(files)[0],
+            "created": created, "updated": max(files)[0], "updating": updating,
             "stamped": _when(meta.get("created")),  # the agent's own word, never a guess
+            # when meta.json last named its pane (a reviser's, too), and what an update dates from
+            "named": named, "since": named if updating else created,
             "inode": folder.stat().st_ino,  # the folder until replaced, however rewritten
             "page": page, "pending": pending,
             "revising": bool(meta.get("updating")),  # its mark, pending a moment or not
@@ -297,11 +306,13 @@ def listing(root: Path, *, archived: bool = False) -> list[dict]:
 def tag(listed: list[dict]) -> str:
     """What the open gallery compares to see that it changed: a folder came, went or
     changed (its page too, say renamed to its index), its thumbnail, title or description
-    landed, or (by the minute) a page in progress may have stopped. In no particular order,
+    landed, an update began or ended, or (by the minute) a page in progress or being
+    updated may have stopped. In no particular order,
     as the gallery sorts after listing."""
     return str(hash((*sorted((i["name"], i["href"], i["updated"], i["pending"], i["thumb"],
-                              i["title"], i["description"]) for i in listed),
-                     any(i["pending"] for i in listed) and int(time.time() // 60))))
+                              i["title"], i["description"], i["updating"]) for i in listed),
+                     any(i["pending"] or i["updating"] for i in listed)
+                     and int(time.time() // 60))))
 
 
 def items(root: Path) -> list[dict]:
@@ -355,12 +366,14 @@ def about(root: Path, name: str) -> str | None:
 
 
 def _writers(todo: list[dict]) -> None:
-    """Fill in each item's missing `session_id` from the transcripts, saving what is found."""
-    now, keys = time.time(), {i["name"]: (i["name"], i["inode"]) for i in todo}
+    """Fill in each item's missing `session_id` from the transcripts, saving the author found
+    (an update's reviser is searched for from its mark, and kept only in memory)."""
+    now = time.time()
+    keys = {i["name"]: (i["name"], i["inode"], i["updating"] and i["since"]) for i in todo}
     with _LOCK:  # a second request waits for the first's search instead of repeating it
         for i in todo:
             i["session_id"] = i["session_id"] or _found.get(keys[i["name"]])
-        due = {i["name"]: i["created"] for i in todo if not i["session_id"]
+        due = {i["name"]: i["since"] for i in todo if not i["session_id"]
                and now - _missed.get(keys[i["name"]], 0) > _RETRY}
         if due and now - _reconciled[0] > _RETRY:  # a running session's entry can be days old
             agent_history.reconcile()
@@ -370,9 +383,9 @@ def _writers(todo: list[dict]) -> None:
             if hit := hits.get(i["name"]):
                 i["session_id"] = hit["session_id"]
                 _found[keys[i["name"]]] = i["session_id"]
-                annotate(i["folder"] / "meta.json", i["folder"].parent, "agent_session",
-                         i["session_id"],
-                         i["inode"])  # not into a folder rebuilt during the search
+                if not i["updating"]:  # not into a folder rebuilt during the search
+                    annotate(i["folder"] / "meta.json", i["folder"].parent, "agent_session",
+                             i["session_id"], i["inode"])
             elif i["name"] in due:
                 _missed[keys[i["name"]]] = now
 
@@ -397,14 +410,16 @@ def replace(path: Path, root: Path, write, *, exclusive: bool = False) -> None:
 
 
 def annotate(meta: Path, root: Path, field: str, value: str, inode: int = 0) -> bool:
-    """Add a field tmux-rc worked out to meta.json, listed in its "generated". Never over
-    one already there, nor into a meta.json that is unreadable or a symlink: those are the
-    agent's to fix. With `inode`, only while its folder is still that one."""
+    """Add a field tmux-rc worked out to meta.json, listed in its "generated", keeping the
+    file's time. Never over one already there, nor into a meta.json that is unreadable or
+    a symlink: those are the agent's to fix. With `inode`, only while its folder is still
+    that one."""
     try:
         with _META:
             if inode and meta.parent.stat().st_ino != inode:
                 return False
             fresh = not os.path.lexists(meta)
+            was = None if fresh else meta.stat(follow_symlinks=False)
             current = {} if fresh else None if meta.is_symlink() else json.loads(
                 meta.read_text())
             if not isinstance(current, dict) or str(current.get(field) or "").strip():
@@ -413,7 +428,12 @@ def annotate(meta: Path, root: Path, field: str, value: str, inode: int = 0) -> 
             made = [g for g in made if isinstance(g, str)] if isinstance(made, list) else []
             data = {**current, field: value, "generated": [*dict.fromkeys([*made, field])]}
             text = json.dumps(data, indent=1) + "\n"
-            replace(meta, root, lambda tmp: tmp.write_text(text), exclusive=fresh)
+
+            def write(tmp: Path) -> None:  # keeping the agent's time: when it named its pane
+                tmp.write_text(text)
+                if was:
+                    os.utime(tmp, ns=(was.st_atime_ns, was.st_mtime_ns))
+            replace(meta, root, write, exclusive=fresh)
     except (OSError, ValueError):
         return False
     return True
@@ -446,7 +466,8 @@ def _author(i: dict, tool: str | None, acct: dict) -> None:
 
 
 def progress(pane: dict | None, named: str | None, created: float) -> str:
-    """How a pending folder's page is coming along (a STATES key), from the pane `named` in
+    """How a pending folder's page, or an update to one, is coming along (a STATES key),
+    from the pane `named` in
     its meta.json, `pane` while that is still open: working while it runs or waits on its
     tools or subagents; quiet while it idles, which in the pane of a session whose subagent
     builds the page is not the end; stopped once it is gone or quiet for STALL. With no
@@ -466,9 +487,9 @@ def _progress(listed: list[dict], states: list[dict]) -> dict:
     pane is still open. Returns the panes by id."""
     panes = {s.get("pane_id"): s for s in states}
     for i in listed:  # a pane id from before a tmux restart names some other pane now
-        if (pane := panes.get(i["pane"])) and not made_in(pane, i["created"]):
+        if (pane := panes.get(i["pane"])) and not made_in(pane, i["named"]):
             pane = None
-        i["state"] = progress(pane, i["pane"], i["created"])
+        i["state"] = progress(pane, i["pane"], i["since"])
         i["pane"] = pane and i["pane"]
     return panes
 
@@ -501,10 +522,10 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
         at = i["pane"] if s.get("running_unknown") else open_in.get(s.get("session_id"), i["pane"])
         if at != i["pane"]:
             named = at or (None if s.get("running") else i["pane"])
-            i["pane"], i["state"] = at, progress(panes.get(at), named, i["created"])
+            i["pane"], i["state"] = at, progress(panes.get(at), named, i["since"])
         if (pane := panes.get(i["pane"])) is not None:
             if s:  # its session, found in a new pane: its page comes along as that pane does
-                i["state"] = progress(pane, i["pane"], i["created"])
+                i["state"] = progress(pane, i["pane"], i["since"])
             _author(i, pane.get("tool"), account.get(i["pane"]) or {})
             i["where"] = where(pane)
             continue
@@ -568,23 +589,35 @@ def _where(i: dict, e: dict) -> str:
             else e["where"])
 
 
+def status(i: dict) -> str | None:
+    """What a card, a tab and an updating page's bar call a folder's state: a pending one's
+    by STATES, "Updating" while its page is revised ("Update stopped" once its agent has),
+    None for a page at rest."""
+    if i["pending"]:
+        return STATES[i["state"]][0]
+    if i.get("updating"):
+        return "Update stopped" if i["state"] == "stopped" else "Updating"
+    return None
+
+
 def _card(i: dict) -> str:
     e = {k: escape(str(v)) for k, v in i.items() if v is not None}
-    wait = STATES[i["state"]][0] if i["pending"] else (
-        i.get("shot") == "pending" and "Making a preview…")
+    label = status(i)
+    wait = label if i["pending"] else i.get("shot") == "pending" and "Making a preview…"
     # A pending folder's thumbnail is an earlier page's: its state shows instead, until the
     # page lands and is shot, which the open gallery sees (its tag) and reloads to show.
     src = f'{i.get("under", "")}{quote(i["name"])}/thumb.webp'
     thumb = (f'<img src="{src}" alt="" loading="lazy">'
              if i["thumb"] and not i["pending"]
              else f'<span class="{i["state"] if i["pending"] else ""}">{wait}</span>'
-             if wait else "No preview")
+             if wait else "No preview") + (  # an update: the page so far, with a badge
+        f'<span class="badge {i["state"]}">{label}</span>' if i.get("updating") else "")
     words = " ".join([i["title"], i["description"], i["who"], i["where"]]).lower()
     return (f'<article data-q="{escape(words)}" data-name="{e["name"]}"'
             f' data-pane="{e.get("pane", "")}">'
             f'<a class="thumb" href="{e["href"]}" tabindex="-1" aria-hidden="true">{thumb}</a>'
             f'<h2><a href="{e["href"]}"'
-            + (f' aria-label="{e["title"]}: {wait}"' if i["pending"] else "")  # the thumb's
+            + (f' aria-label="{e["title"]}: {label}"' if label else "")  # the thumb's
             + f'>{e["title"]}</a></h2>'
             + (f'<p class="desc">{e["description"]}</p>' if i["description"] else "")
             + f'<p class="by">{_chip(i, e)}'
@@ -601,13 +634,7 @@ def placeholder(root: Path, name: str, who) -> str | None:
     for any other folder. `who()` gives the panes, their accounts, the stylesheet and,
     optionally, pane_of (as page's); it scans every account, so only a pending folder asks.
     An archived folder answers at ARCHIVE/<name>, and at <name> while that is not taken."""
-    under = name.startswith(scratch_markdown.ARCHIVE + "/") or not os.path.lexists(root / name)
-    name = name.removeprefix(scratch_markdown.ARCHIVE + "/")
-    try:
-        base = archive(root) if under else root
-    except PermissionError:
-        return None
-    i = read(base, base / name)
+    i = _at(root, name)
     if not (i and i["pending"]):
         return None
     states, profiles, style, *pane_of = who()
@@ -627,4 +654,43 @@ def placeholder(root: Path, name: str, who) -> str | None:
             "ago": f"{age}m" if age < 60 else f"{age // 60}h {age % 60}m",
             "every": 60000 if i["state"] == "stopped" else 5000 if age < 10 else 30000}
     fill["seen"] = hash(tuple(fill.values()))  # what scratch_markdown.Files compares, as SEEN
+    fill["ask"] = _ask(fill["seen"], fill["every"])
     return re.sub(r"\{(\w+)\}", lambda m: str(fill[m[1]]), _PENDING.read_text())
+
+
+def _ask(seen, every: int) -> str:
+    """The check-then-reload script (scratch_ask.js) of a page showing what hashes to `seen`."""
+    script = _ASK.read_text().replace("{seen}", str(seen)).replace("{every}", str(every))
+    return f"<script>{script}</script>"
+
+
+def _at(root: Path, name: str) -> dict | None:
+    """The card of the folder a link to `name` answers with: an archived one's at
+    ARCHIVE/<name>, and at <name> while that is not taken."""
+    under = name.startswith(scratch_markdown.ARCHIVE + "/") or not os.path.lexists(root / name)
+    name = name.removeprefix(scratch_markdown.ARCHIVE + "/")
+    try:
+        base = archive(root) if under else root
+    except PermissionError:
+        return None
+    return read(base, base / name)
+
+
+def bar(root: Path, name: str, states: list[dict],
+        pane_of=lambda _entry: None) -> tuple[str, str] | None:
+    """An updating folder's notice on its rendered (Markdown) pages: the tab's label and a
+    thin bar, whose ask (as the placeholder's) reloads the page once the update is done or
+    its files change. None for any other folder. `states` and `pane_of` find its reviser as
+    the gallery does (no accounts: it is asked every few seconds). Archived, as
+    placeholder's. ("", "") while meta.json is unreadable (mid-write): no answer yet."""
+    i = _at(root, name)
+    if i and not i["read"]:
+        return "", ""
+    if not (i and i["updating"]):
+        return None
+    resolve([i], states, [], pane_of)
+    label, every = status(i), 60000 if i["state"] == "stopped" else 5000
+    return label, (f'<p class="updating {i["state"]}" role="status">{label}: '
+                   f'{escape(i["updating"])} · reloads when done'
+                   '<span id="offline" hidden> · Reconnecting…</span></p>'
+                   + _ask(hash((label, i["updating"], i["updated"])), every))

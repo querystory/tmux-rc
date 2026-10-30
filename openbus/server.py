@@ -2416,7 +2416,10 @@ if _scratch_dir:
 
     _mount_static("/scratch", _scratch_dir, partial(
         scratch_markdown.Files, web=WEB_DIR,
-        pending=lambda name: scratch.placeholder(Path(_scratch_dir), name, _who)))
+        pending=lambda name: scratch.placeholder(Path(_scratch_dir), name, _who),
+        updating=lambda name: scratch.bar(
+            Path(_scratch_dir), name, list(app.state.watcher.states),
+            lambda entry: live.running_pane(entry, app.state.watcher))))
 
 
 def _visited(kind: str, key: str) -> None:
