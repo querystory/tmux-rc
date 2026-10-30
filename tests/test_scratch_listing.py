@@ -153,6 +153,13 @@ def test_a_codex_panes_meta_json_is_checked_against_the_transcript(tmp_path, mon
     assert (items["gone"]["pane"], items["gone"]["state"]) == (None, "working")
 
 
+def test_where_names_a_pane_as_the_phone_does():
+    pane = {"session": "dev", "window_name": "bash", "label": "dev:4", "pane_id": "%2"}
+    assert scratch.where(pane) == "dev:4"  # the label of an unnamed window says the session
+    assert scratch.where({**pane, "title": "Build"}) == "dev:Build"
+    assert scratch.where({**pane, "label": "Resolve PR 38"}) == "dev:Resolve PR 38"
+
+
 def test_a_pane_id_from_an_earlier_tmux_server_is_not_trusted(tmp_path, monkeypatch):
     monkeypatch.setattr(agent_history, "writers", lambda *_: {})
     _folder(tmp_path, "old", 1000, {"pane": "%7"})  # this test's process began long after

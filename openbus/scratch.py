@@ -249,9 +249,10 @@ def made_in(pane: dict, created: float) -> bool:
 def where(pane: dict) -> str:
     """Where a pane is, "session:name", named as the phone's own heading names it
     (pane-model.js paneName): the agent's title for its work, else tmux's label for the
-    window. The window name alone is tmux's default ("Codex") for most agent panes."""
+    window. The window name alone is tmux's default ("Codex") for most agent panes; the
+    label of an unnamed window already says the session ("dev:4")."""
     name = pane.get("title") or pane.get("label") or pane.get("window_name") or pane.get("pane_id")
-    return f"{pane.get('session')}:{name}"
+    return name if name.startswith(f"{pane.get('session')}:") else f"{pane.get('session')}:{name}"
 
 
 def _author(i: dict, tool: str | None, acct: dict) -> None:
