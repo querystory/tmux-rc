@@ -924,14 +924,15 @@ function viewScratch(href, title) {
   $("viewer-out").href = href;
   viewer.querySelector("iframe")?.remove();
   // A page that navigates its frame shows something else: the box is for the page opened, so it goes.
-  // Nor does what it navigates to (or a reload) run script: once its first navigation has begun, the
-  // frame is sandboxed for every later document (the attribute binds the next navigation, not the
-  // one under way), so only the page opened can ask to send (askSend) or post at all, loaded or
-  // not. A token for the page could be handed on, and the next page can post before its load.
-  const frame = Object.assign(document.createElement("iframe"), { src: href, title, onload() { if (++this.loads > 1) { viewerTo = null; paintViewerForm(); } }, loads: 0 });
+  // Nor does what it navigates to (or a reload) run script: from its first load on, the frame is
+  // sandboxed for every later document, so only the page opened can ask to send (askSend) or post
+  // at all. A token for the page could be handed on, and the next page can post before its load.
+  // Not sooner: WebKit (Safari) applies the attribute to the navigation under way, the page's own.
+  const frame = Object.assign(document.createElement("iframe"), { src: href, title, onload() {
+    if (++this.loads > 1) { viewerTo = null; paintViewerForm(); } else this.sandbox = "allow-popups allow-popups-to-escape-sandbox";
+  }, loads: 0 });
   frame.addEventListener("load", tellScratch);
   $("viewer-form").before(frame);
-  frame.sandbox = "allow-popups allow-popups-to-escape-sandbox";
   viewer.showModal(); viewer.focus(); paintPins(pins); loadPins(); findMaker(href); // cached now, then as stored: a slot freed meanwhile
 }
 // Scratch pages pinned to the menu (GET/PUT /api/pins: the daemon keeps them, so every device
