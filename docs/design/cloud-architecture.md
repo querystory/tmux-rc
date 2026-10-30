@@ -1,5 +1,9 @@
 # Cloud Architecture — tmux-rc Remote Access
 
+Status: not pursued. Remote access ships as an authenticating tunnel or tailnet in front
+of the daemon ([Deploying](../deploy/_index.md)); this note records the hosted relay that
+was considered instead.
+
 ## Problem
 
 tmux-rc runs on the dev machine next to tmux and serves its PWA over LAN.

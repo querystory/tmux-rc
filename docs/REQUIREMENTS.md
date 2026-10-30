@@ -1,31 +1,30 @@
 # tmux-rc — Requirements
 
-Source of truth for what the project owner asked for. `[x]` done+verified, `[ ]` open, `[~]` partial/unverified.
+Record of what the project owner asked for during the 2026-07 proof of concept, with the
+boxes brought up to date on 2026-10-29. `[x]` done+verified, `[ ]` open, `[~]` partial/unverified.
+Current behaviour is documented from [docs/_index.md](_index.md), not here.
 
 ## Dev experience
 - [x] `make dev` runs uvicorn with auto-reload (reload ON by default). Verified: edits take effect ~1s.
 - [x] Makefile with dev/run/test/fmt.
 - [x] LLM trace log to grep (`/tmp/tmux-rc-llm.log`, override `TMUXRC_LLM_LOG`).
-- [ ] **Keep this REQUIREMENTS.md and PROGRESS.md current, and COMMIT to git as we go.** (Was dropped — user had to ask 3×.)
+- [x] **Keep this REQUIREMENTS.md current, and commit as we go.** (The separate progress log was retired: git history is the log.)
 
 ## Model / LLM
 - [x] Use current Gemini flash-lite: **gemini-3.1-flash-lite** (was wrongly on 2.5-flash-lite). Override `TMUXRC_GEMINI_MODEL`.
-- [ ] status_line must SUMMARIZE THE TASK ("Building tmux-rc remote control…"), optionally a subtask — not just echo the working verb.
-- [ ] Shell panes: describe running command / finished / exit status, not just Claude Code.
+- [x] status_line must SUMMARIZE THE TASK ("Building tmux-rc remote control…"), optionally a subtask — not just echo the working verb. (Now the card's `headline`.)
+- [x] Shell panes: describe running command / finished / exit status, not just Claude Code.
 
 ## Classification correctness
 - [x] **Tool oscillates claude→shell** — FIXED (c758f73). Prompt now decides tool from the whole picture; stickiness is time-bounded (bridge shell→agent only if agent seen <8s ago). Verified live: Claude pane stays "claude" while shelling out.
-- [~] **False-positive questions**: heuristic tightened; LLM prompt improved (only real affordances = waiting). Better but not fully verified — architecture reckoning will subsume this.
+- [x] **False-positive questions**: subsumed by making the LLM the parser (below); `waiting` is decided by the agent's final message, with `waiting_on` telling user waits from external ones.
 
 ## UI / presentation
-- [ ] **Surface the agent's task/TODO list** on the card. Claude Code shows "N tasks
-      (X done, Y open)" + the items in the terminal; extract and render them so you can
-      see progress from the phone. (Noticed while building Rewind support.)
-- [~] **Rewind history picker (Esc-Esc).** Extract the restore-history entries and let
+- [x] **Surface the agent's task/TODO list** on the card (the parser's `tasks`, plus
+      `subagents` for background workers).
+- [x] **Rewind history picker (Esc-Esc).** Extract the restore-history entries and let
       the user scroll through them + restore. ↑/↓ move the ❯ cursor (card reflects),
-      Enter restores; visible + scroll to load more. WORKING on phone. TODO: the
-      "N files changed +X -Y" diff-stat lines render as separate entries instead of
-      attaching to their entry as a red/green colored sub-label. Fix the note parser.
+      Enter restores; diff-stat lines attach to their entry as its `note`.
 - [x] **Label uses the agent's session name** (c758f73). Parser reads the title
       Claude Code prints (e.g. "tmux-rc-dev") and it wins over tmux/cwd label.
       Verified live.
@@ -53,8 +52,8 @@ Source of truth for what the project owner asked for. `[x]` done+verified, `[ ]`
       focuses the pane in tmux (d61d4eb).
 - [ ] **Turn-timeline view** — see Activity narrative section below.
 
-## ⚠️ ARCHITECTURE — READ BEFORE ADDING FEATURES
-The classifier has drifted into a pile of brittle regexes that hard-code the EXACT
+## ARCHITECTURE (resolved: the LLM is the parser — `openbus/parser_prompt.txt`)
+At the time of writing the classifier had drifted into a pile of brittle regexes that hard-code the EXACT
 text of Claude Code's UI (Rewind header, ❯ cursor, "No code changes", "N files
 changed", status-line fields, spinner glyphs). This DEFEATS THE POINT of using an LLM:
 it breaks the instant Anthropic changes a label, the user edits their status line, or
@@ -66,7 +65,8 @@ it sees — status, question, rewind picker, task list, narrative — vendor-agn
 resilient to UI wording changes. Regexes should be at most a cheap fast-path for the
 hot loop (change detection / obvious idle), NEVER the source of truth for parsing agent
 UI. Before adding any more UI-specific detection: move parsing into the LLM schema.
-PAUSED here (2026-07-14) to redesign around this before writing more scrapers.
+Paused here on 2026-07-14 for that redesign; prompt changes now go through the eval
+harness described in [AGENTS.md](https://github.com/querystory/tmux-rc/blob/main/AGENTS.md#classifier--prompt-changes).
 
 ## Activity narrative
 - [x] **Accumulated activity log** (e7edfdd). Events accumulate client-side per-pane
