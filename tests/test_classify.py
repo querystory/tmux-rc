@@ -43,6 +43,11 @@ def test_a_quota_blocked_pane_keeps_nothing_from_the_turn_before():
         r = classify(_pane("claude"), screen, _llm({**read, **extra}))
         assert (r["activity"], r.get("resets"), r.get("question"), r.get("offers")) == (
             "quota_blocked", "2:10pm", None, None)
+    # A bash-mode command run under that turn spent its ask, but the notice below the
+    # command is the screen's end: the quota read stands over the spent row's "idle".
+    spent = screen.replace("\n\n❯\n", "\n\n! gh pr merge 7 --squash\n\n❯\n")
+    r = classify(_pane("claude"), spent, _llm(read))
+    assert (r["activity"], r.get("resets"), r.get("question")) == ("quota_blocked", "2:10pm", None)
 
 
 def test_a_handed_over_command_keeps_its_bash_prefix():

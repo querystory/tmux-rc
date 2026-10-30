@@ -1422,7 +1422,8 @@ def classify(
     # Either row is itself a read of the screen, so it stands even after a failed parse.
     spent = result.get("tool") == "claude" and _spent(view, turn)
     if spent:
-        result["activity"] = "idle"
+        if result.get("activity") != "quota_blocked":  # the notice under that row: it stands
+            result["activity"] = "idle"
         result.pop("question", None)
         result.pop("parse_ok", None)
     elif result.get("tool") == "claude" and turn:
