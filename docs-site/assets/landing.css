@@ -264,9 +264,7 @@ figure {
   width:auto;
   height:100%;
   max-width:44%;
-  object-fit:contain;
-  border-radius:16px;
-  box-shadow:0 20px 50px #0005
+  object-fit:contain
 }
 figcaption {
   min-height:3.2em;
@@ -283,8 +281,8 @@ figcaption {
 }
 .capabilities {
   display:grid;
-  grid-template-columns:repeat(3,1fr);
-  gap:44px;
+  grid-template-columns:repeat(4,1fr);
+  gap:36px;
   padding:72px 0;
   border-bottom:1px solid var(--line)
 }
@@ -518,9 +516,6 @@ footer p,footer>a:last-child {
     gap:18px;
     padding:10px 0
   }
-  .phones img {
-    border-radius:9px
-  }
   figcaption {
     font-size:12px
   }
@@ -654,19 +649,20 @@ footer p,footer>a:last-child {
   height:var(--preview-height);
   display:grid;
   grid-template-columns:minmax(0,1fr) minmax(0,22%);
+  grid-template-rows:100%;
   align-items:center;
-  gap:24px;
-  padding:10px;
+  gap:32px;
+  padding:16px;
   border:1px solid var(--line);
   border-radius:12px;
   background:var(--surface)
 }
 .preview-pair img {
-  width:100%;
-  height:100%;
-  min-height:0;
-  object-fit:contain;
-  border-radius:5px
+  width:auto;
+  height:auto;
+  max-width:100%;
+  max-height:100%;
+  justify-self:center
 }
 .feature-links {
   display:flex;
@@ -721,15 +717,19 @@ footer p,footer>a:last-child {
   font-size:12px
 }
 .feature-detail>img {
-  width:100%;
+  width:100%
+}
+/* Every screenshot that shares a stage or stands as a card gets its own frame. */
+.feature-detail>img,.phones img,.preview-pair img {
+  box-sizing:border-box;
   border:1px solid var(--line);
   border-radius:9px;
-  box-shadow:0 12px 40px #0001
+  box-shadow:0 12px 32px #0003
 }
 @media(max-width:700px) {
   .preview-pair {
-    gap:10px;
-    padding:5px;
+    gap:14px;
+    padding:10px;
     grid-template-columns:minmax(0,1fr) minmax(0,34%)
   }
   .feature-links {
@@ -755,6 +755,7 @@ footer p,footer>a:last-child {
 .showcase { --caption-height:3.2em; }
 .showcase figcaption { min-height:var(--caption-height); }
 @media(max-width:900px) { .showcase { --caption-height:4.8em; } }
+@media(min-width:701px) and (max-width:1000px) { .capabilities { grid-template-columns:repeat(2,1fr); } }
 @media(max-width:700px) { .showcase { --caption-height:8em; } }
 .feature-detail>img { height:auto; }
 /* Wide screens alternate the image's side; phones keep the one-column stack. */
