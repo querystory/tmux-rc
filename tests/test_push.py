@@ -14,7 +14,7 @@ from pydantic import ValidationError
 from openbus import push
 from openbus.classify import _widget_text, question_rows
 from openbus.watcher import Watcher as RealWatcher
-from openbus.watcher import _fingerprint
+from openbus.watcher import _fingerprint, _turn
 
 
 def box(command):
@@ -45,6 +45,9 @@ class Watcher:
 
     def is_stale(self):
         return self.stale
+
+    def booted(self):
+        return True
 
     def pane_birth(self, pane_id):
         return self.births.get(pane_id)
@@ -977,7 +980,7 @@ def test_a_page_being_made_notifies_once_as_it_lands(tmp_path, monkeypatch):
     scan([], 0)
     scan([], 0)
     assert [(p["title"], p["body"], p["tag"], p["url"]) for p in sender.payloads] == [(
-        "Ready: Mock", "claude finished it in dev:ui", "scratch:wip",
+        "Ready: Mock", "claude finished it in dev:Build", "scratch:wip",  # its heading, not tmux's
         "/m#view=scratch&open=%2Fscratch%2Fwip%2F")]
     assert [i["name"] for i in shot] == ["wip"]
     # The turn ends and the pane waits on the user: its plain Needs-you is the same news...
@@ -1089,3 +1092,62 @@ def test_a_meta_json_caught_half_written_is_read_again(tmp_path, monkeypatch):
     shutil.rmtree(root / "gone")
     service.landed()
     assert service._waiting == set()
+
+
+def test_a_turn_already_told_about_never_buzzes_again(tmp_path, monkeypatch):
+    """An ask notifies once per turn of its pane, not once per reading of it: a restart, a
+    new parser (CARD_VERSION) or a resize reads the same turn again, often in other words,
+    and the phone must not buzz for it. Only the conversation moving on is news."""
+    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
+    clock, watcher = [100.0], Watcher()
+    service, sender = manager(tmp_path, watcher, clock)
+
+    def settle(question, turn, activity="waiting"):
+        watcher.states = [{**waiting(question), "turn": turn, "activity": activity}]
+        for _ in range(2):
+            service.evaluate()
+            clock[0] += push.SETTLE_SECONDS
+
+    settle(held(), "t0")
+    watcher.states = [{**waiting(held()), "turn": "t1"}]  # a new turn, the same words:
+    service.evaluate()  # it settles afresh
+    assert len(sender.payloads) == 1
+    settle(held(), "t1")
+    assert len(sender.payloads) == 2
+    settle(held(ask="Show the files?"), "t1")  # re-read in-run, reworded: the same ask
+    assert len(sender.payloads) == 2
+    for reworded in (held(), held(ask="Show the files?")):  # a restart, or a version bump
+        service, sender = manager(tmp_path, watcher, clock)
+        settle(reworded, "t1")
+        assert sender.payloads == []
+    settle(held(), "t9")  # the conversation moved on
+    assert len(sender.payloads) == 1
+    # A turn that ended asking nothing, read again after a restart as an ask: no news.
+    settle(None, "t3", activity="idle")
+    service, sender = manager(tmp_path, watcher, clock)
+    settle(held(), "t3")
+    assert sender.payloads == []
+    assert service._notified  # what a "Ready" landing now reads to stay quiet
+    # Any number of idle panes keeps it so; a pane gone is forgotten.
+    idle = [{**waiting(None), "pane_id": f"%{n}", "activity": "idle", "turn": "i"}
+            for n in range(2, 300)]
+    watcher.states = [*idle, {**waiting(held()), "turn": "t3"}]
+    for _ in range(2):
+        service.evaluate()
+        clock[0] += push.SETTLE_SECONDS
+    assert sender.payloads == []
+    watcher.states = idle[:1]
+    service.evaluate()
+    assert json.loads(service.store.path.read_text())["turns"] == {"%2:123": "i"}
+
+
+def test_a_screen_s_turn_is_the_same_under_any_card_version_or_width(monkeypatch):
+    """With no agent transcript the screen is the turn: a new parser or a reflow leaves it
+    be, and a menu's own rows tell "sleep 10s" from "sleep 20s"."""
+    before = _turn(None, box("ls"))
+    monkeypatch.setattr("openbus.watcher.CARD_VERSION", -1)
+    assert _turn(None, box("ls")) == before != _turn(None, box("rm"))
+    assert _turn(None, box("ls").replace("─" * 40, "─" * 20)) == before
+    assert _turn(None, box("sleep 10s")) != _turn(None, box("sleep 20s"))
+    assert _turn(None, box("ls a b")) != _turn(None, box("ls ab"))
+    assert _turn("t1", box("ls")) == "t1"  # the transcript, when there is one

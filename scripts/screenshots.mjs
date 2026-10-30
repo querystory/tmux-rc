@@ -11,6 +11,8 @@ import { PHONE, WIDE, chat, pace, settle, startDemo } from "./demo_browser.mjs";
 
 const [out = ".screenshots", tree = process.cwd()] = process.argv.slice(2);
 const HD = { width: 1920, height: 1080 };
+// A wait a shot requires: its failure fails the run (the runner shoots past any other step error).
+const loud = (wait, what) => wait.catch((e) => { throw Object.assign(new Error(`${what}: ${e.message}`), { loud: true }); });
 
 // name, viewport, colour scheme, URL hash, and an optional step before the shot.
 const SHOTS = [
@@ -80,6 +82,21 @@ const SHOTS = [
   ["wide-settings", WIDE, "dark", "#view=dashboard", (page) => page.click("#settings-open")],
   ["wide-rail", WIDE, "light", "#pane=%259", async (page) => { await page.click("#collapse"); await page.hover("#side-list .sb-rail >> nth=2"); await page.locator("#side-hover").waitFor(); }],
   ["wide-new-session", WIDE, "light", "", async (page) => { await noTmux(page); await page.click(".start-session:not([hidden])"); }],
+  // New session's Start row rides into the Chat sheet and back; a head that loses it fails the
+  // run. A base keeps the row in New session and, on a phone, records no opener: shot as is.
+  ["mobile-new-session-chat", PHONE, "light", "", async (page) => {
+    await page.locator("#chat").waitFor(); // the chat capability, which the row is gated on
+    await page.click("#new-window");
+    if (!await page.evaluate(() => !!document.getElementById("launch-dialog")._opener)) return;
+    await loud((async () => { // every click and wait: a control gone is a failure, not a skipped check
+      await page.click("#launch-kind [data-start=chat]");
+      await page.waitForSelector("#voice-dialog[open] #launch-kind [data-start=chat][aria-pressed=true]");
+      await page.click("#launch-kind button:not([data-start])");
+      await page.waitForSelector("#launch-dialog[open] #launch-kind");
+      await page.click("#launch-kind [data-start=chat]");
+      await page.waitForSelector("#voice-dialog[open] #launch-kind");
+    })(), "the Start row did not go with Chat and back");
+  }],
   // The scratch gallery (openbus/scratch.py), the daemon's page rather than the app's.
   ["mobile-scratch", PHONE, "dark", "", scratch],
   ["mobile-scratch-view", PHONE, "light", "#view=scratch"],
@@ -187,8 +204,7 @@ function two(step) {
   return async (page) => {
     if (!await page.locator('link[href$="/m/accounts.js"]').count()) return;
     // Attached, not visible: a phone's dashboard has its badged rows hidden.
-    await page.locator(".acct-badge").first().waitFor({ state: "attached" })
-      .catch((e) => { throw Object.assign(new Error(`no account badge: ${e.message}`), { loud: true }); });
+    await loud(page.locator(".acct-badge").first().waitFor({ state: "attached" }), "no account badge");
     await step?.(page);
   };
 }

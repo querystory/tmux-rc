@@ -253,6 +253,15 @@ def made_in(pane: dict, created: float) -> bool:
     return len(stat) < 20 or tmux.started_at(stat[19]) <= created + 60
 
 
+def where(pane: dict) -> str:
+    """Where a pane is, "session:name", named as the phone's own heading names it
+    (pane-model.js paneName): the agent's title for its work, else tmux's label for the
+    window. The window name alone is tmux's default ("Codex") for most agent panes; the
+    label of an unnamed window already says the session ("dev:4")."""
+    name = pane.get("title") or pane.get("label") or pane.get("window_name") or pane.get("pane_id")
+    return name if name.startswith(f"{pane.get('session')}:") else f"{pane.get('session')}:{name}"
+
+
 def _author(i: dict, tool: str | None, acct: dict) -> None:
     """The agent, its account and that account's chip colour, and `who` reading them as
     "claude · Work"; the account left out when it only repeats the agent ("Codex")."""
@@ -294,12 +303,16 @@ def _progress(listed: list[dict], states: list[dict]) -> dict:
 
 def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
             pane_of=lambda _entry: None) -> None:
-    """Who made each item: `who` (agent and account), `where` (session:window, or the
+    """Who made each item: `who` (agent and account), `where` (session:pane name, or the
     agent session's title), `pane` when that pane is still open, and `state` (progress),
     which only a pending one shows."""
     panes = _progress(listed, states)
+    # Codex runs every session's tool calls through one app-server daemon, forked by the
+    # first Codex pane with its TMUX_PANE, so a meta.json Codex wrote names that pane
+    # whichever session wrote it: the transcript says which, the named pane failing that.
+    sure = {p for p, s in panes.items() if s.get("tool") != "codex"}
     account = {p: a for a in profiles for p in a.get("panes", [])}
-    todo = [i for i in listed if i["pane"] not in panes]
+    todo = [i for i in listed if i["pane"] not in sure]
     _writers(todo)
     ids = sorted({i["session_id"] for i in todo if i["session_id"]})
     running = agent_history.get_many(ids) or {} if ids else {}
@@ -307,13 +320,21 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
     if missing := [sid for sid in ids if sid not in running]:  # no binary, or a subagent
         running = {**agent_history.indexed(missing), **running}  # the index still says who
     for i in listed:
-        s = running.get(i["session_id"]) or {} if i["pane"] not in panes else {}
-        i["pane"] = open_in.get(s.get("session_id")) or i["pane"]  # still open
+        s = running.get(i["session_id"]) or {} if i["pane"] not in sure else {}
+        # The writer's pane, if open; else the pane named, which stands when nobody can say
+        # where the writer is: only the index knows it (no binary, a subagent), or the
+        # process scan failed (`running_unknown`). A pending card follows its writer; one
+        # found but gone from every pane has stopped, however recent the folder; one alive
+        # that no pane shows (Codex without `session-id` in its status bar) works on by time.
+        at = i["pane"] if s.get("running_unknown") else open_in.get(s.get("session_id"), i["pane"])
+        if at != i["pane"]:
+            named = at or (None if s.get("running") else i["pane"])
+            i["pane"], i["state"] = at, progress(panes.get(at), named, i["created"])
         if (pane := panes.get(i["pane"])) is not None:
             if s:  # its session, found in a new pane: its page comes along as that pane does
                 i["state"] = progress(pane, i["pane"], i["created"])
             _author(i, pane.get("tool"), account.get(i["pane"]) or {})
-            i["where"] = f"{pane.get('session')}:{pane.get('window_name')}"
+            i["where"] = where(pane)
             continue
         source = s.get("source") or ""
         acct = next((a for a in profiles if source.startswith(a.get("dir", "") + "/")), {})
@@ -416,4 +437,5 @@ def placeholder(root: Path, name: str, who) -> str | None:
             "now": f'<p class="now">Now: {escape(str(headline))}</p>' if headline else "",
             "ago": f"{age}m" if age < 60 else f"{age // 60}h {age % 60}m",
             "every": 60000 if i["state"] == "stopped" else 5000 if age < 10 else 30000}
+    fill["seen"] = hash(tuple(fill.values()))  # what scratch_markdown.Files compares, as SEEN
     return re.sub(r"\{(\w+)\}", lambda m: str(fill[m[1]]), _PENDING.read_text())

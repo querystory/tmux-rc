@@ -287,6 +287,12 @@ def test_build_never_merges_into_a_live_session_and_leaves_out_what_wasnt_chosen
     server()
     tmux("new-session", "-d", "-s", "work", "-c", str(tmp_path))
     tmux("new-window", "-d", "-t", "work:1", "-c", "/")
+    # tmux 3.6 (Ubuntu 26.04) chdirs the pane only after its systemd scope setup (tmux
+    # issue 4719, fixed in 3.7): recorded before that, the window's path is the server's.
+    deadline = time.time() + 5
+    while tmux("display-message", "-p", "-t", "work:1", "#{pane_current_path}") != "/":
+        assert time.time() < deadline
+        time.sleep(0.05)
     R.Recorder(history).tick([], now=1000)
     stop()
     server()
@@ -297,9 +303,6 @@ def test_build_never_merges_into_a_live_session_and_leaves_out_what_wasnt_chosen
     names = set(tmux("list-sessions", "-F", "#{session_name}").split())
     assert names == {"work", "work-restored"}
     assert tmux("list-windows", "-t", "work-restored", "-F", "#{window_index}") == "1"
-    # The path build() asked for, not the shell's cwd: tmux 3.6 (Ubuntu 26.04) chdirs the
-    # pane only after its systemd scope setup (tmux issue 4719, fixed in 3.7), which on a
-    # CI runner can outlast any wait worth taking.
     assert tmux("display-message", "-p", "-t", "work-restored:1", "#{pane_start_path}") == "/"
 
 

@@ -135,7 +135,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
       const noChat = !!why(true);
       if (noChat !== $("chat").hidden) { $("chat").hidden = noChat; onChat(); } // the app offers Chat elsewhere too
       $("docs").hidden = !data.docs; // not live, but this is the boot capabilities fetch
-      $("scratch").hidden = $("scratch-nav").hidden = !data.scratch;
+      $("scratch-tab").hidden = $("scratch-nav").hidden = !data.scratch;
     } catch { /* Retain the last confirmed capabilities during a tunnel reconnect. */ }
     finally { fetching = false; }
   }
@@ -665,5 +665,6 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   });
   window.addEventListener("focus", pullTaps);
   paint(); capabilities(); pullTaps();
-  return { isActive: () => !!run, refresh: capabilities, ask, why, open: { chat: openChat, voice } };
+  // kind: the mode a running conversation is in (open[] of the other one only brings it back).
+  return { isActive: () => !!run, kind: () => run && (run.text ? "chat" : "voice"), refresh: capabilities, ask, why, open: { chat: openChat, voice } };
 }

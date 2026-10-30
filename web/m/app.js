@@ -85,6 +85,7 @@ const LUCIDE = {
   rows: '<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/><path d="M14 4h7M14 9h7M14 15h7M14 20h7"/>',
   unfold: '<path d="m7 15 5 5 5-5M7 9l5-5 5 5"/>',
   fold: '<path d="m7 20 5-5 5 5M7 4l5 5 5-5"/>',
+  pie: '<path d="M21 12c.55 0 1-.45.95-1a10 10 0 0 0-8.95-8.95c-.55-.05-1 .4-1 .95v8a1 1 0 0 0 1 1z"/><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/>',
   gauge: '<path d="m12 14 4-4M3.34 19a10 10 0 1 1 17.32 0"/>',
   images: '<path d="M18 22H4a2 2 0 0 1-2-2V6"/><path d="m22 13-1.296-1.296a2.41 2.41 0 0 0-3.408 0L11 18"/><circle cx="12" cy="8" r="2"/><rect width="16" height="16" x="6" y="2" rx="2"/>',
   arrowUpDown: '<path d="m21 16-4 4-4-4M17 20V4M3 8l4-4 4 4M7 4v16"/>',
@@ -310,6 +311,8 @@ function navigate(id = null, nextView = "summary", { mode, acct = accounts.key()
 // Opened from its card, a view's entry says so in history.state, which survives a reload and
 // Back/Forward; its Back then steps back rather than stacking a second dashboard entry.
 // Not the view already open: that adds no entry, so its Back would leave the app.
+// The dashboard's views with a place of their own: the sidebar's rows and the phone's tabs.
+const PLACES = ["scratch-nav", "graph-nav", "scratch-tab", "usage-tab"];
 const openPage = (name) => { if (page !== name) { navigate(null, name); history.replaceState({ fromCard: true }, ""); } };
 const closePage = () => history.state?.fromCard ? history.back() : navigate(null, "dashboard", { mode: "replace" });
 const stayPut = (opts) => navigate(active, active ? view : dashboard ? page || "dashboard" : "summary", opts);
@@ -466,9 +469,9 @@ function renderList() {
   const tab = String(filter) === "attention" ? "attention" : "all";
   $("list-nav").querySelectorAll("[data-filter]").forEach((button) => button.setAttribute("aria-pressed", !dashboard && tab === button.dataset.filter));
   // Restore rides the dashboard's view machinery but is its own screen: its row is the one pressed.
-  $("dashboard-tab").setAttribute("aria-pressed", String(dashboard && page !== "restore"));
+  $("dashboard-tab").setAttribute("aria-pressed", String(dashboard && !["restore", "usage", "scratch"].includes(page)));
   $("dash-nav").setAttribute("aria-pressed", String(dashboardVisible() && !["restore", "scratch", "graph"].includes(page)));
-  for (const nav of ["scratch", "graph"]) $(`${nav}-nav`).setAttribute("aria-pressed", String(page === nav));
+  for (const id of PLACES) $(id).setAttribute("aria-pressed", String(page === id.split("-")[0]));
   $("restore").setAttribute("aria-pressed", String(page === "restore"));
   // The filter button counts each filter on, and its tooltip names them.
   const on = [filter.map((f) => SHOW[f]).join(", "), scope.tools.join(", "), accounts.on().join(", "), scope.session, $("search").value.trim() && `"${$("search").value.trim()}"`].filter(Boolean);
@@ -890,11 +893,6 @@ function render() {
   // The brand keeps its slot for the same reason. Narrow is unchanged.
   const wide = WIDE.matches;
   show("sessions", (!inPane && !dashboard) || wide); show("list-nav", !inPane && !wide);
-  // A phone's Chat and mic ride its tab bar either side of Sessions; a pane hides the bar, so
-  // its heading takes them, by the overflow menu. Moved only when they are elsewhere: a move
-  // on every repaint would drop their focus.
-  const callTo = inPane ? $("pane-menu") : $("all-tab");
-  if (!wide && $("chat").nextElementSibling !== callTo) inPane ? callTo.before($("live-mode"), $("chat")) : callTo.replaceWith($("chat"), callTo, $("live-mode"));
   const list = !inPane && !dashboard; // a phone's list screen: the only one with search and sort
   show("brand", wide || !list); show("find", wide || list);
   // A phone's title heads the overview and scrolls off under the bar, as Gmail's subject does;
@@ -1846,10 +1844,12 @@ enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("attach-file"), () => active && !sending ? draft() : null);
 
 for (const [id, name] of Object.entries({ "menu-open": "menu", collapse: "panel", "dash-nav": "gauge", "graph-nav": "network", "scratch-nav": "images", "close-viewer": "back", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-export": "x", "close-move": "x", "close-rename": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down", "view-summary": "fileText", "view-terminal": "terminal" })) icon(id, name);
-// The phone's tab bar: Sessions, home, in the middle (Chat and Voice are live.js's). The gauge is Dashboard's
-// everywhere; the 2×2 grid is the layout picker's. Only Needs you carries a count.
-for (const [id, label, glyph] of [["dashboard", "Dashboard", "gauge"], ["all", "Sessions", "layers"], ["attention", "Needs you", "alert"]]) {
-  html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}${id === "attention" ? '<span id="attention-count" class="count"></span>' : ""}</span><span>${label}</span>`);
+// The phone's tab bar: Sessions, home, in the middle, Usage and Scratch either end. The gauge is Dashboard's
+// everywhere; the 2×2 grid is the layout picker's. Only Needs you carries a count. The ☰ drawer
+// lists the same five (below), so one list names them.
+const TABS = [["dashboard-tab", "Dashboard", "gauge"], ["usage-tab", "Usage", "pie"], ["all-tab", "Sessions", "layers"], ["attention-tab", "Needs you", "alert"], ["scratch-tab", "Scratch", "images"]];
+for (const [id, label, glyph] of TABS) {
+  html($(id), `<span class="nav-icon">${licon(glyph)}${id === "attention-tab" ? '<span id="attention-count" class="count"></span>' : ""}</span><span>${label}</span>`);
 }
 // The keys worth a thumb on a phone.
 //
@@ -1899,14 +1899,15 @@ $("keys").addEventListener("scroll", fadeKeys, { passive: true });
 new ResizeObserver(fadeKeys).observe($("keys"));
 $("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); if (open) fadeKeys(); };
 $("dashboard-tab").onclick = $("dash-nav").onclick = () => openDashboard();
-// A phone's ☰ drawer: each row presses the control that already goes there (a tab, Scratch,
+// A phone's ☰ drawer: every destination, each row pressing the control that already goes there
+// (the five tabs in the bar's order, Graph under the Dashboard it opens within, then Chat, Voice,
 // Settings, the docs link), shown when it is and current while it is pressed. A modal
 // dialog, so focus stays in it and returns to ☰; a tap off it, Escape or a drag left closes it.
 // It slides every way it comes and goes (settle, below), a row's place opening once it is gone.
-html($("drawer-nav"), [["dashboard-tab", "Dashboard", "gauge"], ["graph-nav", "Graph", "network"], ["all-tab", "Sessions", "layers"], ["attention-tab", "Needs you", "alert"], ["scratch-nav", "Scratch", "images"], ["settings-open", "Settings", "settings"], ["docs", "Documentation", "book"]]
+html($("drawer-nav"), [TABS[0], ["graph-nav", "Graph", "network"], ...TABS.slice(1), ["chat", "Chat", "message"], ["live-mode", "Voice", "mic"], ["settings-open", "Settings", "settings"], ["docs", "Documentation", "book"]]
   .map(([via, label, glyph]) => `<button type="button" data-via="${via}">${licon(glyph)}<span>${label}</span><span class="count"></span></button>`).join(""));
 $("menu-open").onclick = (e) => {
-  // One current row, the most specific pressed (rows run general to specific): Scratch, not
+  // One current row, the most specific pressed (rows run general to specific): Graph, not
   // also the Dashboard it opens within.
   const rows = [...$("drawer-nav").children], here = [...rows].reverse().find((row) => $(row.dataset.via).getAttribute("aria-pressed") === "true");
   for (const row of rows) { row.hidden = $(row.dataset.via).hidden; row.setAttribute("aria-current", row === here ? "page" : "false"); }
@@ -1971,7 +1972,7 @@ addEventListener("touchmove", (e) => {
   drag.v = (t.clientX - drag.at) / Math.max(1, e.timeStamp - drag.t); drag.at = t.clientX; drag.t = e.timeStamp;
   slide(Math.min(0, Math.max(-drawer.offsetWidth, drag.base + dx)));
 }, { passive: true });
-for (const nav of ["scratch", "graph"]) $(`${nav}-nav`).onclick = (e) => { e.preventDefault(); openPage(nav); };
+for (const id of PLACES) $(id).onclick = (e) => { e.preventDefault(); openPage(id.split("-")[0]); };
 $("empty-history").onclick = () => live.ask(`Find my previous sessions about "${$("search").value.trim()}".`);
 $("empty-needs").onclick = () => { const needs = $("empty-needs").dataset.all === "needs"; if (needs) $("search").value = ""; filter = needs ? ["attention"] : []; scope.tools = []; stayPut({ acct: [] }); };
 // Close only leaves the pane, exactly like Back (which stands in for it on a narrow screen).
@@ -2155,9 +2156,9 @@ $("close-settings").onclick = () => $("settings").close();
 // non-modal, so the list stays in view and live, and closed by Escape or a click anywhere
 // but the panel or the button that opened it. A phone keeps its sheet.
 function openBeside(dialog, opener) {
+  dialog._opener = opener; // on a phone too: what reopens it (the Start row's Session)
   if (!WIDE.matches) return dialog.showModal();
   besides().forEach((d) => d !== dialog && d.close()); // one panel at a time
-  dialog._opener = opener;
   dialog.classList.add("beside"); dialog.show();
   dialog.focus(); // show() does not move focus as showModal() does: the next Tab enters the panel
 }
@@ -2381,6 +2382,7 @@ async function openLaunch(fresh, opener) {
   try { $("launch-dir").value = localStorage.getItem(LAST_DIR) || "~"; } catch { $("launch-dir").value = "~"; }
   $("launch-dir").oninput(); launchMode();
   // Chat and Voice start as their own buttons do; greyed, the line under them says why.
+  kindHome(); // the Start row may still sit in a docked Chat panel (its pick moves it there)
   const kinds = [...$("launch-kind").querySelectorAll("[data-start]")];
   kinds.forEach((b) => { b.dataset.why = live.why(b.dataset.start === "chat"); });
   show("launch-kind", kinds.some((b) => !b.dataset.why)); text($("launch-sub"), "Start an agent or shell in a new tmux window.");
@@ -2421,9 +2423,26 @@ async function openLaunch(fresh, opener) {
   } catch { if (load === launchLoad) text($("launch-error"), "Could not load launchers. Close and try again."); }
 }
 $("close-launch").onclick = () => $("launch-dialog").close();
-$("launch-kind").onclick = (e) => {
-  const b = e.target.closest("[data-start]");
-  if (b?.dataset.why) text($("launch-sub"), b.dataset.why); else if (b) { $("launch-dialog").close(); live.open[b.dataset.start](); }
+// The Start row goes with the choice: Chat or Voice carries it to the top of their sheet,
+// pressed on the pick, so Session is one tap back (it reopens the sheet as its opener did).
+// The row comes home when that sheet closes, or when New session opens over a docked Chat.
+const kindRow = $("launch-kind");
+const pressKind = (b) => kindRow.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+const kindHome = () => { $("launch-sub").before(kindRow); pressKind(kindRow.firstElementChild); };
+// The event is queued: crossing the breakpoint closes and reopens the sheet before it runs.
+$("voice-dialog").addEventListener("close", () => $("voice-dialog").open || kindHome());
+kindRow.onclick = (e) => {
+  const b = e.target.closest("button"), kind = b?.dataset.start, busy = kind && live.kind();
+  if (!b) return;
+  // Greyed (asked afresh: a conversation that ended since the sheet opened was what made the
+  // other mode available), or the other mode while a conversation runs (opening would only
+  // bring that one back, so the pick would not take): the sheet's own line says why.
+  if (kind) b.dataset.why = live.why(kind === "chat");
+  const why = b.dataset.why || (busy && busy !== kind && `End ${busy === "chat" ? "the chat" : "Live Mode"} first.`);
+  if (why) { text(b.closest("dialog").querySelector("[role=status]"), why); return; }
+  if (!kind) { if (kindRow.closest("#voice-dialog")) { $("voice-close").click(); $("launch-dialog")._opener.click(); } return; }
+  pressKind(b); $("launch-dialog").close(); live.open[kind]();
+  $("voice-dialog").querySelector(".dialog-heading").after(kindRow);
 };
 let launching = false, launched = null;
 // Go to a window the daemon just opened (a launcher, or a chat resume). Record the id BEFORE
@@ -2550,7 +2569,9 @@ else if (WIDE.addListener) WIDE.addListener(resizeWorkspace);
 // as "close this view", and pressing it should never end a process. 404 means it is already
 // gone, the outcome asked for.
 dismissable($("pane-menu"));
-const closePaneMenu = () => { $("pane-menu").open = false; $("pane-menu-button").focus(); }; // the item just hid: keep keyboard focus on a visible control
+// The item just hid: a keyboard's focus moves to the menu's button. A tap's is dropped, or the
+// sheet the item opens hands it back on close and iOS paints a ring on the button.
+const closePaneMenu = () => { const keyed = document.activeElement?.matches(":focus-visible"); $("pane-menu").open = false; keyed ? $("pane-menu-button").focus() : document.activeElement?.blur(); };
 // The Layout picker's trigger: one fixed layout glyph (a grid, as Meet's "Adjust view"); its value says which layout is on.
 $("review-layout-picker").querySelector("summary").insertAdjacentHTML("afterbegin", licon("dashboard", 18));
 html($("kill-pane"), `${licon("power", 18)}<span>Kill window</span>`);
