@@ -135,7 +135,12 @@ tap. A choice that can't start here is greyed, and tapping it puts the reason on
 below; with neither available (Live Mode is off by default) the row is hidden, so a casual
 user's sheet is unchanged. The row goes with the choice: picking Chat or Voice carries it to
 the top of that sheet, pressed on the pick, so Session is one tap back rather than a close
-and a second + (the first version dropped it with the sheet, and there was no way back). It
+and a second + (the first version dropped it with the sheet, and there was no way back).
+A tab is only a tab: on a wide screen the Chat or Voice sheet opens where New session was,
+and nothing has started yet. The first message, starter chip or voice Start begins the
+conversation and docks the sheet on the right. Docking on the tap itself made the target
+jump across the screen. It also opened a chat nobody had asked for, so Voice then said
+"End the chat first." It
 returns to New session when the Chat sheet closes, or when New session opens over a docked
 one; Chat opened from its own button never shows it. While a conversation runs, the other
 mode is a reason on the line ("End the chat first"), not a pressed choice that did not take:

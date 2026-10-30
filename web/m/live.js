@@ -47,7 +47,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     $("voice-end").hidden = !run?.text;
     $("voice-models").hidden = !!run || text;
     $("voice-switch").hidden = !run?.text || $("voice-switch").children.length < 2;
-    $("voice-compose").hidden = !run;
+    $("voice-compose").hidden = !run && !text; // a chat starts with its first turn
     $("voice-mute").hidden = !run?.stream;
     $("voice-mute").setAttribute("aria-pressed", !!run?.muted);
     $("voice-mute").title = $("voice-mute").ariaLabel = run?.muted ? "Unmute microphone" : "Mute microphone";
@@ -92,8 +92,8 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   }
   const bubble = chatBubble({ licon, open: () => show() });
   const starters = chatStarters($("chat-starters"), sendText);
-  const paintStarters = () => starters({ visible: !!run?.text && !run.hasTurn,
-    connected: !composing && !!run?.listening && run.ws?.readyState === WebSocket.OPEN });
+  const paintStarters = () => starters({ visible: (run ? run.text : mode === "text") && !run?.hasTurn,
+    connected: !composing && (!run || (run.listening && run.ws?.readyState === WebSocket.OPEN)) });
   // A wide screen (`wide`, app.js's breakpoint) docks the panel beside the work area
   // instead: shown non-modally, so nothing is dimmed or made inert (style.css places it).
   const docked = () => dialog.open && !!wide?.matches;
@@ -115,6 +115,8 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     send: sendText,
   });
   function sendText(frame, thumbnails = []) {
+    if (!run && mode === "text") start();
+    if (run?.text && !run.listening) { run.pending.push([frame, thumbnails]); run.hasTurn = true; paintStarters(); return; } // sent once it is
     if (!run?.listening || run.ws?.readyState !== WebSocket.OPEN) return false;
     run.ws.send(JSON.stringify(frame));
     run.thumbs.push(thumbnails); // for this turn's echo, or its refusal
@@ -489,7 +491,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
         if (!current.listening) drop(current);
         current.held = message.status === "reconnecting"; current.dirty = false; // see viewing()
         if (current.listening) { clearTimeout(current.deadline); current.tries = 0; viewing(current); if (current.text) restore(current); resync(current);
-          for (const frame of current.pending.splice(0)) sendText(frame); }
+          for (const turn of current.pending.splice(0)) sendText(...turn); }
         current.connectionStatus = message.status === "reconnecting" ? "Reconnecting..." : "Connecting...";
         audioStatus(current);
       } else if (message.type === "transcript") add(message.role, message.text, message.new_segment, "images" in message ? current.thumbs.shift() : []);
@@ -536,7 +538,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   async function start() {
     const token = ++sequence;
     const current = { model: $("voice-model").value, text: mode === "text", proposals: new Map(), sending: new Map(), thumbs: [], pending: [], turns: 0, nodes: [], queued: new Set(), playAt: 0, tries: 0, up: false, listening: false, muted: false };
-    run = current; log.replaceChildren(); heard.clear(); status(current.text ? "Connecting..." : "Connecting microphone..."); paint();
+    run = current; dialog.classList.remove("beside"); log.replaceChildren(); heard.clear(); status(current.text ? "Connecting..." : "Connecting microphone..."); paint();
     if (current.text) {
       $("voice-switch").value = current.model;
       try { localStorage.setItem(CHAT_MODEL_KEY, current.model); } catch {}
@@ -587,12 +589,13 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     }
   }
   const voice = () => { if (!run) mode = "voice"; paint(); show(); if (run) resumeAudio(run, true); };
-  // Chat: straight into a text session on the last chat model used (else the first), no
-  // picker and no mic. A conversation already running (either mode) is just brought back.
-  function openChat() {
+  // Chat: a text session on the last chat model used (else the first), no picker and no mic.
+  // `now` false (New session's Chat tab) only shows its composer: the first turn starts it.
+  // A conversation already running (either mode) is just brought back.
+  function openChat(now = true) {
     const models = chatModels(), model = models.find((entry) => entry.label === saved(CHAT_MODEL_KEY)) || models[0];
     show(); // first, so a new chat's handshake says it opened in view
-    if (!run && model) { mode = "text"; $("voice-model").value = model.label; start(); }
+    if (!run && model) { mode = "text"; $("voice-model").value = model.label; if (now) start(); else paint(); }
   }
   $("live-mode").onclick = voice;
   $("chat").onclick = () => docked() ? hide() : openChat(); // a docked panel toggles: nothing covers the button
@@ -601,7 +604,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   function ask(text) {
     openChat();
     const frame = { action: "text", text, images: [] };
-    if (run && sendText(frame) === false) run.pending.push(frame); // in order: none is dropped
+    if (sendText(frame) === false) run?.pending.push([frame]); // in order: none is dropped
   }
   $("voice-switch").onchange = () => {
     if (!run?.text || $("voice-switch").value === run.model) return;

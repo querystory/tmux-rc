@@ -2359,7 +2359,7 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !documen
 addEventListener("blur", () => { if (document.activeElement?.tagName === "IFRAME" && !document.querySelector("dialog:modal")) besides().forEach((d) => d.close()); });
 // Closed by its × or Escape, focus goes back to what opened it; not after a launch, whose
 // navigation has already put focus on the pane.
-for (const d of [$("settings"), $("launch-dialog")]) d.addEventListener("close", () => {
+for (const d of [$("settings"), $("launch-dialog"), $("voice-dialog")]) d.addEventListener("close", () => {
   if (d.classList.contains("beside") && [null, document.body].includes(document.activeElement)) d._opener?.focus({ preventScroll: true });
   d.classList.remove("beside");
 });
@@ -2612,6 +2612,7 @@ async function openLaunch(fresh, opener) {
 $("close-launch").onclick = () => $("launch-dialog").close();
 // The Start row goes with the choice: Chat or Voice carries it to the top of their sheet,
 // pressed on the pick, so Session is one tap back (it reopens the sheet as its opener did).
+// On a wide screen that sheet opens where New session was; it docks once it starts (live.js).
 // The row comes home when that sheet closes, or when New session opens over a docked Chat.
 const kindRow = $("launch-kind");
 const pressKind = (b) => kindRow.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
@@ -2628,7 +2629,10 @@ kindRow.onclick = (e) => {
   const why = b.dataset.why || (busy && busy !== kind && `End ${busy === "chat" ? "the chat" : "Live Mode"} first.`);
   if (why) { text(b.closest("dialog").querySelector("[role=status]"), why); return; }
   if (!kind) { if (kindRow.closest("#voice-dialog")) { $("voice-close").click(); $("launch-dialog")._opener.click(); } return; }
-  pressKind(b); $("launch-dialog").close(); live.open[kind]();
+  const opener = $("launch-dialog")._opener;
+  pressKind(b); $("launch-dialog").close();
+  if (WIDE.matches && opener && !busy) { $("voice-dialog")._opener = opener; $("voice-dialog").classList.add("beside"); }
+  live.open[kind](false);
   $("voice-dialog").querySelector(".dialog-heading").after(kindRow);
 };
 let launching = false, launched = null;
