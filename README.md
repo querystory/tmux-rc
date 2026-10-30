@@ -22,19 +22,19 @@ a question, tappable answers, and a snapshot timeline.
   HTML or in a Markdown viewer with tables, mermaid and callouts ([below](#review-agents-work)).
 
 <p align="center">
+  <img src="docs/img/mobile-list.png" alt="The phone session list: every tmux pane grouped by session, each row showing the agent's name, its state badge, and a one-line summary of what it is doing" width="240">
   <img src="docs/img/one-tap-list.png" alt="Needs you on the phone: an agent asks whether to merge two green, reviewed PRs, with Merge both and Just #413 buttons right on its row" width="240">
-  <img src="docs/img/one-tap-pane.png" alt="The same question in the agent's overview: a summary, both answers as buttons, and both PRs under Links with their titles" width="240">
-  <img src="docs/img/mobile-offers.png" alt="An agent hands you a command to run: make test, and a reply, each with Send it and Copy buttons" width="240">
+  <img src="docs/img/mobile-scratch.png" alt="The Scratch tab on the phone: cards with a thumbnail of each page, its title, a one-line description, when it was made and which session made it; one card is marked Updating" width="240">
 </p>
 
-<p align="center"><em>Answer your agents in one tap, from your phone.</em></p>
+<p align="center"><em>Every agent at a glance, answers in one tap, and the pages they made.</em></p>
 
 <p align="center">
   <img src="docs/img/hero.png" alt="The wide layout: the session list on the left with panes that need you highlighted, one pane's live terminal in the middle, and its Overview on the right with the headline, summary, links, tasks and sub-agents">
 </p>
 
 <p align="center">
-  <img src="docs/img/mobile-list.png" alt="The phone session list: every tmux pane grouped by session, each row showing the agent's name, its state badge, and a one-line summary of what it is doing" width="280">
+  <img src="docs/img/one-tap-pane.png" alt="The same question in the agent's overview: a summary, both answers as buttons, and both PRs under Links with their titles" width="280">
   <img src="docs/img/mobile-pane.png" alt="A single pane on the phone: headline, plain-English summary, the model and how much of its context window is used, the sub-agents it spawned, a timestamped activity list, and a box to message the pane" width="280">
 </p>
 
@@ -107,7 +107,6 @@ front door as the app, so a page is on your phone with no second server or tunne
 <img src="docs/img/wide-scratch.png" alt="Scratch in the wide layout: a grid of cards beside the session list, each with the page's thumbnail, title, description, the agent and account that made it linked to its pane, and when it was made and updated; one card is marked Updating">
 
 <p align="center">
-  <img src="docs/img/mobile-scratch.png" alt="The Scratch tab on the phone: cards with a thumbnail of each page, its title, a one-line description, when it was made and which session made it; one card is marked Updating" width="280">
   <img src="docs/img/mobile-scratch-page.png" alt="A scratch page open in the app's viewer, with a message box at the bottom addressed to the pane that made it, a Screenshot attached chip and a Send button" width="280">
 </p>
 
