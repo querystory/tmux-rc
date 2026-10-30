@@ -2176,6 +2176,8 @@ async def _compose(pane_id: str, request: Request):
                 path = _stage_file(data, mime, value.filename)
                 segments.append((data if mime in _EXT else b"", path))
             elif kind == "birth" and isinstance(value, str):  # the incarnation the user confirmed
+                if not re.fullmatch(r"\d{1,10}", value):  # a pane's pid (tmux.py), nothing else
+                    raise HTTPException(400, "birth is a pane's pid")
                 birth = value
             elif kind == "scratch" and isinstance(value, str):  # sent from the scratch viewer
                 page = value

@@ -120,6 +120,27 @@ leaves the URL once used, so a reload offers nothing. Inside the app's viewer a 
 would load a second app in the frame, so a page there posts
 `{pane, draft}` to its parent instead, as the placeholder's pane link does.
 
+Inside the app (the viewer, or a pinned page), a page may instead *ask* to send:
+`{intent: "send", pane, text}`. The app checks it (one line, at most 500 characters, no
+control or format characters, a pane in the feed that runs an agent, never a plain shell,
+where the line would run as a command) and opens its own sheet, outside the frame: the line,
+the pane, the page that asked, and Send, Edit in composer, Cancel. Only that tap sends,
+through the composer's own path, bound to the pane's process as it was when asked (a pane
+that has since become a shell, or a recycled id, gets nothing), and the user stays on the
+page. Only the page the viewer opened can ask: from its first load on, the app sandboxes the
+frame for every later document, so a page it navigates to, or a reload, runs no script and posts
+nothing. A token handed to the page would not do: the page can pass it on (in a link's
+fragment, say), and the next document can post it before its own load tells the app it arrived.
+The sandbox can't go on sooner: Safari applies it to the navigation under way, so the page opened
+would lose its own scripts. A page that navigates away before it has loaded is shown, and named,
+as the page opened: it could as well have served that content itself, and no other page's name
+is borrowed.
+The cost: a page reached by a link inside the viewer shows without its scripts (open it from the
+gallery, or in a tab, for those). Send ignores taps for half a second, so one already in flight can't land on it, and there is no "don't ask again":
+a silent send is exactly what an injected page would want. A standalone tab can't ask at
+all: the app hears only the frame it opened, so a page in a tab, even one that opens the app
+in a popup and posts to it, is ignored; its buttons stay same-tab draft links.
+
 ## A link handed out before its page
 
 Agents often hand out a link before the page behind it exists ("a subagent is building it,
