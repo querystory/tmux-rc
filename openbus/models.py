@@ -14,7 +14,7 @@ Activity = Literal["running", "idle", "waiting", "compacting", "quota_blocked", 
 WaitingOn = Literal["user", "external"]
 Tool = Literal["claude", "codex", "gemini", "antigravity", "opencode", "omp", "shell", "unknown"]
 # Permission/interaction mode, mirroring Claude Code's shift-tab cycle.
-Mode = Literal["normal", "plan", "accept-edits", "bypass", "unknown"]
+Mode = Literal["normal", "plan", "accept-edits", "bypass", "auto", "unknown"]
 
 
 # HOW an answer reaches the widget. "text" types the option and hits Enter; "menu"
@@ -139,7 +139,7 @@ class PaneState(BaseModel):
         None  # context-window % USED (parser converts 'left' displays)
     )
     cost: str | None = None  # e.g. "$10.64"
-    mode: Mode = "unknown"  # plan / accept-edits / bypass / normal
+    mode: Mode = "unknown"  # plan / accept-edits / bypass / auto / normal
 
     # Present while actively working: the whimsical verb, elapsed, and tokens streamed.
     working_verb: str | None = None  # e.g. "Cultivating"

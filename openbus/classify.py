@@ -710,7 +710,7 @@ def _ground_visible_fields(
     ) if llm_fn and (bad_action or identity_chrome) else None
     retry = dict(retry) if isinstance(retry, dict) else None
     if retry:
-        _fold_sends(retry)
+        _fold_sends(retry, text)
         _unblocked_ask(retry)  # before its ask is validated: a bad one costs no quota read
     if retry and receipt and kind == "prompt":
         # The cursor rests below everything printed since the answer: nothing there asks.
@@ -923,6 +923,17 @@ def _final_paragraph(message: str) -> str:
     return " ".join(r.strip() for r in reversed(rows))
 
 
+# Claude Code's notes on a background agent ("● Agent "x" finished · 3m 2s", "… is waiting
+# on its own background work") print as bullets after the reply, but are no message.
+_AGENT_NOTE_RE = re.compile(r'^[ \t]*● Agent "[^"\n]*" (?:finished|is waiting)\b.*\n?',
+                            re.MULTILINE)
+
+
+def _last_message(text: str) -> str:
+    """`text` from its last message bullet on (the bullet itself left out), or all of it."""
+    return re.split(r"(?:^|\n)● ", _AGENT_NOTE_RE.sub("", text))[-1]
+
+
 def _final_message(visible: str, tool: str) -> str | None:
     """A finished turn's final assistant message, up to its stamp or through the provider
     error that stopped it, or None while it runs. Anything typed after: the user acted."""
@@ -934,7 +945,7 @@ def _final_message(visible: str, tool: str) -> str | None:
     end = stop.end() if stop.re is error_re else stop.start()
     # The turn's final assistant message, without the bars framing its rows: a bar left on
     # a blank row joins paragraphs, and one after a "?" hides that the row asks.
-    return _FRAME_BARS_RE.sub("", visible[:end].rsplit("\n● ", 1)[-1])
+    return _FRAME_BARS_RE.sub("", _last_message(visible[:end]))
 
 
 @lru_cache(maxsize=256)
@@ -995,34 +1006,63 @@ def _invited(reply: str, view: str) -> bool:
     return False
 
 
+def _above_draft(text: str) -> str:
+    """The ask view above Claude's input box: its unsent draft is the user's words, so it
+    vouches for no offer and no reply the model suggests."""
+    return _below_turn(_ask_view(text), 0)
+
+
+def _sends_out_of_options(result: dict, text: str) -> None:
+    """A command the model put among a question's replies that holds up as a `! command`
+    to send (screen_offers) joins the offers instead (one Send it row), and a reply only
+    the draft shows is dropped. A question whose replies all went to the offers has
+    nothing left to answer."""
+    question = result.get("question")
+    options = question.get("options") if isinstance(question, dict) else None
+    # A live spinner is the agent at work again, unless all it does is wait on its agents.
+    *_, turn = [None, *_CLAUDE_TURN_RE.finditer(_ask_view(text))]
+    if (not isinstance(options, list) or question.get("answer_style", "text") != "text"
+            or (turn and turn["live"] and "background agent" not in turn[0])):
+        return
+    sends = [o for o in options if isinstance(o, str)
+             and any(g.startswith("!") for g in screen_offers([o], text))]
+    view, above = _ask_view(text), _above_draft(text)
+    question["options"] = [o for o in options if o not in sends
+                           and not (_quoted(o, view) and not _quoted(o, above))]
+    if sends:
+        result["offers"] = [*sends, *result["offers"]]  # first, so the cap of three keeps it
+        if not question["options"]:
+            del result["question"]
+
+
 def screen_offers(offers: object, text: str) -> list[str]:
     """The model's offers that hold up on `text`, three at most: each is on the screen
     (_quoted), and a `! command` is one bash reads whole and that does not end in a line
     continuation (which bash -n accepts). Classify's gate, and the watcher's on a screen it
     does not reparse (its fingerprint ignores a duration). An offer is sent as one line, so
     a row break the model copied from a wrap is a space. A command the screen hands over
-    as `! command` in the final message, alone on its rows and nowhere else on screen, keeps
-    that `! ` even where the model's copy dropped it: it is what makes Send it run the
-    command rather than say it to the agent. Any other sighting (an older turn, a reply to
-    type) leaves it as is. A reply ("delete it" for "I'd delete this job, unless you want to
-    keep it") is the user's words, so it is on the screen word by word rather than whole."""
+    as `! command` in the final message, alone on its rows and with its `! ` wherever else
+    the screen shows it, keeps that `! ` even where the model's copy dropped it: it is what
+    makes Send it run the command rather than say it to the agent. Any bare sighting (a
+    reply to type) leaves it as is. The unsent draft in the input box vouches for nothing.
+    A reply ("delete it" for "I'd delete this job, unless you want to keep it") is the
+    user's words, so it is on the screen word by word rather than whole."""
     listed = offers if isinstance(offers, list) else ()
-    visible = _ask_view(text)
-    # The final assistant message (from its bullet, or the top when the view begins inside
-    # it), above any unsent draft; none once the user typed after it.
-    above = _below_turn(visible, 0)
-    reply = above[max(0, ("\n" + above).rfind("\n● ")):]
+    # The screen above any unsent draft, and on it the final assistant message (from its
+    # bullet, or the top when the view begins inside it); none once the user typed after it.
+    above = _above_draft(text)
+    reply = _last_message(above)
     turn = "" if _USER_ROW_RE.search(reply) else reply
     whole = (f"! {o}" if not o.startswith("!") and _quoted(f"! {o}", turn, rows=True)
-             and _quoted(o, visible) == 1 else o
+             and _quoted(o, above) == _quoted(f"! {o}", above) else o
              for o in (re.sub(r"[ \t]*\n[ \t]*", " ", o.strip())
                        for o in listed if isinstance(o, str)))
     # A reply is the user's own words for the final message's ask ("merge PR #5144" for
     # "Approvals to merge PR #5385 and PR #5144"), read off one paragraph (_invited). A
     # `! command` the agent wrote without its "!" is on the screen as the command alone.
-    shown = lambda o: _quoted(o, visible) or (  # noqa: E731
-        o.startswith("! ") and _quoted(o[2:], visible)) or (
-        not o.startswith("!") and _invited(o, visible))
+    shown = lambda o: _quoted(o, above) or (  # noqa: E731
+        o.startswith("! ") and _quoted(o[2:], above)) or (
+        not o.startswith("!") and _invited(o, above))
     kept = [o for o in dict.fromkeys(whole)
             if shown(o) and not (o.startswith("! ") and (o.endswith("\\") or not _parses(o[2:])))]
     return [o for o in kept if f"! {o}" not in kept][:3]  # the command, not its plain copy too
@@ -1168,9 +1208,14 @@ _CLAUDE_MODE_RE = re.compile(r"^[ \t]*(?:-- INSERT --[ \t]*)?(?:⏵⏵|⏸)[ \t]
                              re.MULTILINE)
 
 
+_CLAUDE_MODES = {"auto mode": "auto", "accept edits": "accept-edits", "plan mode": "plan",
+                 "bypass permissions": "bypass"}  # the status line's words, as a card says them
+
+
 def claude_mode(visible: str) -> str | None:
     """The mode Claude Code's status line shows in the screen's last rows, or None."""
-    *_, m = [None, *_CLAUDE_MODE_RE.finditer("\n".join(visible.rstrip().splitlines()[-4:]))]
+    rows = _AGENT_LIST_RE.sub("", visible).rstrip().splitlines()[-4:]  # the agent list sits below
+    *_, m = [None, *_CLAUDE_MODE_RE.finditer("\n".join(rows))]
     return m and m[1]
 
 
@@ -1305,13 +1350,15 @@ def _from_reply(offer: str, reply: str | None) -> str:
     return offer
 
 
-def _fold_sends(result: dict) -> None:
+def _fold_sends(result: dict, text: str) -> None:
     """What to send is the model's call: the text it gives copyables to send here leads
-    its offers, so a corrective re-read replaces both together."""
+    its offers, so a corrective re-read replaces both together. A `! command` among its
+    question's replies joins them before that question is checked (_sends_out_of_options)."""
     cps, offers = result.get("copyables"), result.get("offers")
     result["offers"] = [*(c["send"] for c in (cps if isinstance(cps, list) else ())
                           if isinstance(c, dict) and isinstance(c.get("send"), str)),
                         *(offers if isinstance(offers, list) else ())]
+    _sends_out_of_options(result, text)
 
 
 def classify(
@@ -1401,7 +1448,7 @@ def classify(
         result.update(tool="shell", activity="idle")
         result.pop("question", None)
         result.pop("rewind", None)
-    _fold_sends(result)
+    _fold_sends(result, text)
     # Before grounding, since a misquoted ask would otherwise send the re-read a viewport
     # cut above the quota notice (the re-read's own ask is dropped inside it).
     _unblocked_ask(result)
@@ -1638,6 +1685,8 @@ def classify(
         result.pop("resets", None)
     if result.get("tool") == "claude":  # its agent list's workflow rows are chrome
         _read_workflow_rows(result, visible)
+        if mode := claude_mode(visible):  # so is its mode row, read here over the model's
+            result["mode"] = _CLAUDE_MODES[mode]
     # The model's quota read covers the workers too: they share the parent's limit, so a
     # row still read as busy (a meter that only looks live, a workflow bar) is blocked too.
     if result.get("activity") == "quota_blocked" and isinstance(result.get("subagents"), list):
