@@ -2310,7 +2310,7 @@ if _scratch_dir:
         return HTMLResponse(await asyncio.to_thread(lambda: scratch.page(
             Path(_scratch_dir), *_who(),
             lambda listed: scratch_sidecars.queue(Path(_scratch_dir), WEB_DIR, listed, use_llm),
-            "/docs/deploy/scratch-gallery/" if DOCS_MOUNTED else scratch.DOCS)))
+            "/docs/scratch/" if DOCS_MOUNTED else scratch.DOCS)))
 
     _mount_static("/scratch", _scratch_dir, partial(
         scratch_markdown.Files, web=WEB_DIR,

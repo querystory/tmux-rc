@@ -28,21 +28,9 @@ Keep the directory outside every checkout, so no commit can pick up a preview an
 worktree cleanup can delete one. It must exist when the daemon starts, because that is the
 one time it is checked.
 
-## The gallery
-
-`<your tmux-rc URL>/scratch/` lists every folder as a card with a thumbnail, a description
-and who made it. See [Scratch gallery](scratch-gallery.md).
-
-## What `/scratch/` is for
-
-Anything that is a pile of static files, not just tmux-rc work:
-
-- an HTML mock or design study an agent just wrote;
-- a Markdown document, such as a plan or a design note with Mermaid diagrams, which opens
-  rendered ([Markdown pages](scratch-gallery.md#markdown-pages));
-- the build output of a static site (a docs site, a landing page, a single-page app's
-  `dist/`) for another project;
-- a generated report, a chart, a screenshot set, a PDF.
+What the pages are, how the gallery at `/scratch/` shows them, and what agents do with it:
+[Scratch](../scratch.md). This page is the operator's side: serving the directory, reaching
+it, and what the sandbox allows.
 
 ## Your scratch URL, by access method
 
@@ -98,7 +86,7 @@ stops the writes but leaves the last values in place until tmux restarts or you 
 
 It is off by default because it writes to your tmux server's environment, which you may
 manage yourself. The variables only say where scratch is; agents also need to be told what
-to do with it. Paste [the agent snippet](scratch-gallery.md#the-agent-snippet) into your
+to do with it. Paste [the agent snippet](../scratch.md#the-agent-snippet) into your
 agent instructions.
 
 ### One instruction file for every agent
@@ -172,7 +160,7 @@ baked in, or give them their own hostname (below).
   `index.html` nor `index.md` also 404s at its bare URL, since a folder has no listing; link the file (the
   gallery links such a folder's newest file).
 - **202 at a folder's URL, with a spinner**: its `meta.json` is there but its page is not
-  yet, so the page is being made ([details](scratch-gallery.md#a-link-handed-out-before-its-page)).
+  yet, so the page is in progress ([details](../scratch.md#a-link-handed-out-before-its-page)).
   It turns into the page once `index.html` or `index.md` lands.
 - **The page loads but its data doesn't**: a `fetch` or XHR failing (look for a CSP error
   in the browser console) is the sandbox doing its job. Inline the data into the page or
