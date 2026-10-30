@@ -55,7 +55,7 @@ p { margin: 0; overflow-wrap: anywhere; }
 a { color: var(--accent); }
 </style><script>// In <head>, so the first paint has it: a script ahead of the body's waits on the network.
 // Sandboxed like every /scratch/ page, so no localStorage: the system theme.
-document.documentElement.classList.toggle("light", matchMedia("(prefers-color-scheme: light)").matches);</script></head><body><main>
+document.documentElement.classList.toggle("light", !matchMedia("(prefers-color-scheme: dark)").matches);</script></head><body><main>
 <header><h1>Scratch</h1><a href="DOCS_URL">About</a><a href="/m/">tmux-rc</a><span class="seg" role="group" aria-label="View"><button type="button" data-view="grid" aria-label="Grid" title="Grid"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg><span>Grid</span></button><button type="button" data-view="list" aria-label="List" title="List"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h.01M3 12h.01M3 18h.01M8 6h13M8 12h13M8 18h13"/></svg><span>List</span></button></span></header>
 <input type="search" placeholder="Filter Scratch" aria-label="Filter">
 <section id="cards"><!--cards--></section>
