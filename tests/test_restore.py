@@ -265,7 +265,12 @@ def test_build_never_merges_into_a_live_session_and_leaves_out_what_wasnt_chosen
     names = set(tmux("list-sessions", "-F", "#{session_name}").split())
     assert names == {"work", "work-restored"}
     assert tmux("list-windows", "-t", "work-restored", "-F", "#{window_index}") == "1"
-    assert tmux("display-message", "-p", "-t", "work-restored:1", "#{pane_current_path}") == "/"
+    # tmux 3.6 (Ubuntu 26.04) chdirs the pane only after its systemd scope setup, so for
+    # a moment the path reads as the server's (tmux issue 4719, fixed in 3.7).
+    deadline = time.time() + 5
+    while tmux("display-message", "-p", "-t", "work-restored:1", "#{pane_current_path}") != "/":
+        assert time.time() < deadline
+        time.sleep(0.05)
 
 
 def test_launch_types_each_resume_and_skips_one_running_meanwhile(server, monkeypatch):
