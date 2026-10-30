@@ -177,7 +177,8 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     el.querySelectorAll(".ug").forEach((g) => render(g.lastChild, [{ ...list[g.dataset.i], label: null, chip: null }]));
   }
 
-  // ---- New window: an account per provider with several, preset to the session's default ----
+  // ---- New window: after an agent with several accounts is picked, its account step, preset
+  // to the session's default (what would start today), then Start; Back returns to the agents ----
   const set = (session, provider) => !!defaults[session]?.[provider]; // its tmux env names a dir
   // New session mode: what it starts on (its default is set once it exists).
   const startsOn = (def) => def ? `A new session starts on <b style="color:var(--acct-${def.color})">${esc(def.name)}</b>.` : "A new session starts on none of these accounts.";
@@ -185,21 +186,24 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     const box = document.createElement("div");
     box.className = "acct-picker";
     const picks = {}, done = new AbortController();
+    let step = null; // { provider, start } while the account step shows
     const paint = () => {
       const session = select.value;
+      choices.hidden = !!step; box.hidden = !step;
       box.innerHTML = Object.keys(ENV).filter(several).map((provider) => {
         const def = defaultOf(session, provider), mine = signedIn().filter((p) => p.provider === provider);
         const pick = byDir(picks[provider]) || def || mine[0];
         picks[provider] = pick.dir;
-        // Which rows it applies to, said where it is chosen: rows of other tools carry no chip.
-        return `<label>${Object.keys(ENV).filter(several).length > 1 ? `${title(provider)} account` : "Account"} <small class="acct-why">${title(provider)} starts signed in as this account</small></label><div class="acct-pick">`
+        if (provider !== step?.provider) return "";
+        return `<label>${title(provider)} account <small class="acct-why">${title(provider)} starts signed in as this account</small></label><div class="acct-pick">`
           + mine.map((p) => `<button type="button" data-provider="${provider}" data-dir="${esc(p.dir)}" aria-pressed="${p === pick}" style="--a:var(--acct-${p.color})" title="${esc(sub(p))}">${dot(p)}<strong>${esc(p.name)}</strong></button>`).join("")
           + `<button type="button" class="add" data-add>+ Add account</button></div>`
           // The session's default, as a sentence: make the picked account every new window's
           // here (tmux set-environment on change), and what happens otherwise.
           + (!session ? `<p class="acct-default">${startsOn(def)}</p>`
             : `<label class="acct-default"><input type="checkbox" data-default-for="${provider}" ${set(session, provider) && pick === def ? "checked" : ""}> Use <b>${esc(pick.name)}</b> for every new window in <b>${esc(session)}</b></label>`
-            + `<small class="acct-else">${set(session, provider) && pick !== def ? `Now new windows use ${def ? `<b>${esc(def.name)}</b>` : esc(defaults[session][provider])}` : `Otherwise new windows use the standard ~/.${provider} login`}</small>`);
+            + `<small class="acct-else">${set(session, provider) && pick !== def ? `Now new windows use ${def ? `<b>${esc(def.name)}</b>` : esc(defaults[session][provider])}` : `Otherwise new windows use the standard ~/.${provider} login`}</small>`)
+          + btns('<button type="button" data-back>Back</button>', '<button type="button" class="primary" data-start>Start</button>');
       }).join("");
       for (const b of choices.querySelectorAll("button[data-provider]")) {
         const p = several(b.dataset.provider) && byDir(picks[b.dataset.provider]), small = b.querySelector(".acct-on");
@@ -210,6 +214,8 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
       const b = e.target.closest("button[data-dir]");
       if (b) { picks[b.dataset.provider] = b.dataset.dir; paint(); }
       if (e.target.closest("[data-add]")) { select.closest("dialog").close(); open("name"); }
+      if (e.target.closest("[data-start]")) step.start();
+      if (e.target.closest("[data-back]")) { step = null; paint(); }
     };
     box.onchange = async (e) => {
       const provider = e.target.dataset.defaultFor;
@@ -221,7 +227,9 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     choices.before(box); paint();
     return {
       account: (provider) => several(provider) ? picks[provider] : undefined,
-      remove: () => { done.abort(); box.remove(); },
+      // An agent picked: its account step when it has several accounts, else straight to start.
+      pick: (provider, start) => { if (!several(provider)) return start(); step = { provider, start }; paint(); box.querySelector("[aria-pressed=true]")?.focus(); },
+      remove: () => { done.abort(); box.remove(); choices.hidden = false; },
     };
   }
 

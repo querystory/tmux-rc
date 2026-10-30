@@ -139,6 +139,15 @@ export function paneName(pane) {
   const label = pane.label && !sessionOf(pane) && pane.label === `${pane.session}:${pane.window_index}` ? `Window ${pane.window_index}` : pane.label;
   return pane.title || label || pane.window_name || pane.pane_id;
 }
+// The tab's title (docs/design/tab-icons.md): the Needs-you count, the most specific subject,
+// then the host, the order a narrow tab keeps them in as it cuts from the right. Dialogs
+// (Settings, Chat) sit over a view and leave its title alone.
+const PAGE_TITLES = { heat: "Running by hour", usage: "Plan usage", loops: "Open loops", restore: "Restore", scratch: "Scratch", graph: "Graph" };
+export function tabTitle({ pane, page, dashboard, filter }, panes, count, host) {
+  const open = pane && panes.find((p) => p.pane_id === pane);
+  const subject = pane ? (open ? paneName(open) : "Loading pane") : PAGE_TITLES[page] || (dashboard ? "Dashboard" : String(filter) === "attention" ? "Needs you" : "Sessions");
+  return [count ? `(${count}) ${subject}` : subject, host].filter(Boolean).join(" · ");
+}
 // The session a pane is in, where that tells it apart: "" when every pane shares one, so a
 // single-session user never sees tmux plumbing. Every surface that names a session asks
 // here; app.js notes the panes on each poll (noteSessions).

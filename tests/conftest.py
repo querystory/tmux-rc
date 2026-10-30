@@ -4,6 +4,12 @@ from openbus import tmux, transcript, watcher
 
 
 @pytest.fixture(autouse=True)
+def _test_client_host(monkeypatch):
+    """TestClient uses a fictional hostname; production never implicitly trusts it."""
+    monkeypatch.setenv("TMUXRC_ALLOWED_HOSTS", "testserver")
+
+
+@pytest.fixture(autouse=True)
 def _vertex_project(monkeypatch):
     """Vertex entries are offered only when a project is set. Supply one so the suite does
     not depend on the checkout's .env (a worktree has none) for what it offers."""
