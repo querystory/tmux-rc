@@ -123,9 +123,9 @@ what it does; the accounts are a step after the agent, shown only for one with s
 account that would start anyway, with Back to the agents and Start: a two-column grid of
 small chips, "+ Add account" the next cell, with a hint naming the tool they apply to; the session's default is a sentence with a
 checkbox ("Use Work for every new window in qs") and a muted line on what happens otherwise,
-not a "Default for … Not set" select; and each tool is a 52px row with a muted line, the
-account it starts on where it has several, then its model or what it is. Rows the account
-does not apply to carry no chip. It fits unscrolled at 900px tall; shorter, the body scrolls under
+not a "Default for … Not set" select; and each tool is a 52px row with a muted line, its model
+or what it is. The row names no account, even preset: the account step comes next, and an
+account on the row read as already decided. It fits unscrolled at 900px tall; shorter, the body scrolls under
 the fixed title.
 
 Its top row picks Session, Chat or Voice, so starting something is one place whatever it is.

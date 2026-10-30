@@ -205,10 +205,6 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
             + `<small class="acct-else">${set(session, provider) && pick !== def ? `Now new windows use ${def ? `<b>${esc(def.name)}</b>` : esc(defaults[session][provider])}` : `Otherwise new windows use the standard ~/.${provider} login`}</small>`)
           + btns('<button type="button" data-back>Back</button>', '<button type="button" class="primary" data-start>Start</button>');
       }).join("");
-      for (const b of choices.querySelectorAll("button[data-provider]")) {
-        const p = several(b.dataset.provider) && byDir(picks[b.dataset.provider]), small = b.querySelector(".acct-on");
-        small.hidden = !p; small.innerHTML = p ? `on ${badge(p)}` : ""; // before the row's description
-      }
     };
     box.onclick = (e) => {
       const b = e.target.closest("button[data-dir]");
