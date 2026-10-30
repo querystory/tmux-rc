@@ -88,7 +88,7 @@ export PLAYWRIGHT_DIR
 
 # A stamp per version, touched only after both steps succeed: a failed browser download is
 # retried, and a version bump reinstalls instead of trusting an older cached copy.
-PLAYWRIGHT_VERSION = 1.59.1
+PLAYWRIGHT_VERSION = 1.61.0
 PLAYWRIGHT = $(PLAYWRIGHT_DIR)/.installed-$(PLAYWRIGHT_VERSION)
 
 $(PLAYWRIGHT):

@@ -35,8 +35,9 @@ shows it as **Scratch**: a tab in the phone's tab bar, a place in the wide sideb
   Escape or a swipe from the left edge returns to the gallery; **Open in browser** gives
   the page a window of its own.
 - **Who made it** names the session and window, the agent and its account, and links to
-  that pane while it is open. Tap it to jump there. A pane's own overview lists the pages
-  it made under Links, so the trail runs both ways.
+  that pane while it is open. Tap it to jump there. The trail runs both ways: a pane's
+  overview lists, under Links, its pages still in progress and its newest one, and
+  **Scratch pages** opens the gallery filtered to that pane.
 - **Filter** by typing, or tap an agent's chip; **Grid** and **List** switch between full
   cards and compact rows.
 - **Select**, then **Archive** or **Delete**. Archiving moves a folder to the **Archived**
@@ -56,9 +57,10 @@ spins the same way. Once the agent's pane has closed, or sat idle for thirty min
 card says **Stopped**: the agent gave up without publishing.
 
 When the page lands, every subscribed device gets one push, **Ready: <title>**, whose tap
-opens the page in the app. It shares its tag with the pane's Needs-you notification, so
-one finished task buzzes once, not twice. A page published in one go was never promised
-and does not notify.
+opens the page in the app. It is a notification of its own, never swallowed by the pane's
+Needs-you; what keeps one finish to one buzz is that for two minutes after a Ready, that
+pane's plain "turn ended" Needs-you is skipped (a question still notifies). A page
+published in one go was never promised and does not notify.
 
 The same holds for revisions. An agent reworking a published page marks its `meta.json`
 `"updating": "<what's changing>"`; the card and the page's tab read **Updating**, a thin
