@@ -319,11 +319,12 @@ const stayPut = (opts) => navigate(active, active ? view : dashboard ? page || "
 // Clear all: every filter (the states, the accounts and the search), not the grouping or the
 // sort, which are not filters; focus goes to the search box, else (a phone's dashboard or
 // pane, where it is hidden) the tab bar's pressed tab or Back; in the rail, to the filter
-// button, since focusing search would expand it.
+// button, since focusing search would expand it; under the graph's full screen, which leaves
+// the page inert, to that button seated in the graph (placePill).
 function clearFilters() {
   filter = []; scope.tools = []; scope.session = ""; $("search").value = ""; renderSidebar.picker.open = false; stayPut({ acct: [] });
-  ($("app").classList.contains("rail") ? [renderSidebar.picker.firstChild] : [$("search"), document.querySelector('#list-nav [aria-pressed="true"]'), $("back")])
-    .find((el) => el?.getClientRects().length)?.focus();
+  ($("app").classList.contains("rail") ? [renderSidebar.picker.firstChild] : [$("search"), document.querySelector('#list-nav [aria-pressed="true"]'), $("back"), renderSidebar.picker.firstChild])
+    .find((el) => el?.getClientRects().length && !el.closest("[inert]"))?.focus();
 }
 
 // Leaving a pane the user did not choose to leave: it closed under them, or a deep link
@@ -370,6 +371,7 @@ function route() {
   // aborted at once, so every navigation fetched events twice.
   restartDetail();
   render();
+  if (page !== "graph" || !dashboardVisible()) graphView._full?.(false); // its full screen left the page inert, and focus goes there next
   // Focus follows: into the view's Back, then back to the card's Details.
   if (CARDS[wasPage] && !page && dashboardVisible()) { $(CARDS[wasPage]).scrollIntoView({ block: "center" }); $(CARDS[wasPage]).querySelector('[data-key^="details:"]')?.focus({ preventScroll: true }); }
   // Not into Restore: its first button is the Restore itself, which an Enter would press.
@@ -801,7 +803,7 @@ loopsView.ariaLabel = "Open loops";
 detailCard($("loops-card"), "Open loops", "", () => openPage("loops"));
 // The Fleet graph (graph.js): the card's at a glance, the view's to pan, zoom and regroup.
 const graphView = Object.assign(document.createElement("section"), { className: "fg-view", ariaLabel: "Fleet graph" });
-const graphCtx = { icon: licon, logos: LOGOS, open: (id) => navigate(id), owner: accounts.owner, several: accounts.any };
+const graphCtx = { icon: licon, logos: LOGOS, open: (id) => navigate(id), close: closePage, owner: accounts.owner, several: accounts.any };
 detailCard($("graph-card"), "Fleet graph", "", () => openPage("graph"));
 // A lane's count on the card opens the view at that lane, unfolded.
 function openLane(lane) {
@@ -2540,7 +2542,8 @@ function placeChrome() {
 // in it, which a view's rebuild keeps (atlas.js renderHeatView), so neither loses focus.
 function placePill() {
   const phone = !WIDE.matches, bar = phone && $("dash-page").querySelector(":scope > .landing-head");
-  const head = CARDS[page] && bar, dash = phone && dashboard;
+  // The graph's full screen covers its bar (graph.js), so there the scope heads the view instead.
+  const head = CARDS[page] && bar && (page === "graph" ? graphView.querySelector(".fg-scope") : bar), dash = phone && dashboard;
   const picker = renderSidebar.picker, at = head ? picker : bar ? $("find") : dash ? document.querySelector(".app-header") : $("find");
   if (head) { if (picker.parentElement !== head) head.append(picker); }
   else if (dash && picker.nextElementSibling !== $("new-window")) $("new-window").before(picker);
