@@ -53,13 +53,14 @@ def test_a_quota_blocked_pane_keeps_nothing_from_the_turn_before():
     assert (r["activity"], r.get("resets"), r.get("question"), len(calls)) == (
         "quota_blocked", "2:10pm", None, 1)
     # A first read that misquotes the ask is re-read; a re-read that says quota_blocked and
-    # quotes the ask right still waits on nothing.
-    answers = [{"tool": "claude", "activity": "waiting", "waiting_on": "user",
-                "question": {"prompt": "Merge now?", "answer_style": "text"}},
-               {**read, "question": {"prompt": "Want me to merge it?", "answer_style": "text"}}]
-    r = classify(_pane("claude"), screen, lambda *_a, **_k: answers.pop(0))
-    assert (r["activity"], r.get("resets"), r.get("question"), answers) == (
-        "quota_blocked", "2:10pm", None, [])
+    # quotes any ask still waits on nothing.
+    for ask in ("Want me to merge it?", "Merge right now?"):  # supported or not
+        answers = [{"tool": "claude", "activity": "waiting", "waiting_on": "user",
+                    "question": {"prompt": "Merge now?", "answer_style": "text"}},
+                   {**read, "question": {"prompt": ask, "answer_style": "text"}}]
+        r = classify(_pane("claude"), screen, lambda *_a, _q=answers, **_k: _q.pop(0))
+        assert (r["activity"], r.get("resets"), r.get("question"), answers) == (
+            "quota_blocked", "2:10pm", None, [])
     # A bash-mode command run under that turn spent its ask, but the notice below the
     # command is the screen's end: the quota read stands over the spent row's "idle".
     spent = screen.replace("\n\n❯\n", "\n\n! gh pr merge 7 --squash\n\n❯\n")
@@ -78,8 +79,10 @@ def test_a_handed_over_command_keeps_its_bash_prefix():
                        ("if ! grep -q x f; then echo y; fi", "grep -q x f")):
         assert classify_mod.screen_offers([offer], f"● Then:\n\n  {row}\n\n❯ ") == [offer]
     # An older turn's handoff does not turn this turn's reply into a command.
-    two_turns = "● Run it:\n\n  ! make tea\n\n❯ ok\n\n● Now reply with: make tea\n\n❯ "
-    assert classify_mod.screen_offers(["make tea"], two_turns) == ["make tea"]
+    for now in ("Now reply with: make tea", "Now reply with: Make tea",
+                "I can make some tea for you. Shall I?"):
+        two_turns = f"● Run it:\n\n  ! make tea\n\n❯ ok\n\n● {now}\n\n❯ "
+        assert classify_mod.screen_offers(["make tea"], two_turns) == ["make tea"]
 
 
 def _pane(cmd="bash", title="t"):

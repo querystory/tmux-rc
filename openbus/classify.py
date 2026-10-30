@@ -711,6 +711,7 @@ def _ground_visible_fields(
     retry = dict(retry) if isinstance(retry, dict) else None
     if retry:
         _fold_sends(retry)
+        _unblocked_ask(retry)  # before its ask is validated: a bad one costs no quota read
     if retry and receipt and kind == "prompt":
         # The cursor rests below everything printed since the answer: nothing there asks.
         retry.pop("question", None)
@@ -1000,14 +1001,16 @@ def screen_offers(offers: object, text: str) -> list[str]:
     continuation (which bash -n accepts). Classify's gate, and the watcher's on a screen it
     does not reparse (its fingerprint ignores a duration). An offer is sent as one line, so
     a row break the model copied from a wrap is a space. A command the screen hands over
-    as `! command`, alone on its rows and nowhere else on screen, keeps that `! ` even where
-    the model's copy dropped it: it is what makes Send it run the command rather than say
-    it to the agent. Any other sighting (an older turn, a reply to type) leaves it as is. A
-    reply ("delete it" for "I'd delete this job, unless you want to keep it") is the user's
-    words, so it is on the screen word by word rather than whole."""
+    as `! command` in the current turn, alone on its rows and nowhere else on screen, keeps
+    that `! ` even where the model's copy dropped it: it is what makes Send it run the
+    command rather than say it to the agent. Any other sighting (an older turn, a reply to
+    type) leaves it as is. A reply ("delete it" for "I'd delete this job, unless you want to
+    keep it") is the user's words, so it is on the screen word by word rather than whole."""
     listed = offers if isinstance(offers, list) else ()
     visible = _ask_view(text)
-    whole = (f"! {o}" if not o.startswith("!") and _quoted(f"! {o}", visible, rows=True)
+    *_, typed = [None, *_USER_ROW_RE.finditer(visible)]  # the current turn starts below it
+    turn = visible[typed.end():] if typed else visible
+    whole = (f"! {o}" if not o.startswith("!") and _quoted(f"! {o}", turn, rows=True)
              and _quoted(o, visible) == 1 else o
              for o in (re.sub(r"[ \t]*\n[ \t]*", " ", o.strip())
                        for o in listed if isinstance(o, str)))
@@ -1395,10 +1398,9 @@ def classify(
         result.pop("rewind", None)
     _fold_sends(result)
     # Before grounding, since a misquoted ask would otherwise send the re-read a viewport
-    # cut above the quota notice; and after it, since the re-read may answer with one.
+    # cut above the quota notice (the re-read's own ask is dropped inside it).
     _unblocked_ask(result)
     _ground_visible_fields(result, text, pane, llm_fn, prompt, process_tool)
-    _unblocked_ask(result)
     # OpenCode answer bullets and omp Ask radios are not tasks. Match genuine visible
     # checkbox rows after a bounded re-read, whose replacement fields need grounding too.
     if result.get("tool") in ("opencode", "omp") and "tasks" in result:
