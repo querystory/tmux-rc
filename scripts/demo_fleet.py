@@ -308,6 +308,10 @@ DETAIL = {
                        # A link the question points at: its card leads with it (and Copy link).
                        "links": [{"href": f"https://{ORG}/shop-api/deployments/preview",
                                   "text": "Preview link"}]},
+    # A finished turn whose reply holds code blocks: classify()'s copyables, each with Copy.
+    "lint autofix": {"copyables": [
+        {"label": "Commit", "text": 'git commit -am "Lint: fix 38 warnings across 9 files"'},
+        {"label": "Push", "text": "git push -u origin lint-autofix"}]},
     "cost report": {"activity": "compacting", "headline": "Compacting the conversation",
                         "status_line": "Compacting the conversation", "context_pct": 94},
     "terraform plan review": {
@@ -348,7 +352,7 @@ def _pane(i: int, line: str, window: int) -> dict:
     s, tool, st, title, age, extra, text = line.split("|")
     since = NOW - _age(age)
     pane = {
-        "pane_id": f"%{i}", "session": SESSIONS[int(s)], "window_index": str(window),
+        "pane_id": f"%{i}", "birth": None, "session": SESSIONS[int(s)], "window_index": str(window),
         "window_name": title, "label": title, "tmux_label": title, "title": title,
         "tool": tool, "identity_tool": tool,
         "activity": {"run": "running", "need": "waiting"}.get(st, "idle"),
@@ -604,19 +608,68 @@ def seed_restore(history: History) -> History:
     return history
 
 
-# The scratch gallery (/scratch/): folder | minutes since created, last changed | pane, or
-# "-" for none | title, or "-" to fall back on the page's own | description. A pane the
-# fleet lacks has closed; its folder is found in the transcript in SCRATCH_WRITERS.
+# The scratch gallery (/scratch/): folder | minutes since created, last changed | pane |
+# title, or "-" to fall back on the page's own | description | what an update under way is
+# changing, if one is. A pane the fleet lacks has closed; its folder is found in the
+# transcript in SCRATCH_WRITERS.
 SCRATCH = """\
 checkout-variants|40,25|%5|Checkout flow, two variants|Single page against stepped, at \
 phone width.
-ab-sweep-interim|130,70|%14|Prompt A/B sweep: interim|Variant C leads after 60 of 200 runs.
+ab-sweep-interim|130,5|%14|Prompt A/B sweep: interim|Variant C leads after 60 of 200 runs.|\
+Adding runs 61 to 120
 release-notes-draft|190,190|%19|-|Merged PRs since v0.14, grouped by area.
 cost-breakdown|1500,1380|%77|Monthly cost breakdown|Compute, storage and egress by team.
-latency-heatmap|4400,4300|-|-|-"""
+latency-heatmap|4400,4300|%18|-|p50 and p99 by endpoint over the long-input bench."""
 SCRATCH_WRITERS = {"cost-breakdown": {"harness": "claude", "session_id": "demo-cost",
                                       "source": "~/.claude/projects/ops/demo-cost.jsonl",
                                       "title": "Billing export analysis"}}
+# Two folders are real pages, shot for their thumbnails as the gallery shoots any page: a
+# Markdown report and an HTML page with an inline chart (no script, nothing fetched).
+PAGES = {"ab-sweep-interim": ("index.md", """\
+# Prompt A/B sweep: interim
+
+Variant C leads after 60 of 200 runs. Its lead over the baseline has held since run 40;
+the sweep finishes in about two hours.
+
+| Variant | Runs | Pass rate | vs A |
+| --- | ---: | ---: | ---: |
+| A (baseline) | 60 | 71% | — |
+| B | 60 | 73% | +2 |
+| C | 60 | 75% | +4 |
+
+- [x] Baseline rerun on the new samples
+- [x] Variants B and C through run 60
+- [ ] Runs 61–200
+- [ ] Per-category breakdown
+
+```mermaid
+flowchart LR
+  S[Samples] --> A & B & C --> J[Judge] --> R[Report]
+```
+"""), "cost-breakdown": ("index.html", """\
+<!doctype html><title>Monthly cost breakdown</title>
+<style>body{font:15px/1.5 system-ui,sans-serif;margin:32px auto;max-width:720px;color:#1f2a24}
+h1{font-size:22px}text{font-size:12px;fill:#55605a}
+.k{display:inline-block;width:10px;height:10px;border-radius:2px;margin:0 4px 0 12px}</style>
+<h1>Monthly cost breakdown</h1><p>May, by team: compute still dominates, and storefront's
+egress doubled with the image CDN move.</p>
+<p><i class="k" style="background:#2a78d6"></i>Compute <i class="k" style="background:#eb6834">\
+</i>Storage <i class="k" style="background:#1baf7a"></i>Egress</p>
+<svg viewBox="0 0 640 260" width="100%">
+<g stroke="#e3e8e5"><path d="M100 40H620M100 110H620M100 180H620"/></g>
+<g text-anchor="end"><text x="90" y="44">$12k</text><text x="90" y="114">$8k</text>\
+<text x="90" y="184">$4k</text></g>
+<text x="100" y="34">Storefront</text><rect x="100" y="52" width="196" height="14" fill="#2a78d6"/>\
+<rect x="298" y="52" width="60" height="14" fill="#eb6834"/>\
+<rect x="360" y="52" width="94" height="14" fill="#1baf7a"/>
+<text x="100" y="104">Platform</text><rect x="100" y="122" width="240" height="14" fill="#2a78d6"/>\
+<rect x="342" y="122" width="110" height="14" fill="#eb6834"/>\
+<rect x="454" y="122" width="36" height="14" fill="#1baf7a"/>
+<text x="100" y="174">Research</text><rect x="100" y="192" width="300" height="14" fill="#2a78d6"/>\
+<rect x="402" y="192" width="40" height="14" fill="#eb6834"/>\
+<rect x="444" y="192" width="18" height="14" fill="#1baf7a"/>
+</svg>
+""")}
 
 
 def _thumb(path, hue: int) -> None:
@@ -634,22 +687,27 @@ def _thumb(path, hue: int) -> None:
 
 
 def seed_scratch(root) -> None:
-    """Write SCRATCH's folders: each an index.html, a thumbnail but for the oldest (its
-    placeholder shows), and, when it names a pane, meta.json."""
-    lines = SCRATCH.splitlines()
-    for n, line in enumerate(lines):
-        name, ages, pane, title, description = line.split("|")
-        created, changed = (NOW - int(m) * 60 for m in ages.split(","))
-        folder = root / name
-        folder.mkdir()
-        page = name.replace("-", " ").capitalize()
-        (folder / "index.html").write_text(f"<title>{page}</title><h1>{page}</h1>")
-        meta = folder / "meta.json"
-        if pane != "-":
-            meta.write_text(json.dumps({
+    """Write SCRATCH's folders: each its page (PAGES, else a one-line index.html), its
+    meta.json, and a thumbnail: a real page's shot through the gallery's own renderer
+    (openbus.scratch_sidecars, served as it serves them), the rest drawn."""
+    from openbus import scratch_sidecars
+    from openbus.server import WEB_DIR
+
+    with scratch_sidecars.serving(root, WEB_DIR) as url:
+        for n, line in enumerate(SCRATCH.splitlines()):
+            name, ages, pane, title, description, *updating = line.split("|")
+            created, changed = (NOW - int(m) * 60 for m in ages.split(","))
+            folder = root / name
+            folder.mkdir()
+            page = name.replace("-", " ").capitalize()
+            index, body = PAGES.get(name, ("index.html", f"<title>{page}</title><h1>{page}</h1>"))
+            (folder / index).write_text(body)
+            (folder / "meta.json").write_text(json.dumps({
                 "title": "" if title == "-" else title, "description": description,
-                "pane": pane, "created": datetime.fromtimestamp(created, UTC).isoformat()}))
-        if n < len(lines) - 1:
-            _thumb(folder / "thumb.webp", 150 + n * 47)
-        for path in folder.iterdir():
-            os.utime(path, (created, changed if path.suffix != ".json" else created))
+                "pane": pane, "created": datetime.fromtimestamp(created, UTC).isoformat(),
+                **dict(zip(["updating"], updating, strict=False))}))
+            if not (name in PAGES and scratch_sidecars.shoot(f"{url}/{name}/",
+                                                             folder / "thumb.webp", root)):
+                _thumb(folder / "thumb.webp", 150 + n * 47)
+            for path in folder.iterdir():
+                os.utime(path, (created, changed if path.suffix != ".json" else created))

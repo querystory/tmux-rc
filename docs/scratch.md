@@ -21,6 +21,10 @@ wrote it, it notifies you when it lands, and you answer its maker from the page 
   <img src="../img/mobile-scratch-page.png" alt="A scratch page open in the app's viewer: the rendered page above, and below it a message box addressed to the pane that made it, with a Screenshot attached chip and a Send button" width="280">
 </p>
 
+<p align="center">
+  <img src="../img/wide-scratch.png" alt="Scratch in the wide layout: a grid of cards beside the session list, each with the page's thumbnail, title, description, the agent and account that made it linked to its pane, and when it was made and updated; one card is marked Updating">
+</p>
+
 ## The gallery
 
 `/scratch/` lists every page, most recently changed first, as a card: a thumbnail, the

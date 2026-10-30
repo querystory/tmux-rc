@@ -48,6 +48,12 @@ agent can open. Pane rows and places are links, so a middle or Ctrl-click opens 
 new tab. Share a link from another app into a pane and the list asks which pane
 ([how](docs/iphone-setup.md#share-a-link-into-a-pane)).
 
+<p align="center">
+  <img src="docs/img/mobile-copy-block.png" alt="A pane's Overview on the phone with From the terminal: a commit command and a push command, each in a code block with a Copy button" width="240">
+  <img src="docs/img/mobile-attach.png" alt="The phone composer with a file attached: a checkout-trace.zip chip in the message box, ready to send to the pane" width="240">
+  <img src="docs/img/mobile-new-session.png" alt="The New session sheet on the phone: Session, Chat and Voice at the top, a session picker, then Claude, Codex, OpenCode, omp, Gemini, Antigravity and Shell, each with a + button" width="240">
+</p>
+
 Switch a pane to the **Terminal** tab for the live screen, plus a key row for the
 keystrokes a phone keyboard can't send (Esc, Tab, arrows, Page Up/Down, Enter, Ctrl
 chords and the tmux prefix):
