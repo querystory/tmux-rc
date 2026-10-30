@@ -64,12 +64,46 @@ def test_any_file_stages_under_a_generated_name(client, monkeypatch, tmp_path, f
     assert events == ["read this", (b"", str(staged)), "Enter"]  # no copy of the bytes rides along
 
 
+def test_a_send_from_the_scratch_viewer_names_its_page(client, monkeypatch, tmp_path):
+    (tmp_path / "bugs").mkdir()
+    (tmp_path / "bugs" / "index.html").write_text("<title>Bugs</title>")
+    monkeypatch.setattr(server, "_scratch_dir", str(tmp_path))
+    events = []
+    monkeypatch.setattr(tmux, "_run", typed(events.append))
+    send = lambda page: client.post("/api/panes/%1/compose", files=[  # noqa: E731
+        ("scratch", (None, page)), ("text", (None, "add a column"))])
+    assert send("bugs").status_code == 200
+    assert events == ["Re scratch bugs: ", "add a column", "Enter"]
+    (tmp_path / "bugs" / "nested").mkdir()
+    (tmp_path / "bugs" / "nested" / "index.html").write_text("x")
+    (tmp_path / "x; touch y #").mkdir()
+    (tmp_path / "x; touch y #" / "index.html").write_text("x")
+    for outside in ("..", "", "bugs/nested", str(tmp_path / "bugs"), "../" + tmp_path.name,
+                    "x; touch y #"):
+        assert send(outside).status_code == 400
+    assert len(events) == 3
+
+
 def test_composer_identity_failure_returns_conflict(client, monkeypatch):
     monkeypatch.setattr(tmux, "pane_pid", lambda p: "replacement")
     events = []
     monkeypatch.setattr(tmux, "_run", lambda args: events.append(args))
     response = client.post("/api/panes/%1/compose", files=[("text", (None, "draft"))])
     assert response.status_code == 409
+    assert events == []
+
+
+def test_composer_bound_to_the_confirmed_incarnation(client, monkeypatch):
+    """A send names the pane incarnation it was meant for (the scratch viewer's maker): a
+    pane recycled since then (another process at that id) gets nothing."""
+    monkeypatch.setattr(tmux, "pane_pid", lambda p: "1234")
+    events = []
+    monkeypatch.setattr(tmux, "_run", lambda args: events.append(args))
+    monkeypatch.setattr(tmux, "send_secret", lambda *a: events.append(a))
+    for sent in ("text", "secret"):
+        response = client.post("/api/panes/%1/compose", files=[
+            (sent, (None, "merge #1")), ("birth", (None, "999"))])
+        assert response.status_code == 409
     assert events == []
 
 

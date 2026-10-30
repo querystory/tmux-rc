@@ -187,6 +187,29 @@ def _link(i: dict, at: float) -> dict:
             "pending": i["pending"] and i["state"] != "stopped"}
 
 
+def named(root: Path, name: str) -> dict | None:
+    """The card of the folder of scratch called `name`, None for any name that is not one
+    folder directly in it (a path, absolute or climbing out)."""
+    return read(root, root / name) if name and Path(name).name == name else None
+
+
+def maker(root: Path, name: str, states: list[dict]) -> dict | None:
+    """The pane (its state) folder `name`'s meta.json says made it, while that very pane is
+    still open (never another under a recycled id): where the scratch viewer's composer sends."""
+    if not (item := named(root, name)):
+        return None
+    return _progress([item], states).get(item["pane"])
+
+
+def about(root: Path, name: str) -> str | None:
+    """What a message sent from the scratch viewer opens with, so its agent knows the page:
+    one line naming the folder. None for no folder of scratch, or one whose name a shell
+    would read specially (the pane may be a shell)."""
+    if not (re.fullmatch(r"[\w.-]+", name) and named(root, name)):
+        return None
+    return f"Re scratch {name}: "
+
+
 def _writers(todo: list[dict]) -> None:
     """Fill in each item's missing `session_id` from the transcripts, saving what is found."""
     now, keys = time.time(), {i["name"]: (i["name"], i["inode"]) for i in todo}
