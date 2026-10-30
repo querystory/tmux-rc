@@ -283,8 +283,8 @@ figcaption {
 }
 .capabilities {
   display:grid;
-  grid-template-columns:repeat(3,1fr);
-  gap:44px;
+  grid-template-columns:repeat(4,1fr);
+  gap:36px;
   padding:72px 0;
   border-bottom:1px solid var(--line)
 }
@@ -720,24 +720,11 @@ footer p,footer>a:last-child {
 .feature-detail .feature-note {
   font-size:12px
 }
-.feature-detail>img,.feature-image {
+.feature-detail>img {
   width:100%;
   border:1px solid var(--line);
   border-radius:9px;
   box-shadow:0 12px 40px #0001
-}
-.feature-image {
-  padding:36px;
-  background:var(--surface)
-}
-.feature-image img {
-  display:block;
-  width:100%;
-  border-radius:4px
-}
-.usage-image {
-  max-width:520px;
-  justify-self:center
 }
 @media(max-width:700px) {
   .preview-pair {
@@ -757,9 +744,6 @@ footer p,footer>a:last-child {
     gap:24px;
     padding:38px 0
   }
-  .feature-image {
-    padding:22px
-  }
   .feature-detail p,.feature-detail ul {
     font-size:14px
   }
@@ -771,8 +755,9 @@ footer p,footer>a:last-child {
 .showcase { --caption-height:3.2em; }
 .showcase figcaption { min-height:var(--caption-height); }
 @media(max-width:900px) { .showcase { --caption-height:4.8em; } }
+@media(min-width:701px) and (max-width:1000px) { .capabilities { grid-template-columns:repeat(2,1fr); } }
 @media(max-width:700px) { .showcase { --caption-height:8em; } }
-.feature-detail>img, .feature-image img { height:auto; }
+.feature-detail>img { height:auto; }
 /* Wide screens alternate the image's side; phones keep the one-column stack. */
 @media(min-width:701px) {
   .feature-detail:nth-of-type(even) { grid-template-columns:minmax(0,1.4fr) minmax(0,.85fr); }
