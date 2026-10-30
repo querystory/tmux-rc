@@ -25,11 +25,11 @@ from types import SimpleNamespace
 # Before openbus.server loads .env: an existing variable wins over the file, so an empty
 # one keeps a checkout's real telemetry endpoint from receiving demo traffic and its own
 # launcher menu (labels, icons) and keyword map out of the shots — empty means the shipped
-# defaults. The agent-history root points nowhere so New session's directory suggestions
-# never carry real paths. Scratch's mount is decided at import, so its dir must exist now
-# (install() fills it).
+# defaults. The tab titles name an invented host, not this machine. The agent-history root
+# points nowhere so New session's directory suggestions never carry real paths. Scratch's
+# mount is decided at import, so its dir must exist now (install() fills it).
 os.environ.update(OTEL_EXPORTER_OTLP_ENDPOINT="", TMUXRC_LAUNCHERS="", TMUXRC_WORKSTREAMS="",
-                  AGENT_HISTORY_DIR="/nonexistent-demo-agent-history",
+                  TMUXRC_HOST_NAME="kestrel", AGENT_HISTORY_DIR="/nonexistent-demo-agent-history",
                   TMUXRC_SCRATCH_DIR=tempfile.mkdtemp(prefix="tmux-rc-demo-scratch-"))
 
 import uvicorn
@@ -192,7 +192,8 @@ def install() -> None:
             return JSONResponse({"pane_id": SIGN_IN["pane_id"], "pid": "1", "dir": "~/.claude-demo",
                                  "codex": False, "device": False, "session": SIGN_IN["session"],
                                  "url": "", "code": "", "others": []})
-        if request.method in ("GET", "HEAD"):
+        # Scratch's Archive and Delete really run: its dir is the demo's own temp copy.
+        if request.method in ("GET", "HEAD") or request.url.path == "/api/scratch":
             return await call_next(request)
         if request.url.path == "/api/accounts" and request.method == "POST":  # the add flow
             return JSONResponse({"dir": (await request.json())["dir"], "existed": False})

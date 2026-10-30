@@ -11,7 +11,7 @@
 // borrow its answers and inline Reply: render.answers, so there is one of each.
 import { dismissable } from "/m/header-picker.js";
 import { dragToDismiss } from "/m/drag-dismiss.js";
-import { Composer, enterSubmits } from "/m/composer.js";
+import { Composer, enterSubmits, sendBlock, block } from "/m/composer.js";
 import { needsYou, isRunning, isRecent, FILTERS, markWorking, paneName, newestFirst, paneActivity, paneHeadline, markLine, paneMeta, questionItems, since, age, markEnding, records, liveSubagents, subagentCount, sessionOf, oneSession, esc } from "/m/pane-model.js";
 import { paneLinks, askLink } from "/pr-links.js";
 
@@ -181,10 +181,10 @@ export function setupSidebar(ctx) {
   }
 
   // A row is one line; a card adds the latest activity and, for Needs you, the answers.
-  // Either way the pane's button is .sb-open, and its running sub-agents are listed under it
+  // Either way the pane's link is .sb-open (ctx.paneLink), and its running sub-agents are listed under it
   // while the switch is on; off, a count beside the age says they are there.
   function row(card) {
-    const node = document.createElement("div"), open = document.createElement("button");
+    const node = document.createElement("div"), open = document.createElement("a");
     node.className = card ? "sb-card" : "sb-row";
     open.className = "sb-open";
     open.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="t"><b></b><span class="s"></span><span class="sb-acct"></span></span><span class="a"></span><span class="sb-n" role="img"></span>' + (card ? '<p></p><p class="sb-items"></p>' : "");
@@ -195,7 +195,6 @@ export function setupSidebar(ctx) {
       open.after(more);
       addAnswers(node);
     }
-    open.onclick = () => ctx.navigate(node._p.pane_id);
     return node;
   }
   // A long question shows three lines and More, which unfolds the rest in place (the pane has it all too).
@@ -219,15 +218,18 @@ export function setupSidebar(ctx) {
       event.preventDefault();
       const id = node._p.pane_id, value = drafts.get(id);
       // Sent: close the Reply, unless more was typed while it went (compose clears as it sends).
-      if (!ctx.sending() && value?.segments().length && await ctx.compose(id, value) && !value.segments().length) done(id);
+      const why = sendBlock({ sending: ctx.sending(), empty: !value?.segments().length });
+      if (why) ctx.notice(why, 4000);
+      else if (await ctx.compose(id, value) && !value.segments().length) done(id);
     };
   }
   function updateRow(node, { p, g, card }) {
     node._p = p;
+    ctx.paneLink(node.firstChild, p.pane_id);
     markEnding(node, p);
     node.classList.toggle("need", ctx.asks(p));
     node.classList.toggle("outside", ctx.outside(p)); // needs you, shown though the filter leaves it out
-    // On the card for its styling and on its button, which is what assistive tech lands on.
+    // On the card for its styling and on its link, which is what assistive tech lands on.
     for (const el of [node, node.firstChild]) {
       if (p.pane_id === ctx.active()) el.setAttribute("aria-current", "true"); else el.removeAttribute("aria-current");
     }
@@ -256,7 +258,7 @@ export function setupSidebar(ctx) {
   // card, its note standing in for Reply; Reply opens a composer that posts to the pane's
   // /compose like its footer. A question about a link leads with Open link.
   function replies(node, p) {
-    const answered = ctx.answered(p), busy = ctx.sending() || !!answered;
+    const answered = ctx.answered(p);
     const options = ctx.answers(needsYou(p) ? p.question : null, p), link = needsYou(p) && askLink(p);
     // A finished turn's first command offer rides every card, Needs you or not (app.js render shows all).
     const offers = ctx.offers(p).slice(0, 1).flatMap((offer) => ["text", "send", "copy"].map((part) => ({ offer, part, option: offer, index: -1 })));
@@ -274,14 +276,14 @@ export function setupSidebar(ctx) {
       if (o.part === "text") return text(el, o.offer);
       if (o.link) { text(el.firstChild, `${o.link.text || "Open link"} ↗`); el.firstChild.title = o.link.href; return; }
       const label = o.reply ? "Reply" : o.part === "send" ? "Send it" : o.part === "copy" ? "Copy" : o.option;
-      text(el, label); el.title = o.reply ? "" : label; el.disabled = busy && o.part !== "copy";
+      text(el, label); el.title = o.reply ? "" : label; block(el, o.part === "copy" ? "" : answered?.note || sendBlock({ sending: ctx.sending() }));
       el.classList.toggle("picked", !o.reply && o.part !== "copy" && ctx.picked(p, o));
     });
     const form = node.querySelector(".sb-compose"); // a secret pane's draft: see app.js pruneDrafts
     form.hidden = replyTo !== p.pane_id || !!p.secret;
     if (form.hidden) return form.querySelector("#side-reply")?.remove();
     if (!form.contains(draft().editor)) form.prepend(draft().editor);
-    form.querySelector("button[type=submit]").disabled = ctx.sending() || !draft().segments().length;
+    block(form.querySelector("button[type=submit]"), sendBlock({ sending: ctx.sending(), empty: !draft().segments().length }));
   }
   // On a phone, or at a password prompt, Reply opens the pane: its composer sits above the
   // keyboard (and at a password prompt is the password field), scrolled to the question.
@@ -305,13 +307,13 @@ export function setupSidebar(ctx) {
   // (and, with several accounts, its account's); hovering one shows its card.
   function rail(subset, query) { // the query keeps a search's folds for when it expands
     reconcile(root, groups(subset, query, ctx.sort()).flatMap((g) => g.panes), (p) => `rail:${p.pane_id}`, () => {
-      const b = document.createElement("button");
+      const b = document.createElement("a");
       b.className = "sb-rail";
       b.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="sb-acct"></span>';
-      b.onclick = () => ctx.navigate(b._p.pane_id);
       return b;
     }, (b, p) => {
       b._p = p;
+      ctx.paneLink(b, p.pane_id);
       markEnding(b, p);
       const agents = subagentCount(p);
       b.ariaLabel = `${[sessionOf(p), paneName(p)].filter(Boolean).join(" / ")}${agents ? `, ${agents} sub-agent${agents === 1 ? "" : "s"} working` : ""}${ctx.outside(p) ? ", outside filter" : ""}`;

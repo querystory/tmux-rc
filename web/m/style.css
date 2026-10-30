@@ -28,8 +28,8 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 button, input, textarea, select { font: inherit; color: inherit; }
 button, a, input, textarea, select { touch-action: manipulation; }
 button { cursor: pointer; background: transparent; border: 0; border-radius: 6px; min-height: 44px; }
-button:disabled { opacity: .45; cursor: default; }
-@media (hover: hover) { button:not(:disabled):hover { background: var(--raised); --card: var(--raised); } } /* a finger is not a hover: iOS sets :hover at touchstart and keeps it through the scroll */
+button:is(:disabled, [aria-disabled="true"]) { opacity: .45; cursor: default; }
+@media (hover: hover) { button:not(:disabled, [aria-disabled="true"]):hover { background: var(--raised); --card: var(--raised); } } /* a finger is not a hover: iOS sets :hover at touchstart and keeps it through the scroll */
 button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 a { color: var(--accent); }
 svg { flex-shrink: 0; vertical-align: middle; }
@@ -63,7 +63,7 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 #app:has(#connection.online) :is(#sb-head #brand, #menu-open, #back, #dash-page [data-key="page-back"])::before { background: var(--accent); }
 :is(#menu-open, #back, #dash-page [data-key="page-back"])::before { top: 10px; right: 9px; box-shadow: 0 0 0 2px var(--ring, var(--bg)); }
 .icon-button { width: 44px; height: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; flex: none; }
-a.icon-button { color: var(--fg); text-decoration: none; }
+a.icon-button, .pane-row, .sb-open, .sb-rail { color: inherit; text-decoration: none; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; } /* links into the app (middle-click opens a tab), drawn as the buttons they were: no callout, no selection */
 #notice { flex: none; background: var(--amber-bg); color: var(--amber); font-size: 13px; padding: 8px 16px; }
 #sessions { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 #new-window { background: var(--accent-bg); color: var(--accent); }
@@ -178,11 +178,8 @@ a.icon-button { color: var(--fg); text-decoration: none; }
   --lens: blur(8px) saturate(220%) brightness(1.03); --drop: 0 10px 28px rgb(0 0 0 / .16), 0 1px 3px rgb(0 0 0 / .12); }
 #list-nav button { flex: 1 1 0; min-width: 0; width: auto; height: auto; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0 2px; border-radius: 28px; font-size: 10.5px; font-weight: 600; white-space: nowrap; color: var(--ink); text-shadow: 0 0 4px var(--halo); box-shadow: none; }
 #list-nav svg { width: 22px; height: 22px; filter: drop-shadow(0 0 3px var(--halo)); }
-#list-nav :is([aria-pressed="true"], #chat.active) { background: var(--accent-bg); color: var(--accent); }
+#list-nav [aria-pressed="true"] { background: var(--accent-bg); color: var(--accent); }
 #list-nav #attention-tab[aria-pressed="true"] { background: var(--amber-bg); color: var(--amber); }
-#list-nav #chat::after { content: attr(aria-label); }
-#list-nav #live-mode::after { content: "Voice"; }
-#list-nav #live-mode.active { color: var(--red); }
 .nav-icon { position: relative; display: grid; place-items: center; }
 .count { font-size: 11px; font-variant-numeric: tabular-nums; }
 #list-nav .count { position: absolute; left: calc(50% + 5px); top: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--amber); color: var(--surface); line-height: 18px; font-weight: 700; text-align: center; }
@@ -200,7 +197,7 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #options button { min-height: 40px; max-width: 100%; padding: 8px 16px; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); font-weight: 600; overflow-wrap: anywhere; }
 #prompt:empty { display: none; } /* a finished turn's offers alone: pills, no empty heading */
 .offer-choices button { min-height: 48px; background: var(--surface); border: 1px solid var(--line); padding: 11px 14px; text-align: left; overflow-wrap: anywhere; }
-:is(#options, .offer-choices) button:hover:not(:disabled) { border-color: var(--amber); }
+:is(#options, .offer-choices) button:hover:not(:disabled, [aria-disabled="true"]) { border-color: var(--amber); }
 #offers:not(:empty) { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-top: 14px; } /* minmax: a long offer clips, not widens the card */
 #offers:not(:empty) + #options:empty, .offer-choices .picked svg, .offer-text.fits svg { display: none; } /* no gap for no answers; the spinner stands in for the icon */
 #prompt:empty ~ #offers { margin-top: 0; } /* a finished turn's card: no question above */
@@ -267,11 +264,19 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .link-pair a { min-width: 0; user-select: none; -webkit-user-select: none; }
 .link-copy { color: var(--muted); }
 /* A pane's link rows: a long press copies (app.js renderLinks), so no callout or selection. */
-#links a, #ask-link a { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: center; min-height: 52px; padding: 8px 0; border-bottom: 1px solid var(--line); text-decoration: none; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
-#links a:last-child { border-bottom: 0; }
-#links a span, #links a small, #ask-link a span, #ask-link a small { overflow-wrap: anywhere; }
-#links a small, #ask-link a small { color: var(--muted); font-size: 12px; grid-column: 1; }
-#links a svg, #ask-link a svg { grid-column: 2; grid-row: 1 / 3; }
+:is(#links, #pr-links, #ask-link) a, .more-links { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: center; min-height: 52px; padding: 8px 0; text-decoration: none; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+:is(#links, #pr-links) a, .more-links { border-top: 1px solid var(--line); }
+#links a:first-child { border-top: 0; }
+:is(#links, #pr-links, #ask-link) a :is(span, small) { overflow-wrap: anywhere; }
+:is(#links, #pr-links, #ask-link) a small, .more-links small { color: var(--muted); font-size: 12px; grid-column: 1; }
+:is(#links, #pr-links, #ask-link) a svg, .more-links svg { grid-column: 2; grid-row: 1 / 3; }
+#links small.pending { color: var(--amber); }
+/* The rest of the Links (app.js renderRichContent): this pane's Scratch pages, its other PRs. */
+.more-links { width: 100%; border-width: 1px 0 0; border-radius: 0; background: none; color: var(--fg); font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
+.more-links :is(small, .count) { color: var(--muted); font-weight: 400; }
+#more-prs svg { transform: rotate(90deg); }
+#more-prs[aria-expanded="true"] svg { transform: rotate(-90deg); }
+#pr-links a { padding-left: 14px; }
 /* The link a question asks you to open leads its card, framed like its answers. */
 #ask-link a { margin-top: 14px; padding: 8px 14px; border: 1px solid var(--amber); border-radius: 6px; }
 .pane-table + .pane-table { margin-top: 20px; }
@@ -282,9 +287,9 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .table-scroll th { position: sticky; top: 0; background: var(--surface); font-weight: 600; }
 #composer { flex: none; padding: 10px 12px max(8px, env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--surface); }
 #reply-form { display: flex; gap: 6px; align-items: flex-end; }
-#reply, #secret { color: inherit; flex: 1; min-width: 0; resize: none; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; font-size: 16px; line-height: 22px; min-height: 44px; max-height: 132px; }
+#reply, #viewer-reply, #secret { color: inherit; flex: 1; min-width: 0; resize: none; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; font-size: 16px; line-height: 22px; min-height: 44px; max-height: 132px; }
 .primary { background: var(--accent); color: var(--bg); font-weight: 600; }
-.primary:hover:not(:disabled) { background: var(--accent); filter: brightness(.92); }
+.primary:hover:not(:disabled, [aria-disabled="true"]) { background: var(--accent); filter: brightness(.92); }
 #update-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 16px; background: var(--accent-bg); color: var(--accent); flex: none; font-size: 13px; }
 #reload-update { padding: 0 12px; text-decoration: underline; }
 #notice button { padding: 0 0 0 8px; color: inherit; font-weight: 600; text-decoration: underline; } /* an Undo */
@@ -304,8 +309,8 @@ a.icon-button { color: var(--fg); text-decoration: none; }
   mask-image: linear-gradient(to right, #000 calc(100% - var(--keys-fade, 0px)), transparent); }
 #keys::-webkit-scrollbar { display: none; }
 #keys button { background: var(--raised); padding: 0 12px; flex: none; min-width: 44px; font-size: 13px; }
-#reply { white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; touch-action: manipulation; }
-#reply:empty::before { content: attr(data-placeholder); color: var(--muted); pointer-events: none; }
+#reply, #viewer-reply { white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; touch-action: manipulation; }
+#reply:empty::before, #viewer-reply:empty::before { content: attr(data-placeholder); color: var(--muted); pointer-events: none; }
 #reply:focus-visible, #secret:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .attach-chip { display: inline-block; width: 32px; height: 32px; object-fit: cover; vertical-align: middle; border-radius: 4px; margin: 0 3px; cursor: pointer; }
 .attach-chip.file { width: auto; max-width: 12em; height: auto; padding: 2px 8px; font-size: 13px; line-height: 20px; background: var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -315,8 +320,10 @@ dialog { position: fixed; inset: auto 0 0; margin: 0 auto; background: var(--sur
 html.editing dialog:not(.beside) { bottom: calc(100% - var(--app-top, 0px) - var(--app-height, 100%)); max-height: calc(var(--app-height, 100dvh) - 16px); }
 dialog::backdrop { background: #0008; opacity: var(--drag, 1); } /* fades as the sheet is dragged away (drag-dismiss.js) */
 /* A phone's ☰ drawer (Gmail's): a sheet from the left, the logo atop the rows; the current
-   one is a tinted pill. */
-#drawer { inset: 0 auto 0 0; width: min(304px, 84vw); height: 100%; max-height: none; margin: 0; padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); border: 0; border-radius: 0 16px 16px 0; }
+   one is a tinted pill. It scrolls on its own, contained like every other scroller here: a
+   swipe it cannot take must not chain out, since iOS hands that to the scroller under the
+   finger (the dashboard), not up the DOM. */
+#drawer { inset: 0 auto 0 0; width: min(304px, 84vw); height: 100%; max-height: none; margin: 0; padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); border: 0; border-radius: 0 16px 16px 0; overflow-y: auto; overscroll-behavior: contain; }
 #drawer[open] { animation: none; } /* it slides in and out by script (app.js settle), as a drag does */
 #drawer::backdrop { opacity: var(--shown, 1); }
 @media (prefers-reduced-motion: no-preference) { #drawer.settling, #drawer.settling::backdrop { transition: transform .2s ease-out, opacity .2s ease-out; } }
@@ -408,6 +415,7 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 #launch-choices .desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 #launch-choices [data-unavailable] :is(small, .desc) { white-space: normal; } /* why it cannot run: read in full */
 .panel-sub { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+#launch-kind { display: flex; margin-top: 8px; } #launch-kind button { flex: 1; min-height: 36px; font-size: 14px; } #launch-kind [data-why]:not([data-why=""]) { opacity: .45; }
 .acct-why { margin-left: 4px; font-size: 12px; font-weight: 400; color: var(--muted); }
 .acct-default input { margin: 0 6px 0 0; vertical-align: -2px; accent-color: var(--accent); }
 .acct-else { display: block; margin-left: 20px; font-size: 12px; color: var(--muted); }
@@ -713,7 +721,7 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 .sb-icon[aria-pressed="true"] { color: var(--accent); background: var(--accent-bg); }
 .sb-replies:not(:empty), .sb-compose { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 10px 8px 41px; }
 .sb-replies :is(button, a) { min-height: 28px; max-width: 100%; padding: 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font-size: 12px; font-weight: 600; }
-.sb-replies :is(button, a):not(:disabled):hover { border-color: var(--amber); }
+.sb-replies :is(button, a):not(:disabled, [aria-disabled="true"]):hover { border-color: var(--amber); }
 .sb-replies a { display: inline-flex; align-items: center; color: var(--fg); text-decoration: none; }
 .sb-replies .link-copy { width: 28px; height: 28px; padding: 0; }
 .sb-offer { flex-basis: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font: 12px/1.35 var(--mono); }
@@ -953,6 +961,11 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 #review-layout-picker label { gap: 10px; }
 #review-layout-picker label > span:not(.thumb) { display: flex; flex-direction: column; line-height: 1.3; }
 .header-picker-menu small { font-size: 12px; color: var(--muted); }
+/* Its "Now on" line sits under the label, and a long account name ellipsizes inside the menu. */
+#move-pane { text-align: start; }
+#move-pane > span { min-width: 0; }
+#move-pane small { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+#move-pane .acct-badge { flex-shrink: 1; min-width: 0; }
 .thumb { flex: none; display: grid; place-items: center; width: 44px; height: 30px; margin-left: auto; padding: 2px; box-sizing: border-box; border: 1px solid var(--line); border-radius: 4px; color: var(--accent); font-size: 16px; }
 label:has(:checked) > .thumb { border-color: var(--accent); }
 label:has([value="auto"]) > .thumb { border-style: dashed; }
@@ -1208,7 +1221,7 @@ label:has([value="auto"]) > .thumb { border-style: dashed; }
 /* On iOS this spinner sat unturned, a static "C", inside the list's line-clamped boxes (display:
    -webkit-box). "Summarizing…" is one line, so a waiting line drops the clamp. */
 :is(.row-status, .sb-open p, #side-hover .x).pending { display: block; }
-button.picked:disabled { opacity: 1; }
+button.picked:is(:disabled, [aria-disabled="true"]) { opacity: 1; }
 
 /* Agent accounts (accounts.js): drawn only for a provider with two or more. */
 .acct-dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--a); }
@@ -1284,15 +1297,16 @@ button.picked:disabled { opacity: 1; }
   #find .search { flex: 1; min-width: 0; margin: 0; padding: 0 0 0 4px; background: none; box-shadow: none; }
   #find + .acct-pill { display: none; }
   #side-filter-picker summary { width: 40px; height: 40px; min-height: 40px; border-radius: 10px; }
-  :is(.app-header, .landing-head) #side-filter-picker summary[data-n=""] { width: 44px; height: 44px; border-color: transparent; background: none; }
+  :is(.app-header, .landing-head, .fg-scope) #side-filter-picker summary[data-n=""] { width: 44px; height: 44px; border-color: transparent; background: none; }
   /* The bar stays slim: Back, then the pane's name once its title has gone (app.js), then the actions. */
   #heading { gap: 0; padding: 4px 4px 4px 16px; }
   #back { order: -2; margin-right: 8px; }
   #heading::after { content: attr(data-title); order: -1; flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0; transition: opacity .15s; }
   #detail[data-title-away] > #heading::after { opacity: 1; }
+  #heading:has(> .pane-heading-text)::after { content: none; } /* the terminal's bar holds the title itself (app.js) */
   #overview > .pane-heading-text { padding: 12px 20px 0; }
   #pane-title { font-size: 20px; line-height: 1.25; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
-  #pane-location { margin-top: 6px; }
+  #overview #pane-location { margin-top: 6px; }
   #side-filter-picker[open] .header-picker-menu { position: fixed; inset: auto 0 0; z-index: 30; width: auto; max-width: none; max-height: 75dvh; overflow-y: auto; padding-bottom: max(8px, env(safe-area-inset-bottom)); border-radius: 12px 12px 0 0; box-shadow: 0 -6px 24px rgb(0 0 0 / .25); }
   #side-filter-picker .header-picker-menu::before { content: ""; display: block; width: 32px; height: 4px; margin: 4px auto 8px; border-radius: 2px; background: var(--line); } /* the grab handle: drag it down to close */
   #side-filter-picker [aria-label="Group by"] { display: none; }
@@ -1359,6 +1373,8 @@ button.picked:disabled { opacity: 1; }
 .uv-card.empty { padding-bottom: 10px; }
 .uv-card.empty .uv-chart { display: none; }
 .uv-none { color: var(--muted); font-size: 13px; }
+.uv-empty { margin: 4px; color: var(--muted); line-height: 1.5; }
+.uv-blank :is(.uv-span, .uv-key, .fleet-seg, .uv-bar:has(> .uv-errs:empty)) { display: none; }
 .uv-filter summary { min-height: 38px; padding: 0 8px; border: 1px solid var(--line); border-radius: 7px; }
 .uv-filter summary::after { display: none; }
 .uv-filter summary.on { color: var(--accent); border-color: var(--accent); background: var(--accent-bg); }
@@ -1368,7 +1384,7 @@ button.picked:disabled { opacity: 1; }
 @media (max-width: 699px) { #dash-page:has(> .usage-view) { height: auto; } }
 @container dash-page (max-width: 699px) {
   /* A phone: the charts stacked to scroll, each landscape, 5-hour and Weekly on the first screen. */
-  #landing .usage-view { flex: none; min-height: 0; gap: 8px; padding: 10px 6px 4px; }
+  #landing .usage-view { flex: none; min-height: 0; gap: 8px; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; } /* edge to edge under the head: no card */
   .uv-bar { justify-content: space-between; gap: 6px 8px; }
   .uv-bar .fleet-seg button { min-width: 0; padding: 2px 8px; }
   .uv-span { order: 2; flex-basis: 100%; font-size: 12px; }
@@ -1479,6 +1495,15 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 #scratch-viewer .dialog-heading { flex: none; gap: 4px; height: calc(48px + env(safe-area-inset-top)); margin: 0; padding: env(safe-area-inset-top) max(12px, env(safe-area-inset-right)) 0 max(4px, env(safe-area-inset-left)); border-bottom: 1px solid var(--line); }
 #viewer-title { flex: 1; min-width: 0; margin: 0; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #viewer-out { flex: none; font-size: 14px; color: var(--accent); }
+/* Message the page's maker: the pane composer's look, above the keyboard while typing (fitViewport). */
+html.editing #scratch-viewer { top: var(--app-top, 0px); height: var(--app-height, 100%); }
+#viewer-form { flex: none; display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-end; padding: 8px max(12px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); border-top: 1px solid var(--line); }
+#viewer-reply:empty::before { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#viewer-status, #viewer-about { flex-basis: 100%; margin: 0; font-size: 13px; color: var(--muted); }
+#viewer-to { color: var(--accent); }
+#viewer-about { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#viewer-status:empty { display: none; }
+#viewer-send[aria-disabled="true"] { opacity: .45; }
 #scratch-viewer iframe { flex: 1; width: 100%; border: 0; background: #fff; } /* a page with no background of its own reads as in a tab */
 @media (max-width: 1099px) { #scratch-viewer::after { content: ""; position: absolute; inset: calc(48px + env(safe-area-inset-top)) auto 0 0; width: 16px; } }
 /* The Fleet graph (graph.js): its card spans the dashboard; its view fills the page, the canvas
@@ -1489,7 +1514,6 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 .fg-mini canvas, .fg-box canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 #dash-page:has(> .fg-view) { display: flex; flex-direction: column; height: 100%; box-sizing: border-box; }
 .fg-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-@media (max-width: 699px) { .fg-view { min-height: 360px; } }
 /* The HUD over the canvas: the lens chips and jump-to callouts on top, the counts down the left
    (a row at the bottom on a phone), the key along the foot. Its empty middle passes touches
    through to the canvas, and its words don't select: a double tap on Jump to toggles it, not
@@ -1540,6 +1564,12 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
   .fg-hud::before { grid-row: stats / key; margin: -14px -52px -8px -10px; } /* the fade backs the counts too */
   .fg-legend { margin-right: -42px; } .fg-key { font-size: 8.5px; gap: 3px 10px; }
 }
+/* The account scope's strip over the canvas (graph.js, seated by app.js placePill on a narrow
+   screen): the filter button, then the active chips; nothing, and it takes no room. */
+.fg-scope { display: flex; flex: none; align-items: center; gap: 4px; padding: 6px 6px 4px; overflow-x: auto; scrollbar-width: none; }
+.fg-scope:empty { display: none; }
+.fg-scope > #side-filter-picker { flex: none; }
+.fg-scope > .acct-pill { flex-wrap: nowrap; padding: 0 4px; }
 /* Full screen (graph.js): the view over everything, edge to edge inside the safe area. A phone
    opens the view this way. */
 .fg-view.full { position: fixed; inset: 0; z-index: 40; min-height: 0; background: var(--surface); padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }

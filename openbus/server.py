@@ -74,6 +74,7 @@ from fastapi.responses import (  # noqa: E402
     HTMLResponse,
     PlainTextResponse,
     RedirectResponse,
+    Response,
     StreamingResponse,
 )
 from fastapi.staticfiles import StaticFiles  # noqa: E402
@@ -96,6 +97,7 @@ from . import (  # noqa: E402
 from .browser_security import BrowserOriginMiddleware  # noqa: E402
 from .classify import picker_digest, picker_read, prompt_gone  # noqa: E402
 from .history import History, default_path, pane_key  # noqa: E402
+from .host_security import TrustedHostMiddleware  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
 from .open_loops import OpenLoops  # noqa: E402
 from .plan_usage import ENV, PlanUsage, canonical  # noqa: E402
@@ -545,16 +547,18 @@ async def lifespan(app: FastAPI):
         await app.state.watcher.stop()
 
 
-# Swagger UI moves off /docs to /apidocs so /docs belongs to the Hugo docs site
-# (FastAPI's default /docs would otherwise shadow the bare /docs path). ReDoc follows.
+# FastAPI's interactive docs load third-party JavaScript on the terminal-control
+# origin. Opt in for development; the JSON schema remains available without scripts.
+_api_docs = os.environ.get("TMUXRC_API_DOCS", "").strip().lower() in ("1", "true", "yes", "on")
+# Swagger UI moves off /docs to /apidocs so /docs belongs to the Hugo docs site.
 # auto_configure off: FastAPI would otherwise attach its own OTLP exporters, from the
 # OTEL_* env the session shares with Claude Code, and ship every request span, metric and
 # log to that receiver. Our export is telemetry.py's scoped records, on its own provider.
 app = FastAPI(
     title="tmux-rc",
     lifespan=lifespan,
-    docs_url="/apidocs",
-    redoc_url="/apiredoc",
+    docs_url="/apidocs" if _api_docs else None,
+    redoc_url="/apiredoc" if _api_docs else None,
     telemetry={"auto_configure": False},
 )
 # Terminal frames are ~13KB raw but ~4.6x compressible (mostly repeated text/escapes).
@@ -637,6 +641,10 @@ async def no_cache(request, call_next):
     if cl and request.url.path.endswith("/live"):
         logger.debug("%s -> %s bytes", request.url.path, cl)
     return resp
+
+
+# Later registrations run first: refuse malformed authorities before no_cache parses URLs.
+app.add_middleware(TrustedHostMiddleware)
 
 
 def _web_version() -> str:
@@ -898,6 +906,8 @@ async def get_state(v: int | None = None, client: str = "", visible: bool = Fals
         "usage": usage_totals(),  # running tokens/cost/calls/errors for the top-bar readout
         "prefix": tmux.prefix_key(),  # auto-detected tmux prefix, so the phone button matches
         "tmux_running": w.tmux_running,  # False = no server at all (e.g. after a reboot)
+        # The machine's name for the app's tab titles (docs/design/tab-icons.md): zero setup.
+        "host": os.environ.get("TMUXRC_HOST_NAME") or socket.gethostname().split(".")[0],
         "panes": panes,
     }
 
@@ -2145,7 +2155,7 @@ async def _compose(pane_id: str, request: Request):
     pane = tmux.find_pane(pane_id)
     if pane is None:
         raise HTTPException(404, "pane not found")
-    segments, secret = [], None
+    segments, secret, birth, page = [], None, None, None
     # Multipart parsing finishes before delivery. Limits also bound the time a single
     # draft can occupy the pane lock; no client round trips happen inside that lock.
     async with request.form(max_files=16, max_fields=128, max_part_size=UPLOAD_MAX_BYTES) as form:
@@ -2165,6 +2175,10 @@ async def _compose(pane_id: str, request: Request):
                 # is delivered by its path, so the draft holds no copy of it.
                 path = _stage_file(data, mime, value.filename)
                 segments.append((data if mime in _EXT else b"", path))
+            elif kind == "birth" and isinstance(value, str):  # the incarnation the user confirmed
+                birth = value
+            elif kind == "scratch" and isinstance(value, str):  # sent from the scratch viewer
+                page = value
             elif kind == "secret" and isinstance(value, str) and secret is None:
                 if len(value.encode()) > 4095:  # the tty's line, less its newline
                     raise HTTPException(413, "password too long")
@@ -2178,11 +2192,18 @@ async def _compose(pane_id: str, request: Request):
         raise HTTPException(400, "send a draft or a secret")
     if not (secret or "").isprintable():  # a newline or ^D would end the read early,
         raise HTTPException(400, "a password is printable text")  # the rest run as input
+    if birth and birth != pane.pid:  # a draft or a password, never into another incarnation
+        raise tmux.PaneChangedError("Pane changed; nothing was sent.")
+    if page is not None:  # which page it is about, from the folder, never from the client
+        line = _scratch_dir and await asyncio.to_thread(scratch.about, Path(_scratch_dir), page)
+        if secret or not line:
+            raise HTTPException(400, "no such scratch page")
+        segments.insert(0, line)
     if secret:
         await asyncio.to_thread(_input_attempt, pane.id, tmux.send_secret, pane, secret)
     else:
         await asyncio.to_thread(
-            _input_attempt, pane.id, _deliver_composer, pane.id, pane.pid, segments)
+            _input_attempt, pane.id, _deliver_composer, pane.id, birth or pane.pid, segments)
     _audit(request, "compose", pane_id,
            detail="secret" if secret else f"{len(segments)} segments")
     return {"ok": True}
@@ -2313,14 +2334,55 @@ if _scratch_dir:
         return (states, accounts.report(states, watcher.pane_birth)["profiles"],
                 WEB_DIR / "m" / "style.css", lambda entry: live.running_pane(entry, watcher))
 
+    @app.get("/api/panes/{pane_id}/scratch")
+    def pane_scratch(pane_id: str) -> list[dict]:
+        """The scratch pages this pane's session made, for its overview's Links."""
+        states, profiles, _style, pane_of = _who()
+        return scratch.made_by(Path(_scratch_dir), pane_id, states, profiles, pane_of)
+
     @app.get("/scratch/", include_in_schema=False)
-    async def scratch_listing() -> HTMLResponse:
-        """The gallery of scratch's folders (openbus/scratch.py), ahead of the mount."""
+    async def scratch_listing(archived: str | None = None, seen: str | None = None) -> Response:
+        """The gallery of scratch's folders (openbus/scratch.py), ahead of the mount;
+        `?archived`, the archive's. `?seen=<its tag>` is the open gallery asking whether to
+        reload, as an image that loads only on a change. Not a fetch: the gallery keeps the
+        sandbox of every /scratch/ page (no same origin, connect-src 'none'). Opening it
+        to fetches would need CORS for the opaque origin "null", which every agent page
+        shares, or the app's own origin, for a page that renders agent-written text."""
+        if seen is not None:
+            listed = await asyncio.to_thread(scratch.listing, Path(_scratch_dir),
+                                             archived=archived is not None)
+            return Response(None, 204) if seen == scratch.tag(listed) else Response(
+                _PIXEL, media_type="image/gif")
         use_llm = getattr(app.state.watcher, "use_llm", False)
         return HTMLResponse(await asyncio.to_thread(lambda: scratch.page(
             Path(_scratch_dir), *_who(),
             lambda listed: scratch_sidecars.queue(Path(_scratch_dir), WEB_DIR, listed, use_llm),
-            "/docs/deploy/scratch-gallery/" if DOCS_MOUNTED else scratch.DOCS)))
+            "/docs/deploy/scratch-gallery/" if DOCS_MOUNTED else scratch.DOCS,
+            archived=archived is not None)))
+
+    _PIXEL = bytes.fromhex("47494638396101000100000000002c00000000010001000002024401003b")
+
+    class ScratchBody(BaseModel):
+        action: Literal["archive", "unarchive", "delete"]
+        names: list[str]
+
+    @app.post("/api/scratch")
+    def scratch_act(body: ScratchBody, request: Request) -> dict:
+        """Archive, unarchive or delete (from the archive) the gallery's selected folders."""
+        try:
+            done = scratch.act(Path(_scratch_dir), body.action, body.names)
+            scratch_sidecars.forget(done)
+        except (ValueError, PermissionError) as e:
+            raise HTTPException(400, str(e)) from e
+        _audit(request, f"scratch_{body.action}", "-", ",".join(done))
+        return {"done": done}
+
+    @app.get("/api/scratch/{name}/pane")
+    def scratch_maker(name: str) -> dict:
+        """The open pane that made a scratch folder (scratch.maker): the viewer's composer."""
+        pane = scratch.maker(Path(_scratch_dir), name, list(app.state.watcher.states)) or {}
+        return {"pane": pane.get("pane_id"), "birth": pane.get("birth"),
+                "about": scratch.about(Path(_scratch_dir), name)}
 
     _mount_static("/scratch", _scratch_dir, partial(
         scratch_markdown.Files, web=WEB_DIR,
