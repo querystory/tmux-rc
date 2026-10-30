@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
-      contents: write # push the changed shots to the ci-screenshots branch
+      contents: write # push the changed shots to refs/screenshots/pr-<N>
       pull-requests: write # the sticky comment
     env:
       BASE: ${{ github.base_ref }}
@@ -61,10 +61,10 @@ jobs:
           name: screenshots-pr-${{ github.event.pull_request.number }}
           path: ${{ env.OUT }}
           if-no-files-found: error
-      # Images go to the orphan ci-screenshots branch (only the changed shots, under
-      # pr-<N>/<sha>/) and are linked by commit, so a later prune of the tree never breaks a
-      # comment. Every publish (images or not) drops this PR's older dir and those of PRs no
-      # longer open, so the tree holds only the latest shots of open PRs.
+      # Images (only the changed shots) go to refs/screenshots/pr-<N> as one parentless
+      # commit, force-pushed each run, and are linked by that commit. A ref outside refs/heads
+      # is never fetched by a clone, so the shots cost users nothing; the per-PR ref and the
+      # concurrency group above mean no other run ever pushes to it.
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
@@ -74,25 +74,14 @@ jobs:
           body=$(sed '/^$/,$d' "$summary")  # the % table; the image rows follow a blank line
           if [ "$PUBLISH" = true ]; then
             git init -q "$RUNNER_TEMP/pub" && cd "$RUNNER_TEMP/pub"
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898283+github-actions[bot]@users.noreply.github.com'
-            git remote add origin "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
-            for try in 1 2 3 4 5; do  # other PRs publish concurrently: a rejected push redoes it on their tip
-              if git fetch -q --depth=1 origin ci-screenshots; then git checkout -qf FETCH_HEAD && git clean -qfd; fi
-              for dir in pr-*; do
-                [ -d "$dir" ] || continue
-                state=$(gh pr view "${dir#pr-}" --repo "$GITHUB_REPOSITORY" --json state --jq .state || true)
-                [ "$state" = OPEN ] && [ "$dir" != "pr-$PR" ] || git rm -rq "$dir"
-              done
-              { grep -o 'src="[^"]*"' "$summary" || true; } | cut -d'"' -f2 |
-                while read -r png; do install -D "$GITHUB_WORKSPACE/$OUT/$png" "pr-$PR/$SHA/$png"; done
-              git add -A
-              git diff --cached --quiet && break  # a re-run, or nothing shown and nothing to prune
-              git commit -qm "Screenshots for #$PR at $SHA"
-              git push -q origin HEAD:ci-screenshots && break
-              [ "$try" = 5 ] && exit 1
-            done
-            url="https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$(git rev-parse -q --verify HEAD || true)/pr-$PR/$SHA"
+            { grep -o 'src="[^"]*"' "$summary" || true; } | cut -d'"' -f2 |
+              while read -r png; do install -D "$GITHUB_WORKSPACE/$OUT/$png" "$png"; done
+            git add -A
+            if git -c user.name='github-actions[bot]' -c user.email='41898283+github-actions[bot]@users.noreply.github.com' \
+              commit -qm "Screenshots for #$PR at $SHA"; then  # fails when no shot changed
+              git push -qf "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git" "HEAD:refs/screenshots/pr-$PR"
+            fi
+            url="https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$(git rev-parse -q --verify HEAD || true)"
             body=$(sed "s#src=\"#src=\"$url/#g" "$summary")
           fi
           printf '%s\n' '<!-- screenshots-diff -->' '### Screenshot diff' '' \

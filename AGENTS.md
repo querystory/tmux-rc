@@ -128,9 +128,10 @@ reach a real pane.
   0.05% is marked as noise and counts as unchanged.
 - **CI posts that diff on every PR touching `web/`** (`.github/workflows/screenshots.yml`):
   one comment, updated in place on each push, with the changed-% table and base/head/diff
-  images of the shots that moved. The images live on the orphan `ci-screenshots` branch,
-  linked by commit; fork PRs get the table and the artifact but no comment, since their
-  token cannot push. A changed shot never fails the build, a shot that fails to render does.
+  images of the shots that moved. The images live on `refs/screenshots/pr-<N>`, one commit
+  replaced each run and linked by its SHA: a ref outside `refs/heads` is never cloned, so
+  the shots don't bloat anyone's checkout. Fork PRs get the table and the artifact but no
+  comment, since their token cannot push. A changed shot never fails the build, a shot that fails to render does.
   The comment is not the review: read it, and **say in the PR body which changes are
   intended**, so an unintended one stands out to the reviewer.
 - Same tree, same machine gives the same bytes. Across machines fonts differ, so compare
