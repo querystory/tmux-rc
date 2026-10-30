@@ -5,8 +5,8 @@
   --bg: #101312; --surface: #191d1b; --raised: #252b28; --line: #343d38;
   --fg: #edf2ef; --muted: #a1ada6; --accent: #83ddb3; --accent-bg: #193c2c; --lift: #2b322f;
   --amber: #f1c56a; --amber-bg: #352d1c; --red: #ff9696; --purple: #a371f7;
-  /* Fleet chart states, in history order: Needs you, Running, Idle, Unknown, Compacting, Waiting. */
-  --chart-s0: #f1bd53; --chart-s1: #60c992; --chart-s2: #3f4a55; --chart-s3: #4a5261; --chart-s4: #bea5ee; --chart-s5: #8bbdf5;
+  /* Fleet chart states, in history order: Needs you, Running, Idle, Unknown, Compacting, Waiting, Quota blocked. */
+  --chart-s0: #f1bd53; --chart-s1: #60c992; --chart-s2: #3f4a55; --chart-s3: #4a5261; --chart-s4: #bea5ee; --chart-s5: #8bbdf5; --chart-s6: #ff9696;
   /* Agent accounts (accounts.js), by the colour index openbus/accounts.py hands out. */
   --acct-0: #5eead4; --acct-1: #c4b5fd; --acct-2: #a8b3c4; --acct-3: #fcd34d; --acct-4: #7dd3fc; --acct-5: #fda4af;
 }
@@ -15,7 +15,7 @@
   --bg: #f5f7f6; --surface: #fff; --raised: #e7ede9; --line: #ccd7d0;
   --fg: #1b2821; --muted: #53655b; --accent: #146b46; --accent-bg: #dcf4e7; --lift: #fff;
   --amber: #815600; --amber-bg: #fff2d4; --red: #b52c36; --purple: #8250df;
-  --chart-s0: #f2ad32; --chart-s1: #39b978; --chart-s2: #e3e8ed; --chart-s3: #d1d8e2; --chart-s4: #9363c4; --chart-s5: #729cc1;
+  --chart-s0: #f2ad32; --chart-s1: #39b978; --chart-s2: #e3e8ed; --chart-s3: #d1d8e2; --chart-s4: #9363c4; --chart-s5: #729cc1; --chart-s6: #b52c36;
   --acct-0: #0f766e; --acct-1: #7c3aed; --acct-2: #64748b; --acct-3: #b45309; --acct-4: #0369a1; --acct-5: #be123c;
 }
 * { box-sizing: border-box; letter-spacing: 0; -webkit-tap-highlight-color: transparent; }
@@ -63,8 +63,8 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 #app:has(#connection.online) :is(#sb-head #brand, #menu-open, #back, #dash-page [data-key="page-back"])::before { background: var(--accent); }
 :is(#menu-open, #back, #dash-page [data-key="page-back"])::before { top: 10px; right: 9px; box-shadow: 0 0 0 2px var(--ring, var(--bg)); }
 .icon-button { width: 44px; height: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; flex: none; }
-a.icon-button { color: var(--fg); text-decoration: none; }
-#notice { flex: none; background: var(--amber-bg); color: var(--amber); font-size: 13px; padding: 8px 16px; }
+a.icon-button, .pane-row, .sb-open, .sb-rail { color: inherit; text-decoration: none; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; } /* links into the app (middle-click opens a tab), drawn as the buttons they were: no callout, no selection */
+:is(#notice, #viewer-notice) { flex: none; background: var(--amber-bg); color: var(--amber); font-size: 13px; padding: 8px 16px; }
 #sessions { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 #new-window { background: var(--accent-bg); color: var(--accent); }
 .search { margin: 0 20px 16px; display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 0 12px; color: var(--muted); }
@@ -158,6 +158,7 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .badge.running { color: var(--accent); }
 .pane-row .badge.running { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); } /* the animated logo says it; the text stays for screen readers */
 .badge.compacting { color: var(--purple); }
+.badge.quota_blocked { color: var(--red); }
 .empty { padding: 44px 24px; text-align: center; color: var(--muted); }
 /* The phone's tab bar: Dashboard, Sessions, the mic, Chat and Needs you on a glass pill that
    floats over the page's foot (which leaves it --bar-room), so the list shows through it.
@@ -287,12 +288,12 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .table-scroll th { position: sticky; top: 0; background: var(--surface); font-weight: 600; }
 #composer { flex: none; padding: 10px 12px max(8px, env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--surface); }
 #reply-form { display: flex; gap: 6px; align-items: flex-end; }
-#reply, #secret { color: inherit; flex: 1; min-width: 0; resize: none; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; font-size: 16px; line-height: 22px; min-height: 44px; max-height: 132px; }
+#reply, #viewer-reply, #secret { color: inherit; flex: 1; min-width: 0; resize: none; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; font-size: 16px; line-height: 22px; min-height: 44px; max-height: 132px; }
 .primary { background: var(--accent); color: var(--bg); font-weight: 600; }
 .primary:hover:not(:disabled, [aria-disabled="true"]) { background: var(--accent); filter: brightness(.92); }
 #update-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 16px; background: var(--accent-bg); color: var(--accent); flex: none; font-size: 13px; }
 #reload-update { padding: 0 12px; text-decoration: underline; }
-#notice button { padding: 0 0 0 8px; color: inherit; font-weight: 600; text-decoration: underline; } /* an Undo */
+:is(#notice, #viewer-notice) button { padding: 0 0 0 8px; color: inherit; font-weight: 600; text-decoration: underline; } /* an Undo */
 /* Transient: no row of its own, and :empty collapses it entirely, so "Draft"/"Sent"
    costs height only while it has something to say. */
 #draft-status { font-size: 11px; color: var(--muted); padding-bottom: 4px; }
@@ -309,8 +310,8 @@ a.icon-button { color: var(--fg); text-decoration: none; }
   mask-image: linear-gradient(to right, #000 calc(100% - var(--keys-fade, 0px)), transparent); }
 #keys::-webkit-scrollbar { display: none; }
 #keys button { background: var(--raised); padding: 0 12px; flex: none; min-width: 44px; font-size: 13px; }
-#reply { white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; touch-action: manipulation; }
-#reply:empty::before { content: attr(data-placeholder); color: var(--muted); pointer-events: none; }
+#reply, #viewer-reply { white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; touch-action: manipulation; }
+#reply:empty::before, #viewer-reply:empty::before { content: attr(data-placeholder); color: var(--muted); pointer-events: none; }
 #reply:focus-visible, #secret:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .attach-chip { display: inline-block; width: 32px; height: 32px; object-fit: cover; vertical-align: middle; border-radius: 4px; margin: 0 3px; cursor: pointer; }
 .attach-chip.file { width: auto; max-width: 12em; height: auto; padding: 2px 8px; font-size: 13px; line-height: 20px; background: var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -320,8 +321,10 @@ dialog { position: fixed; inset: auto 0 0; margin: 0 auto; background: var(--sur
 html.editing dialog:not(.beside) { bottom: calc(100% - var(--app-top, 0px) - var(--app-height, 100%)); max-height: calc(var(--app-height, 100dvh) - 16px); }
 dialog::backdrop { background: #0008; opacity: var(--drag, 1); } /* fades as the sheet is dragged away (drag-dismiss.js) */
 /* A phone's ☰ drawer (Gmail's): a sheet from the left, the logo atop the rows; the current
-   one is a tinted pill. */
-#drawer { inset: 0 auto 0 0; width: min(304px, 84vw); height: 100%; max-height: none; margin: 0; padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); border: 0; border-radius: 0 16px 16px 0; }
+   one is a tinted pill. It scrolls on its own, contained like every other scroller here: a
+   swipe it cannot take must not chain out, since iOS hands that to the scroller under the
+   finger (the dashboard), not up the DOM. */
+#drawer { inset: 0 auto 0 0; width: min(304px, 84vw); height: 100%; max-height: none; margin: 0; padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); border: 0; border-radius: 0 16px 16px 0; overflow-y: auto; overscroll-behavior: contain; }
 #drawer[open] { animation: none; } /* it slides in and out by script (app.js settle), as a drag does */
 #drawer::backdrop { opacity: var(--shown, 1); }
 @media (prefers-reduced-motion: no-preference) { #drawer.settling, #drawer.settling::backdrop { transition: transform .2s ease-out, opacity .2s ease-out; } }
@@ -579,7 +582,10 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 #sb-nav { display: flex; flex-direction: column; padding: 0 6px 2px; flex: none; }
 #sb-nav .icon-button { width: 100%; height: 32px; min-height: 32px; justify-content: flex-start; gap: 9px; padding: 0 10px 0 13px; border-radius: 7px; color: var(--fg); font-size: 13px; }
 #sb-nav .icon-button svg { width: 16px; height: 16px; color: var(--muted); }
-#sb-nav .icon-button::after { content: attr(aria-label); }
+#sb-nav .icon-button::after { content: attr(aria-label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Pinned scratch pages: rows after a divider, none at all until something is pinned. */
+#sb-pins { display: flex; flex-direction: column; }
+#sb-pins:not(:empty) { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--line); }
 /* Everything above the usage strip scrolls as one, and the Sessions block sticks at its top. */
 #sb-scroll { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 #sb-sticky { position: sticky; top: 0; z-index: 3; flex: none; background: var(--surface); transition: box-shadow 120ms; }
@@ -674,7 +680,7 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 #app.rail :is(#brand, #sb-sess > b, .search-clear, #empty, #divider) { display: none; }
 #app.rail #collapse { margin: 12px 0 6px; }
 #app.rail :is(#new-window, #find > *) { order: 1; }
-#app.rail :is(#dash-nav, #graph-nav, #scratch-nav) { order: 2; }
+#app.rail :is(#dash-nav, #graph-nav, #scratch-nav, #sb-pins) { order: 2; }
 #app.rail :is(#chat, #live-mode) { order: 3; }
 #app.rail #side-list { order: 4; }
 #app.rail #settings-open { order: 5; margin: 6px 0 10px; }
@@ -803,6 +809,7 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 .s3 { --state-color: var(--line); }
 .s4 { --state-color: var(--purple); }
 .s5 { --state-color: #729cc1; }
+.s6 { --state-color: var(--red); }
 .atlas-state::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 7px; border-radius: 50%; background: var(--state-color); }
 .landing-inner .atlas-panel h3 { margin: 0 0 4px; text-transform: none; letter-spacing: 0; font-size: 16px; color: var(--fg); overflow-wrap: anywhere; }
 .atlas-panel > p { font-size: 12px; }
@@ -923,8 +930,10 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 #pane-menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 #expunge-pane, #expunge-confirm { color: var(--red); }
 #expunge-caveat { color: var(--muted); font-size: 13px; }
-#expunge-confirm, #expunge-cancel { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 48px; margin-top: 16px; border: 1px solid var(--red); border-radius: 6px; font-weight: 600; }
-#expunge-cancel { margin-top: 8px; border-color: var(--line); font-weight: 400; }
+#expunge-confirm, #expunge-cancel, #send-go, #send-edit, #send-cancel { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 48px; margin-top: 16px; border: 1px solid var(--red); border-radius: 6px; font-weight: 600; }
+#send-go { border-color: var(--accent); color: var(--accent); }
+#send-where { color: var(--muted); font-size: 13px; }
+#expunge-cancel, #send-edit, #send-cancel { margin-top: 8px; border-color: var(--line); font-weight: 400; }
 .header-picker-menu input { accent-color: var(--accent); }
 
 .header-picker summary > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -1232,6 +1241,7 @@ button.picked:is(:disabled, [aria-disabled="true"]) { opacity: 1; }
 [data-s="attention"], [data-s="need"] { --a: var(--amber); }
 [data-s="working"], [data-s="run"] { --a: var(--accent); }
 [data-s="idle"], [data-s^="session:"] { --a: var(--fg); }
+[data-s="blocked"] { --a: var(--red); }
 .acct-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; } /* names are user-chosen: the chip stays in its box */
 .row-acct:empty, .sb-acct:empty { display: none; }
 .sb-open .sb-acct { flex: none; max-width: 50%; padding-left: 4px; } /* a long label takes the badge's own ellipsis */
@@ -1493,6 +1503,21 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 #scratch-viewer .dialog-heading { flex: none; gap: 4px; height: calc(48px + env(safe-area-inset-top)); margin: 0; padding: env(safe-area-inset-top) max(12px, env(safe-area-inset-right)) 0 max(4px, env(safe-area-inset-left)); border-bottom: 1px solid var(--line); }
 #viewer-title { flex: 1; min-width: 0; margin: 0; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #viewer-out { flex: none; font-size: 14px; color: var(--accent); }
+#viewer-pin { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 10px; border-radius: 8px; font-size: 14px; }
+#viewer-pin[aria-pressed="true"] { color: var(--accent); }
+/* Message the page's maker: the pane composer's look, above the keyboard while typing (fitViewport). */
+html.editing #scratch-viewer { top: var(--app-top, 0px); height: var(--app-height, 100%); }
+#viewer-form { flex: none; display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-end; padding: 8px max(12px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); border-top: 1px solid var(--line); }
+#viewer-reply:empty::before { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#viewer-status { flex-basis: 100%; }
+#viewer-reply { flex-basis: calc(100% - 56px); } /* its own row, under the label and chip */
+#viewer-status, #viewer-about { margin: 0; font-size: 13px; color: var(--muted); }
+#viewer-about { flex: 1; min-width: 0; align-self: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#viewer-to { color: var(--accent); }
+#viewer-status:empty { display: none; }
+#viewer-shot { min-height: 28px; font-size: 12px; padding: 2px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); }
+#viewer-shot[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+#viewer-send[aria-disabled="true"] { opacity: .45; }
 #scratch-viewer iframe { flex: 1; width: 100%; border: 0; background: #fff; } /* a page with no background of its own reads as in a tab */
 @media (max-width: 1099px) { #scratch-viewer::after { content: ""; position: absolute; inset: calc(48px + env(safe-area-inset-top)) auto 0 0; width: 16px; } }
 /* The Fleet graph (graph.js): its card spans the dashboard; its view fills the page, the canvas
@@ -1566,7 +1591,7 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 /* The dark canvas: the observatory's navy under the graph whatever the app's theme, with the
    app's dark state colours, so amber still means needs you. */
 .fg-dark :is(.fg-view, .fg-mini) { color-scheme: dark; --surface: #070c18; --raised: #141c30; --line: #1f2a44; --fg: #dfe5f0; --muted: #7d89a6; --amber: #f1c56a; --accent: #83ddb3; --accent-bg: #193c2c; --bg: #03060d;
-  --chart-s0: #f1bd53; --chart-s1: #60c992; --chart-s2: #3f4a55; --chart-s3: #4a5261; --chart-s4: #bea5ee; --chart-s5: #8bbdf5;
+  --chart-s0: #f1bd53; --chart-s1: #60c992; --chart-s2: #3f4a55; --chart-s3: #4a5261; --chart-s4: #bea5ee; --chart-s5: #8bbdf5; --chart-s6: #ff9696;
   --acct-0: #5eead4; --acct-1: #c4b5fd; --acct-2: #a8b3c4; --acct-3: #fcd34d; --acct-4: #7dd3fc; --acct-5: #fda4af; }
 .fg-tools { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 6px; }
 .fg-tools button { width: 36px; height: 36px; min-height: 36px; padding: 0; display: grid; place-items: center; border-radius: 10px; border: 1px solid var(--line); background: color-mix(in oklab, var(--surface) 85%, transparent); color: var(--fg); }

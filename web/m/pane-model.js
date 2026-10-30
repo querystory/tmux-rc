@@ -2,16 +2,28 @@ import { parseHash } from "./url-state.js";
 // Pure pane predicates for the mobile UI: no DOM, no clock of their own (time is injected),
 // so tests/test_mobile_pane_model.py can run them under node against fixture panes.
 
+export const AGENT_TOOLS = new Set(["claude", "codex", "gemini", "antigravity", "opencode", "omp"]); // history.py's AGENT_TOOLS
+// A scratch page's ask to send a line (app.js askSend), checked before the app shows its sheet.
+// The page is agent-written, so: one line of at most 500 characters with nothing hidden in it
+// (no control or format character: no Enter, escape or bidi override), to a pane in the feed
+// that runs an agent. A plain shell would run the text as a command. Null for anything else.
+export function sendIntent({ intent, pane, text } = {}, panes = []) {
+  const target = panes.find((p) => p.pane_id === pane);
+  const ok = intent === "send" && typeof text === "string" && text.trim() && [...text].length <= 500 && !/[\p{Cc}\p{Cf}]/u.test(text);
+  return ok && AGENT_TOOLS.has(target?.tool) ? { pane: target, text: text.trim() } : null;
+}
+
 // A path under a home directory, as ~/…
 export const home = (d) => d.replace(/^\/home\/[^/]+/, "~");
 // Markup-escaped text, for every module that builds HTML from strings.
 export const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 // An idle pane older than this is parked, so it drops out of "Recent".
 export const PARKED_IDLE_SECS = 600;
-const ACTIVITIES = ["running", "waiting", "idle", "compacting", "unknown"];
+const ACTIVITIES = ["running", "waiting", "idle", "compacting", "quota_blocked", "unknown"];
 const actOf = (pane) => ACTIVITIES.includes(pane.activity) ? pane.activity : "unknown";
 export const needsYou = (pane) => pane.activity === "waiting" && pane.waiting_on !== "external";
-export const activityLabel = (pane) => pane.ending || (needsYou(pane) ? "Needs you" : ({ running: "Running", waiting: "Working", idle: "Idle", compacting: "Compacting", unknown: "Unknown" }[actOf(pane)]));
+// A quota-blocked pane resumes by itself at its reset time, so the label says when.
+export const activityLabel = (pane) => pane.ending || (needsYou(pane) ? "Needs you" : actOf(pane) === "quota_blocked" ? ["Quota blocked", pane.resets && `resets ${pane.resets}`].filter(Boolean).join(" · ") : ({ running: "Running", waiting: "Working", idle: "Idle", compacting: "Compacting", unknown: "Unknown" }[actOf(pane)]));
 // A pane whose window this page is closing (app.js sets pane.ending while the request runs):
 // greyed under a spinner, and inert, so no answer or action on it can be sent meanwhile.
 export const markEnding = (node, pane) => { node.inert = !!pane?.ending; node.classList.toggle("ending", !!pane?.ending); };
@@ -63,9 +75,10 @@ export function isRecent(pane, nowMs = Date.now(), within = PARKED_IDLE_SECS) {
   return pane.activity !== "idle" || idle < within;
 }
 // The list's sections, each its own pane set, so a filter shows exactly one section's panes:
-// Needs you, then Working, Just finished and Idle among the rest, each the first that fits.
-const working = (pane) => !needsYou(pane) && isRunning(pane), finished = (pane, nowMs) => !needsYou(pane) && !isRunning(pane) && isRecent(pane, nowMs);
-export const FILTERS = { attention: needsYou, working, finished, idle: (pane, nowMs) => !needsYou(pane) && !isRunning(pane) && !isRecent(pane, nowMs) };
+// Needs you, then Working, Quota blocked, Just finished and Idle among the rest, each the first that fits.
+const working = (pane) => !needsYou(pane) && isRunning(pane), blocked = (pane) => !needsYou(pane) && pane.activity === "quota_blocked";
+const rest = (pane) => !needsYou(pane) && !isRunning(pane) && !blocked(pane);
+export const FILTERS = { attention: needsYou, working, blocked, finished: (pane, nowMs) => rest(pane) && isRecent(pane, nowMs), idle: (pane, nowMs) => rest(pane) && !isRecent(pane, nowMs) };
 // `filters` is a list of FILTERS' names: a pane shows if it matches any; none (or only
 // unknown names) shows every pane.
 export function matchesFilter(pane, filters, nowMs = Date.now()) {
@@ -147,6 +160,16 @@ export function tabTitle({ pane, page, dashboard, filter }, panes, count, host) 
   const open = pane && panes.find((p) => p.pane_id === pane);
   const subject = pane ? (open ? paneName(open) : "Loading pane") : PAGE_TITLES[page] || (dashboard ? "Dashboard" : String(filter) === "attention" ? "Needs you" : "Sessions");
   return [count ? `(${count}) ${subject}` : subject, host].filter(Boolean).join(" · ");
+}
+// The tab's icon, as "glyph:state" (docs/design/tab-icons.md): the surface's Lucide glyph (the
+// app's own mark for the sessions home), and the state of the tab's own subject. A pane shows
+// its own, "done" while it finished with the tab hidden (`away`); the home a dot while anything
+// needs you; a view of the fleet none, the title's count covers it.
+const PAGE_GLYPHS = { heat: "activity", usage: "gauge", loops: "listTodo", restore: "history", scratch: "files", graph: "network" };
+export function tabIconKey({ pane, page, dashboard }, panes, asks, away) {
+  const open = pane && panes.find((p) => p.pane_id === pane);
+  if (pane) return `terminal:${!open ? "" : asks(open) ? "needs" : isRunning(open) ? "working" : away ? "done" : ""}`;
+  return page || dashboard ? `${PAGE_GLYPHS[page] || "dashboard"}:` : `home:${panes.some(asks) ? "needs" : ""}`;
 }
 // The session a pane is in, where that tells it apart: "" when every pane shares one, so a
 // single-session user never sees tmux plumbing. Every surface that names a session asks

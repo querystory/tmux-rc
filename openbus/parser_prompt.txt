@@ -24,6 +24,8 @@ changes across versions and tools):
   This looks like working but is housekeeping, not user-task progress — report it as
   activity "compacting" (not "running") so the UI can show the agent is briefly busy
   on itself. It ends by returning to normal working/idle; classify by the CURRENT frame.
+- Is the agent QUOTA-BLOCKED — halted at its plan's usage limit until a reset time
+  ("usage limit reached · resets 2:10pm" at the live bottom)? Report "quota_blocked".
 - Is there a SELECTION MENU — a list of choices with one marked by a cursor/highlight
   (❯, ›, >, an arrow, a bold or colored line) that you'd move through with up/down?
 - Is there an INPUT PROMPT — a yes/no confirmation, a numbered choice, or a free-text
@@ -118,7 +120,7 @@ this pane's conversation name.
 Return ONLY compact JSON. Include a field only if you can determine it — do not guess:
 {
   "tool": "claude"|"codex"|"gemini"|"opencode"|"omp"|"shell"|"unknown",
-  "activity": "running"|"waiting"|"idle"|"compacting",   // for a finished turn, decided by its final message (the one just above the input box, however long the screen): "waiting" when it asks the user to act, decide or reply, "idle" when it only reports — see A finished turn
+  "activity": "running"|"waiting"|"idle"|"compacting"|"quota_blocked",   // for a finished turn, decided by its final message (the one just above the input box, however long the screen): "waiting" when it asks the user to act, decide or reply, "idle" when it only reports — see A finished turn
   "waiting_on": "user"|"external",   // ONLY when activity is "waiting" — see WAITING ON below
   "headline": "one short human sentence for the top of the card: what is happening / "
               "what is being worked on (prefer the task over echoing a spinner word). "
@@ -133,6 +135,7 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
                   but wording like "(99% context left)" (Gemini CLI) or "N% until
                   compact" means REMAINING -> convert to 100-N>,
   "cost": "$...", "mode": "plan|accept-edits|bypass|normal",
+  "resets": "...",   // ONLY when activity is "quota_blocked": the reset time, e.g. "2:10pm"
   "status_entries": [<OTHER short readouts from the agent's own status line that have no
                 dedicated field here, passed through as-is (the UI shows each as a small
                 chip). E.g. a usage-limit readout of limit: 36%/30% 5h/7d becomes the

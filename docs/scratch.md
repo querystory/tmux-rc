@@ -46,7 +46,12 @@ shows it as **Scratch**: a tab in the phone's tab bar, a place in the wide sideb
   like deleting. Only the Archived shelf deletes, so a slip in the gallery costs an Undo,
   never a page.
 - **Pin** a page from the viewer's bar and it joins the app's menu, up to six, on every
-  device.
+  device. The daemon keeps them in `pins.json` beside `accounts.json`. A pin shows the
+  page's title, and `meta.json`'s optional `icon`, a [Lucide](https://lucide.dev/icons/)
+  name, only when the app ships that glyph: the menu is same-origin with the API, so the
+  app never draws markup a page supplies.
+- **Stays current**: an open gallery asks every five seconds whether anything changed and
+  reloads if so, except while a filter is being typed or cards are selected.
 
 ## A link handed out before its page
 
@@ -89,6 +94,16 @@ for you to edit and send. Or the page asks the app to send one line: the app rai
 sheet of its own, outside the page, that quotes the line, names the pane and the page that
 asked, and sends only on your tap. Pages are sandboxed (the daemon's API is as foreign to
 them as any other site), so these are the only ways a page gets a word to an agent.
+
+The ask is `{intent: "send", pane, text}`, and the app checks it first: one line of at
+most 500 characters, no control characters, and a pane in the feed that runs an agent,
+never a plain shell, where the line would run as a command. The send is bound to the
+pane's process as it was when asked, so a recycled id gets nothing. Only the page the
+viewer opened can ask: after its first load the app sandboxes the frame for every later
+document, so a page it navigates to runs no script (open such a page from the gallery or
+in a tab for its scripts). Send ignores taps for its first half second, and there is no
+"don't ask again", since a silent send is exactly what an injected page would want. A
+page in a tab of its own can't ask at all; its buttons stay draft links.
 
 ## Markdown pages
 
@@ -196,7 +211,9 @@ tmux-rc fills in the rest in the background, so the gallery never waits for it:
   description already there is never replaced.
 - **Who made it.** While the pane named in `meta.json` is open, the card links to it
   (a Codex pane is checked against the transcript first, since Codex's shared app server
-  stamps every session's `meta.json` with its first pane). Otherwise tmux-rc asks [agent-history](https://github.com/querystory/tmux-rc/tree/main/agent-history)
+  stamps every session's `meta.json` with its first pane). For a page being updated, the
+  session asked for is the reviser's, active when the `updating` mark was written.
+  Otherwise tmux-rc asks [agent-history](https://github.com/querystory/tmux-rc/tree/main/agent-history)
   which session was active when the folder appeared and mentioned its path, and writes the
   answer into `meta.json` as `"agent_session"`, marked generated, so each folder is
   searched once. An orchestrator that hands out a subagent's link writes `meta.json` with

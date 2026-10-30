@@ -10,8 +10,8 @@ The HTTP API runs on your own tmux-rc daemon. Its default address is
 `GET /openapi.json` describes the exact version you are running. The interactive pages
 (`/apidocs` Swagger UI, `/apiredoc` ReDoc) are off by default because FastAPI's pages
 load JavaScript from a third-party CDN on the origin that controls your terminals; set
-`TMUXRC_API_DOCS=1` in the daemon's environment to serve them. The public documentation
-website does not proxy your daemon's API.
+`TMUXRC_API_DOCS=1` in the daemon's environment and restart to serve them. The public
+documentation website does not proxy your daemon's API.
 
 ## Endpoints
 

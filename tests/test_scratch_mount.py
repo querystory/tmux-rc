@@ -7,6 +7,7 @@ import sys
 
 PROBE = """
 import io
+import os
 import sys
 from fastapi.testclient import TestClient
 from types import SimpleNamespace
@@ -51,6 +52,34 @@ for path in ("/scratch/", "/scratch/mock.html", "/scratch/sub/", "/scratch/nope/
 c.get("/scratch/viewed/", headers={"Sec-Fetch-Dest": "iframe"})  # the app's viewer
 c.get("/scratch/wip/", headers={"Sec-Fetch-Dest": "iframe"})  # its placeholder
 print(int(sorted(seen()) == ["sub", "viewed", "wip"]))
+if not server._scratch_dir:
+    sys.exit()
+# Archive: gone from the gallery, still served at its old link and at the archive's; a
+# name that is a path is refused whole; Delete empties the archive, then the link 404s.
+act = lambda action, *names: c.post("/api/scratch", json={"action": action, "names": names})
+root = server.Path(server._scratch_dir)
+tag = lambda: server.scratch.tag(server.scratch.listing(root))
+before = tag()
+print(int(act("archive", "viewed").json() == {"done": ["viewed"]}))
+print(int('data-name="viewed"' not in c.get("/scratch/").text
+          and 'data-name="viewed"' in c.get("/scratch/?archived").text))
+print(c.get("/scratch/viewed/").status_code, c.get("/scratch/.archive/viewed/").status_code)
+# its name taken again (a page in progress): each link is wholly one folder's
+(root / "viewed").mkdir()
+(root / "viewed" / "meta.json").write_text('{"title": "Again"}')
+print(c.get("/scratch/viewed/").status_code, c.get("/scratch/.archive/viewed/").status_code)
+(root / "viewed" / "meta.json").unlink()
+(root / "viewed").rmdir()
+# a page still in progress, archived: its placeholder answers at both links
+act("archive", "wip")
+print(c.get("/scratch/wip/").status_code, c.get("/scratch/.archive/wip/").status_code)
+act("unarchive", "wip")
+print(act("archive", "sub", "../sub").status_code, int(act("delete", "sub").json()["done"] == []))
+# The open gallery's check: an image only when its tag is out of date (no fetch, sandboxed)
+old, now = c.get(f"/scratch/?seen={before}"), c.get(f"/scratch/?seen={tag()}")
+print(int(old.headers["content-type"] == "image/gif" and now.status_code == 204))
+print(int(act("delete", "viewed").json() == {"done": ["viewed"]}),
+      c.get("/scratch/viewed/").status_code)
 # The placeholder asks by image whether to reload: a 1px-wide answer while it is unchanged,
 # 2px once it changed or its page landed (never a navigation on a failed ask: client side).
 if server._scratch_dir:
@@ -60,6 +89,29 @@ if server._scratch_dir:
     before = width("stale"), width(mine)
     (server.Path(server._scratch_dir) / "wip" / "index.html").write_text("landed")
     print(*before, width(mine))
+    # An updating folder's Markdown page wears the bar and asks the same way: unchanged, then
+    # its files change (a revision lands), then the mark goes (the update is done).
+    rev = server.Path(server._scratch_dir) / "rev"
+    scanned.clear()
+    page = c.get("/scratch/rev/").text  # asked every few seconds: no accounts scanned
+    print(int("<title>Updating · Rev</title>" in page and "Updating: the intro · reloads" in page
+              and scanned == []))
+    width = lambda q: Image.open(io.BytesIO(c.get(f"/scratch/rev?seen={q}").content)).width
+    mine = server.re.search(r'const SEEN = "([^"]+)"', page)[1]
+    before = width(mine)
+    os.utime(rev / "index.md", (2e9, 2e9))
+    landed, mine = width(mine), server.re.search(r'const SEEN = "([^"]+)"',
+                                                 c.get("/scratch/rev/").text)[1]
+    # archived, it wears the bar at both its links and asks at its archived folder's
+    act("archive", "rev")
+    print(*(int("Updating: the intro" in c.get(f"/scratch/{at}rev/").text)
+            for at in ("", ".archive/")),
+          Image.open(io.BytesIO(c.get(f"/scratch/.archive/rev/?seen={mine}").content)).width)
+    act("unarchive", "rev")
+    (rev / "meta.json").write_text('{"title": "Re')  # mid-write: no answer, so no reload
+    print(width(mine))
+    (rev / "meta.json").write_text('{"title": "Rev"}')
+    print(before, landed, width(mine), int("Updating" not in c.get("/scratch/rev/").text))
 """
 
 
@@ -85,6 +137,9 @@ def test_scratch_serves_only_inside_the_configured_dir(tmp_path):
     (scratch / ".git" / "index.html").write_text("hidden")
     (scratch / "wip").mkdir()
     (scratch / "wip" / "meta.json").write_text('{"title": "A new page"}')
+    (scratch / "rev").mkdir()
+    (scratch / "rev" / "index.md").write_text("# Rev")
+    (scratch / "rev" / "meta.json").write_text('{"title": "Rev", "updating": "the intro"}')
     (tmp_path / "secret.txt").write_text("outside")
     (scratch / "link.txt").symlink_to(tmp_path / "secret.txt")
     # file, traversal and a symlink out both refused, directory index, bare prefix
@@ -97,7 +152,9 @@ def test_scratch_serves_only_inside_the_configured_dir(tmp_path):
     # Hidden files and directories (an .env, a .git) are refused, as the gallery skips them.
     # The placeholder marks itself apart from the page, and a plain 404 scans no accounts.
     assert _probe({"TMUXRC_SCRATCH_DIR": str(scratch)}, tmp_path) == [
-        200, 404, 404, 200, 307, 200, 404, 404, 404, 202, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 2]
+        200, 404, 404, 200, 307, 200, 404, 404, 404, 202, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 200, 200, 202, 200, 202, 202, 400, 1, 1, 1, 404, 2, 1, 2,
+        1, 1, 1, 1, 1, 1, 2, 2, 1]
 
 
 def test_scratch_is_off_unless_configured(tmp_path):

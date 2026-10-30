@@ -6,7 +6,7 @@ test("every addressable state round-trips", () => {
   for (const state of [
     { pane: "%12", view: "terminal", filter: ["attention"] },
     { pane: "%12", filter: ["working"], acct: ["claude-work"] },
-    { filter: ["attention", "working", "finished", "idle"], acct: ["claude-work", "claude-personal"] },
+    { filter: ["attention", "working", "blocked", "finished", "idle"], acct: ["claude-work", "claude-personal"] },
     { dashboard: true, acct: ["side-project"] },
     { pane: "%12", acct: ["claude-work"], q: "api fix & more" },
     { pane: "%3", view: "summary", filter: ["working"] },

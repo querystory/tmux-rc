@@ -24,8 +24,18 @@ def test_mobile_entrypoint(path, method):
         assert f'src="/v/{version}/m/app.js"' in response.text
         assert "/v/0/" not in response.text
         assert client.get(f"/v/{version}/m/sidebar.js").text == client.get("/m/sidebar.js").text
-        assert 'href="/m/style.css"' in response.text
+        assert f'href="/v/{version}/m/style.css"' in response.text
     assert "no-store" in response.headers["cache-control"]
+
+
+def test_versioned_assets_cache_forever_and_entry_points_do_not():
+    client = TestClient(app)
+    version = client.get("/api/version").json()["version"]
+    hit = client.get(f"/v/{version}/m/app.js")
+    assert hit.headers["cache-control"] == "public, max-age=31536000, immutable"
+    stale = ("/v/stale/m/app.js", f"/v/{version}/missing.js")  # an old deploy's token; a 404
+    for path in ("/m/", "/m/app.js", "/api/version", *stale):
+        assert client.get(path).headers["cache-control"] == "no-store, must-revalidate"
 
 
 def test_mobile_assets_and_manifest():
@@ -44,6 +54,7 @@ def test_mobile_assets_and_manifest():
         "/terminal.js",
         "/push.js",
         "/pr-links.js",
+        "/long-press.js",
         "/sw.js",
         "/icon.svg",
     ):
@@ -346,6 +357,16 @@ def test_agent_title_is_not_squeezed_by_its_meta():
     assert ".task, .agent { display: flex; flex-wrap: wrap;" in css
     assert ".agent > span:nth-child(2) { max-width: calc(100% - 26px); }" in css
     assert ".sb-agents .agent { min-width: 0; flex-wrap: nowrap;" in css
+
+
+def test_phone_drawer_scrolls_itself_and_never_the_view_behind_it():
+    """The drawer is a modal dialog, so its overflow came from the UA sheet and nothing contained
+    it. On iOS a swipe the drawer cannot take chains to the scroller under the finger, not up the
+    DOM: over the dashboard that scrolled the dashboard behind the scrim. The drawer declares
+    its own scrolling and containment, as every other scroller in the app does."""
+    css = (Path(__file__).resolve().parents[1] / "web/m/style.css").read_text()
+    drawer = next(line for line in css.splitlines() if line.startswith("#drawer {"))
+    assert "overflow-y: auto" in drawer and "overscroll-behavior: contain" in drawer
 
 
 def test_tab_title_keeps_its_count_while_the_tab_is_hidden():

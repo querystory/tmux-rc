@@ -21,8 +21,8 @@ try { const saved = JSON.parse(localStorage.getItem(KEY)); if (saved?.fold && sa
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(prefs)); } catch {} };
 
 const rank = (p) => needsYou(p) ? 0 : isRunning(p) ? 1 : isRecent(p) ? 2 : 3;
-export const SHOW = { attention: "Needs you", working: "Working", finished: "Just finished", idle: "Idle" }; // the sections, by filter name
-const STATES = [["run", "working"], ["done", "finished"], ["idle", "idle"]].map(([id, f]) => [id, SHOW[f], (p) => FILTERS[f](p)]); // the filters' own sets (no index as nowMs)
+export const SHOW = { attention: "Needs you", working: "Working", blocked: "Quota blocked", finished: "Just finished", idle: "Idle" }; // the sections, by filter name
+const STATES = [["run", "working"], ["blocked", "blocked"], ["done", "finished"], ["idle", "idle"]].map(([id, f]) => [id, SHOW[f], (p) => FILTERS[f](p)]); // the filters' own sets (no index as nowMs)
 export const SORTS = { updated: "Last activity", session: "Session order" }; // app.js keeps the choice
 const HOVER_MS = 350;
 const bySession = () => prefs.by === "session" && !oneSession(); // one session is one group: by state instead
@@ -181,10 +181,10 @@ export function setupSidebar(ctx) {
   }
 
   // A row is one line; a card adds the latest activity and, for Needs you, the answers.
-  // Either way the pane's button is .sb-open, and its running sub-agents are listed under it
+  // Either way the pane's link is .sb-open (ctx.paneLink), and its running sub-agents are listed under it
   // while the switch is on; off, a count beside the age says they are there.
   function row(card) {
-    const node = document.createElement("div"), open = document.createElement("button");
+    const node = document.createElement("div"), open = document.createElement("a");
     node.className = card ? "sb-card" : "sb-row";
     open.className = "sb-open";
     open.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="t"><b></b><span class="s"></span><span class="sb-acct"></span></span><span class="a"></span><span class="sb-n" role="img"></span>' + (card ? '<p></p><p class="sb-items"></p>' : "");
@@ -195,7 +195,6 @@ export function setupSidebar(ctx) {
       open.after(more);
       addAnswers(node);
     }
-    open.onclick = () => ctx.navigate(node._p.pane_id);
     return node;
   }
   // A long question shows three lines and More, which unfolds the rest in place (the pane has it all too).
@@ -226,10 +225,11 @@ export function setupSidebar(ctx) {
   }
   function updateRow(node, { p, g, card }) {
     node._p = p;
+    ctx.paneLink(node.firstChild, p.pane_id);
     markEnding(node, p);
     node.classList.toggle("need", ctx.asks(p));
     node.classList.toggle("outside", ctx.outside(p)); // needs you, shown though the filter leaves it out
-    // On the card for its styling and on its button, which is what assistive tech lands on.
+    // On the card for its styling and on its link, which is what assistive tech lands on.
     for (const el of [node, node.firstChild]) {
       if (p.pane_id === ctx.active()) el.setAttribute("aria-current", "true"); else el.removeAttribute("aria-current");
     }
@@ -307,13 +307,13 @@ export function setupSidebar(ctx) {
   // (and, with several accounts, its account's); hovering one shows its card.
   function rail(subset, query) { // the query keeps a search's folds for when it expands
     reconcile(root, groups(subset, query, ctx.sort()).flatMap((g) => g.panes), (p) => `rail:${p.pane_id}`, () => {
-      const b = document.createElement("button");
+      const b = document.createElement("a");
       b.className = "sb-rail";
       b.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="sb-acct"></span>';
-      b.onclick = () => ctx.navigate(b._p.pane_id);
       return b;
     }, (b, p) => {
       b._p = p;
+      ctx.paneLink(b, p.pane_id);
       markEnding(b, p);
       const agents = subagentCount(p);
       b.ariaLabel = `${[sessionOf(p), paneName(p)].filter(Boolean).join(" / ")}${agents ? `, ${agents} sub-agent${agents === 1 ? "" : "s"} working` : ""}${ctx.outside(p) ? ", outside filter" : ""}`;

@@ -1,0 +1,11 @@
+{
+  "description": "Synthetic: Claude Code actively working, editing a client that handles an API's \"usage limit reached\" error. The phrase is content in a diff and prose, and a live spinner is the bottom of the transcript → running, no quota state.",
+  "current_command": "node",
+  "capture": "● The weather client retries forever when the API says \"Usage limit reached · resets at 00:00 UTC\". I'll parse the reset time and sleep until then instead.\n\n● Update(~/src/weather-station/client.py)\n  ⎿  Added 5 lines, removed 1 line\n      41 -        raise RetryLater()\n      42 +        if \"usage limit reached\" in body.lower():\n      43 +            wait = seconds_until_reset(body)\n      44 +            log.info(\"usage limit hit, sleeping %ss\", wait)\n      45 +            raise RetryLater(after=wait)\n\n✢ Simmering… (48s · ↓ 2.3k tokens)\n\n────────────────────────────────────────────────────────────────────── weather-station ──\n❯ \n────────────────────────────────────────────────────────────────────────────────\n  ~/src/weather-station on fix/limit-backoff | Sonnet 5 | session: +5/-1 lines · 12% ctx · 14m\n  ⏵⏵ auto mode on",
+  "expected": {
+    "tool": "claude",
+    "activity": "running",
+    "resets": null,
+    "headline": "Backing off until the weather API's usage limit resets"
+  }
+}

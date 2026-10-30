@@ -6,6 +6,7 @@ Raw HTML passes through: the page is sandboxed like every scratch page, where an
 could publish any HTML and script anyway. Nothing that reads other files (snippets) is
 on, since the renderer runs in the daemon."""
 
+import os
 import re
 from functools import lru_cache
 from html import escape, unescape
@@ -96,18 +97,23 @@ def render(path: Path) -> tuple[str, str, str | None]:
     return _render(str(path), st.st_mtime, st.st_size)
 
 
-def page(path: Path, web: Path) -> str:
+def page(path: Path, web: Path, notice: tuple[str, str] | None = None) -> str:
     """The whole page for `path`: its HTML in a readable column on the app's colours (from
-    `web`, the app's static dir), the Markdown kept for copying, and mermaid.js loaded
-    only when there is a diagram to draw."""
+    `web`, the app's static dir), the Markdown kept for copying, mermaid.js loaded only
+    when there is a diagram to draw, and `notice` (scratch.bar: its label for the tab, and
+    the bar) while the page is being updated."""
     source, body, title = render(path)
+    label, notice = notice or ("", "")
+    title = f"{label} · {title or path.stem}" if label else title or path.stem
     script = f'<script src="{MERMAID}"></script>' if 'class="mermaid"' in body else ""
     return (_PAGE.read_text().replace("/*tokens*/", tokens(web / "m" / "style.css"))
-            .replace("/*pygments*/", _PYGMENTS).replace("<!--title-->", escape(title or path.stem))
+            .replace("/*pygments*/", _PYGMENTS).replace("<!--title-->", escape(title))
             .replace("<!--source-->", escape(source))
-            .replace("<!--mermaid-->", script).replace("<!--body-->", body))
+            .replace("<!--notice-->", notice).replace("<!--mermaid-->", script)
+            .replace("<!--body-->", body))
 
 
+ARCHIVE = ".archive"  # scratch's archived folders: hidden, like any dot folder
 # A 1x1 and a 2x1 GIF: a placeholder's ask answered "no change" and "reload" (Files).
 PIXEL = bytes.fromhex("47494638396101000100800000000000ffffff21f90401000000002c"
                       "00000000010001000002024401003b")
@@ -118,16 +124,26 @@ class Files(StaticFiles):
     """scratch's files, with a .md served as its page (`?raw` for the file itself), a
     folder's index.md as its index when it has no index.html, and, while it has neither,
     what `pending` makes of the folder's name (scratch.placeholder), as 202 Accepted:
-    an agent checking for a 200 is not told its page is there. Anything hidden (a .git,
-    an .env) is not part of the page, as in the gallery, and is not served."""
+    an agent checking for a 200 is not told its page is there; while `updating` says the
+    folder is being revised (scratch.bar), its .md pages wear that bar. Anything hidden (a .git,
+    an .env) is not part of the page, as in the gallery, and is not served. An archived
+    folder (in ARCHIVE) is served at ARCHIVE/<name>/, where the Archived gallery links it,
+    and at its old link while no folder has taken that name since, so links handed out keep
+    working. Which tree answers is decided by the folder alone: a page never mixes files of
+    an archived folder and a new one of the same name."""
 
-    def __init__(self, *, web: Path, pending=lambda _name: None, **kwargs):
+    def __init__(self, *, web: Path, pending=lambda _name: None, updating=lambda _name: None,
+                 **kwargs):
         super().__init__(**kwargs)
-        self.web, self.pending = web, pending
+        self.web, self.pending, self.updating = web, pending, updating
 
     def lookup_path(self, path):
-        if any(part.startswith(".") for part in Path(path).parts):
+        parts = Path(path).parts
+        archived = parts[:1] == (ARCHIVE,)
+        if any(part.startswith(".") for part in parts[archived:]):
             return "", None
+        if parts and not archived and not os.path.lexists(Path(self.directory, parts[0])):
+            path = f"{ARCHIVE}/{path}"  # archived, or nothing: its old link still serves
         full, st = super().lookup_path(path)
         if st is None and Path(path).name == "index.html":
             return super().lookup_path(path.removesuffix("html") + "md")
@@ -135,14 +151,15 @@ class Files(StaticFiles):
 
     async def get_response(self, path, scope):
         seen = parse_qs(scope["query_string"].decode()).get("seen")
-        if seen and "/" not in path:  # the placeholder asking: a wide pixel says reload
-            wait = await anyio.to_thread.run_sync(self.pending, path)
-            same = wait and f'const SEEN = "{seen[0]}";' in wait
+        folder = "/" not in path.removeprefix(ARCHIVE + "/")  # a folder's own URL
+        if seen and folder:  # a placeholder or bar asking: wide says reload
+            wait = await anyio.to_thread.run_sync(lambda: self.pending(path) or self.updating(path))
+            same = wait == ("", "") or (wait and f'const SEEN = "{seen[0]}";' in "".join(wait))
             return Response(PIXEL if same else WIDE, media_type="image/gif")
         try:
             response = await super().get_response(path, scope)
         except HTTPException as e:
-            wait = e.status_code == 404 and "/" not in path and await anyio.to_thread.run_sync(
+            wait = e.status_code == 404 and folder and await anyio.to_thread.run_sync(
                 self.pending, path)
             if not wait:
                 raise
@@ -154,4 +171,7 @@ class Files(StaticFiles):
         if "raw" in parse_qs(scope["query_string"].decode(), keep_blank_values=True):
             response.headers["content-type"] = "text/plain; charset=utf-8"
             return response
-        return HTMLResponse(await anyio.to_thread.run_sync(page, file, self.web))
+        parts = Path(os.path.relpath(file, self.directory)).parts  # a folder's page, not loose
+        n = 1 + (parts[0] == ARCHIVE)  # an archived one's folder is ARCHIVE/<name>
+        return HTMLResponse(await anyio.to_thread.run_sync(lambda: page(
+            file, self.web, self.updating("/".join(parts[:n])) if len(parts) > n else None)))

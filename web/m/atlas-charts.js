@@ -1,8 +1,9 @@
-// Local, pinned distributions: the mobile list never downloads chart libraries.
+// Local, pinned distributions: the mobile list never downloads chart libraries. src is
+// relative to this module, so it lands under the same /v/<version>/ and caches for good.
 function loadScript(src) {
   return new Promise((resolve, reject) => {
     const script = document.createElement('script');
-    script.src = src;
+    script.src = new URL(src, import.meta.url);
     script.onload = resolve;
     script.onerror = () => { script.remove(); reject(new Error('Could not load charts')); };
     document.head.append(script);
@@ -26,7 +27,7 @@ export function atlasCharts() {
   let latest, wordSignature;
   const paint = async () => {
     if (!latest || !cloud.clientWidth) return;
-    try { await load('WordCloud', '/m/vendor/wordcloud.js'); } catch { cloud.textContent = 'Chart unavailable. Choose a topic below.'; return; }
+    try { await load('WordCloud', 'vendor/wordcloud.js'); } catch { cloud.textContent = 'Chart unavailable. Choose a topic below.'; return; }
     if (!cloud.clientWidth) return;
     if (canvas.parentNode !== cloud) cloud.replaceChildren(canvas);
     const { words } = latest;
@@ -78,7 +79,7 @@ export const unchanged = (root, signature) => {
   root._signature = signature;
   return false;
 };
-const ORDER = [1, 4, 0, 5, 2, 3]; // Running at the bottom, idle at the top.
+const ORDER = [1, 4, 0, 5, 6, 2, 3]; // Running at the bottom, idle at the top.
 
 // ECharts puts the tooltip on <body>, and a touch has no mouseleave to close it: a tap outside
 // its chart or any scroll does, and so does the chart leaving the screen (see paint).
@@ -106,7 +107,7 @@ export function fleetChart(withAxis) {
     if (!el.clientWidth) return chart?.dispatchAction({ type: 'hideTip' }); // a view change hid it
     if (!latest) return;
     let echarts;
-    try { echarts = await load('echarts', '/m/vendor/echarts.min.js'); } catch { el.textContent = 'Chart unavailable. Reload to retry.'; return; }
+    try { echarts = await load('echarts', 'vendor/echarts.min.js'); } catch { el.textContent = 'Chart unavailable. Reload to retry.'; return; }
     // The screen first: a redraw is a long task, and the chart it replaces stands meanwhile. A
     // frame's callbacks run before it paints, so the work waits for the task after the frame.
     await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve)));
@@ -140,7 +141,7 @@ export function fleetChart(withAxis) {
     const label = t => rows.length && new Date(rows[0].t).toDateString() !== new Date(last.t).toDateString()
       ? `${new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric' })} ${timeLabel(t)}` : timeLabel(t);
     el.setAttribute('aria-label', rows.length
-      ? `${unit} by state, ${label(rows[0].t)} to ${label(last.t)}. Latest: ${last.n ? states.map((s, i) => `${last.n[i]} ${s}`).join(', ') : 'no observation'}.${avg == null ? '' : ` ${average} average of Running: ${avg.toFixed(1)}.`}${goal ? ` Goal: ${goal}.` : ''}`
+      ? `${unit} by state, ${label(rows[0].t)} to ${label(last.t)}. Latest: ${last.n ? states.map((s, i) => `${last.n[i] ?? 0} ${s}`).join(', ') : 'no observation'}.${avg == null ? '' : ` ${average} average of Running: ${avg.toFixed(1)}.`}${goal ? ` Goal: ${goal}.` : ''}`
       : 'No observations yet.');
     chart.setOption({
       animation: false, textStyle: { color: muted, fontFamily: 'sans-serif' },
