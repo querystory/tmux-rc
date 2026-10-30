@@ -6,8 +6,10 @@ name: Screenshots
 # a shot that fails to render does. See AGENTS.md, "UI screenshots".
 on:
   pull_request:
-    # The Makefile holds the Playwright pin and the shot targets: a bump there re-shoots too.
-    paths: ["web/**", "scripts/demo_*", "scripts/screenshots*", "openbus/server.py", "Makefile"]
+    # The Makefile holds the Playwright pin and the shot targets: a bump there re-shoots too,
+    # as does a change to this workflow.
+    paths: ["web/**", "scripts/demo_*", "scripts/screenshots*", "openbus/server.py", "Makefile",
+      ".github/workflows/screenshots.yml"]
 
 concurrency:
   group: screenshots-${{ github.event.pull_request.number }}
