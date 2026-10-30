@@ -920,7 +920,7 @@ function viewScratch(href, title) {
   const frame = Object.assign(document.createElement("iframe"), { src: href, title, onload() { if (++this.loads > 1) { viewerTo = null; paintViewerForm(); } }, loads: 0 });
   frame.addEventListener("load", tellScratch);
   $("viewer-form").before(frame);
-  viewer.showModal(); viewer.focus(); paintPins(pins); findMaker(href);
+  viewer.showModal(); viewer.focus(); paintPins(pins); loadPins(); findMaker(href); // cached now, then as stored: a slot freed meanwhile
 }
 // Scratch pages pinned to the menu (GET/PUT /api/pins: the daemon keeps them, so every device
 // shows the same): rows after the sidebar's nav, and a Pinned group in the phone's ☰, whose rows
