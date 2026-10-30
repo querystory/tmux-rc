@@ -348,6 +348,19 @@ def test_an_updating_page_keeps_its_thumbnail_and_says_so(tmp_path, monkeypatch)
     assert scratch.bar(tmp_path, "no", states) is None
 
 
+def test_a_revision_is_read_from_its_revisers_pane_not_its_authors_session(tmp_path,
+                                                                          monkeypatch):
+    # Session a made the page and has exited; session b, in a Codex pane, revises it now.
+    monkeypatch.setattr(agent_history, "writers", lambda *_: {})
+    monkeypatch.setattr(agent_history, "get_many", lambda _ids: {
+        "a": {"session_id": "a", "harness": "claude", "title": "First draft"}})
+    _folder(tmp_path, "page", time.time(), {"pane": "%7", "agent_session": "a",
+                                            "updating": "the intro"})
+    states = [{"pane_id": "%7", "tool": "codex", "session": "s", "activity": "running"}]
+    items, _ = _resolved(tmp_path, states)
+    assert (items["page"]["pane"], items["page"]["state"]) == ("%7", "working")
+
+
 def test_one_find_lists_scratch_and_none_means_an_empty_gallery(tmp_path, monkeypatch):
     _folder(tmp_path, "a", 1000)
     _folder(tmp_path, "b", 1000).joinpath(".git").mkdir()

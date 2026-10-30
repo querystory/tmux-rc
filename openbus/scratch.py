@@ -347,7 +347,9 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
         # process scan failed (`running_unknown`). A pending card follows its writer; one
         # found but gone from every pane has stopped, however recent the folder; one alive
         # that no pane shows (Codex without `session-id` in its status bar) works on by time.
-        at = i["pane"] if s.get("running_unknown") else open_in.get(s.get("session_id"), i["pane"])
+        # A revision is its reviser's, in the pane its mark names, not the author's session.
+        at = i["pane"] if s.get("running_unknown") or i["updating"] else open_in.get(
+            s.get("session_id"), i["pane"])
         if at != i["pane"]:
             named = at or (None if s.get("running") else i["pane"])
             i["pane"], i["state"] = at, progress(panes.get(at), named, i["since"])
