@@ -1006,6 +1006,30 @@ def _invited(reply: str, view: str) -> bool:
     return False
 
 
+def _above_draft(text: str) -> str:
+    """The ask view above Claude's input box: its unsent draft is the user's words, so it
+    vouches for no offer and no reply the model suggests."""
+    return _below_turn(_ask_view(text), 0)
+
+
+def _sends_out_of_options(result: dict, text: str) -> None:
+    """A `! command` the model put among a question's replies is something to send: it
+    joins the offers (one Send it row), and a reply only the draft shows is dropped. A
+    question left with no reply it was asked for has nothing to answer."""
+    question = result.get("question")
+    options = question.get("options") if isinstance(question, dict) else None
+    if not isinstance(options, list) or question.get("answer_style", "text") != "text":
+        return
+    sends = [o for o in options if isinstance(o, str) and o.lstrip().startswith("!")]
+    view, above = _ask_view(text), _above_draft(text)
+    question["options"] = [o for o in options if o not in sends
+                           and not (_quoted(o, view) and not _quoted(o, above))]
+    if sends:
+        result["offers"] = [*(result.get("offers") or ()), *sends]
+        if not question["options"]:
+            del result["question"]
+
+
 def screen_offers(offers: object, text: str) -> list[str]:
     """The model's offers that hold up on `text`, three at most: each is on the screen
     (_quoted), and a `! command` is one bash reads whole and that does not end in a line
@@ -1021,7 +1045,7 @@ def screen_offers(offers: object, text: str) -> list[str]:
     listed = offers if isinstance(offers, list) else ()
     # The screen above any unsent draft, and on it the final assistant message (from its
     # bullet, or the top when the view begins inside it); none once the user typed after it.
-    above = _below_turn(_ask_view(text), 0)
+    above = _above_draft(text)
     reply = _last_message(above)
     turn = "" if _USER_ROW_RE.search(reply) else reply
     whole = (f"! {o}" if not o.startswith("!") and _quoted(f"! {o}", turn, rows=True)
@@ -1177,6 +1201,10 @@ def _with_recent_events(text: str, recent: list[str]) -> str:
 _CLAUDE_MODE_RE = re.compile(r"^[ \t]*(?:-- INSERT --[ \t]*)?(?:⏵⏵|⏸)[ \t]*"
                              r"(auto mode|accept edits|plan mode|bypass permissions) on\b",
                              re.MULTILINE)
+
+
+_CLAUDE_MODES = {"auto mode": "auto", "accept edits": "accept-edits", "plan mode": "plan",
+                 "bypass permissions": "bypass"}  # the status line's words, as a card says them
 
 
 def claude_mode(visible: str) -> str | None:
@@ -1520,6 +1548,7 @@ def classify(
     over = spent or blocked
     # Claude's final message is read on the ask view: a long one begins above the viewport.
     final = not over and tool in _TURN_ERROR_RE and _final_message(view, tool)
+    _sends_out_of_options(result, text)
     if (offers := screen_offers(result.pop("offers", None), text)) and not over:
         result["offers"] = offers = [_from_reply(offer, reply) for offer in offers]
     # The model's own read of this screen (not an activity carried over a failed parse) that
@@ -1650,6 +1679,8 @@ def classify(
         result.pop("resets", None)
     if result.get("tool") == "claude":  # its agent list's workflow rows are chrome
         _read_workflow_rows(result, visible)
+        if mode := claude_mode(visible):  # so is its mode row, read here over the model's
+            result["mode"] = _CLAUDE_MODES[mode]
     # The model's quota read covers the workers too: they share the parent's limit, so a
     # row still read as busy (a meter that only looks live, a workflow bar) is blocked too.
     if result.get("activity") == "quota_blocked" and isinstance(result.get("subagents"), list):

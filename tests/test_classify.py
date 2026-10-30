@@ -96,16 +96,19 @@ def test_a_handed_over_command_keeps_its_bash_prefix():
     assert classify_mod.screen_offers(["make tea"], long) == ["! make tea"]
 
 
+_RULE = "─" * 40
+# A turn handing over a command it also handed over earlier, then Claude's notes on its
+# background agents, a draft in the input box and the agent list below the mode row.
+_TEA = (f"● Ready:\n\n  ! make tea\n\n❯ and?\n\n● Still ready:\n\n  ! make tea\n\n"
+        f'● Agent "Kettle check" finished · 3m 2s\n\n'
+        f'● Agent "Cup count" is waiting on its own background work · 1m 4s\n\n'
+        f"{_RULE}\n❯ brew coffee\n{_RULE}\n  ⏵⏵ auto mode on · 2 shells\n\n  ● main\n"
+        "  ◯ general-purpose  Warming the pot\n  ◯ general-purpose  Counting cups\n"
+        "  ◯ general-purpose  Finding sugar\n  ↓ 2 more")
+
+
 def test_offers_read_past_agent_notes_repeats_and_the_draft():
-    """A turn handing over a command it also handed over earlier, then Claude's notes on its
-    background agents, a draft in the input box and the agent list below the mode row."""
-    rule = "─" * 40
-    screen = (f"● Ready:\n\n  ! make tea\n\n❯ and?\n\n● Still ready:\n\n  ! make tea\n\n"
-              f'● Agent "Kettle check" finished · 3m 2s\n\n'
-              f'● Agent "Cup count" is waiting on its own background work · 1m 4s\n\n'
-              f"{rule}\n❯ brew coffee\n{rule}\n  ⏵⏵ auto mode on · 2 shells\n\n  ● main\n"
-              "  ◯ general-purpose  Warming the pot\n  ◯ general-purpose  Counting cups\n"
-              "  ◯ general-purpose  Finding sugar\n  ↓ 2 more")
+    screen, rule = _TEA, _RULE
     assert classify_mod.claude_mode(screen) == "auto mode"
     assert classify_mod._last_message(screen.split(rule, 1)[0]).startswith("Still ready:")
     # The repeated command keeps its "!"; the user's own draft is no offer.
@@ -117,6 +120,20 @@ def test_offers_read_past_agent_notes_repeats_and_the_draft():
     done = screen.replace("\n\n● Agent", "\n\n✻ Worked for 9s\n\n● Agent", 1).replace(
         "❯ brew coffee", "❯ ")
     assert classify_mod._final_message(done, "claude").strip().startswith("Still ready:")
+
+
+def test_a_command_among_a_questions_replies_is_one_offer():
+    """The model put the handed-over command among a question's replies (and the offers),
+    with the draft as another reply and the wrong mode: one Send it row, no draft reply,
+    and the mode the status line shows."""
+    def read(*options, offers=("! make tea",)):
+        return _llm({"tool": "claude", "activity": "waiting", "mode": "plan",
+                     "offers": list(offers), "question": {"prompt": "Still ready:",
+                     "answer_style": "text", "options": ["! make tea", "brew coffee", *options]}})
+    r = classify(_pane("claude"), _TEA, read())
+    assert (r["offers"], r.get("question"), r["mode"]) == (["! make tea"], None, "auto")
+    r = classify(_pane("claude"), _TEA, read("pour it", offers=()))  # a reply of its own
+    assert (r["offers"], r["question"]["options"]) == (["! make tea"], ["pour it"])
 
 
 def _pane(cmd="bash", title="t"):

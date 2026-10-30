@@ -338,7 +338,8 @@ are visibly on screen. Classify each worker independently: explicit Copilot/CI/t
 waits are "waiting", idle/paused is "idle", context compaction is "compacting",
 and unclear is "unknown". Elapsed time alone does not mean working. The parent
 waiting for children does not imply its children are waiting. Conversely, an explicit
-"Waiting for N background agents to finish" means the PARENT activity is "waiting"
+"Waiting for N background agents to finish" row, its timer running or not and in any
+permission mode, means the PARENT activity is "waiting"
 with waiting_on="external", even when some individual workers are still "running".
 When the final message above that line, or above a review or CI wait, hands the user a
 "! command" to run, that command is an offer and the pane waits on the user.
