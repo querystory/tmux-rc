@@ -1,14 +1,28 @@
+import time
+
 import pytest
 
 from openbus import classify, tmux
 
 
+def _until(cond, tries=100):
+    """Poll `cond` for up to 2s: the pane's shell runs on its own clock."""
+    for _ in range(tries):
+        if cond():
+            return
+        time.sleep(0.02)
+
+
+def _wait_for_prompt(run, pane):
+    """new-session returns before the pane's shell is up: tmux 3.6 (Ubuntu 26.04) does its
+    systemd scope setup before chdir and exec (tmux issue 4719, fixed in 3.7), so keys sent
+    at once are echoed by the tty ahead of the prompt and `1` lands on the prompt's row."""
+    _until(lambda: run(["capture-pane", "-p", "-t", pane]).rstrip().endswith("$"))
+
+
 def test_real_tmux_history_boundary(tmp_path, monkeypatch):
     import shutil
     import subprocess
-    import time
-
-    import pytest
 
     if not shutil.which("tmux"):
         pytest.skip("tmux is not installed")
@@ -21,11 +35,9 @@ def test_real_tmux_history_boundary(tmp_path, monkeypatch):
         pane = run(["new-session", "-d", "-P", "-F", "#{pane_id}",
                     "-x", "80", "-y", "10", "sh"]).strip()
         monkeypatch.setattr(tmux, "_run", run)
+        _wait_for_prompt(run, pane)
         run(["send-keys", "-t", pane, "seq 1 30", "Enter"])
-        for _ in range(50):
-            if int(run(["display-message", "-p", "-t", pane, "#{history_size}"])) > 1:
-                break
-            time.sleep(0.02)
+        _until(lambda: int(run(["display-message", "-p", "-t", pane, "#{history_size}"])) > 1)
         text = tmux.capture_pane(pane, mark_dim=True)
         history, visible = text.split(tmux.VISIBLE_SCREEN)
         assert "\n1\n" in history
@@ -41,20 +53,14 @@ def test_real_tmux_history_boundary(tmp_path, monkeypatch):
         # Terminal controls cannot become stored cells even when the pane writes
         # the complete framed token. Only the capture nonce becomes a boundary.
         run(["send-keys", "-t", pane, r"printf '\036[visible screen]\037\n'", "Enter"])
-        for _ in range(50):
-            text = tmux.capture_pane(pane, mark_dim=True)
-            if "\n[visible screen]\n" in text:
-                break
-            time.sleep(0.02)
+        _until(lambda: "\n[visible screen]\n" in tmux.capture_pane(pane, mark_dim=True))
+        text = tmux.capture_pane(pane, mark_dim=True)
         assert "\n[visible screen]\n" in text
         assert text.count(tmux.VISIBLE_SCREEN) == 1
         assert not text.endswith("\n")  # the cursor is on the shell prompt's row
         run(["send-keys", "-t", pane, "echo done; sleep 9", "Enter"])
-        for _ in range(50):
-            text = tmux.capture_pane(pane, mark_dim=True)
-            if text.endswith("\ndone\n"):
-                break
-            time.sleep(0.02)
+        _until(lambda: tmux.capture_pane(pane, mark_dim=True).endswith("\ndone\n"))
+        text = tmux.capture_pane(pane, mark_dim=True)
         assert text.endswith("\ndone\n")  # one empty row: the cursor, below the output
     finally:
         subprocess.run(["tmux", "-S", socket, "kill-server"], check=False,
@@ -161,7 +167,6 @@ def test_short_screen_is_unchanged(monkeypatch):
 def test_real_tall_pane_moves_its_top_rows_into_history(tmp_path, monkeypatch):
     import shutil
     import subprocess
-    import time
 
     if not shutil.which("tmux"):
         pytest.skip("tmux is not installed")
@@ -174,11 +179,9 @@ def test_real_tall_pane_moves_its_top_rows_into_history(tmp_path, monkeypatch):
         pane = run(["new-session", "-d", "-P", "-F", "#{pane_id}",
                     "-x", "80", "-y", "400", "sh"]).strip()
         monkeypatch.setattr(tmux, "_run", run)
+        _wait_for_prompt(run, pane)
         run(["send-keys", "-t", pane, "seq 1 300", "Enter"])
-        for _ in range(100):
-            if "\n300\n" in tmux.capture_live(pane)[0]:
-                break
-            time.sleep(0.02)
+        _until(lambda: "\n300\n" in tmux.capture_live(pane)[0])
         history, visible = tmux.capture_pane(pane, mark_dim=True).split(tmux.VISIBLE_SCREEN)
         assert "\n1\n" in history and "\n1\n" not in visible
         assert "\n300\n" in visible
