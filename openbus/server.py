@@ -582,11 +582,26 @@ app.include_router(live_router)
 
 @app.middleware("http")
 async def no_cache(request, call_next):
-    """Never let the browser cache anything. StaticFiles sends an ETag but no
-    Cache-Control, so phones serve stale JS/HTML heuristically and edits never appear.
-    Force no-store on every response — fine for a live dev tool on the LAN."""
+    """Cache nothing but the assets' versioned copies. StaticFiles sends an ETag but no
+    Cache-Control, so phones serve stale JS/HTML heuristically and edits never appear:
+    force no-store on every response. The exception is /v/<today's version>/, where the
+    URL names the assets' contents (mobile_ui; /api/version): a hit there can be kept for
+    good, and a deploy is a fresh set of URLs, so a cold PWA start over LTE stops
+    re-downloading app code and chart libraries that did not change. The mount answers
+    any token with today's files, so a page from before a deploy fetching under its old
+    token gets those bytes as before, uncached: an immutable URL never lies."""
     resp = await call_next(request)
-    resp.headers["Cache-Control"] = "no-store, must-revalidate"
+    # Match paths as StaticFiles resolves them, so /docs//mocks/ can't dodge a policy.
+    path = posixpath.normpath("/" + request.url.path.lstrip("/")) + "/"
+    # The version (a scan of web/) is computed only for a hit under /v/, never for the API.
+    versioned = path.startswith("/v/") and resp.status_code < 400
+    if versioned and path.startswith(f"/v/{_web_version()}/"):
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    else:
+        resp.headers["Cache-Control"] = "no-store, must-revalidate"
+        for h in ("etag", "last-modified"):
+            if h in resp.headers:
+                del resp.headers[h]
     # Live Mode's getUserMedia needs microphone permission granted to THIS origin. An
     # installed PWA / any embedding context can have the mic feature gated off by the
     # default Permissions-Policy even over HTTPS; explicitly allow it for self so the
@@ -599,9 +614,7 @@ async def no_cache(request, call_next):
     # daemon's API is cross-origin to them, exactly as from any other site. That only stops
     # reading responses, so also refuse the blind writes (form posts, no-cors fetches) that
     # would still carry the front door's cookie. Resource loads stay open: a bundle needs
-    # them, the API's GETs only read, and 'self' is unreliable in an opaque origin. Match
-    # the path as StaticFiles resolves it, so /docs//mocks/ can't dodge the policy.
-    path = posixpath.normpath("/" + request.url.path.lstrip("/")) + "/"
+    # them, the API's GETs only read, and 'self' is unreliable in an opaque origin.
     if path.startswith(("/scratch/", "/docs/mocks/")):
         resp.headers["Content-Security-Policy"] = scratch.SANDBOX
         # A browser opening a page from a folder of scratch, in a tab or the app's viewer (not
@@ -620,9 +633,6 @@ async def no_cache(request, call_next):
     base = str(request.base_url)
     if resp.headers.get("location", "").startswith(base):
         resp.headers["location"] = "/" + resp.headers["location"][len(base):]
-    for h in ("etag", "last-modified"):
-        if h in resp.headers:
-            del resp.headers[h]
     # Byte size for the live stream, so the payload cost is visible when debugging.
     # DEBUG, not INFO: a busy pane (or several viewers) emits back-to-back responses
     # and this would drown the normal INFO log. endswith, not substring, so it can't

@@ -324,7 +324,7 @@ async function paint() {
   view.range.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.textContent === rangeOf())));
   view.stack.style.gridTemplateRows = narrow ? '' : view.cards.map(c => c.meters?.length ? 'minmax(0, 1fr)' : 'auto').join(' '); // an emptied chart is its one line
   let echarts;
-  try { echarts = await (painting ||= load('echarts', '/m/vendor/echarts.min.js')); } catch { painting = null; view.stack.textContent = 'Chart unavailable. Reload to retry.'; return; }
+  try { echarts = await (painting ||= load('echarts', 'vendor/echarts.min.js')); } catch { painting = null; view.stack.textContent = 'Chart unavailable. Reload to retry.'; return; }
   const css = getComputedStyle(document.documentElement), on = view.cards.filter(c => c.chartEl.clientWidth);
   for (const c of on) {
     if (!c.chart) {
