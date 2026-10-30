@@ -126,14 +126,19 @@ def test_a_command_among_a_questions_replies_is_one_offer():
     """The model put the handed-over command among a question's replies (and the offers),
     with the draft as another reply and the wrong mode: one Send it row, no draft reply,
     and the mode the status line shows."""
-    def read(*options, offers=("! make tea",)):
+    def read(*options, offers=()):
         return _llm({"tool": "claude", "activity": "waiting", "mode": "plan",
                      "offers": list(offers), "question": {"prompt": "Still ready:",
-                     "answer_style": "text", "options": ["! make tea", "brew coffee", *options]}})
-    r = classify(_pane("claude"), _TEA, read())
+                     "answer_style": "text", "options": list(options)}})
+    r = classify(_pane("claude"), _TEA, read("! make tea", "brew coffee", offers=["! make tea"]))
     assert (r["offers"], r.get("question"), r["mode"]) == (["! make tea"], None, "auto")
-    r = classify(_pane("claude"), _TEA, read("pour it", offers=()))  # a reply of its own
+    # Copied without its "!", the command is the same Send it row; a reply of its own stays.
+    r = classify(_pane("claude"), _TEA, read("make tea", "pour it"))
     assert (r["offers"], r["question"]["options"]) == (["! make tea"], ["pour it"])
+    # A command only the draft shows (typed in bash mode) is no offer, and the question stays.
+    r = classify(_pane("claude"), _TEA.replace("❯ brew coffee", "! brew coffee"),
+                 read("! brew coffee"))
+    assert (r.get("offers"), r["question"]["options"]) == (None, [])
 
 
 def _pane(cmd="bash", title="t"):

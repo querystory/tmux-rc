@@ -1013,14 +1013,16 @@ def _above_draft(text: str) -> str:
 
 
 def _sends_out_of_options(result: dict, text: str) -> None:
-    """A `! command` the model put among a question's replies is something to send: it
-    joins the offers (one Send it row), and a reply only the draft shows is dropped. A
-    question left with no reply it was asked for has nothing to answer."""
+    """A command the model put among a question's replies that holds up as a `! command`
+    to send (screen_offers) joins the offers instead (one Send it row), and a reply only
+    the draft shows is dropped. A question whose replies all went to the offers has
+    nothing left to answer."""
     question = result.get("question")
     options = question.get("options") if isinstance(question, dict) else None
     if not isinstance(options, list) or question.get("answer_style", "text") != "text":
         return
-    sends = [o for o in options if isinstance(o, str) and o.lstrip().startswith("!")]
+    sends = [o for o in options if isinstance(o, str)
+             and any(g.startswith("!") for g in screen_offers([o], text))]
     view, above = _ask_view(text), _above_draft(text)
     question["options"] = [o for o in options if o not in sends
                            and not (_quoted(o, view) and not _quoted(o, above))]
