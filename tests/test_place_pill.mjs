@@ -21,14 +21,16 @@ class Node {
   after(kid) { this.insert(kid, 1); }
 }
 
-function place(page) {
+function place(page, own = null) { // own: Plan usage's account picker, once its view is drawn
   const root = new Node("root"), nodes = {};
   for (const id of ["dash-page", "find", "new-window", "heat-card", "picker", "pill"]) root.append(nodes[id] = new Node(id));
-  const bar = new Node("landing-head"), scope = new Node("fg-scope");
+  const bar = new Node("landing-head"), view = new Node("usage-view"), scope = new Node("fg-scope");
+  view.append(new Node("uv-bar"));
+  if (own) view.kids[0].append(own);
   nodes["dash-page"].append(bar);
   nodes["dash-page"].querySelector = () => bar;
   const sandbox = { page, dashboard: true, WIDE: { matches: false }, CARDS: { heat: "heat-card", usage: "usage-panel", loops: "loops-card", graph: "graph-card" },
-    $: (id) => nodes[id], renderSidebar: { picker: nodes.picker }, accounts: { pill: nodes.pill }, document: { querySelector: () => null },
+    $: (id) => nodes[id], usageView: Object.assign(view, { firstChild: view.kids[0], querySelector: () => own }), renderSidebar: { picker: nodes.picker }, accounts: { pill: nodes.pill }, document: { querySelector: () => null },
     graphView: { querySelector: () => scope } };
   vm.createContext(sandbox);
   vm.runInContext(`${block}; placePill();`, sandbox);
@@ -48,6 +50,12 @@ test("a card's page puts the picker and the pill in its head bar", () => {
     assert.equal(picker.parentElement, bar);
     assert.equal(pill.previousElementSibling, picker);
   }
+});
+
+test("Plan usage's head holds its own account picker, and the list's leaves it", () => {
+  const own = new Node("uv-filter"), { bar, picker } = place("usage", own);
+  assert.equal(own.parentElement, bar);
+  assert.notEqual(picker.parentElement, bar);
 });
 
 test("a page without a card keeps the pill in the find row, out of its head", () => {
