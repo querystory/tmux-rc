@@ -22,9 +22,16 @@ activity and prompt detection; richer summaries require the model pass.
 
 ## Enable summaries
 
-The default classifier uses Gemini through Vertex AI. Configure a Google Cloud project
-and durable credentials as described in [Vertex authentication](design/durable-vertex-auth.md).
-For an installed service, supply these environment variables:
+The classifier uses Gemini Flash Lite. The simplest setup is an API key from
+[aistudio.google.com](https://aistudio.google.com/apikey), with no Google Cloud project needed:
+
+```bash
+GEMINI_API_KEY=your-key uvx --from "git+https://github.com/querystory/tmux-rc.git" tmux-rc
+```
+
+Alternatively, use Vertex AI: configure a Google Cloud project and durable credentials as
+described in [Vertex authentication](design/durable-vertex-auth.md), then supply these
+environment variables (Vertex is used whenever `GOOGLE_CLOUD_PROJECT` is set):
 
 ```bash
 GOOGLE_CLOUD_PROJECT=your-project \

@@ -88,9 +88,12 @@ keep, the requirements other tools left open for us, and the alternatives we res
 
 ## Run
 
-Prereqs: `tmux`, Python 3.12+, [`uv`](https://docs.astral.sh/uv/), and Google Cloud
-credentials for Vertex (the Gemini Flash Lite classification pass). Because the daemon
-runs unattended for long stretches, it authenticates with a long-lived **service-account
+Prereqs: `tmux`, Python 3.12+, [`uv`](https://docs.astral.sh/uv/), and a way to reach
+Gemini Flash Lite for the classification pass. The simplest is a **Gemini API key**: get one
+at [aistudio.google.com](https://aistudio.google.com/apikey) and set `GEMINI_API_KEY`, with no
+Google Cloud project needed. The alternative is Vertex, which takes over whenever
+`GOOGLE_CLOUD_PROJECT` is set and suits an org that already bills AI through GCP. Because the
+daemon runs unattended for long stretches, Vertex authenticates with a long-lived **service-account
 key** rather than developer ADC (which expires and needs a browser reauth — see
 [docs/design/durable-vertex-auth.md](docs/design/durable-vertex-auth.md)). Point
 `GOOGLE_APPLICATION_CREDENTIALS` at the key file — an **absolute** path, since google-auth
@@ -98,7 +101,7 @@ does not expand `~` (`.env.example` has the mint command).
 
 ```bash
 uv sync
-cp .env.example .env          # then edit .env: GOOGLE_CLOUD_PROJECT + GOOGLE_APPLICATION_CREDENTIALS
+cp .env.example .env          # then edit .env: GEMINI_API_KEY, or the two Vertex vars
 
 # In another terminal, start a tmux session and run an agent in it:
 tmux new -s work
@@ -238,7 +241,8 @@ Loaded from `.env` at startup (real shell env vars still override). See `.env.ex
 
 | var | default | meaning |
 | --- | --- | --- |
-| `GOOGLE_CLOUD_PROJECT` | — | GCP project for Vertex (required for the LLM pass) |
+| `GEMINI_API_KEY` | — | AI Studio key for the LLM pass: the simplest setup, no GCP project needed. Used only when `GOOGLE_CLOUD_PROJECT` is unset |
+| `GOOGLE_CLOUD_PROJECT` | — | GCP project for Vertex, the alternative to `GEMINI_API_KEY`; when set, Vertex is used |
 | `GOOGLE_APPLICATION_CREDENTIALS` | — | absolute path to the Vertex service-account key (durable auth; see `.env.example`) |
 | `VERTEX_AI_REGION_GEMINI` | `global` | Vertex region |
 | `TMUXRC_TARGET` | unset (all panes) | restrict watching to one pane. Always reliable: a pane id (`%3`) or a numeric tmux address (`session:window_index[.pane_index]`, e.g. `work:0.0` — indices, not the window name). Also accepted: the pane's derived label (`name` / `name.N`). That is a window name that doesn't look like a tmux default, used *verbatim*; failing that, `<base>:<window_index>` where base is the session name, or the cwd basename when the session name looks like a default too. Only the fallback carries the index, so a bare session or cwd name matches nothing unless a window is actually named that. A card's title in the UI is not reliably a target — it may be the agent's own pane title or an LLM-refined name rather than the label — so use a pane id when in doubt |

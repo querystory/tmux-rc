@@ -31,13 +31,14 @@ logger = logging.getLogger(__name__)
 
 # backend → the env vars that must be set before the model is OFFERED. Vertex resolves
 # credentials at call time (SA key / ADC) but cannot reach anything without a project, so
-# that is all it gates on. Azure needs the resource host as well as the key.
+# that is all it gates on. Azure needs the resource host as well as the key. "A|B" is
+# satisfied by either variable.
 _NEEDS = {
     "vertex": ("GOOGLE_CLOUD_PROJECT",),
     "gemini-api": ("GEMINI_API_KEY",),
     "openai": ("OPENAI_API_KEY",),
     "azure-openai": ("AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT"),
-    "vertex-chat": ("GOOGLE_CLOUD_PROJECT",),
+    "vertex-chat": ("GOOGLE_CLOUD_PROJECT|GEMINI_API_KEY",),  # either: llm._client() takes both
     "anthropic": ("ANTHROPIC_API_KEY",),
 }
 _BACKEND_NAME = {
@@ -117,8 +118,8 @@ class LiveModel:
     @property
     def unavailable(self) -> str | None:
         """Why it can't be offered — the credentials it still needs — or None."""
-        missing = [v for v in self.needs if not os.environ.get(v)]
-        return f"No credentials: set {', '.join(missing)}" if missing else None
+        missing = [v for v in self.needs if not any(map(os.environ.get, v.split("|")))]
+        return f"No credentials: set {', '.join(missing).replace('|', ' or ')}" if missing else None
 
     def available(self) -> bool:
         """Offered only when its credential is present. A keyless entry stays in the
