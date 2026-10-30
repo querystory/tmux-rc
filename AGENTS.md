@@ -55,14 +55,15 @@ before either lands.
   within ~1min.
 - To show the user a preview (mock, build, report), put it in a subfolder of the directory
   `TMUXRC_SCRATCH_DIR` names (served at `/scratch/<folder>/`) rather than starting a server
-  or tunnel; see `docs/deploy/previews.md`. A UI mock is variants of the real app in the
-  shared harness (`make mock`, `make mock-check`; its "Mocks" section), never a hand-built
-  page, and the decision it leads to is recorded in `docs/design/`.
+  or tunnel; see `docs/scratch.md`. A UI mock is variants of the real app in the shared
+  harness (`make mock`, `make mock-check`; `docs/deploy/previews.md`, "Mocks"), never a
+  hand-built page, and the decision it leads to is recorded in `docs/design/`.
 
 ## Develop in worktrees, off main
 
 Each change gets a clean worktree cut from `origin/main`
-(`git worktree add -b <branch> .claude/worktrees/<name> origin/main`). Stacking PRs on a
+(`git worktree add ../tmux-rc-wt/<name> -b <branch> origin/main`, a sibling of the
+checkout). Stacking PRs on a
 non-main base has repeatedly caused merge pain (features silently reverted when the base
 squash-merges) — prefer branching off main and merging main in, over stacking.
 
@@ -141,8 +142,8 @@ reach a real pane.
 
 ## Tests
 
-`make test` runs `pytest -q tests/`. There is no JS test harness — browser-side logic is
-verified by hand against real DOM shapes and by live testing on the phone.
+`make test` runs `pytest -q tests/` and `node --test tests/*.mjs` (browser-side modules
+under Node, against real DOM shapes); the rest of the UI is verified live on the phone.
 
 ## Python lint
 
@@ -160,19 +161,18 @@ Two conventions worth knowing before you hit them:
 - **No mid-file imports in `openbus/`** (PLC0415). An import inside a function is a real
   decision — deferring a slow or optional dependency — so it needs a `# noqa: PLC0415`,
   and the reason has to be findable: either on the noqa itself or in the surrounding
-  comment or docstring. The three that exist today defer `google.genai` (~0.9s to import,
-  measured — that would otherwise land on daemon startup), the optional opentelemetry
-  stack, and `uvicorn` in `main()`. An import that is merely far from the top of the file
-  is a bug: hoist it. Test and script files are exempt, so a single case can keep its
-  import next to the code that needs it.
+  comment or docstring (deferring `google.genai`, ~0.9s to import, is the canonical case).
+  An import that is merely far from the top of the file is a bug: hoist it. Test and
+  script files are exempt, so a single case can keep its import next to the code that
+  needs it.
 - **`ruff format` is not used**, and `make fmt` does not run it. The hand-aligned constant
   tables and short guard ladders in this repo are deliberate, and reflowing them would
   bury real diffs under whitespace churn.
 
-Complexity rules (C901, PLR0911/0912/0915) are currently off: seven functions exceed them
-today — the two watcher ticks, `render_png`, `tmux._mark_dim`, two in `live.py`, and the
-docs-site link checker — and that refactor belongs in its own PR rather than inside a lint
-change. Issue #205 has the full inventory; turn the rules back on when it lands.
+Complexity rules (C901, PLR0911/0912/0915) are off: dozens of functions exceed them
+(`uv run ruff check --select C901,PLR0911,PLR0912,PLR0915 openbus docs-site` lists them),
+and that refactor belongs in its own PRs rather than inside a lint change. Issue #205
+tracks turning them back on.
 
 ## Classifier / prompt changes
 

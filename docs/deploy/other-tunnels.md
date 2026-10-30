@@ -39,7 +39,10 @@ the smallest surface that still works, and it is the option to reach for first.
 
 Setup is a few minutes with [Tailscale's own docs for `serve`](https://tailscale.com/kb/1312/serve).
 Leave the daemon on loopback (do **not** set `TMUXRC_HOST=0.0.0.0`) so that even an
-enrolled device cannot sidestep Serve by hitting port 18030 directly.
+enrolled device cannot sidestep Serve by hitting port 18030 directly. If the daemon
+answers `400 Host is not allowed`, Serve forwarded the tailnet name as `Host`: put it in
+`TMUXRC_ALLOWED_HOSTS` and its `https://` origin in `TMUXRC_ALLOWED_ORIGINS` (see
+[Deploying](../)).
 
 > **Do not use `tailscale funnel` for this daemon.** Funnel publishes to the open
 > internet and has **no authentication layer of its own** — Tailscale's docs draw the
