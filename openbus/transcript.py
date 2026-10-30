@@ -28,7 +28,8 @@ _TAIL = 1 << 20
 # (all but its token counts).
 _SAID = frozenset({"user", "assistant", "response_item", "event_msg"})
 _UUID_RE = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
-_CLIPPED_BAR = re.compile(rf"\s*{_UUID_RE.pattern} · [\w.-]+(?: \w+)?…?\s*")  # "<thread> · gpt-6-sol hi…"
+# The status bar cut to a phone's width: "<thread> · gpt-6-sol hi…".
+_CLIPPED_BAR = re.compile(rf"\s*{_UUID_RE.pattern} · [\w.-]+(?: \w+)?…?\s*")
 
 
 def _home(pane: Pane, tool: str) -> Path:
