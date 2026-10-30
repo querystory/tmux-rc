@@ -953,21 +953,23 @@ def capture_pane(pane_id: str, lines: int = LIVE_ROWS, mark_dim: bool = False) -
                 ";", "display-message", "-p", nonce,
                 ";", *capture, "-S", "0",
                 ";", "display-message", "-p", "-t", pane_id,
-                "#{e|-|:#{cursor_y},#{pane_height}} #{pane_width}"]
+                "#{e|-|:#{cursor_y},#{pane_height}} #{pane_width} #{alternate_on}"]
     out = _run(args).replace(nonce, VISIBLE_SCREEN, 1)
-    tail = ""
+    tail, alt = "", []
     if mark_dim:
         # The cursor on a blank row below all output ends the text in one empty row, so
         # the classifier can tell a prompt still awaiting input from one answered above.
         out, cursor = out.rstrip("\n").rsplit("\n", 1)  # its row minus the height, the width
-        cursor, width = cursor.split()
+        cursor, width, *alt = cursor.split()  # and whether the alternate screen is up
         # Both add or move rows above the viewport only: the cursor's offset still holds.
         out = split_side_panel(_bottom_viewport(out, int(width)), int(width))
         tail = "\n" * (not _ANSI.sub("", "".join(out.split("\n")[int(cursor):])).strip())
         out = _mark_placeholder(_mark_dim(_materialize_links(out)))
     else:
         out = _materialize_links(out)
-    return _ANSI.sub("", out).rstrip("\n") + tail
+    out = _ANSI.sub("", out)
+    # Squeezed last, past all row math, by the rule of keptRows (web/terminal.js).
+    return (re.sub("\n\n\n+", "\n\n", out) if alt == ["1"] else out).rstrip("\n") + tail
 
 
 _PANE_ID = re.compile(r"%[0-9]+")
