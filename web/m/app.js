@@ -6,7 +6,7 @@ import { Composer, bindAttach, enterSubmits, sendBlock, block } from "/m/compose
 import { answerBody, pickCursorRow, STALE, UNTAKEN } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { linkGroups, askLink } from "/pr-links.js";
-import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf, tabTitle } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf, tabTitle, tabIconKey, isRunning } from "/m/pane-model.js";
 import { tabIcon } from "/tab-icon.js";
 import { parseHash, formatHash, historyMode, PAGES, scratchUrl } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
