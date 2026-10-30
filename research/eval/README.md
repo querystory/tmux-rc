@@ -215,6 +215,7 @@ actually hit:
 | `128_claude_handoff_no_side_panel_no_question_mark` | synthetic: a signed `! git tag` handed over in a sentence, no `?`, no `[side panel]`, ASCII-pipe status rows → text user-wait offering the command |
 | `133_claude_narrow_picker_wrapped_question` | synthetic: AskUserQuestion in a narrow pane, its question ending mid-row of a wrapped paragraph, every row behind its digit → menu (a digit answers any row), not a cursor list no walk can ground |
 | `134_claude_single_question_picker_after_turns` | synthetic: a one-question AskUserQuestion picker (gray row digits, "4. Chat about this" under a rule) below answered turns → a menu with all four options |
+| `131_claude_single_question_picker_header_tab` | synthetic: 134 with its lone "☐ #812" header tab under the dialog's top rule → the menu, and no one-row task list |
 | `132_claude_advice_for_another_pane_not_a_reply` | synthetic: a report ending 'tap Reply and type "1"' about another pane, agents still running → no question, no "1" button |
 
 Sample 16 originally exposed a table-extraction failure: the prompt said to carry a
