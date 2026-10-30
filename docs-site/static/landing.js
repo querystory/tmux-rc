@@ -50,10 +50,14 @@ const press = (buttons, on) => { for (const button of buttons) button.setAttribu
 const highlight = (feature) => press(chips, chips.find((chip) => chip.dataset.feature === feature));
 const inView = new Set();
 let pinned = false;
-const observer = new IntersectionObserver((entries) => {
-  for (const entry of entries) entry.isIntersecting ? inView.add(entry.target) : inView.delete(entry.target);
+function follow() {
   const first = shots.find((shot) => inView.has(shot));
   if (first && !pinned) highlight(first.dataset.feature);
+}
+const unpin = () => { pinned = false; follow(); };
+const observer = new IntersectionObserver((entries) => {
+  for (const entry of entries) entry.isIntersecting ? inView.add(entry.target) : inView.delete(entry.target);
+  follow();
 }, { root: strip, threshold: 0.6 });
 for (const shot of shots) observer.observe(shot);
 function filter(show) {
@@ -62,7 +66,7 @@ function filter(show) {
   strip.scrollLeft = 0;
   ends();
 }
-for (const button of filters) button.addEventListener('click', () => { pinned = false; filter(button.dataset.filter); });
+for (const button of filters) button.addEventListener('click', () => { filter(button.dataset.filter); unpin(); });
 for (const chip of chips) chip.addEventListener('click', () => {
   const first = () => shots.find((shot) => shot.dataset.feature === chip.dataset.feature && shot.offsetParent);
   if (!first()) filter('all'); // the feature has no shot on this device
@@ -70,9 +74,9 @@ for (const chip of chips) chip.addEventListener('click', () => {
   highlight(chip.dataset.feature);
   first().scrollIntoView({ block: 'nearest', inline: 'start' }); // smooth unless reduced motion (landing.css)
 });
-for (const type of ['wheel', 'touchstart', 'pointerdown', 'keydown']) strip.addEventListener(type, () => { pinned = false; }, { passive: true });
+for (const type of ['wheel', 'touchstart', 'pointerdown', 'keydown']) strip.addEventListener(type, unpin, { passive: true });
 const [back, forward] = document.querySelectorAll('[data-step]');
-for (const button of [back, forward]) button.addEventListener('click', () => { pinned = false; strip.scrollBy({ left: button.dataset.step * strip.clientWidth * 0.8 }); });
+for (const button of [back, forward]) button.addEventListener('click', () => { unpin(); strip.scrollBy({ left: button.dataset.step * strip.clientWidth * 0.8 }); });
 function ends() {
   back.disabled = strip.scrollLeft < 1;
   forward.disabled = strip.scrollLeft + strip.clientWidth > strip.scrollWidth - 1;
