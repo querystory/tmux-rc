@@ -17,8 +17,6 @@ import random
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
-from PIL import Image, ImageDraw
-
 from openbus.history import COVERAGE, History
 
 NOW = datetime(2026, 6, 16, 15, 30, tzinfo=UTC).timestamp()  # a Tuesday afternoon
@@ -627,9 +625,53 @@ latency-heatmap|4400,4300|%18|-|p50 and p99 by endpoint over the long-input benc
 SCRATCH_WRITERS = {"cost-breakdown": {"harness": "claude", "session_id": "demo-cost",
                                       "source": "~/.claude/projects/ops/demo-cost.jsonl",
                                       "title": "Billing export analysis"}}
-# Two folders are real pages, shot for their thumbnails as the gallery shoots any page: a
-# Markdown report and an HTML page with an inline chart (no script, nothing fetched).
-PAGES = {"ab-sweep-interim": ("index.md", """\
+# Every folder is a real page, shot for its thumbnail as the gallery shoots any page:
+# Markdown and HTML, charts drawn inline (no script, nothing fetched).
+_HEAT = "".join(f'<rect x="{150 + c * 52}" y="{20 + r * 40}" width="50" height="38" '
+                f'fill="hsl({200 - (r * 7 + c * 13) % 90 * 2}, 70%, 55%)"/>'
+                for r in range(6) for c in range(9))
+PAGES = {"checkout-variants": ("index.html", """\
+<!doctype html><title>Checkout flow, two variants</title>
+<style>body{font:15px/1.5 system-ui,sans-serif;margin:32px auto;max-width:760px;color:#1f2a24}
+h1{font-size:22px}main{display:flex;gap:32px}section{flex:1;border:1px solid #d5dcd8;
+border-radius:16px;padding:20px}h2{font-size:15px;margin:0 0 12px}.f{height:34px;border:1px \
+solid #c8d1cc;border-radius:8px;margin:8px 0;padding:0 10px;line-height:34px;color:#6b7670}
+.b{background:#1b7a52;color:#fff;border-radius:8px;text-align:center;padding:9px;margin-top:14px}
+.s{display:flex;gap:6px;margin-bottom:12px}
+.s i{flex:1;height:6px;border-radius:3px;background:#d5dcd8}
+.s i.on{background:#1b7a52}</style>
+<h1>Checkout flow, two variants</h1><p>Single page against stepped, at phone width.</p>
+<main><section><h2>A: single page</h2><div class="f">Email</div><div class="f">Card number</div>
+<div class="f">Expiry · CVC</div><div class="f">Postcode</div>
+<div class="b">Pay $48.00</div></section>
+<section><h2>B: stepped</h2><div class="s"><i class="on"></i><i class="on"></i><i></i></div>
+<div class="f">Card number</div><div class="f">Expiry · CVC</div><div class="b">Continue</div>
+</section></main>
+"""), "release-notes-draft": ("index.md", """\
+# Release notes draft
+
+Merged PRs since v0.14, grouped by area.
+
+## Dashboard
+- Activity chart compares sessions on one shared scale (#501)
+- Session cards show who needs you in the header (#507)
+
+## Agents
+- Codex panes report their plan window (#512)
+- Restore skips agents already running elsewhere (#518)
+
+## Fixes
+- Voice follow-ups no longer repeat after a reconnect (#521)
+- The composer keeps its draft across a reload (#524)
+"""), "latency-heatmap": ("index.html", f"""\
+<!doctype html><title>Latency heatmap</title>
+<style>body{{font:15px/1.5 system-ui,sans-serif;margin:32px auto;max-width:720px;color:#1f2a24}}
+h1{{font-size:22px}}text{{font-size:12px;fill:#55605a}}</style>
+<h1>Latency heatmap</h1><p>p50 and p99 by endpoint over the long-input bench.</p>
+<svg viewBox="0 0 640 270" width="100%"><g text-anchor="end"><text x="140" y="44">/search</text>
+<text x="140" y="84">/checkout</text><text x="140" y="124">/cart</text><text x="140" y="164">\
+/login</text><text x="140" y="204">/feed</text><text x="140" y="244">/upload</text></g>{_HEAT}</svg>
+"""), "ab-sweep-interim": ("index.md", """\
 # Prompt A/B sweep: interim
 
 Variant C leads after 60 of 200 runs. Its lead over the baseline has held since run 40;
@@ -676,42 +718,24 @@ egress doubled with the image CDN move.</p>
 """)}
 
 
-def _thumb(path, hue: int) -> None:
-    """A stand-in thumbnail: a page's header, a heading and blocks of content, in one hue."""
-    im = Image.new("RGB", (480, 300), "#f5f7f6")
-    d, ink = ImageDraw.Draw(im), f"hsl({hue}, 45%, 45%)"
-    d.rectangle((0, 0, 480, 36), fill=f"hsl({hue}, 35%, 88%)")
-    d.rectangle((24, 60, 260, 78), fill=ink)
-    for n, width in enumerate((420, 380, 300)):
-        d.rectangle((24, 98 + n * 18, 24 + width, 106 + n * 18), fill="#c8d1cc")
-    for n in range(3):
-        d.rounded_rectangle((24 + n * 148, 170, 156 + n * 148, 276), 8,
-                            fill=f"hsl({hue + n * 25}, 40%, 70%)")
-    im.save(path, "WEBP", quality=70)
-
-
 def seed_scratch(root) -> None:
-    """Write SCRATCH's folders: each its page (PAGES, else a one-line index.html), its
-    meta.json, and a thumbnail: a real page's shot through the gallery's own renderer
-    (openbus.scratch_sidecars, served as it serves them), the rest drawn."""
+    """Write SCRATCH's folders: each its page (PAGES), its meta.json, and a thumbnail shot
+    through the gallery's own renderer (openbus.scratch_sidecars, served as it serves them)."""
     from openbus import scratch_sidecars
     from openbus.server import WEB_DIR
 
     with scratch_sidecars.serving(root, WEB_DIR) as url:
-        for n, line in enumerate(SCRATCH.splitlines()):
+        for line in SCRATCH.splitlines():
             name, ages, pane, title, description, *updating = line.split("|")
             created, changed = (NOW - int(m) * 60 for m in ages.split(","))
             folder = root / name
             folder.mkdir()
-            page = name.replace("-", " ").capitalize()
-            index, body = PAGES.get(name, ("index.html", f"<title>{page}</title><h1>{page}</h1>"))
+            index, body = PAGES[name]
             (folder / index).write_text(body)
             (folder / "meta.json").write_text(json.dumps({
                 "title": "" if title == "-" else title, "description": description,
                 "pane": pane, "created": datetime.fromtimestamp(created, UTC).isoformat(),
                 **dict(zip(["updating"], updating, strict=False))}))
-            if not (name in PAGES and scratch_sidecars.shoot(f"{url}/{name}/",
-                                                             folder / "thumb.webp", root)):
-                _thumb(folder / "thumb.webp", 150 + n * 47)
+            scratch_sidecars.shoot(f"{url}/{name}/", folder / "thumb.webp", root)
             for path in folder.iterdir():
                 os.utime(path, (created, changed if path.suffix != ".json" else created))

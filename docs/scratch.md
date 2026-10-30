@@ -5,9 +5,10 @@ title: "Scratch"
 
 # Scratch: the pages your agents publish to you
 
-Agents produce things you have to look at, not just read in a terminal: a mock of a
-screen, a report with a chart, a design note with diagrams, a built site, a PDF. Scratch
-is where they put them. It is a folder on your own machine that any agent, in any pane,
+Scratch is Artifacts for any agent: you review the planning docs, drafts, mocks and reports
+your agents make where the work happens, on their own machine. Agents produce things you
+have to look at, not just read in a terminal: a mock of a screen, a report with a chart, a
+design note with diagrams, a built site, a PDF. Scratch is where they put them. It is a folder on your own machine that any agent, in any pane,
 writes pages into, and the daemon serves it at `<your tmux-rc URL>/scratch/`, behind the
 same login as the rest of the app. Each page is a folder in it: an `index.html` or an
 `index.md`, plus whatever images, stylesheets or files it needs.
@@ -17,12 +18,12 @@ that agent is doing now, so a page is part of the fleet: it is linked from the p
 wrote it, it notifies you when it lands, and you answer its maker from the page itself.
 
 <p align="center">
-  <img src="../img/mobile-scratch.png" alt="The Scratch tab on the phone: a list of cards, each with a thumbnail of the page, its title, a one-line description, when it was made and which session made it; one card is marked Updating" width="280">
-  <img src="../img/mobile-scratch-page.png" alt="A scratch page open in the app's viewer: the rendered page above, and below it a message box addressed to the pane that made it, with a Screenshot attached chip and a Send button" width="280">
+  <img src="../docs/img/mobile-scratch.png" alt="The Scratch tab on the phone: a list of cards, each with a thumbnail of the page, its title, a one-line description, when it was made and which session made it; one card is marked Updating" width="280">
+  <img src="../docs/img/mobile-scratch-page.png" alt="A scratch page open in the app's viewer: the rendered page above, and below it a message box addressed to the pane that made it, with a Screenshot attached chip and a Send button" width="280">
 </p>
 
 <p align="center">
-  <img src="../img/wide-scratch.png" alt="Scratch in the wide layout: a grid of cards beside the session list, each with the page's thumbnail, title, description, the agent and account that made it linked to its pane, and when it was made and updated; one card is marked Updating">
+  <img src="../docs/img/wide-scratch.png" alt="Scratch in the wide layout: a grid of cards beside the session list, each with the page's thumbnail, title, description, the agent and account that made it linked to its pane, and when it was made and updated; one card is marked Updating">
 </p>
 
 ## The gallery
@@ -121,10 +122,22 @@ up: the renderer ships with the daemon. Why Markdown gets a renderer of its own:
 
 ## Scratch and Claude's Artifacts
 
-Claude can also publish a page as an [Artifact](https://claude.ai) on claude.ai, and an
-agent with both tools will reach for whichever its instructions favour, so it is worth
-being clear about what each is. Both show you a page an agent made. They differ in where
-the page lives and who it is for.
+Claude can also publish a page as an [Artifact](https://claude.ai) on claude.ai. Both show
+you a page an agent made; Scratch differs in three ways, and each matters for review:
+
+- **Reviewed where the work happens.** A page sits beside the repo, the build and the pane
+  that made it, so it can be the build's real output or a mock of the very UI being
+  changed, and its card links straight back to the agent you will answer.
+- **Nothing to upload, no hosted service.** The files reach only your own devices, through
+  your own front door, so an agent can put private code, costs or unreleased work in a page
+  without asking whether it may, and no outside service's quota or outage stands between
+  you and it.
+- **No vendor lock-in.** Any model, any harness, any script that writes a file can publish
+  a page, so switching agents, or running several side by side, changes nothing about how
+  you review their work.
+
+An agent with both tools will reach for whichever its instructions favour, so the rest of
+the difference, where the page lives and who it is for, is worth spelling out.
 
 | | Scratch | claude.ai Artifacts |
 | --- | --- | --- |

@@ -16,11 +16,10 @@ a question, tappable answers, and a snapshot timeline.
 - **Reboot without losing your fleet.** Sessions, windows, splits and names come back, and
   each agent resumes its own conversation, in one tap
   ([below](#reboot-without-losing-your-fleet)).
-- **See what your agents made, on your phone.** Any agent, in any pane, publishes a mock,
-  a report or a built site to [Scratch](docs/scratch.md): a folder on your machine, served
-  behind your own login, with a gallery that says who made each page and a reply box to
-  its maker. Your pages stay on your machine, unlike claude.ai Artifacts
-  ([below](#scratch-pages-your-agents-publish-to-you)).
+- **Review agents' work.** Where it happens: [Scratch](docs/scratch.md) pages are files on
+  the machine your agents run on, with nothing to upload and no hosted, vendor-locked
+  service. Artifacts for any model or harness: planning docs, drafts, mocks and reports, as
+  HTML or in a Markdown viewer with tables, mermaid and callouts ([below](#review-agents-work)).
 
 <p align="center">
   <img src="docs/img/one-tap-list.png" alt="Needs you on the phone: an agent asks whether to merge two green, reviewed PRs, with Merge both and Just #413 buttons right on its row" width="240">
@@ -98,12 +97,14 @@ each agent pane holds. When that tmux server is gone, the app offers it back.
 
 Why it works this way: [docs/design/reboot-restore.md](docs/design/reboot-restore.md).
 
-## Scratch: pages your agents publish to you
+## Review agents' work
 
-Agents produce things you have to look at, not read in a terminal: a mock, a report with a
-chart, a design note, a built site. Scratch is a folder on your own machine that any agent
+Scratch is Artifacts for any agent: you review the planning docs, drafts, mocks and reports
+your agents make where the work happens, on their own machine. It is a folder on your own machine that any agent
 in any pane writes pages into, and the daemon serves it at `/scratch/` behind the same
 front door as the app, so a page is on your phone with no second server or tunnel.
+
+<img src="docs/img/wide-scratch.png" alt="Scratch in the wide layout: a grid of cards beside the session list, each with the page's thumbnail, title, description, the agent and account that made it linked to its pane, and when it was made and updated; one card is marked Updating">
 
 <p align="center">
   <img src="docs/img/mobile-scratch.png" alt="The Scratch tab on the phone: cards with a thumbnail of each page, its title, a one-line description, when it was made and which session made it; one card is marked Updating" width="280">
@@ -117,10 +118,15 @@ front door as the app, so a page is on your phone with no second server or tunne
   revised reads **Updating**, and a Markdown page reloads itself when done.
 - **Reply to the maker.** The viewer's message box goes to the agent that wrote the page,
   with a screenshot of the page at your screen's width.
-- **Yours.** The files never leave your machine except to your own phone (only a page
-  without a description has its text sent to the parse model, for one sentence), so an agent
-  can put private work there; anyone can write one (Claude Code, Codex, Gemini CLI, a script).
-  How it compares with claude.ai Artifacts, and setup: [Scratch](docs/scratch.md).
+
+### Where the work happens
+
+You review a page on the agents' own machine, beside the repo, the build and the pane that
+made it. There is nothing to upload and no hosted service in between, so private work can
+go there (only a page without a description has its text sent to the parse model, for one
+sentence). And nothing locks you to a vendor: any model, any harness, any script that writes
+a file can publish one. The full comparison with claude.ai Artifacts, and setup:
+[Scratch](docs/scratch.md#scratch-and-claudes-artifacts).
 
 > **Status.** In daily use on real fleets: every pane on the server is watched,
 > classified and answerable from the phone, with push notifications, chat and voice over
