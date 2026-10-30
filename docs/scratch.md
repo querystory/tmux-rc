@@ -82,8 +82,8 @@ pixels), so "the chart on the right is wrong" needs no further description;
 that very pane is still open, never for another pane that later took its id.
 
 A page can also offer replies of its own, two ways, and neither sends anything by itself.
-A link to the app with a `draft` in its hash opens that pane's composer with the text in
-it, for you to edit and send. Or the page asks the app to send one line: the app raises a
+A link to the app with a `draft` in its hash (`/m/#pane=%25N&draft=<text>`) opens that
+pane's composer with the text in it, for you to edit and send. Or the page asks the app to send one line: the app raises a
 sheet of its own, outside the page, that quotes the line, names the pane and the page that
 asked, and sends only on your tap. Pages are sandboxed (the daemon's API is as foreign to
 them as any other site), so these are the only ways a page gets a word to an agent.
@@ -192,8 +192,9 @@ tmux-rc fills in the rest in the background, so the gallery never waits for it:
 - **Descriptions.** With the parse model configured, a folder without a description gets
   one sentence, written into its `meta.json` and marked `"generated": ["description"]`. A
   description already there is never replaced.
-- **Who made it.** While the pane named in `meta.json` is open, the card links to it.
-  Otherwise tmux-rc asks [agent-history](https://github.com/querystory/tmux-rc/tree/main/agent-history)
+- **Who made it.** While the pane named in `meta.json` is open, the card links to it
+  (a Codex pane is checked against the transcript first, since Codex's shared app server
+  stamps every session's `meta.json` with its first pane). Otherwise tmux-rc asks [agent-history](https://github.com/querystory/tmux-rc/tree/main/agent-history)
   which session was active when the folder appeared and mentioned its path, and writes the
   answer into `meta.json` as `"agent_session"`, marked generated, so each folder is
   searched once. An orchestrator that hands out a subagent's link writes `meta.json` with
