@@ -590,7 +590,7 @@ class PushManager:
         pane = next((s for s in self.watcher.states if s.get("pane_id") == item["pane"]
                      and scratch.made_in(s, item["created"])), None)
         body = item["description"] or (pane and f"{pane.get('tool')} finished it in "
-                                       f"{pane.get('session')}:{pane.get('window_name')}")
+                                       f"{scratch.where(pane)}")
         sent = self.sender.send({
             "title": _push_text(f"Ready: {item['title']}", 100),
             "body": _push_text(body or "Its page is ready.", PUSH_BODY_MAX),

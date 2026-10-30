@@ -977,7 +977,7 @@ def test_a_page_being_made_notifies_once_as_it_lands(tmp_path, monkeypatch):
     scan([], 0)
     scan([], 0)
     assert [(p["title"], p["body"], p["tag"], p["url"]) for p in sender.payloads] == [(
-        "Ready: Mock", "claude finished it in dev:ui", "scratch:wip",
+        "Ready: Mock", "claude finished it in dev:Build", "scratch:wip",  # its heading, not tmux's
         "/m#view=scratch&open=%2Fscratch%2Fwip%2F")]
     assert [i["name"] for i in shot] == ["wip"]
     # The turn ends and the pane waits on the user: its plain Needs-you is the same news...
