@@ -1019,7 +1019,10 @@ def _sends_out_of_options(result: dict, text: str) -> None:
     nothing left to answer."""
     question = result.get("question")
     options = question.get("options") if isinstance(question, dict) else None
-    if not isinstance(options, list) or question.get("answer_style", "text") != "text":
+    # A live spinner is the agent at work again, unless all it does is wait on its agents.
+    *_, turn = [None, *_CLAUDE_TURN_RE.finditer(_ask_view(text))]
+    if (not isinstance(options, list) or question.get("answer_style", "text") != "text"
+            or (turn and turn["live"] and "background agent" not in turn[0])):
         return
     sends = [o for o in options if isinstance(o, str)
              and any(g.startswith("!") for g in screen_offers([o], text))]

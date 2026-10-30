@@ -144,6 +144,10 @@ def test_a_command_among_a_questions_replies_is_one_offer():
                f"to finish… (4m 12s)\n\n{_RULE}\n❯ \n{_RULE}\n  ⏵⏵ auto mode on")
     r = classify(_pane("claude"), waiting, read("! make tea"))
     assert (r["offers"], r.get("question")) == (["! make tea"], None)
+    # Under the agent's own live spinner the reply is left to the question's live check.
+    working = waiting.replace("Waiting for 2 background agents to finish… (4m 12s)",
+                              "Pushing… (3s · esc to interrupt)")
+    assert classify(_pane("claude"), working, read("! make tea")).get("offers") is None
 
 
 def _pane(cmd="bash", title="t"):
