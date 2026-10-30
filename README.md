@@ -141,7 +141,9 @@ Prereqs: `tmux`, Python 3.12+, [`uv`](https://docs.astral.sh/uv/), and a way to 
 Gemini Flash Lite for the classification pass. The simplest is a **Gemini API key**: get one
 at [aistudio.google.com](https://aistudio.google.com/apikey) and put `GEMINI_API_KEY=…` in
 `~/.config/tmux-rc/openai.env` (mode 600, outside every checkout), with no Google Cloud project
-needed. The alternative is Vertex, which takes over whenever
+needed. The free tier works for trying it out, but Google may use free-tier requests to improve
+its products, and your pane text is what gets sent, so enable billing on the key for private
+work. The alternative is Vertex, which takes over whenever
 `GOOGLE_CLOUD_PROJECT` is set and suits an org that already bills AI through GCP. Because the
 daemon runs unattended for long stretches, Vertex authenticates with a long-lived **service-account
 key** rather than developer ADC (which expires and needs a browser reauth — see

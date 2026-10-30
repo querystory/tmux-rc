@@ -11,7 +11,7 @@ direct dashboard controls.
 
 Install tmux, Python 3.12 or newer, and [uv](https://docs.astral.sh/uv/).
 Keep an existing tmux session running, or start one and launch your preferred agent.
-Get a free Gemini API key at [aistudio.google.com](https://aistudio.google.com/apikey)
+Get a Gemini API key from [aistudio.google.com](https://aistudio.google.com/apikey)
 (no Google Cloud project needed), then run:
 
 ```bash
@@ -19,7 +19,9 @@ GEMINI_API_KEY=your-key uvx --from "git+https://github.com/querystory/tmux-rc.gi
 ```
 
 Open `http://127.0.0.1:18030/m` on that machine. The key powers the parse model (Gemini
-Flash Lite) behind pane summaries, Needs-you answers and copy blocks.
+Flash Lite) behind pane summaries, Needs-you answers and copy blocks. The free tier works
+for trying it out, but Google may use free-tier requests to improve its products, and your
+pane text is what gets sent, so enable billing on the key for private work.
 
 No key? `TMUXRC_NO_LLM=1` in place of `GEMINI_API_KEY` runs heuristics-only: basic
 activity and prompt detection, no summaries or answers.
