@@ -562,6 +562,10 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
   #voice-dialog:not(:modal) .dialog-heading { min-height: var(--bar); } /* level with the pane heading */
   #voice-dialog:not(:modal) .sheet-handle { display: none; }
   #voice-dialog:not(:modal) #voice-log { flex: 1; max-height: none; }
+  /* Docking slides in from the right edge, so you see where it went: once, as it docks (not
+     while beside the sidebar, before anything has started). */
+  @media (prefers-reduced-motion: no-preference) { #voice-dialog:not(:modal, .beside) { animation: dock-in .2s ease-out; } }
+  @keyframes dock-in { from { transform: translateX(100%); } }
 }
 
 /* The wide sidebar (sidebar.js). Scoped to the breakpoint, not just to its .sb-only
@@ -715,7 +719,7 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 #side-hover .sb-acct { justify-self: start; }
 /* Settings and New window dock beside the sidebar (app.js openBeside): over the left of the
    main column, which matters less than the chat and pane column on its right. */
-dialog.beside { position: fixed; inset: 0 auto 0 var(--side-w); z-index: 25; width: min(420px, 44vw); height: auto; max-height: none; margin: 0; padding: 0 20px; border: 0; border-right: 1px solid var(--line); border-radius: 0; box-shadow: 12px 0 32px rgb(0 0 0 / .22); }
+dialog.beside, #voice-dialog.beside { position: fixed; inset: 0 auto 0 var(--side-w); z-index: 25; width: min(420px, 44vw); height: auto; max-height: none; margin: 0; padding: 0 20px; border: 0; border-right: 1px solid var(--line); border-radius: 0; box-shadow: 12px 0 32px rgb(0 0 0 / .22); }
 #app.rail dialog.beside { left: 60px; }
 dialog.beside .sheet-handle { display: none; }
 dialog.beside .dialog-heading { min-height: var(--bar); }

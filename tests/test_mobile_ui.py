@@ -265,8 +265,12 @@ def test_chat_pasted_image_keeps_input_height_and_header_ends_chat():
 def test_new_session_start_row_follows_the_pick_and_comes_back():
     # Picking Chat or Voice moves the Session|Chat|Voice row into that sheet (pressed on the
     # pick), so Session is still a tap away; the row returns when that sheet closes.
-    app = (Path(__file__).resolve().parents[1] / "web/m/app.js").read_text()
-    assert 'pressKind(b); $("launch-dialog").close(); live.open[kind]();' in app
+    web = Path(__file__).resolve().parents[1] / "web/m"
+    app, live = (web / "app.js").read_text(), (web / "live.js").read_text()
+    assert 'pressKind(b); $("launch-dialog").close();' in app
+    # Wide, it opens where New session was, not started (live.open[kind](false)): only a
+    # first turn or Start docks it right, so a tab is just a tab.
+    assert "live.open[kind](false);" in app and 'dialog.classList.remove("beside")' in live
     assert '$("voice-dialog").querySelector(".dialog-heading").after(kindRow)' in app
     # The close event is queued: the breakpoint handler's close-and-reopen must leave the row.
     assert ('$("voice-dialog").addEventListener("close", () => $("voice-dialog").open || '
