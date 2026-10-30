@@ -257,9 +257,10 @@ def test_new_session_start_row_follows_the_pick_and_comes_back():
     assert 'pressKind(b); $("launch-dialog").close(); live.open[kind]();' in app
     assert '$("voice-dialog").querySelector(".dialog-heading").after(kindRow)' in app
     # The close event is queued: the breakpoint handler's close-and-reopen must leave the row.
-    assert '$("voice-dialog").addEventListener("close", () => $("voice-dialog").open || kindHome())' in app
+    assert ('$("voice-dialog").addEventListener("close", () => $("voice-dialog").open || kindHome())'
+            in app)
     assert '$("voice-close").click(); $("launch-dialog")._opener.click();' in app
-    # The other mode while a conversation runs is a reason on the line, not a pick that did not take.
+    # The other mode while a conversation runs is a reason on the line, not a pick that failed.
     assert "busy && busy !== kind && `End ${" in app
 
 
