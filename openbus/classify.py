@@ -629,6 +629,15 @@ def _supported_rewind(rewind, visible: str) -> bool:
     return bool(rewind) and "rewind to a previous point" in text and "enter to restore" in text
 
 
+def _unblocked_ask(result: dict) -> None:
+    """A pane the model read as stopped at its quota waits on nothing from the turn before:
+    its closing question or handed-over command (still on screen above the notice) is not
+    what blocks it, so none is kept or restored as an ask."""
+    if result.get("activity") == "quota_blocked":
+        result.pop("question", None)
+        result.pop("rewind", None)
+
+
 def _ground_visible_fields(
     result: dict, text: str, pane: Pane, llm_fn, prompt: str, host_tool: str | None,
 ) -> None:
@@ -1369,14 +1378,11 @@ def classify(
         result.pop("question", None)
         result.pop("rewind", None)
     _fold_sends(result)
-    # A pane the model read as stopped at its quota waits on nothing from the turn before:
-    # its closing question or handed-over command (still on screen above the notice) is not
-    # what blocks it, so none is kept or restored as an ask. Dropped before grounding, since a
-    # misquoted one would otherwise send the re-read a viewport cut above the quota notice.
-    if result.get("activity") == "quota_blocked":
-        result.pop("question", None)
-        result.pop("rewind", None)
+    # Before grounding, since a misquoted ask would otherwise send the re-read a viewport
+    # cut above the quota notice; and after it, since the re-read may answer with one.
+    _unblocked_ask(result)
     _ground_visible_fields(result, text, pane, llm_fn, prompt, process_tool)
+    _unblocked_ask(result)
     # OpenCode answer bullets and omp Ask radios are not tasks. Match genuine visible
     # checkbox rows after a bounded re-read, whose replacement fields need grounding too.
     if result.get("tool") in ("opencode", "omp") and "tasks" in result:
@@ -1456,7 +1462,7 @@ def classify(
     # The finished turn's own chrome is authoritative over any model question: nothing was
     # typed after it, so a live menu (whose ❯/› rows would count as typed) is ruled out.
     tool = result.get("tool")
-    blocked = result.get("activity") == "quota_blocked"  # its ask already dropped (above)
+    blocked = result.get("activity") == "quota_blocked"  # its ask already dropped (_unblocked_ask)
     over = spent or blocked
     # Claude's final message is read on the ask view: a long one begins above the viewport.
     final = not over and tool in _TURN_ERROR_RE and _final_message(view, tool)

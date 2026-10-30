@@ -52,6 +52,14 @@ def test_a_quota_blocked_pane_keeps_nothing_from_the_turn_before():
     r = classify(_pane("claude"), screen, llm)
     assert (r["activity"], r.get("resets"), r.get("question"), len(calls)) == (
         "quota_blocked", "2:10pm", None, 1)
+    # A first read that misquotes the ask is re-read; a re-read that says quota_blocked and
+    # quotes the ask right still waits on nothing.
+    answers = [{"tool": "claude", "activity": "waiting", "waiting_on": "user",
+                "question": {"prompt": "Merge now?", "answer_style": "text"}},
+               {**read, "question": {"prompt": "Want me to merge it?", "answer_style": "text"}}]
+    r = classify(_pane("claude"), screen, lambda *_a, **_k: answers.pop(0))
+    assert (r["activity"], r.get("resets"), r.get("question"), answers) == (
+        "quota_blocked", "2:10pm", None, [])
     # A bash-mode command run under that turn spent its ask, but the notice below the
     # command is the screen's end: the quota read stands over the spent row's "idle".
     spent = screen.replace("\n\n❯\n", "\n\n! gh pr merge 7 --squash\n\n❯\n")
