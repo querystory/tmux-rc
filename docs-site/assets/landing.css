@@ -655,9 +655,9 @@ footer p,footer>a:last-child {
 /* One sideways strip of screenshots, desktop and phone interleaved at one height (landing.js). */
 .tour {
   --shot-height:clamp(210px,55vw,440px);
-  margin-top:40px
+  margin-top:20px
 }
-/* The features as an index under the strip; the device filter floats on the strip's corner. */
+/* The features as an index under the strip; the device filter sits on the strip's top-right corner. */
 .chips {
   display:flex;
   flex-wrap:wrap;
@@ -687,8 +687,10 @@ footer p,footer>a:last-child {
 .strip-filter {
   position:absolute;
   z-index:2;
-  top:0;
-  right:6px;
+  top:14px;
+  right:14px;
+  display:flex;
+  gap:2px;
   padding:3px;
   border:1px solid var(--line);
   border-radius:8px;
@@ -698,8 +700,28 @@ footer p,footer>a:last-child {
   box-shadow:0 4px 14px #0002
 }
 .strip-filter button {
-  padding:3px 10px;
-  font-size:12px
+  display:inline-flex;
+  padding:4px 7px;
+  border:0;
+  border-radius:5px;
+  background:transparent;
+  color:var(--muted)
+}
+.strip-filter button:hover {
+  color:var(--ink)
+}
+.strip-filter button[aria-pressed=true] {
+  background:var(--wash);
+  color:var(--accent)
+}
+.strip-filter svg {
+  width:18px;
+  height:18px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:1.7;
+  stroke-linejoin:round;
+  stroke-linecap:round
 }
 /* The fade and the peeking next shot say there is more; the end padding lets the last shot clear the fade. */
 .strip {
@@ -708,7 +730,7 @@ footer p,footer>a:last-child {
   overflow-x:auto;
   scroll-snap-type:x mandatory;
   overscroll-behavior-x:contain;
-  padding:36px 56px 14px 6px;
+  padding:6px 56px 14px 6px;
   scroll-padding-inline:6px;
   scrollbar-width:thin;
   -webkit-mask-image:linear-gradient(to right,#000 calc(100% - 56px),transparent);
@@ -748,7 +770,7 @@ footer p,footer>a:last-child {
 .strip-arrow {
   position:absolute;
   z-index:1;
-  top:calc(36px + var(--shot-height) / 2 - 20px);
+  top:calc(6px + var(--shot-height) / 2 - 20px);
   display:inline-flex;
   padding:9px;
   border:1px solid var(--line);
@@ -784,14 +806,17 @@ footer p,footer>a:last-child {
 }
 @media(max-width:700px) {
   .tour {
-    margin-top:30px
+    margin-top:14px
   }
   .strip {
     gap:14px
   }
+  .strip-filter {
+    top:10px;
+    right:10px
+  }
   .strip-filter button {
-    padding:1px 8px;
-    font-size:11px
+    padding:3px 5px
   }
   .shot figcaption {
     font-size:12px

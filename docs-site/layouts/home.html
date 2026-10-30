@@ -32,7 +32,11 @@
     <nav class="feature-links" aria-label="Explore features"><span>Explore</span><a href="#voice">Voice &amp; chat</a><a href="#restore">Session restore</a><a href="#scratch">Scratch</a><a href="#usage-limits">Usage limits</a><a href="#activity">Activity dashboard</a></nav>
     <div class="tour">
       <div class="strip-box">
-        <div class="tabs strip-filter" role="group" aria-label="Show screenshots from">{{ range slice "All" "Desktop" "Phone" }}<button data-filter="{{ lower . }}" aria-pressed="{{ eq . "All" }}">{{ . }}</button>{{ end }}</div>
+        <div class="strip-filter" role="group" aria-label="Show screenshots from">
+          <button data-filter="desktop" aria-pressed="false" aria-label="Desktop" title="Desktop screenshots"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/></svg></button>
+          <button data-filter="phone" aria-pressed="false" aria-label="Phone" title="Phone screenshots"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg></button>
+          <button data-filter="both" aria-pressed="true" aria-label="Both" title="Desktop and phone screenshots"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="1.5" y="4" width="14" height="10" rx="1.5"/><path d="M5.5 18h6m-3-4v4"/><rect x="16.5" y="8" width="6" height="12" rx="1.2"/></svg></button>
+        </div>
         <button class="strip-arrow" data-step="-1" aria-label="Previous screenshots"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
         <div class="strip" id="strip" tabindex="0" role="region" aria-label="Screenshots: scroll sideways or use the arrow keys">
         {{- range $i, $s := slice

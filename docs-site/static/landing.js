@@ -66,10 +66,16 @@ function filter(show) {
   strip.scrollLeft = 0;
   ends();
 }
-for (const button of filters) button.addEventListener('click', () => { filter(button.dataset.filter); unpin(); });
+// A phone starts on phone shots, anything else on both; a visitor's own pick is kept.
+const SHOW = 'tmuxrc-site-shots';
+for (const button of filters) button.addEventListener('click', () => {
+  filter(button.dataset.filter);
+  unpin();
+  try { localStorage.setItem(SHOW, button.dataset.filter); } catch {}
+});
 for (const chip of chips) chip.addEventListener('click', () => {
   const first = () => shots.find((shot) => shot.dataset.feature === chip.dataset.feature && shot.offsetParent);
-  if (!first()) filter('all'); // the feature has no shot on this device
+  if (!first()) filter('both'); // the feature has no shot on this device
   pinned = true;
   highlight(chip.dataset.feature);
   first().scrollIntoView({ block: 'nearest', inline: 'start' }); // smooth unless reduced motion (landing.css)
@@ -83,7 +89,9 @@ function ends() {
 }
 strip.addEventListener('scroll', ends, { passive: true });
 addEventListener('resize', ends);
-ends();
+let show = matchMedia('(max-width:640px), (pointer:coarse)').matches ? 'phone' : 'both';
+try { show = localStorage.getItem(SHOW) || show; } catch {}
+filter(show);
 
 for (const button of document.querySelectorAll('[data-copy]')) {
   const label = button.getAttribute('aria-label');
