@@ -82,8 +82,10 @@ pixels), so "the chart on the right is wrong" needs no further description;
 that very pane is still open, never for another pane that later took its id.
 
 A page can also offer replies of its own, two ways, and neither sends anything by itself.
-A link to the app with a `draft` in its hash (`/m/#pane=%25N&draft=<text>`) opens that
-pane's composer with the text in it, for you to edit and send. Or the page asks the app to send one line: the app raises a
+A draft: inside the app's viewer the page posts `{pane, draft}` to its parent, and a page
+opened in a tab of its own links to the app with the draft in its hash
+(`/m/#pane=%25N&draft=<text>`); either way that pane's composer opens with the text in it,
+for you to edit and send. Or the page asks the app to send one line: the app raises a
 sheet of its own, outside the page, that quotes the line, names the pane and the page that
 asked, and sends only on your tap. Pages are sandboxed (the daemon's API is as foreign to
 them as any other site), so these are the only ways a page gets a word to an agent.
