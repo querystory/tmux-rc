@@ -397,14 +397,16 @@ def test_omp_ask_radios_do_not_become_tasks(checked, unchecked):
 
 
 @pytest.mark.parametrize("rule", ["─", "▔"])
-@pytest.mark.parametrize("tabs", [" ☐ Fruit ", "←  ☒ Beds  ☐ Fruit  ✔ Submit  →", " ☐ API → UI",
-                                  " ☐ API  →  UI"])
-def test_claude_picker_header_tabs_are_not_tasks(tabs, rule):
+@pytest.mark.parametrize(("tabs", "label"), [
+    (" ☐ Fruit ", "Fruit"), ("←  ☒ Beds  ☐ Fruit  ✔ Submit  →", "Fruit"),
+    (" ☐ API → UI", "API → UI"), (" ☐ API  →  UI", "API → UI"),
+    (" ☐ Fruit →", "Fruit →"),  # a lone tab keeps its trailing arrow
+])
+def test_claude_picker_header_tabs_are_not_tasks(tabs, label, rule):
     screen = (
         "  ⎿  ☐ Plant the seedlings\n" + rule * 40 + f"\n{tabs}\n\nWhich fruit should we plant?"
         "\n\n❯ 1. Apple\n  2. Pear\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n"
     )
-    label = "API → UI" if "API" in tabs else "Fruit"
     tasks = [{"text": text, "done": False} for text in ("Plant the seedlings", label)]
     result = classify(_pane("claude"), screen, _llm({
         "tool": "claude", "activity": "waiting", "tasks": tasks,
@@ -432,10 +434,15 @@ def test_claude_picker_header_tabs_are_not_tasks(tabs, rule):
         "tool": "opencode", "activity": "running", "tasks": tasks[1:],
     }))["tasks"] == tasks[1:]
     # Claude's own plan under a rule, no picker footer: a checklist, every row kept.
-    plan = rule * 40 + f"\n☐ {label}\n☐ Water the beds"
+    plan = rule * 40 + f"\n☐ Water the beds\n☐ {label}"
     assert classify(_pane("claude"), plan, _llm({
         "tool": "claude", "activity": "running", "tasks": tasks[1:],
     }))["tasks"] == tasks[1:]
+    # The same plan above the open picker: only the picker's own header is chrome.
+    rows = [{"text": "Water the beds", "done": False}, *tasks[1:]]
+    assert classify(_pane("claude"), f"  {plan}\n\n" + screen, _llm({
+        "tool": "claude", "activity": "waiting", "tasks": rows,
+    }))["tasks"] == rows
 
 
 def test_opencode_stale_interrupt_row_does_not_override_idle_footer():
