@@ -24,7 +24,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any, NamedTuple
 
-from . import agent_history
+from . import agent_history, llm
 from .config import json_list
 
 logger = logging.getLogger(__name__)
@@ -106,7 +106,9 @@ class LiveModel:
             return own
         kind, i = ("text", 0) if self.text else ("audio", 2)  # a chat model bills text only
         price = f"${self.rates[i]:g}/${self.rates[i + 1]:g}"
-        return f"{_BACKEND_NAME[self.backend]} · {price} per 1M {kind}"
+        # vertex-chat rides the classifier's client, so it names wherever that one goes.
+        where = llm.provider() if self.backend == "vertex-chat" else self.backend
+        return f"{_BACKEND_NAME[where]} · {price} per 1M {kind}"
 
     @property
     def text(self) -> bool:

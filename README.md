@@ -90,8 +90,9 @@ keep, the requirements other tools left open for us, and the alternatives we res
 
 Prereqs: `tmux`, Python 3.12+, [`uv`](https://docs.astral.sh/uv/), and a way to reach
 Gemini Flash Lite for the classification pass. The simplest is a **Gemini API key**: get one
-at [aistudio.google.com](https://aistudio.google.com/apikey) and set `GEMINI_API_KEY`, with no
-Google Cloud project needed. The alternative is Vertex, which takes over whenever
+at [aistudio.google.com](https://aistudio.google.com/apikey) and put `GEMINI_API_KEY=…` in
+`~/.config/tmux-rc/openai.env` (mode 600, outside every checkout), with no Google Cloud project
+needed. The alternative is Vertex, which takes over whenever
 `GOOGLE_CLOUD_PROJECT` is set and suits an org that already bills AI through GCP. Because the
 daemon runs unattended for long stretches, Vertex authenticates with a long-lived **service-account
 key** rather than developer ADC (which expires and needs a browser reauth — see
@@ -101,7 +102,7 @@ does not expand `~` (`.env.example` has the mint command).
 
 ```bash
 uv sync
-cp .env.example .env          # then edit .env: GEMINI_API_KEY, or the two Vertex vars
+cp .env.example .env          # then edit .env: the two Vertex vars, or delete them to use the key
 
 # In another terminal, start a tmux session and run an agent in it:
 tmux new -s work

@@ -53,6 +53,7 @@ def test_project_picks_vertex_else_api_key(monkeypatch):
             got = llm._build_client()
             assert want.items() <= got.items() and got["http_options"].timeout == llm._TIMEOUT_MS
             assert ("api_key" in got) != ("vertexai" in got)
+            assert llm.provider() == ("vertex" if project else "gemini-api")  # telemetry, hints
         monkeypatch.delenv("GEMINI_API_KEY")
         llm._build_client.cache_clear()
         with pytest.raises(RuntimeError, match=r"GOOGLE_CLOUD_PROJECT.*GEMINI_API_KEY"):

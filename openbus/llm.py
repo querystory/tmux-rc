@@ -156,19 +156,23 @@ def _client():
         return _build_client()
 
 
+def provider() -> str:
+    """Where the parse client goes: 'vertex' whenever GOOGLE_CLOUD_PROJECT is set, else
+    'gemini-api' (AI Studio by GEMINI_API_KEY, which needs no GCP project at all)."""
+    return "vertex" if os.environ.get("GOOGLE_CLOUD_PROJECT") else "gemini-api"
+
+
 @cache
 def _build_client():
     from google import genai  # noqa: PLC0415 - same ~0.9s import as genai_types
 
     types = genai_types()
 
-    # Vertex whenever a project is set; otherwise an AI Studio key, which needs no GCP
-    # project at all — the same model and request config either way.
-    project = os.environ.get("GOOGLE_CLOUD_PROJECT")
-    if project:
+    # The same model and request config on either backend (see provider()).
+    if provider() == "vertex":
         where = {
             "vertexai": True,
-            "project": project,
+            "project": os.environ["GOOGLE_CLOUD_PROJECT"],
             "location": os.environ.get("VERTEX_AI_REGION_GEMINI", "global"),
         }
     elif key := os.environ.get("GEMINI_API_KEY"):
@@ -459,7 +463,7 @@ def _emit(
         )
         emit_parse(
             model=_MODEL,
-            provider="vertex",
+            provider=provider(),
             pane_uid=pane_uid,
             pane_label=pane_label,
             pane_text=text,
