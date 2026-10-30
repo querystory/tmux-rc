@@ -108,6 +108,8 @@ if server._scratch_dir:
             for at in ("", ".archive/")),
           Image.open(io.BytesIO(c.get(f"/scratch/.archive/rev/?seen={mine}").content)).width)
     act("unarchive", "rev")
+    (rev / "meta.json").write_text('{"title": "Re')  # mid-write: no answer, so no reload
+    print(width(mine))
     (rev / "meta.json").write_text('{"title": "Rev"}')
     print(before, landed, width(mine), int("Updating" not in c.get("/scratch/rev/").text))
 """
@@ -152,7 +154,7 @@ def test_scratch_serves_only_inside_the_configured_dir(tmp_path):
     assert _probe({"TMUXRC_SCRATCH_DIR": str(scratch)}, tmp_path) == [
         200, 404, 404, 200, 307, 200, 404, 404, 404, 202, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
         1, 1, 200, 200, 202, 200, 202, 202, 400, 1, 1, 1, 404, 2, 1, 2,
-        1, 1, 1, 1, 1, 2, 2, 1]
+        1, 1, 1, 1, 1, 1, 2, 2, 1]
 
 
 def test_scratch_is_off_unless_configured(tmp_path):

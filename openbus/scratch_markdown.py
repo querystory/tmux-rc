@@ -153,9 +153,8 @@ class Files(StaticFiles):
         seen = parse_qs(scope["query_string"].decode()).get("seen")
         folder = "/" not in path.removeprefix(ARCHIVE + "/")  # a folder's own URL
         if seen and folder:  # a placeholder or bar asking: wide says reload
-            wait = await anyio.to_thread.run_sync(
-                lambda: self.pending(path) or "".join(self.updating(path) or ()))
-            same = wait and f'const SEEN = "{seen[0]}";' in wait
+            wait = await anyio.to_thread.run_sync(lambda: self.pending(path) or self.updating(path))
+            same = wait == ("", "") or (wait and f'const SEEN = "{seen[0]}";' in "".join(wait))
             return Response(PIXEL if same else WIDE, media_type="image/gif")
         try:
             response = await super().get_response(path, scope)

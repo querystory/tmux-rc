@@ -682,8 +682,10 @@ def bar(root: Path, name: str, states: list[dict],
     thin bar, whose ask (as the placeholder's) reloads the page once the update is done or
     its files change. None for any other folder. `states` and `pane_of` find its reviser as
     the gallery does (no accounts: it is asked every few seconds). Archived, as
-    placeholder's."""
+    placeholder's. ("", "") while meta.json is unreadable (mid-write): no answer yet."""
     i = _at(root, name)
+    if i and not i["read"]:
+        return "", ""
     if not (i and i["updating"]):
         return None
     resolve([i], states, [], pane_of)
