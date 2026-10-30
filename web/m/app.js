@@ -2558,7 +2558,7 @@ $("sessions").addEventListener("scroll", () => {
 const LAST_DIR = "tmuxrc-last-dir";
 let launchPick = null, launchLoad = 0; // the account picker (accounts.js), with several accounts; the newest load
 const LAUNCH_DESC = { claude: "Claude Code", codex: "OpenAI Codex CLI", gemini: "Google Gemini CLI", antigravity: "Google Antigravity CLI", opencode: "OpenCode CLI", omp: "omp agent", shell: "A plain shell in the session's folder" };
-async function openLaunch(fresh, opener) {
+async function openLaunch(fresh, opener, kind) {
   launchPick?.remove(); launchPick = null;
   const load = ++launchLoad; // a second open, or a close, while this one loads makes it stale
   if (opener) openBeside($("launch-dialog"), opener); else $("launch-dialog").showModal(); text($("launch-error"), "Loading agents..."); $("launch-choices").replaceChildren();
@@ -2573,6 +2573,7 @@ async function openLaunch(fresh, opener) {
   const kinds = [...$("launch-kind").querySelectorAll("[data-start]")];
   kinds.forEach((b) => { b.dataset.why = live.why(b.dataset.start === "chat"); });
   show("launch-kind", kinds.some((b) => !b.dataset.why)); text($("launch-sub"), "Start an agent or shell in a new tmux window.");
+  if (kind) kindRow.querySelector(`[data-start=${kind}]`).click(); // the top bar's Chat or Voice
   // Suggestions only (open panes' and past agent sessions' directories); any path works.
   request("/api/sessions/dirs").then((d) => $("launch-dirs").replaceChildren(...d.dirs.map((dir) => new Option(dir))), () => {});
   try {
@@ -2957,6 +2958,12 @@ setupPush($("push"), notice, licon("bell"));
 const openOffered = (id, at) => !panes.some((p) => p.pane_id === id) && awaitingLaunch({ id, at }, id)
   ? openLaunched(id, at) : navigate(id);
 const live = setupLiveMode({ request, session: liveSession, licon, wide: WIDE, open: openOffered, report: reportError, onVersion: observeVersion, onChat: () => renderList(), account: accounts.consent, panes: () => panes, logos: LOGOS });
+// Wide, the top bar's Chat and Voice open New session on that tab, beside the sidebar; nothing
+// starts or docks until something is asked. A conversation already running is just brought back.
+for (const [id, kind] of [["chat", "chat"], ["live-mode", "voice"]]) {
+  const own = $(id).onclick;
+  $(id).onclick = (e) => WIDE.matches && !live.kind() ? openLaunch(false, $("new-window"), kind) : own(e);
+}
 document.documentElement.classList.add("booted"); // icons in, chrome placed: unveil (style.css)
 let assetVersion = null;
 function hasDrafts() {

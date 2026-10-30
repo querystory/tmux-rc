@@ -140,7 +140,9 @@ A tab is only a tab: on a wide screen the Chat or Voice sheet opens where New se
 and nothing has started yet. The first message, starter chip or voice Start begins the
 conversation and docks the sheet on the right. Docking on the tap itself made the target
 jump across the screen. It also opened a chat nobody had asked for, so Voice then said
-"End the chat first." It
+"End the chat first." On a wide screen, the top bar's Chat and Voice open this same sheet on
+their tab, for the same reason. The dock slides in from the right edge as it takes the
+conversation, so you can see where it went. It
 returns to New session when the Chat sheet closes, or when New session opens over a docked
 one; Chat opened from its own button never shows it. While a conversation runs, the other
 mode is a reason on the line ("End the chat first"), not a pressed choice that did not take:

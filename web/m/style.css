@@ -562,6 +562,10 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
   #voice-dialog:not(:modal) .dialog-heading { min-height: var(--bar); } /* level with the pane heading */
   #voice-dialog:not(:modal) .sheet-handle { display: none; }
   #voice-dialog:not(:modal) #voice-log { flex: 1; max-height: none; }
+  /* Docking slides in from the right edge, so you see where it went: once, as it docks (not
+     while beside the sidebar, before anything has started). */
+  @media (prefers-reduced-motion: no-preference) { #voice-dialog:not(:modal, .beside) { animation: dock-in .2s ease-out; } }
+  @keyframes dock-in { from { transform: translateX(100%); } }
 }
 
 /* The wide sidebar (sidebar.js). Scoped to the breakpoint, not just to its .sb-only
