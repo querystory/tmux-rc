@@ -18,7 +18,8 @@ from functools import lru_cache
 from pathlib import Path
 
 from . import plan_usage, tmux
-from .classify import _codex_model_segments, _programs, _session_chrome
+from .classify import _programs
+from .expunge import codex_status_segments
 from .tmux import Pane
 
 # The final message sits at the end, but a session's file grows to megabytes (pasted
@@ -28,8 +29,6 @@ _TAIL = 1 << 20
 # (all but its token counts).
 _SAID = frozenset({"user", "assistant", "response_item", "event_msg"})
 _UUID_RE = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
-# The status bar cut to a phone's width: "<thread> · gpt-6-sol hi…".
-_CLIPPED_BAR = re.compile(rf"\s*{_UUID_RE.pattern} · [\w.-]+(?: \w+)?…?\s*")
 
 
 def _home(pane: Pane, tool: str) -> Path:
@@ -98,14 +97,8 @@ def _codex_rollout(home: Path, thread: str, _today: tuple) -> Path | None:
 def _codex_file(pane: Pane, text: str) -> Path | None:
     """Codex's app-server, not the pane's process, holds the rollout, so the thread id
     comes from the status bar (when configured to show it), as live._codex_pane does.
-    A shell can print a captured footer, so Codex must also be running in the pane. At
-    phone width the bar is cut short ("<thread> · gpt-6-…") and no longer reads as chrome,
-    but with Codex running there its bottom row, still shaped as a thread and a model,
-    names the thread; a bare id there is output (`ps` listing `codex resume <id>`)."""
-    rows = ([line for line in _session_chrome(text) if _codex_model_segments(line)]
-            or [line for line in tmux.strip_dim(text).rstrip().splitlines()[-1:]
-                if _CLIPPED_BAR.fullmatch(line)])
-    ids = {s.strip() for line in rows for s in line.split("·") if _UUID_RE.fullmatch(s.strip())}
+    A shell can print a captured footer, so Codex must also be running in the pane."""
+    ids = {s for s in codex_status_segments(text) if _UUID_RE.fullmatch(s)}
     if len(ids) != 1 or not (pane.pid and "codex" in _programs(pane.pid)):
         return None
     home = _home(pane, "codex")

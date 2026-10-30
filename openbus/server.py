@@ -2370,7 +2370,7 @@ if _scratch_dir:
         return HTMLResponse(await asyncio.to_thread(lambda: scratch.page(
             Path(_scratch_dir), *_who(),
             lambda listed: scratch_sidecars.queue(Path(_scratch_dir), WEB_DIR, listed, use_llm),
-            "/docs/deploy/scratch-gallery/" if DOCS_MOUNTED else scratch.DOCS,
+            "/docs/scratch/" if DOCS_MOUNTED else scratch.DOCS,
             archived=archived is not None)))
 
     _PIXEL = bytes.fromhex("47494638396101000100000000002c00000000010001000002024401003b")

@@ -146,10 +146,15 @@ def test_codex_turn_open_from_its_rollout(homes, monkeypatch):
     narrow = f"⟪/dim⟫› Ask Codex to do anything\n\n  ⟪/dim⟫{SID} · GPT-6.1-…"
     assert transcript.codex_turn_live(_pane("7"), narrow) is True
     assert transcript.codex_turn_live(_pane("7"), f"›\n  {SID} · gpt-6.1-sol high") is True
+    # A model cut to its first letters, or crowded out by a warnings segment, still counts.
+    assert transcript.codex_turn_live(_pane("7"), f"›\n  {SID} · GPT-6-So…") is True
+    warned = f"›\n  ⟪/dim⟫{SID} · GPT…  ⚠ 2 warnings · f2 to view"
+    assert transcript.codex_turn_live(_pane("7"), warned) is True
     # A bare id on the bottom row is output naming some other thread, not the bar.
     decoy = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"
     path.with_name(f"rollout-2026-10-09T08-00-00-{decoy}.jsonl").write_text(event("task_started"))
     assert transcript.codex_turn_live(_pane("7"), f"› ps\n{decoy}") is None
+    assert transcript.codex_turn_live(_pane("7"), f"› ps\n  41 codex resume {decoy}") is None
     # Copied over by a shorter session whose turn is closed: read afresh, not from the
     # old offset.
     path.unlink()

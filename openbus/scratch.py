@@ -52,7 +52,7 @@ STATES = {"working": ("In progress",
           "quiet": ("In progress", "The agent's pane is idle. It may still be working."),
           "stopped": ("Stopped",
                       "The agent stopped without publishing this page.")}
-DOCS = "https://github.com/querystory/tmux-rc/blob/main/docs/deploy/scratch-gallery.md"
+DOCS = "https://github.com/querystory/tmux-rc/blob/main/docs/scratch.md"
 SIDECARS = ("meta.json", "thumb.webp")  # what tmux-rc and agents add beside a page
 # What every /scratch/ response is served under (see server.py's no_cache middleware).
 SANDBOX = "sandbox allow-scripts allow-popups; form-action 'none'; connect-src 'none'"

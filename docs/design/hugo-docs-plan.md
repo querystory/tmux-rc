@@ -1,7 +1,8 @@
 # Hugo docs site for tmux-rc
 
-Status: **proposed**. Plan for serving `docs/` as a browsable site at `/docs`, modeled on the main app's
-docs setup but stripped to what a small repo actually needs.
+Status: **implemented** (`docs-site/`, `make docs`; the same build publishes the
+[project website](../deploy/github-pages.md)). The plan as written: serve `docs/` as a browsable site at
+`/docs`, modeled on the main app's docs setup but stripped to what a small repo actually needs.
 
 ## Why
 

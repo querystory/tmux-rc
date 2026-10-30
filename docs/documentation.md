@@ -4,9 +4,9 @@ toc: false
 ---
 
 <p align="center" style="display:flex;flex-wrap:wrap;gap:16px;justify-content:center">
-  <img src="../img/one-tap-list.png" alt="Needs you on the phone: an agent asks whether to merge two green, reviewed PRs, with Merge both and Just #413 buttons right on its row" width="200">
-  <img src="../img/one-tap-pane.png" alt="The same question in the agent's overview: a summary, both answers as buttons, and both PRs under Links with their titles" width="200">
-  <img src="../img/mobile-offers.png" alt="An agent hands you a command to run: make test, and a reply, each with Send it and Copy buttons" width="200">
+  <img src="../docs/img/one-tap-list.png" alt="Needs you on the phone: an agent asks whether to merge two green, reviewed PRs, with Merge both and Just #413 buttons right on its row" width="200">
+  <img src="../docs/img/one-tap-pane.png" alt="The same question in the agent's overview: a summary, both answers as buttons, and both PRs under Links with their titles" width="200">
+  <img src="../docs/img/mobile-offers.png" alt="An agent hands you a command to run: make test, and a reply, each with Send it and Copy buttons" width="200">
 </p>
 
 <p align="center"><em>Answer your agents in one tap, from your phone.</em></p>
@@ -17,11 +17,12 @@ Search the documentation or choose a topic below.
 ## Setup and use
 
 {{< cards >}}
-  {{< card link="../client-setup/" title="Install the client" subtitle="Optional web app installation on iOS, Android, and desktop." >}}
   {{< card link="../getting-started/" title="Get started" subtitle="Run the service against your existing tmux sessions." >}}
+  {{< card link="../scratch/" title="Scratch" subtitle="Pages your agents publish to you, on your own machine, and how that compares with claude.ai Artifacts." >}}
+  {{< card link="../client-setup/" title="Install the client" subtitle="The web app on iOS, Android, and desktop." >}}
   {{< card link="../iphone-setup/" title="iPhone setup" subtitle="Install the web app, enable notifications, and use Live Mode." >}}
   {{< card link="../agent-setup/" title="Configure your agents" subtitle="Settings that make your agents easier to read and cheaper to watch." >}}
-  {{< card link="../deploy/" title="Remote access" subtitle="Reach your machine through an authenticating tunnel or private network." >}}
+  {{< card link="../deploy/" title="Remote access" subtitle="The daemon has no auth: reach it through an authenticating tunnel or private network." >}}
 {{< /cards >}}
 
 ## Documentation
@@ -32,8 +33,6 @@ directly from the Markdown in the repository. Use the search box to find a topic
 {{< cards >}}
   {{< card link="../design/background-and-motivation/" title="Background & motivation" subtitle="New here? What tmux is, and why tmux-rc exists." >}}
   {{< card link="../design/architecture/" title="How it all works" subtitle="An end-to-end tour of the running system, with diagrams." >}}
-  {{< card link="../deploy/" title="Reaching it from outside localhost" subtitle="The daemon has no auth — read this before exposing it to anything." >}}
-  {{< card link="../agent-setup/" title="Configuring your agents" subtitle="Settings that make your agents readable on the phone — and cheaper to watch." >}}
   {{< card link="../agent-orchestration/" title="Orchestrating agents from an agent" subtitle="Driving agent sessions in other panes — and which of those mechanics fail silently." >}}
   {{< card link="../design/thin-llm-ui-layer/" title="The thin LLM UI layer" subtitle="Affordances that can't be built generically, decided per screen by a cheap model." >}}
   {{< card link="../prd/" title="Product Requirements" subtitle="What we're building and why." >}}
@@ -41,6 +40,5 @@ directly from the Markdown in the repository. Use the search box to find a topic
   {{< card link="../design/" title="Design Notes" subtitle="Architecture and design decisions, with the why behind them." >}}
   {{< card link="../benchmarks/" title="Benchmarks" subtitle="Hot-path classifier latency, cost, and model head-to-heads." >}}
   {{< card link="../hint/" title="Telemetry Hints" subtitle="Guidance for querying tmux-rc telemetry." >}}
-  {{< card link="../progress/" title="Progress Log" subtitle="What changed, newest first." >}}
   {{< card link="../api-reference/" title="API Reference" subtitle="HTTP endpoints and the interactive reference on your running daemon." >}}
 {{< /cards >}}
