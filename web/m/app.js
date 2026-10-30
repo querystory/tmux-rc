@@ -2587,10 +2587,9 @@ async function openLaunch(fresh, opener) {
       const label = document.createElement("span");
       const name = document.createElement("strong"); name.textContent = launcher.label;
       // What it starts, one muted line: a variant's model (its label's parenthesis), else the
-      // tool; after the account it starts on, where it has several (accounts.picker).
+      // tool. No account here: one with several accounts asks for it in the next step.
       const desc = document.createElement("small");
-      desc.innerHTML = `<span class="acct-on" hidden></span><span class="desc"></span>`;
-      desc.lastChild.textContent = /\((.+)\)/.exec(launcher.label)?.[1] || LAUNCH_DESC[launcher.icon] || LAUNCH_DESC[launcher.provider] || "A configured launcher";
+      desc.textContent = /\((.+)\)/.exec(launcher.label)?.[1] || LAUNCH_DESC[launcher.icon] || LAUNCH_DESC[launcher.provider] || "A configured launcher";
       label.append(name, desc);
       // A launcher whose command the daemon can't find stays VISIBLE — the user
       // configured it, so hiding it would only be a second mystery — but is disabled and
@@ -2598,7 +2597,7 @@ async function openLaunch(fresh, opener) {
       // The marker outlives the disabled flag, which launchWindow's `finally` clears on
       // every button: without it one failed launch would re-arm the entries the daemon
       // has just told us cannot run.
-      if (launcher.unavailable) { button.dataset.unavailable = launcher.unavailable; desc.lastChild.textContent = launcher.unavailable; }
+      if (launcher.unavailable) { button.dataset.unavailable = launcher.unavailable; desc.textContent = launcher.unavailable; }
       button.append(logo, label);
       if (!launcher.unavailable) button.insertAdjacentHTML("beforeend", licon("plus"));
       button.disabled = !!launcher.unavailable;
