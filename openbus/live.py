@@ -1017,27 +1017,52 @@ _resumed: dict[str, tuple[str, str, dict]] = {}  # session id -> (pane id, pid, 
 
 def running_pane(entry: dict, watcher) -> str | None:
     """The pane a running agent-history session is in, in THIS tmux server, or None.
-    Blocking (it may ask tmux): the scratch gallery shares it."""
+    Blocking (it may ask tmux): the scratch gallery shares it. A Codex thread is in the pane
+    showing it even when no process holds it (another CODEX_HOME's app-server has exited)."""
     running = entry.get("running")
     pane = running and tmux.running_pane(running)
-    if running and not pane and entry.get("harness") == "codex":
-        pane = _codex_pane(watcher, entry["session_id"])
+    if not pane and entry.get("harness") == "codex":
+        pane = _codex_pane(watcher, entry)
     return pane or None
 
 
-def _codex_pane(watcher, thread_id: str) -> str | None:
-    """The one watched Codex pane whose status bar shows this thread's id. Codex's
-    app-server daemon, not the terminal client, holds a thread's rollout, so the process
-    that proves it's running names no pane; a status bar configured with `session-id`
-    shows the id as one of its segments. Only status chrome the parser validates
-    counts, in panes classified as Codex (a shell can print a captured footer). Names
-    aren't used: two live threads can share one."""
-    codex = {d["pane_id"] for d in watcher.digest() if d.get("tool") == "codex"}
-    # A copy: the watcher thread adds and drops panes while this runs.
-    panes = {pane_id for pane_id, hist in list(watcher.snapshots.items())
-             if hist and pane_id in codex
-             and thread_id in codex_status_segments(hist[-1]["text"] or "")}
+def _codex_pane(watcher, entry: dict) -> str | None:
+    """The one watched Codex pane showing this thread: its id on the status bar, else its
+    name in the pane's title or on the status bar. Codex's app-server daemon, not the
+    terminal client, holds a thread's rollout, so the process that proves it's running
+    names no pane; a status bar configured with `session-id` shows the id as a segment.
+    Only status chrome the parser validates counts, in panes classified as Codex (a shell
+    can print a captured footer). Two threads can share a name, so a name counts only while
+    no other thread in Codex's index has it; Codex titles the pane "<thread name> |
+    <project>", and a status bar with `thread-title` shows the name as a segment."""
+    codex = {d["pane_id"]: d.get("title") or "" for d in watcher.digest()
+             if d.get("tool") == "codex"}
+    panes = {p for p in codex if entry["session_id"] in codex_status_segments(_screen(watcher, p))}
+    if not panes and (name := _codex_name(entry)):  # on the status bar (thread-title) too
+        panes = {p for p, title in codex.items() if title.rpartition(" | ")[0] == name
+                 or name in codex_status_segments(_screen(watcher, p))}
     return panes.pop() if len(panes) == 1 else None
+
+
+def _screen(watcher, pane_id: str) -> str:
+    """The pane's last snapshot's text, "" for none ([] or gone: the watcher thread adds
+    and drops panes while this runs)."""
+    hist = watcher.snapshots.get(pane_id)
+    return (hist and hist[-1]["text"]) or ""
+
+
+def _codex_name(entry: dict) -> str | None:
+    """The thread's name in Codex's index (session_index.jsonl, beside the sessions dir its
+    rollout is in: the last line for an id wins, a rename), None when another thread has
+    it too."""
+    home, sep, _ = (entry.get("source") or "").rpartition("/sessions/")
+    try:
+        with open(os.path.join(home, "session_index.jsonl")) as index:
+            names = {r.get("id"): r.get("thread_name") for r in map(json.loads, index)}
+    except (OSError, ValueError, AttributeError):
+        return None
+    name = sep and names.get(entry["session_id"])
+    return name if name and list(names.values()).count(name) == 1 else None
 
 
 def _home_relative(path: str) -> str:
