@@ -425,16 +425,20 @@ def test_resume_card_says_which_session_past_its_title(history, monkeypatch):
                                      "last_active": "2026-09-05T15:29:22Z", "id": "live-1"}
 
 
-def test_codex_thread_is_found_by_its_name_in_the_pane_title(tmp_path):
+def test_codex_thread_is_found_by_its_name_in_the_pane_title(tmp_path, monkeypatch):
     # Without session-id on the status bar, Codex titles the pane "<thread name> | <project>":
-    # the name counts while it is the only thread in Codex's index with it, in one pane.
+    # the name counts while it is the only thread in Codex's index with it, in one pane on
+    # that index's CODEX_HOME (another home's thread can have the name too).
     (tmp_path / "session_index.jsonl").write_text("".join(json.dumps(r) + "\n" for r in (
         {"id": "t1", "thread_name": "Draft the plan"},
         {"id": "t1", "thread_name": "Pick an export format"},  # renamed: the last line wins
         {"id": "t2", "thread_name": "Draft the plan"},
         {"id": "t3", "thread_name": "Fix the build"},
         {"id": "t4", "thread_name": "Fix the build"})))
-    w = SimpleNamespace(snapshots={}, digest=lambda: [
+    monkeypatch.setattr(L.plan_usage, "pane_env", lambda pid, _tool: {
+        "CODEX_HOME": "/another/codex-home" if pid == "pid-9" else f"{tmp_path}/"})
+    w = SimpleNamespace(snapshots={}, pane_birth=lambda p: f"pid-{p[1:]}", digest=lambda: [
+        {"pane_id": "%9", "tool": "codex", "title": "Pick an export format | other"},
         {"pane_id": "%4", "tool": "codex", "title": "Pick an export format | proj"},
         {"pane_id": "%5", "tool": "codex", "title": "Fix the build | proj"},
         {"pane_id": "%6", "tool": "codex", "title": "Draft the plan | proj"},

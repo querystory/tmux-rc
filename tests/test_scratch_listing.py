@@ -482,7 +482,9 @@ def test_a_page_moved_to_a_pane_goes_there_while_that_pane_lives(tmp_path, monke
         with pytest.raises(ValueError):
             scratch.bind(root, name, pane, birth, states)
     assert not scratch.BINDINGS.exists()
+    seen = scratch.tag(scratch.items(root))
     scratch.bind(root, "plan", "%8", "41", states)
+    assert scratch.tag(scratch.items(root)) != seen  # an open gallery reloads to show it
     assert scratch.maker(root, "plan", states)["pane_id"] == "%8"
     assert scratch.maker(root, "other", states)["pane_id"] == "%6"  # only the page moved
     items, _ = _resolved(root, states)  # its card says so too

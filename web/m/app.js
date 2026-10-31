@@ -973,7 +973,7 @@ addEventListener("focus", loadPins); loadPins(); // another device's pin shows o
 // or the one the user moved the page to with the To chip. A Composer per pane, sent through
 // compose() like the pane's footer and a sidebar Reply.
 async function findMaker(href) {
-  viewerTo = null; paintViewerForm(); text($("viewer-status"), "");
+  viewerTo = moving = null; paintViewerForm(); text($("viewer-status"), "");
   const url = new URL(href), [, , folder, ...view] = url.pathname.split("/"); // the page and query it opened at
   const to = folder ? { ...await request(`/api/scratch/${folder}/pane`).catch(() => ({})), folder: decodeURIComponent(folder), view: view.join("/") + url.search + url.hash } : {};
   // Another page opened meanwhile, this one navigated, or it names no pane or no sendable folder.
@@ -986,14 +986,23 @@ function useMaker(to) {
   viewerTo = to; text($("viewer-prefix"), to.about); paintViewerForm(); // the line the server opens a send with
 }
 // The To chip: every open agent pane, named as the gallery's cards name them (scratch.where).
-// Picking one moves the page there, for every device, until that pane closes.
+// Picking one moves the page there, for every device, until that pane closes. Send waits for
+// the move (the chip names the pane it goes to till then), and only the latest pick lands, and
+// only on the visit it was made from.
+let moving = null;
 const paintMove = headerPicker($("viewer-move"));
 $("viewer-move-picker").ontoggle = (e) => e.target.querySelector(":checked")?.scrollIntoView({ block: "nearest" });
 const paneWhere = (p) => { const name = paneName(p); return name.startsWith(`${p.session}:`) ? name : `${p.session}:${name}`; };
 $("viewer-move").onchange = async () => {
   const p = panes.find((q) => viewerKey(q) === $("viewer-move").value), { folder } = viewerTo || {};
   if (!p || !folder) return;
-  try { useMaker({ ...viewerTo, ...await request(`/api/scratch/${encodeURIComponent(folder)}/pane`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pane: p.pane_id, birth: p.birth }) }) }); } catch (e) { text($("viewer-status"), `Could not move the page: ${e.detail || e.message}`); paintViewerForm(); }
+  const frame = viewer.querySelector("iframe"), move = moving = request(`/api/scratch/${encodeURIComponent(folder)}/pane`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pane: p.pane_id, birth: p.birth }) });
+  paintViewerForm();
+  let failed; const to = await move.catch((e) => { failed = e; });
+  if (moving !== move || !viewer.open || viewer.querySelector("iframe") !== frame || frame.loads > 1) return; // a later pick, or another visit
+  moving = null;
+  if (to) return useMaker({ ...viewerTo, ...to });
+  text($("viewer-status"), `Could not move the page: ${failed.detail || failed.message}`); paintViewerForm();
 };
 // The page as the user sees it goes with each send unless they take it off: the server draws it
 // (the sandboxed frame can't be read from here) at the frame's size (as last seen without the
@@ -1007,12 +1016,12 @@ const viewerShot = () => $("viewer-shot").getAttribute("aria-pressed") === "true
 const viewerKey = (p) => `${p.pane_id}@${p.birth}`; // a pane recycled under its id is another agent, with no draft
 const viewerPane = () => panes.find((p) => p.pane_id === viewerTo?.pane && p.birth === viewerTo.birth);
 // Why Send can't go now ("" when it can): the greyed look and what a tap on it says.
-const viewerWhy = (p) => sending ? "Still sending the last message…" : p.secret ? "This pane is asking for a password: open it to answer." : !viewerDrafts.get(viewerKey(p)).segments().length ? "Nothing to send yet." : "";
+const viewerWhy = (p) => moving ? "Moving the page to that pane…" : sending ? "Still sending the last message…" : p.secret ? "This pane is asking for a password: open it to answer." : !viewerDrafts.get(viewerKey(p)).segments().length ? "Nothing to send yet." : "";
 function paintViewerForm() {
   const p = $("scratch-viewer").open && viewerPane(), form = $("viewer-form"); // render() may run before `viewer` is defined
   form.hidden = !($("scratch-viewer").open && viewerTo); // not a page messages can go from
   if (form.hidden) return;
-  html($("viewer-move"), (p ? "" : '<option value="">Choose a pane</option>') + panes.filter((q) => AGENT_TOOLS.has(q.tool)).map((q) => `<option value="${esc(viewerKey(q))}">${esc(paneWhere(q))}</option>`).join(""));
+  html($("viewer-move"), (p ? "" : '<option value="">Choose a pane</option>') + panes.filter((q) => AGENT_TOOLS.has(q.tool) || q === p).map((q) => `<option value="${esc(viewerKey(q))}">${esc(paneWhere(q))}</option>`).join(""));
   $("viewer-move").value = p ? viewerKey(p) : ""; paintMove();
   $("viewer-to").hidden = !p; $("viewer-send").setAttribute("aria-disabled", String(!p));
   if (!p) return form.querySelector("#viewer-reply")?.remove(); // no pane found, or it has closed: the chip picks one

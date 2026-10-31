@@ -38,6 +38,7 @@ _MENTION = r"(scratch|SCRATCH_[A-Z_]+)/[^]/\"'\\<>()[{}`,;:*|?#[:space:]]+"
 _RETRY = 600
 _LOCK = threading.Lock()
 _ACT = threading.Lock()  # one Archive, Restore or Delete batch at a time
+_BIND = threading.Lock()  # one bind() read-merge-replace at a time
 _META = threading.Lock()  # one meta.json read-merge-replace at a time (authors, descriptions)
 _missed: dict[tuple, float] = {}  # when each (name, inode, update mark) was last not found
 _found: dict[tuple, str] = {}  # for a refusing meta.json, or a listing older than it
@@ -229,8 +230,9 @@ def bind(root: Path, name: str, pane: str, birth: str, states: list[dict]) -> No
         raise ValueError("a page is one folder of scratch")
     if not (birth and any(s.get("pane_id") == pane and s.get("birth") == birth for s in states)):
         raise ValueError("that pane has closed")
-    kept = {n: b for n, b in _load(BINDINGS, {}).items() if (root / n).is_dir()}
-    _save(BINDINGS, {**kept, name: {"pane": pane, "birth": birth}})
+    with _BIND:
+        kept = {n: b for n, b in _load(BINDINGS, {}).items() if (root / n).is_dir()}
+        _save(BINDINGS, {**kept, name: {"pane": pane, "birth": birth}})
 
 
 def _bound(states: list[dict]) -> dict:
@@ -334,11 +336,12 @@ def listing(root: Path, *, archived: bool = False) -> list[dict]:
 def tag(listed: list[dict]) -> str:
     """What the open gallery compares to see that it changed: a folder came, went or
     changed (its page too, say renamed to its index), its thumbnail, title or description
-    landed, an update began or ended, or (by the minute) a page in progress or being
-    updated may have stopped. In no particular order,
+    landed, an update began or ended, a page was moved to a pane (bind), or (by the minute)
+    a page in progress or being updated may have stopped. In no particular order,
     as the gallery sorts after listing."""
     return str(hash((*sorted((i["name"], i["href"], i["updated"], i["pending"], i["thumb"],
                               i["title"], i["description"], i["updating"]) for i in listed),
+                     json.dumps(_load(BINDINGS, {}), sort_keys=True),
                      any(i["pending"] or i["updating"] for i in listed)
                      and int(time.time() // 60))))
 
