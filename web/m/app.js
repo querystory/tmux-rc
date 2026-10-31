@@ -954,11 +954,13 @@ function paintPins(list) {
   html($("viewer-pin"), licon("pin", 16) + (on ? "Pinned" : "Pin"));
 }
 const loadPins = () => request("/api/pins").then(paintPins, () => {});
-// A scratch page's link in the app (a pin, a recent page, a pane's Links) opens in the viewer,
-// over Scratch as the gallery's own pages are: route() closes a viewer left anywhere else.
+// Every scratch page's link in the app (a pin, a recent page, a pane's Links, a card's ask) opens
+// in the viewer, over Scratch as the gallery's own pages are: route() closes a viewer left
+// anywhere else. Not the viewer's own way out to a tab, nor a click handled already (the
+// drawer's, which shuts first).
 const viewLink = (a) => { openPage("scratch"); viewScratch(a.href, a.title || a.firstChild.textContent); };
 const scratchLink = (a) => !!scratchUrl(a?.href, location.href);
-for (const id of ["sb-pins", "sb-recent", "links", "ask-link"]) $(id).addEventListener("click", (e) => { const a = e.target.closest("a"); if (scratchLink(a)) inApp(() => viewLink(a))(e); }); // a modified click opens a tab
+addEventListener("click", (e) => { const a = e.target.closest?.("a"); if (!e.defaultPrevented && a?.id !== "viewer-out" && scratchLink(a)) inApp(() => viewLink(a))(e); });
 // One save at a time: each reads the list the one before it wrote, so none drops another's pin.
 let pinSave = Promise.resolve();
 $("viewer-pin").onclick = () => {
