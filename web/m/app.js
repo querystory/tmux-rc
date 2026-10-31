@@ -1040,11 +1040,12 @@ $("viewer-form").onsubmit = async (event) => {
   const p = viewerPane(), why = p ? viewerWhy(p) : "Choose the pane to send to.";
   if (why) return text($("viewer-status"), why);
   // Where the page goes now: another device may have moved it since this visit asked.
-  const href = $("viewer-out").href, check = moving = request(`/api/scratch/${encodeURIComponent(viewerTo.folder)}/pane`).catch(() => null);
+  const href = $("viewer-out").href, to = viewerTo, check = moving = request(`/api/scratch/${encodeURIComponent(to.folder)}/pane`).catch(() => null);
   const now = await check;
-  if (moving !== check || !viewer.open || $("viewer-out").href !== href) return;
+  if (moving !== check || viewerTo !== to || !viewer.open) return; // a pick since, or another visit (findMaker and a navigation reset viewerTo)
   moving = null;
-  if (now && viewerKey({ pane_id: now.pane, birth: now.birth }) !== viewerKey(p)) { useMaker({ ...viewerTo, ...now }); return text($("viewer-status"), "This page was moved: check the To chip, then send again."); }
+  if (!now) return text($("viewer-status"), "Could not check where this page goes. Your message is kept: send again.");
+  if (viewerKey({ pane_id: now.pane, birth: now.birth }) !== viewerKey(p)) { useMaker({ ...viewerTo, ...now }); return text($("viewer-status"), "This page was moved: check the To chip, then send again."); }
   const value = viewerDrafts.get(viewerKey(p)), sent = await compose(p.pane_id, value, p.birth, { scratch: viewerTo.folder, ...viewerShot() && { shot: viewerShot(), view: viewerTo.view } });
   // Only on the visit it was sent from, and "Sent" not over a next draft typed meanwhile.
   if (viewer.open && $("viewer-out").href === href) text($("viewer-status"), !sent ? KEPT : value.segments().length ? "" : "Sent");
