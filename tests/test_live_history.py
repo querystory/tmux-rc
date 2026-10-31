@@ -451,8 +451,21 @@ def test_codex_thread_is_found_by_its_name_in_the_pane_title(tmp_path, monkeypat
     assert pane("t2") == "%6"  # its old name is t1's no more
     assert pane("t3") is None  # two threads share the name
     assert pane("t1", "/elsewhere/rollout-x.jsonl") is None  # no index found
-    # A pane the user named shows the name on its status bar, configured with thread-title.
+    # A pane the user named shows the name on its status bar, at thread-title's place in
+    # the configured order: never another segment (a branch can share it), and never on a
+    # bar showing another thread's id.
+    (tmp_path / "config.toml").write_text(
+        '[tui]\nstatus_line = ["model-with-reasoning", "current-dir", "thread-title"]\n')
     w.digest = lambda: [{"pane_id": "%4", "tool": "codex", "title": "my pane"}]
-    w.snapshots = {"%4": [{"id": "s", "ts": 1.0, "text":
-                           "output\n\n› \n\n  gpt-6 medium · /repo · Pick an export format"}]}
+
+    def bar(*segments):
+        w.snapshots = {"%4": [{"id": "s", "ts": 1.0,
+                               "text": "output\n\n› \n\n  " + " · ".join(segments)}]}
+    bar("gpt-6 medium", "/repo", "Pick an export format")
     assert pane("t1") == "%4"
+    bar("gpt-6 medium", "Pick an export format", "Something else")
+    assert pane("t1") is None
+    (tmp_path / "config.toml").write_text('[tui]\nstatus_line = ["model-with-reasoning", '
+                                          '"session-id", "thread-title"]\n')
+    bar("gpt-6 medium", "0000aaaa-0000-7000-8000-000000000009", "Pick an export format")
+    assert pane("t1") is None

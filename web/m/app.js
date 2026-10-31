@@ -989,14 +989,14 @@ function useMaker(to) {
 // Picking one moves the page there, for every device, until that pane closes. Send waits for
 // the move (the chip names the pane it goes to till then), and only the latest pick lands, and
 // only on the visit it was made from.
-let moving = null;
+let moving = null, moveSave = Promise.resolve(); // saved in the order picked, as pins are
 const paintMove = headerPicker($("viewer-move"));
 $("viewer-move-picker").ontoggle = (e) => e.target.querySelector(":checked")?.scrollIntoView({ block: "nearest" });
 const paneWhere = (p) => { const name = paneName(p); return name.startsWith(`${p.session}:`) ? name : `${p.session}:${name}`; };
 $("viewer-move").onchange = async () => {
   const p = panes.find((q) => viewerKey(q) === $("viewer-move").value), { folder } = viewerTo || {};
   if (!p || !folder) return;
-  const frame = viewer.querySelector("iframe"), move = moving = request(`/api/scratch/${encodeURIComponent(folder)}/pane`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pane: p.pane_id, birth: p.birth }) });
+  const frame = viewer.querySelector("iframe"), move = moving = moveSave = moveSave.catch(() => {}).then(() => request(`/api/scratch/${encodeURIComponent(folder)}/pane`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pane: p.pane_id, birth: p.birth }) }));
   paintViewerForm();
   let failed; const to = await move.catch((e) => { failed = e; });
   if (moving !== move || !viewer.open || viewer.querySelector("iframe") !== frame || frame.loads > 1) return; // a later pick, or another visit
@@ -1016,7 +1016,7 @@ const viewerShot = () => $("viewer-shot").getAttribute("aria-pressed") === "true
 const viewerKey = (p) => `${p.pane_id}@${p.birth}`; // a pane recycled under its id is another agent, with no draft
 const viewerPane = () => panes.find((p) => p.pane_id === viewerTo?.pane && p.birth === viewerTo.birth);
 // Why Send can't go now ("" when it can): the greyed look and what a tap on it says.
-const viewerWhy = (p) => moving ? "Moving the page to that pane…" : sending ? "Still sending the last message…" : p.secret ? "This pane is asking for a password: open it to answer." : !viewerDrafts.get(viewerKey(p)).segments().length ? "Nothing to send yet." : "";
+const viewerWhy = (p) => moving ? "Checking where this page goes…" : sending ? "Still sending the last message…" : p.secret ? "This pane is asking for a password: open it to answer." : !viewerDrafts.get(viewerKey(p)).segments().length ? "Nothing to send yet." : "";
 function paintViewerForm() {
   const p = $("scratch-viewer").open && viewerPane(), form = $("viewer-form"); // render() may run before `viewer` is defined
   form.hidden = !($("scratch-viewer").open && viewerTo); // not a page messages can go from
@@ -1039,7 +1039,13 @@ $("viewer-form").onsubmit = async (event) => {
   event.preventDefault();
   const p = viewerPane(), why = p ? viewerWhy(p) : "Choose the pane to send to.";
   if (why) return text($("viewer-status"), why);
-  const value = viewerDrafts.get(viewerKey(p)), href = $("viewer-out").href, sent = await compose(p.pane_id, value, p.birth, { scratch: viewerTo.folder, ...viewerShot() && { shot: viewerShot(), view: viewerTo.view } });
+  // Where the page goes now: another device may have moved it since this visit asked.
+  const href = $("viewer-out").href, check = moving = request(`/api/scratch/${encodeURIComponent(viewerTo.folder)}/pane`).catch(() => null);
+  const now = await check;
+  if (moving !== check || !viewer.open || $("viewer-out").href !== href) return;
+  moving = null;
+  if (now && viewerKey({ pane_id: now.pane, birth: now.birth }) !== viewerKey(p)) { useMaker({ ...viewerTo, ...now }); return text($("viewer-status"), "This page was moved: check the To chip, then send again."); }
+  const value = viewerDrafts.get(viewerKey(p)), sent = await compose(p.pane_id, value, p.birth, { scratch: viewerTo.folder, ...viewerShot() && { shot: viewerShot(), view: viewerTo.view } });
   // Only on the visit it was sent from, and "Sent" not over a next draft typed meanwhile.
   if (viewer.open && $("viewer-out").href === href) text($("viewer-status"), !sent ? KEPT : value.segments().length ? "" : "Sent");
 };
