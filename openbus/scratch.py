@@ -38,6 +38,7 @@ _MENTION = r"(scratch|SCRATCH_[A-Z_]+)/[^]/\"'\\<>()[{}`,;:*|?#[:space:]]+"
 _RETRY = 600
 _LOCK = threading.Lock()
 _ACT = threading.Lock()  # one Archive, Restore or Delete batch at a time
+_BIND = threading.Lock()  # one bind() read-merge-replace at a time
 _META = threading.Lock()  # one meta.json read-merge-replace at a time (authors, descriptions)
 _missed: dict[tuple, float] = {}  # when each (name, inode, update mark) was last not found
 _found: dict[tuple, str] = {}  # for a refusing meta.json, or a listing older than it
@@ -57,6 +58,7 @@ SIDECARS = ("meta.json", "thumb.webp")  # what tmux-rc and agents add beside a p
 # What every /scratch/ response is served under (see server.py's no_cache middleware).
 SANDBOX = "sandbox allow-scripts allow-popups; form-action 'none'; connect-src 'none'"
 PINS = 6  # pages pinned to the app's menu, at most: the sidebar's nav can't overflow
+BINDINGS: Path | None = None  # where bind() keeps the panes pages were moved to (server sets it)
 
 
 def inside(path: Path, root: Path) -> bool:
@@ -189,12 +191,7 @@ def folder_name(name: object) -> bool:
 def pinned(root: Path, store: Path) -> list[dict]:
     """The folders pinned to the app's menu, in order, while still in scratch: one deleted
     or archived (moved out) drops out here, and from `store` at the next pin or unpin."""
-    try:
-        names = json.loads(store.read_text())
-    except (OSError, ValueError):
-        names = []
-    found = (read(root, root / n) for n in names if folder_name(n)) if isinstance(
-        names, list) else ()
+    found = (read(root, root / n) for n in _load(store, []) if folder_name(n))
     return [{k: i[k] for k in ("name", "title", "icon", "href")} for i in found if i]
 
 
@@ -205,11 +202,44 @@ def pin(root: Path, store: Path, names: list[str]) -> list[dict]:
         raise ValueError(f"at most {PINS} pins, each once")
     if not all(folder_name(n) and read(root, root / n) for n in names):
         raise ValueError("a pin is one folder of scratch")
+    _save(store, names)
+    return pinned(root, store)
+
+
+def _load(store: Path | None, empty: list | dict) -> list | dict:
+    """What a store of tmux-rc's state holds, `empty` for none, or one unreadable or mistyped."""
+    try:
+        data = json.loads(store.read_text()) if store else empty
+    except (OSError, ValueError):
+        return empty
+    return data if isinstance(data, type(empty)) else empty
+
+
+def _save(store: Path, data: list | dict) -> None:
     store.parent.mkdir(parents=True, exist_ok=True)
     tmp = store.with_suffix(f".{threading.get_ident()}.tmp")  # each request its own
-    tmp.write_text(json.dumps(names))
+    tmp.write_text(json.dumps(data))
     tmp.replace(store)
-    return pinned(root, store)
+
+
+def bind(root: Path, name: str, pane: str, birth: str, states: list[dict]) -> None:
+    """Send what the scratch viewer says of folder `name` to this open pane, the one with
+    this birth (not another under a recycled id), whoever made it: the user moved it. Kept in
+    tmux-rc's state, not meta.json, which the page's agents rewrite."""
+    if not (folder_name(name) and read(root, root / name)):
+        raise ValueError("a page is one folder of scratch")
+    if not (birth and any(s.get("pane_id") == pane and s.get("birth") == birth for s in states)):
+        raise ValueError("that pane has closed")
+    with _BIND:
+        kept = {n: b for n, b in _load(BINDINGS, {}).items() if (root / n).is_dir()}
+        _save(BINDINGS, {**kept, name: {"pane": pane, "birth": birth}})
+
+
+def _bound(states: list[dict]) -> dict:
+    """{folder: pane} of the folders bind() moved to a pane that is still that one."""
+    live = {(s.get("pane_id"), s.get("birth")) for s in states if s.get("birth")}
+    return {n: b["pane"] for n, b in _load(BINDINGS, {}).items()
+            if isinstance(b, dict) and (b.get("pane"), b.get("birth")) in live}
 
 
 def archive(root: Path) -> Path:
@@ -306,11 +336,12 @@ def listing(root: Path, *, archived: bool = False) -> list[dict]:
 def tag(listed: list[dict]) -> str:
     """What the open gallery compares to see that it changed: a folder came, went or
     changed (its page too, say renamed to its index), its thumbnail, title or description
-    landed, an update began or ended, or (by the minute) a page in progress or being
-    updated may have stopped. In no particular order,
+    landed, an update began or ended, a page was moved to a pane (bind), or (by the minute)
+    a page in progress or being updated may have stopped. In no particular order,
     as the gallery sorts after listing."""
     return str(hash((*sorted((i["name"], i["href"], i["updated"], i["pending"], i["thumb"],
                               i["title"], i["description"], i["updating"]) for i in listed),
+                     json.dumps(_load(BINDINGS, {}), sort_keys=True),
                      any(i["pending"] or i["updating"] for i in listed)
                      and int(time.time() // 60))))
 
@@ -348,12 +379,15 @@ def named(root: Path, name: str) -> dict | None:
     return read(root, root / name) if name and Path(name).name == name else None
 
 
-def maker(root: Path, name: str, states: list[dict]) -> dict | None:
-    """The pane (its state) folder `name`'s meta.json says made it, while that very pane is
-    still open (never another under a recycled id): where the scratch viewer's composer sends."""
+def maker(root: Path, name: str, states: list[dict],
+          pane_of=lambda _entry: None) -> dict | None:
+    """The open pane (its state) where the scratch viewer's composer sends for folder `name`:
+    the one it was moved to, else its maker as the gallery finds it (resolve), only where
+    that is sure, never a Codex meta.json's pane that no transcript confirms."""
     if not (item := named(root, name)):
         return None
-    return _progress([item], states).get(item["pane"])
+    panes = resolve([item], states, [], pane_of)
+    return panes.get(item["pane"]) if item["sure"] else None
 
 
 def about(root: Path, name: str) -> str | None:
@@ -495,10 +529,11 @@ def _progress(listed: list[dict], states: list[dict]) -> dict:
 
 
 def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
-            pane_of=lambda _entry: None) -> None:
+            pane_of=lambda _entry: None) -> dict:
     """Who made each item: `who` (agent and account), `where` (session:pane name, or the
-    agent session's title), `pane` when that pane is still open, and `state` (progress),
-    which only a pending one shows."""
+    agent session's title), `pane` when that pane is still open (the one it was moved to,
+    bind), whether that pane is `sure`, and `state` (progress), which only a pending one
+    shows. Returns the panes by id."""
     panes = _progress(listed, states)
     # Codex runs every session's tool calls through one app-server daemon, forked by the
     # first Codex pane with its TMUX_PANE, so a meta.json Codex wrote names that pane
@@ -512,6 +547,7 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
     open_in = {sid: pane_of(e) for sid, e in running.items()}  # asks tmux: once a session
     if missing := [sid for sid in ids if sid not in running]:  # no binary, or a subagent
         running = {**agent_history.indexed(missing), **running}  # the index still says who
+    bound = _bound(states)
     for i in listed:
         s = running.get(i["session_id"]) or {} if i["pane"] not in sure else {}
         # The writer's pane, if open; else the pane named, which stands when nobody can say
@@ -520,6 +556,9 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
         # found but gone from every pane has stopped, however recent the folder; one alive
         # that no pane shows (Codex without `session-id` in its status bar) works on by time.
         at = i["pane"] if s.get("running_unknown") else open_in.get(s.get("session_id"), i["pane"])
+        i["sure"] = i["pane"] in sure or (bool(at) and at == open_in.get(s.get("session_id")))
+        if moved := bound.get(i["name"]):
+            at, i["sure"] = moved, True
         if at != i["pane"]:
             named = at or (None if s.get("running") else i["pane"])
             i["pane"], i["state"] = at, progress(panes.get(at), named, i["since"])
@@ -534,6 +573,7 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
         i["pane"] = None
         _author(i, s.get("harness"), acct)
         i["where"] = s.get("title") or ""
+    return panes
 
 
 def made_by(root: Path, pane: str, *who) -> list[dict]:

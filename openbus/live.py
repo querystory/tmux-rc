@@ -26,13 +26,19 @@ import time
 import unicodedata
 import uuid
 from collections import deque
+from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from . import accounts, agent_history, live_providers, llm, push, telemetry, tmux
+from . import accounts, agent_history, live_providers, llm, plan_usage, push, telemetry, tmux
 from .classify import _host_tool, _load_prompt
-from .expunge import codex_status_segments
+from .expunge import (
+    codex_status_item,
+    codex_status_line,
+    codex_status_segments,
+    codex_thread_shown,
+)
 from .live_chat import TURNS_KEPT, TURNS_QUEUED
 from .live_providers import KEYS, LiveModel
 
@@ -1017,27 +1023,65 @@ _resumed: dict[str, tuple[str, str, dict]] = {}  # session id -> (pane id, pid, 
 
 def running_pane(entry: dict, watcher) -> str | None:
     """The pane a running agent-history session is in, in THIS tmux server, or None.
-    Blocking (it may ask tmux): the scratch gallery shares it."""
+    Blocking (it may ask tmux): the scratch gallery shares it. A Codex thread is in the pane
+    showing it even when no process holds it (another CODEX_HOME's app-server has exited)."""
     running = entry.get("running")
     pane = running and tmux.running_pane(running)
-    if running and not pane and entry.get("harness") == "codex":
-        pane = _codex_pane(watcher, entry["session_id"])
+    if not pane and entry.get("harness") == "codex":
+        pane = _codex_pane(watcher, entry)
     return pane or None
 
 
-def _codex_pane(watcher, thread_id: str) -> str | None:
-    """The one watched Codex pane whose status bar shows this thread's id. Codex's
-    app-server daemon, not the terminal client, holds a thread's rollout, so the process
-    that proves it's running names no pane; a status bar configured with `session-id`
-    shows the id as one of its segments. Only status chrome the parser validates
-    counts, in panes classified as Codex (a shell can print a captured footer). Names
-    aren't used: two live threads can share one."""
-    codex = {d["pane_id"] for d in watcher.digest() if d.get("tool") == "codex"}
-    # A copy: the watcher thread adds and drops panes while this runs.
-    panes = {pane_id for pane_id, hist in list(watcher.snapshots.items())
-             if hist and pane_id in codex
-             and thread_id in codex_status_segments(hist[-1]["text"] or "")}
+def _codex_pane(watcher, entry: dict) -> str | None:
+    """The one watched Codex pane showing this thread: its id on the status bar, else its
+    name in the pane's title or on the status bar. Codex's app-server daemon, not the
+    terminal client, holds a thread's rollout, so the process that proves it's running
+    names no pane; a status bar configured with `session-id` shows the id as a segment.
+    Only status chrome the parser validates counts, in panes classified as Codex (a shell
+    can print a captured footer). Two threads can share a name, so a name counts only while
+    no other thread in Codex's index has it, and only in a pane on that index's CODEX_HOME;
+    Codex titles the pane "<thread name> | <project>", and a status bar configured with
+    `thread-title` shows it at that item's place (never another segment: a branch can be
+    "main" too), unless the bar shows another thread's id."""
+    codex = {d["pane_id"]: d.get("title") or "" for d in watcher.digest()
+             if d.get("tool") == "codex"}
+    panes = {p for p in codex if entry["session_id"] in codex_status_segments(_screen(watcher, p))}
+    if not panes and (named := _codex_name(entry)):
+        home, name = named
+        shown = codex_status_line(home)
+
+        def shows(p: str, title: str) -> bool:
+            screen = _screen(watcher, p)
+            if codex_thread_shown(shown, screen) not in (None, entry["session_id"]):
+                return False  # its status bar names another thread
+            return name in (title.rpartition(" | ")[0],
+                            codex_status_item(shown, screen, "thread-title"))
+        panes = {p for p, title in codex.items() if shows(p, title)
+                 and (pid := watcher.pane_birth(p))
+                 and plan_usage.home("codex", plan_usage.pane_env(pid, "codex")) == home}
     return panes.pop() if len(panes) == 1 else None
+
+
+def _screen(watcher, pane_id: str) -> str:
+    """The pane's last snapshot's text, "" for none ([] or gone: the watcher thread adds
+    and drops panes while this runs)."""
+    hist = watcher.snapshots.get(pane_id)
+    return (hist and hist[-1]["text"]) or ""
+
+
+def _codex_name(entry: dict) -> tuple[Path, str] | None:
+    """The CODEX_HOME the thread's rollout is in, and the thread's name in its index
+    (session_index.jsonl, beside the sessions dir: the last line for an id wins, a rename),
+    None when another thread there has it too."""
+    home, sep, _ = (entry.get("source") or "").rpartition("/sessions/")
+    try:
+        with open(os.path.join(home, "session_index.jsonl")) as index:
+            names = {r.get("id"): r.get("thread_name") for r in map(json.loads, index)}
+    except (OSError, ValueError, AttributeError):
+        return None
+    name = sep and names.get(entry["session_id"])
+    unique = name and list(names.values()).count(name) == 1
+    return (Path(plan_usage.canonical(home)), name) if unique else None
 
 
 def _home_relative(path: str) -> str:

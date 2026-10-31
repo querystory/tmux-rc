@@ -6,7 +6,7 @@ import { Composer, bindAttach, enterSubmits, sendBlock, block } from "/m/compose
 import { answerBody, pickCursorRow, STALE, UNTAKEN } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { linkGroups, askLink } from "/pr-links.js";
-import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf, tabTitle, tabIconKey, isRunning, sendIntent } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, AGENT_TOOLS, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf, tabTitle, tabIconKey, isRunning, sendIntent } from "/m/pane-model.js";
 import { tabIcon } from "/tab-icon.js";
 import { parseHash, formatHash, historyMode, PAGES, scratchUrl } from "/m/url-state.js";
 import "/long-press.js"; // globalThis.longPress: a classic script, so the scratch gallery shares it
@@ -969,18 +969,41 @@ $("viewer-pin").onclick = () => {
 };
 addEventListener("focus", loadPins); loadPins(); // another device's pin shows once this one is back
 // The agent that made the page is messaged from the viewer's own footer, never from the
-// sandboxed page: the open pane its meta.json names (scratch.maker), that incarnation only.
-// A Composer per pane, sent through compose() like the pane's footer and a sidebar Reply.
+// sandboxed page: its open pane as the server finds it (scratch.maker), that incarnation only,
+// or the one the user moved the page to with the To chip. A Composer per pane, sent through
+// compose() like the pane's footer and a sidebar Reply.
 async function findMaker(href) {
-  viewerTo = null; paintViewerForm(); text($("viewer-status"), "");
+  viewerTo = moving = null; paintViewerForm(); text($("viewer-status"), "");
   const url = new URL(href), [, , folder, ...view] = url.pathname.split("/"); // the page and query it opened at
   const to = folder ? { ...await request(`/api/scratch/${folder}/pane`).catch(() => ({})), folder: decodeURIComponent(folder), view: view.join("/") + url.search + url.hash } : {};
   // Another page opened meanwhile, this one navigated, or it names no pane or no sendable folder.
-  if (!viewer.open || $("viewer-out").href !== href || viewer.querySelector("iframe")?.loads > 1 || !to.pane || !to.about) return;
-  const key = viewerKey({ pane_id: to.pane, birth: to.birth });
-  if (!viewerDrafts.has(key)) viewerDrafts.set(key, new Composer(() => { text($("viewer-status"), ""); paintViewerForm(); }, (m) => text($("viewer-status"), m), { id: "viewer-reply" }));
-  viewerTo = to; text($("viewer-prefix"), to.about); shotChip(true); paintViewerForm(); // the line the server opens a send with
+  if (!viewer.open || $("viewer-out").href !== href || viewer.querySelector("iframe")?.loads > 1 || !to.about) return;
+  shotChip(true); useMaker(to);
 }
+function useMaker(to) {
+  const key = viewerKey({ pane_id: to.pane, birth: to.birth });
+  if (to.pane && !viewerDrafts.has(key)) viewerDrafts.set(key, new Composer(() => { text($("viewer-status"), ""); paintViewerForm(); }, (m) => text($("viewer-status"), m), { id: "viewer-reply" }));
+  viewerTo = to; text($("viewer-prefix"), to.about); paintViewerForm(); // the line the server opens a send with
+}
+// The To chip: every open agent pane, named as the gallery's cards name them (scratch.where).
+// Picking one moves the page there, for every device, until that pane closes. Send waits for
+// the move (the chip names the pane it goes to till then), and only the latest pick lands, and
+// only on the visit it was made from.
+let moving = null, moveSave = Promise.resolve(); // saved in the order picked, as pins are
+const paintMove = headerPicker($("viewer-move"));
+$("viewer-move-picker").ontoggle = (e) => e.target.querySelector(":checked")?.scrollIntoView({ block: "nearest" });
+const paneWhere = (p) => { const name = paneName(p); return name.startsWith(`${p.session}:`) ? name : `${p.session}:${name}`; };
+$("viewer-move").onchange = async () => {
+  const p = panes.find((q) => viewerKey(q) === $("viewer-move").value), { folder } = viewerTo || {};
+  if (!p || !folder) return;
+  const frame = viewer.querySelector("iframe"), move = moving = moveSave = moveSave.catch(() => {}).then(() => request(`/api/scratch/${encodeURIComponent(folder)}/pane`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pane: p.pane_id, birth: p.birth }) }));
+  paintViewerForm();
+  let failed; const to = await move.catch((e) => { failed = e; });
+  if (moving !== move || !viewer.open || viewer.querySelector("iframe") !== frame || frame.loads > 1) return; // a later pick, or another visit
+  moving = null;
+  if (to) return useMaker({ ...viewerTo, ...to });
+  text($("viewer-status"), `Could not move the page: ${failed.detail || failed.message}`); paintViewerForm();
+};
 // The page as the user sees it goes with each send unless they take it off: the server draws it
 // (the sandboxed frame can't be read from here) at the frame's size (as last seen without the
 // keyboard, which shrinks it) for its width, whole, at the screen's pixel ratio, and the
@@ -993,16 +1016,19 @@ const viewerShot = () => $("viewer-shot").getAttribute("aria-pressed") === "true
 const viewerKey = (p) => `${p.pane_id}@${p.birth}`; // a pane recycled under its id is another agent, with no draft
 const viewerPane = () => panes.find((p) => p.pane_id === viewerTo?.pane && p.birth === viewerTo.birth);
 // Why Send can't go now ("" when it can): the greyed look and what a tap on it says.
-const viewerWhy = (p) => sending ? "Still sending the last message…" : p.secret ? "This pane is asking for a password: open it to answer." : !viewerDrafts.get(viewerKey(p)).segments().length ? "Nothing to send yet." : "";
+const viewerWhy = (p) => moving ? "Checking where this page goes…" : sending ? "Still sending the last message…" : p.secret ? "This pane is asking for a password: open it to answer." : !viewerDrafts.get(viewerKey(p)).segments().length ? "Nothing to send yet." : "";
 function paintViewerForm() {
   const p = $("scratch-viewer").open && viewerPane(), form = $("viewer-form"); // render() may run before `viewer` is defined
-  form.hidden = !p; // no pane named, or it has closed
-  if (!p) return;
+  form.hidden = !($("scratch-viewer").open && viewerTo); // not a page messages can go from
+  if (form.hidden) return;
+  html($("viewer-move"), (p ? "" : '<option value="">Choose a pane</option>') + panes.filter((q) => AGENT_TOOLS.has(q.tool) || q === p).map((q) => `<option value="${esc(viewerKey(q))}">${esc(paneWhere(q))}</option>`).join(""));
+  $("viewer-move").value = p ? viewerKey(p) : ""; paintMove();
+  $("viewer-to").hidden = !p; $("viewer-send").setAttribute("aria-disabled", String(!p));
+  if (!p) return form.querySelector("#viewer-reply")?.remove(); // no pane found, or it has closed: the chip picks one
   const { editor } = viewerDrafts.get(viewerKey(p)), frame = $("scratch-viewer").querySelector("iframe");
   if (!form.contains(editor)) { form.querySelector("#viewer-reply")?.remove(); $("viewer-send").before(editor); }
-  const to = `Message ${p.session}:${p.window_index} (${paneName(p)})`;
-  editor.dataset.placeholder = "Message…"; editor.setAttribute("aria-label", to); // the link above names it
-  text($("viewer-to"), to); $("viewer-to").href = "#" + formatHash({ pane: p.pane_id }); // the pane it goes to, a tap away
+  editor.dataset.placeholder = "Message…"; editor.setAttribute("aria-label", `Message ${paneWhere(p)}`); // the chip above names it
+  $("viewer-to").href = "#" + formatHash({ pane: p.pane_id }); // the pane it goes to, a tap away
   editor.contentEditable = String(!p.secret); // a password goes in the pane's own field, never here
   $("viewer-send").setAttribute("aria-disabled", String(!!viewerWhy(p)));
   // Last, so the size is the frame's beside the finished box (read now, it lays out).
@@ -1011,9 +1037,16 @@ function paintViewerForm() {
 $("viewer-to").onclick = (event) => { event.preventDefault(); navigate(viewerTo.pane); }; // leaving Scratch closes the viewer (route)
 $("viewer-form").onsubmit = async (event) => {
   event.preventDefault();
-  const p = viewerPane(), why = p ? viewerWhy(p) : "This pane has closed.";
+  const p = viewerPane(), why = p ? viewerWhy(p) : "Choose the pane to send to.";
   if (why) return text($("viewer-status"), why);
-  const value = viewerDrafts.get(viewerKey(p)), href = $("viewer-out").href, sent = await compose(p.pane_id, value, p.birth, { scratch: viewerTo.folder, ...viewerShot() && { shot: viewerShot(), view: viewerTo.view } });
+  // Where the page goes now: another device may have moved it since this visit asked.
+  const href = $("viewer-out").href, to = viewerTo, check = moving = request(`/api/scratch/${encodeURIComponent(to.folder)}/pane`).catch(() => null);
+  const now = await check;
+  if (moving !== check || viewerTo !== to || !viewer.open) return; // a pick since, or another visit (findMaker and a navigation reset viewerTo)
+  moving = null;
+  if (!now) return text($("viewer-status"), "Could not check where this page goes. Your message is kept: send again.");
+  if (viewerKey({ pane_id: now.pane, birth: now.birth }) !== viewerKey(p)) { useMaker({ ...viewerTo, ...now }); return text($("viewer-status"), "This page was moved: check the To chip, then send again."); }
+  const value = viewerDrafts.get(viewerKey(p)), sent = await compose(p.pane_id, value, p.birth, { scratch: viewerTo.folder, ...viewerShot() && { shot: viewerShot(), view: viewerTo.view } });
   // Only on the visit it was sent from, and "Sent" not over a next draft typed meanwhile.
   if (viewer.open && $("viewer-out").href === href) text($("viewer-status"), !sent ? KEPT : value.segments().length ? "" : "Sent");
 };

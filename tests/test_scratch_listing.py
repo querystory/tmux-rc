@@ -4,6 +4,7 @@ says made each folder."""
 import json
 import os
 import re
+import shutil
 import time
 from html import unescape
 
@@ -438,14 +439,65 @@ def test_dot_dot_is_not_inside(tmp_path):
     assert scratch.inside(tmp_path / "x", tmp_path)
 
 
-def test_the_maker_is_its_meta_pane_only_while_that_pane_is_open(tmp_path):
+def test_the_maker_is_its_meta_pane_only_while_that_pane_is_open(tmp_path, monkeypatch):
+    monkeypatch.setattr(agent_history, "writers", lambda *_: {})
     _folder(tmp_path, "mine", 1000, {"pane": "%7"})
     _folder(tmp_path, "none", 1000)
-    live = [{"pane_id": "%7"}]
-    assert scratch.maker(tmp_path, "mine", live) == {"pane_id": "%7"}
+    live = [{"pane_id": "%7", "session": "s"}]
+    assert scratch.maker(tmp_path, "mine", live) == live[0]
     assert scratch.maker(tmp_path, "mine", []) is None  # closed
     assert scratch.maker(tmp_path, "mine", [{"pane_id": "%7", "birth": str(os.getpid())}]) is None
     assert [scratch.maker(tmp_path, n, live) for n in ("none", "gone", "..")] == [None] * 3
+
+
+def test_a_codex_page_goes_to_its_writer_never_to_the_pane_codex_stamped(tmp_path, monkeypatch):
+    # Every Codex session stamps the app-server daemon's pane (%6) into meta.json: the
+    # viewer sends to the writer the transcript finds, and to nobody while none is found.
+    found = {}
+    monkeypatch.setattr(agent_history, "writers",
+                        lambda _p, due: {n: found[n] for n in due if n in found})
+    monkeypatch.setattr(agent_history, "get_many", lambda ids: {
+        "t2": {"session_id": "t2", "harness": "codex", "running": {"thread": "t2"}}})
+    _folder(tmp_path, "plan", 1000, {"pane": "%6"})
+    states = [{"pane_id": p, "tool": "codex", "session": "s"} for p in ("%6", "%44")]
+    assert scratch.maker(tmp_path, "plan", states, lambda _e: "%44") is None
+    found["plan"] = {"session_id": "t2"}
+    scratch._missed.clear()
+    assert scratch.maker(tmp_path, "plan", states, lambda _e: "%44")["pane_id"] == "%44"
+    assert scratch.maker(tmp_path, "plan", states, lambda _e: None) is None  # in no pane
+
+
+def test_a_page_moved_to_a_pane_goes_there_while_that_pane_lives(tmp_path, monkeypatch):
+    monkeypatch.setattr(agent_history, "writers", lambda *_: {})
+    monkeypatch.setattr(scratch, "BINDINGS", tmp_path / "state" / "bindings.json")
+    root = tmp_path / "scratch"
+    root.mkdir()
+    _folder(root, "plan", 1000, {"pane": "%6"})
+    _folder(root, "other", 1000, {"pane": "%6"})
+    states = [{"pane_id": "%6", "session": "s", "tool": "claude", "window_name": "first"},
+              {"pane_id": "%8", "session": "s", "tool": "codex", "title": "Billing",
+               "birth": "41"}]
+    for name, pane, birth in (("..", "%8", "41"), ("nope", "%8", "41"), ("plan", "%8", "40"),
+                              ("plan", "%9", "41"), ("plan", "%8", "")):
+        with pytest.raises(ValueError):
+            scratch.bind(root, name, pane, birth, states)
+    assert not scratch.BINDINGS.exists()
+    seen = scratch.tag(scratch.items(root))
+    scratch.bind(root, "plan", "%8", "41", states)
+    assert scratch.tag(scratch.items(root)) != seen  # an open gallery reloads to show it
+    assert scratch.maker(root, "plan", states)["pane_id"] == "%8"
+    assert scratch.maker(root, "other", states)["pane_id"] == "%6"  # only the page moved
+    items, _ = _resolved(root, states)  # its card says so too
+    assert (items["plan"]["pane"], items["plan"]["where"]) == ("%8", "s:Billing")
+    # A new pane under the recycled id is another agent: back to the maker.
+    states[1]["birth"] = "42"
+    assert scratch.maker(root, "plan", states)["pane_id"] == "%6"
+    # A deleted folder's binding goes at the next move.
+    states[1]["birth"] = "41"
+    scratch.bind(root, "other", "%8", "41", states)
+    shutil.rmtree(root / "other")
+    scratch.bind(root, "plan", "%6", "41", [{**states[0], "birth": "41"}])
+    assert json.loads(scratch.BINDINGS.read_text()) == {"plan": {"pane": "%6", "birth": "41"}}
 
 
 def test_a_pane_keeps_its_sessions_pages_after_a_restore(tmp_path, monkeypatch):
