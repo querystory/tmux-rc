@@ -321,7 +321,8 @@ const hashFor = (id = null, nextView = "summary", acct = accounts.key()) => {
   return formatHash({ pane: id, view: nextView, dashboard: nextView === "dashboard" || !!nextPage, page: nextPage, filter, acct, agent: scope.tools, q: $("search").value });
 };
 // Such a link's plain click routes in place instead.
-const inApp = (go) => (e) => { if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; e.preventDefault(); go(); };
+const plainClick = (e) => !(e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey); // a modified click opens a tab
+const inApp = (go) => (e) => { if (!plainClick(e)) return; e.preventDefault(); go(); };
 // A pane's row (either layout's) or rail icon, as its link.
 const paneLink = (a, id) => { a.href = `#${hashFor(id)}`; a.onclick = inApp(() => navigate(id)); };
 // Every user-driven move goes through here: the URL is written first, then the view is
@@ -931,7 +932,7 @@ function viewScratch(href, title) {
   const frame = Object.assign(document.createElement("iframe"), { src: href, title, onload() {
     if (++this.loads > 1) { viewerTo = null; paintViewerForm(); } else this.sandbox = "allow-popups allow-popups-to-escape-sandbox";
   }, loads: 0 });
-  frame.addEventListener("load", tellScratch);
+  frame.addEventListener("load", tellScratch); frame.addEventListener("load", loadRecent); // the visit is in by its load
   $("viewer-form").before(frame);
   viewer.showModal(); viewer.focus(); paintPins(pins); loadPins(); findMaker(href); // cached now, then as stored: a slot freed meanwhile
 }
@@ -953,8 +954,13 @@ function paintPins(list) {
   html($("viewer-pin"), licon("pin", 16) + (on ? "Pinned" : "Pin"));
 }
 const loadPins = () => request("/api/pins").then(paintPins, () => {});
-// Over Scratch, as the gallery's own pages are: route() closes a viewer left anywhere else.
-$("sb-pins").onclick = (e) => { const a = e.target.closest("a"); if (a) inApp(() => { openPage("scratch"); viewScratch(a.href, a.title); })(e); }; // a modified click opens a tab
+// Every scratch page's link in the app (a pin, a recent page, a pane's Links, a card's ask) opens
+// in the viewer, over Scratch as the gallery's own pages are: route() closes a viewer left
+// anywhere else. Not the viewer's own way out to a tab, nor a click handled already (the
+// drawer's, which shuts first).
+const viewLink = (a) => { openPage("scratch"); viewScratch(a.href, a.title || a.firstChild.textContent); };
+const scratchLink = (a) => !!scratchUrl(a?.href, location.href);
+addEventListener("click", (e) => { const a = e.target.closest?.("a"); if (!e.defaultPrevented && a?.id !== "viewer-out" && scratchLink(a)) inApp(() => viewLink(a))(e); });
 // One save at a time: each reads the list the one before it wrote, so none drops another's pin.
 let pinSave = Promise.resolve();
 $("viewer-pin").onclick = () => {
@@ -967,7 +973,7 @@ $("viewer-pin").onclick = () => {
     } catch (e) { $("viewer-pin").title = `Could not save the pin: ${e.detail || e.message}`; }
   });
 };
-addEventListener("focus", loadPins); loadPins(); // another device's pin shows once this one is back
+for (const load of [loadPins, loadRecent]) { addEventListener("focus", load); load(); } // another device's pin, or a page opened there, shows once this one is back
 // The agent that made the page is messaged from the viewer's own footer, never from the
 // sandboxed page: the open pane its meta.json names (scratch.maker), that incarnation only.
 // A Composer per pane, sent through compose() like the pane's footer and a sidebar Reply.
@@ -2109,14 +2115,15 @@ $("menu-open").onclick = (e) => {
 };
 $("drawer").onclick = (e) => {
   keyed ||= !e.detail; const row = e.target.closest("button, a");
-  if (row || e.target === drawer) settle(false, () => row?.dataset.via ? $(row.dataset.via).click() : row?.dataset.pane && navigate(row.dataset.pane));
+  const page = scratchLink(row) && plainClick(e); if (page) e.preventDefault(); // the viewer opens it, once the drawer is shut
+  if (row || e.target === drawer) settle(false, () => row?.dataset.via ? $(row.dataset.via).click() : row?.dataset.pane ? navigate(row.dataset.pane) : page && viewLink(row));
 };
 $("drawer").addEventListener("cancel", (e) => { e.preventDefault(); keyed = true; settle(false); });
-// Below the places, what you opened last (GET /api/recent, read only as the drawer opens: a
-// closed drawer costs a poll nothing), each with when it was opened. The panes paint at once, as
+// Below the places, what you opened last (GET /api/recent, read as the drawer opens and as the
+// app or the viewer's page loads: never a poll), each with when it was opened. The panes paint at once, as
 // last read (before any visit, the list's most active, with their age), and again when the read
-// lands; scratch's pages then, beneath them, each opening in a tab of its own as the gallery's
-// cards do.
+// lands; scratch's pages then, beneath them and in the wide sidebar, each opening in the
+// viewer as the gallery's cards do.
 let opened = [];
 const recentList = (label, rows) => rows.length ? `<h2>${label}</h2>${rows.join("")}` : "";
 function paintRecent() {
@@ -2126,11 +2133,12 @@ function paintRecent() {
   html($("drawer-panes"), recentList("Recent", recent.map(([p, when]) => `<button type="button" data-pane="${esc(p.pane_id)}"><span class="pane-icon"><img alt=""></span><span>${esc(paneName(p))}</span><time>${when}</time></button>`)));
   $("drawer-panes").querySelectorAll("img:first-child").forEach((img, i) => markWorking(img, recent[i][0], LOGOS));
 }
-function openRecent() {
-  paintRecent(); loadPins();
+function openRecent() { paintRecent(); loadPins(); loadRecent(); }
+function loadRecent() {
   request("/api/recent").then((recent) => {
     opened = recent.panes; paintRecent();
-    html($("drawer-scratch"), recentList("Recent scratch", recent.scratch.map((s) => `<a href="/scratch/${esc(s.href)}" target="_blank">${s.pending ? '<span class="pane-icon pending"></span>' : licon("images")}<span>${esc(s.title)}</span><time>${since({ state_since: s.at })}</time></a>`)));
+    const rows = recentList("Recent scratch", recent.scratch.map((s) => `<a href="/scratch/${esc(s.href)}" title="${esc(s.title)}">${s.pending ? '<span class="pane-icon pending"></span>' : licon("images")}<span>${esc(s.title)}</span><time>${since({ state_since: s.at })}</time></a>`));
+    for (const id of ["drawer-scratch", "sb-recent"]) html($(id), rows);
   }, () => {});
 }
 // It tracks the finger, as Gmail's does: dragged sideways while open, or in from the list's left
@@ -2723,7 +2731,7 @@ function placeChrome() {
     if (!homes[id]) $(id).before(homes[id] = document.createComment(id));
     if (WIDE.matches) $(slot).append($(id)); else homes[id].after($(id));
   }
-  $("sb-sticky").before($("sb-nav"));
+  $("sb-sticky").before($("sb-nav"), $("sb-recent"));
   // The account filter (accounts.js) is a group in the filter menu in both layouts (a phone's
   // opens as a bottom sheet); the active filters' chips are placed by placePill().
   renderSidebar.picker.lastChild.append(accounts.filter, ...renderSidebar.views);
