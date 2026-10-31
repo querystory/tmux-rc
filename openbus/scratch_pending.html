@@ -34,14 +34,14 @@ if (document.body.className === "stopped") tab.href = tabIcon(icon, { state: "st
 else setInterval(() => { tab.href = tabIcon(icon, { frame: frame++ }); }, matchMedia("(prefers-reduced-motion: reduce)").matches ? 500 : 125);
 // A notification when the page lands, asked for on a tap (browsers ignore an unprompted ask), and
 // while hidden when its state changes (a pane gone idle, an agent stopped) or, once in 2 minutes
-// at most, what it is doing now. window.name keeps what the last load showed across reloads.
+// at most, what it is doing now: its Now line while working, else what its state means. window.name keeps what the last load showed across reloads.
 const notify = document.getElementById("notify");
 notify.hidden = window.Notification?.permission !== "default";
 notify.onclick = () => Notification.requestPermission().then((p) => { notify.outerHTML = `<p class="muted">${
   p === "granted" ? "You'll get a notification when it's ready." : "Notifications are blocked for this site."}</p>`; });
 const state = document.body.className, now = document.querySelector(".now")?.textContent || "";
 let [was = state, said = now, at = 0] = (() => { try { return [...JSON.parse(window.name)]; } catch { return []; } })();
-if ((state !== was || now !== said && Date.now() - at > 120000) && tell(document.title, now || document.querySelector("main > .muted").textContent)) at = Date.now();
+if ((state !== was || now !== said && Date.now() - at > 120000) && tell(document.title, state === "working" && now || document.querySelector("main > .muted").textContent)) at = Date.now();
 window.name = JSON.stringify([state, now, at]);
 // In the app's viewer, the pane opens in the app rather than a second app in this frame.
 if (window.top !== window) for (const a of document.querySelectorAll('a[href^="/m/#pane="]'))
