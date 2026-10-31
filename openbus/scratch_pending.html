@@ -41,7 +41,7 @@ notify.onclick = () => Notification.requestPermission().then((p) => { notify.out
   p === "granted" ? "You'll get a notification when it's ready." : "Notifications are blocked for this site."}</p>`; });
 const state = document.body.className, now = document.querySelector(".now")?.textContent || "";
 let [was = state, said = now, at = 0] = (() => { try { return [...JSON.parse(window.name)]; } catch { return []; } })();
-if ((state !== was || now !== said && Date.now() - at > 120000) && tell(document.title, document.querySelector("main > .muted").textContent + "\n" + now)) at = Date.now();
+if ((state !== was || now !== said && Date.now() - at > 120000) && tell(document.title, now || document.querySelector("main > .muted").textContent)) at = Date.now();
 window.name = JSON.stringify([state, now, at]);
 // In the app's viewer, the pane opens in the app rather than a second app in this frame.
 if (window.top !== window) for (const a of document.querySelectorAll('a[href^="/m/#pane="]'))
