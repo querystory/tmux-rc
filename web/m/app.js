@@ -321,7 +321,8 @@ const hashFor = (id = null, nextView = "summary", acct = accounts.key()) => {
   return formatHash({ pane: id, view: nextView, dashboard: nextView === "dashboard" || !!nextPage, page: nextPage, filter, acct, agent: scope.tools, q: $("search").value });
 };
 // Such a link's plain click routes in place instead.
-const inApp = (go) => (e) => { if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; e.preventDefault(); go(); };
+const plainClick = (e) => !(e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey); // a modified click opens a tab
+const inApp = (go) => (e) => { if (!plainClick(e)) return; e.preventDefault(); go(); };
 // A pane's row (either layout's) or rail icon, as its link.
 const paneLink = (a, id) => { a.href = `#${hashFor(id)}`; a.onclick = inApp(() => navigate(id)); };
 // Every user-driven move goes through here: the URL is written first, then the view is
@@ -2112,8 +2113,8 @@ $("menu-open").onclick = (e) => {
 };
 $("drawer").onclick = (e) => {
   keyed ||= !e.detail; const row = e.target.closest("button, a");
-  if (scratchLink(row)) e.preventDefault(); // the viewer opens it, once the drawer is shut
-  if (row || e.target === drawer) settle(false, () => row?.dataset.via ? $(row.dataset.via).click() : row?.dataset.pane ? navigate(row.dataset.pane) : scratchLink(row) && viewLink(row));
+  const page = scratchLink(row) && plainClick(e); if (page) e.preventDefault(); // the viewer opens it, once the drawer is shut
+  if (row || e.target === drawer) settle(false, () => row?.dataset.via ? $(row.dataset.via).click() : row?.dataset.pane ? navigate(row.dataset.pane) : page && viewLink(row));
 };
 $("drawer").addEventListener("cancel", (e) => { e.preventDefault(); keyed = true; settle(false); });
 // Below the places, what you opened last (GET /api/recent, read as the drawer opens and as the
