@@ -586,7 +586,7 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 #sb-nav { display: flex; flex-direction: column; padding: 0 6px 2px; flex: none; }
 /* Recent scratch pages are rows like them, the time at the end (the drawer's markup). */
 :is(#sb-nav .icon-button, #sb-recent a) { width: 100%; height: 32px; min-height: 32px; justify-content: flex-start; gap: 9px; padding: 0 10px 0 13px; border-radius: 7px; color: var(--fg); font-size: 13px; text-decoration: none; }
-:is(#sb-nav .icon-button, #sb-recent a) svg { width: 16px; height: 16px; color: var(--muted); }
+:is(#sb-nav .icon-button svg, #sb-recent :is(svg, .pane-icon)) { flex: none; width: 16px; height: 16px; color: var(--muted); }
 #sb-nav .icon-button::after { content: attr(aria-label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Pinned, then recent scratch pages: rows after a divider, none at all until there are some. */
 #sb-recent h2 { margin: 2px 13px; font-size: 12px; font-weight: 600; color: var(--muted); }
