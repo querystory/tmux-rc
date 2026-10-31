@@ -64,6 +64,12 @@ test("an open app is told which pane to open and focused, never navigated", asyn
   assert.deepEqual(opened, []);
 });
 
+test("a window already at the page (a scratch placeholder's own notification) is just focused", async () => {
+  const tab = fakeWindow("https://host/scratch/x/"), app = fakeWindow("https://host/m#pane=%251");
+  const opened = await tap("https://host/scratch/x/", [app, tab]);
+  assert.deepEqual([tab.focused, app.focused, app.posted, opened], [1, 0, [], []]);
+});
+
 test("a window that is not the app is navigated; a failure falls back to a new window", async () => {
   const docs = fakeWindow("https://host/docs/", { navigate: async () => { throw new TypeError("no"); } });
   const opened = await tap("/m#pane=%257", [docs]);

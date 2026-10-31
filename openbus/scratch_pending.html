@@ -10,7 +10,8 @@ a { color: var(--accent); }
 .muted { color: var(--muted); font-size: 14px; }
 .now { padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
 .spin { width: 28px; height: 28px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .9s linear infinite; }
-.stopped .spin { display: none; }
+.stopped .spin, .stopped #notify { display: none; }
+button { justify-self: start; padding: 6px 12px; font: inherit; font-size: 14px; color: var(--accent); background: none; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
 @keyframes spin { to { transform: rotate(1turn); } }
 @media (prefers-reduced-motion: reduce) { .spin { animation-duration: 4s; } }
 </style></head><body class="{state}"><main>
@@ -19,6 +20,7 @@ a { color: var(--accent); }
 <p class="muted">{say}</p>{now}
 <p class="muted">{who}{where} · started {ago} ago</p>
 <p class="muted" id="offline" hidden>Reconnecting…</p>
+<button id="notify" hidden>Notify me when it's ready</button>
 </main><script type="module">
 {draw}
 // Sandboxed like every /scratch/ page: the system theme. The ask that reloads it follows this script.
@@ -30,6 +32,17 @@ const tab = document.querySelector("link[rel=icon]"), icon = {icon};
 let frame = 0;
 if (document.body.className === "stopped") tab.href = tabIcon(icon, { state: "stopped" });
 else setInterval(() => { tab.href = tabIcon(icon, { frame: frame++ }); }, matchMedia("(prefers-reduced-motion: reduce)").matches ? 500 : 125);
+// A notification when the page lands, asked for on a tap (browsers ignore an unprompted ask), and
+// while hidden when its state changes (a pane gone idle, an agent stopped) or, once in 2 minutes
+// at most, what it is doing now: its Now line while working, else what its state means. window.name keeps what the last load showed across reloads.
+const notify = document.getElementById("notify");
+notify.hidden = window.Notification?.permission !== "default";
+notify.onclick = () => Notification.requestPermission().then((p) => { notify.outerHTML = `<p class="muted">${
+  p === "granted" ? "You'll get a notification when it's ready." : "Notifications are blocked for this site."}</p>`; });
+const state = document.body.className, now = document.querySelector(".now")?.textContent || "";
+let [was = state, said = now, at = 0] = (() => { try { return [...JSON.parse(window.name)]; } catch { return []; } })();
+if ((state !== was || now !== said && Date.now() - at > 120000) && tell(document.title, state === "working" && now || document.querySelector("main > .muted").textContent)) at = Date.now();
+window.name = JSON.stringify([state, now, at]);
 // In the app's viewer, the pane opens in the app rather than a second app in this frame.
 if (window.top !== window) for (const a of document.querySelectorAll('a[href^="/m/#pane="]'))
   a.onclick = (e) => { e.preventDefault(); parent.postMessage({ pane: decodeURIComponent(a.getAttribute("href").slice(9)) }, "*"); };

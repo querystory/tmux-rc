@@ -616,7 +616,8 @@ async def no_cache(request, call_next):
     # would still carry the front door's cookie. Resource loads stay open: a bundle needs
     # them, the API's GETs only read, and 'self' is unreliable in an opaque origin.
     if path.startswith(("/scratch/", "/docs/mocks/")):
-        resp.headers["Content-Security-Policy"] = scratch.SANDBOX
+        resp.headers["Content-Security-Policy"] = (
+            scratch.PLACEHOLDER if resp.headers.get("X-Scratch-Pending") else scratch.SANDBOX)
         # A browser opening a page from a folder of scratch, in a tab or the app's viewer (not
         # the gallery, a loose file, a thumbnail or an asset, nor an agent's curl checking its
         # page is served) is a visit, for the ☰ drawer's Recent.
@@ -2421,7 +2422,8 @@ if _scratch_dir:
         pending=lambda name: scratch.placeholder(Path(_scratch_dir), name, _who),
         updating=lambda name: scratch.bar(
             Path(_scratch_dir), name, list(app.state.watcher.states),
-            lambda entry: live.running_pane(entry, app.state.watcher))))
+            lambda entry: live.running_pane(entry, app.state.watcher)),
+        there=lambda name: scratch.found(Path(_scratch_dir), name) is not None))
 
 
 def _visited(kind: str, key: str) -> None:

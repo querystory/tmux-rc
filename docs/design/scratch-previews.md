@@ -125,6 +125,16 @@ or a no-cors fetch still delivers the request, with the front door's cookie. So
 or fetching remote data do not work. That is the right trade for a review tool; such pages
 have a documented escape hatch.
 
+The in-progress placeholder is the one page under `/scratch/` that keeps its origin
+(`allow-same-origin`). Browsers never grant notification permission to an opaque origin,
+and the placeholder's whole job is to tell a waiting tab the page landed. That is safe
+because the daemon writes the placeholder itself, escaping everything an agent supplies
+(title, description, the pane's status), and it is served only while the folder has no
+page. The agent's own page replaces it, back in the sandbox. Two alternatives were
+rejected. Notifying from the app would need the app open, and a browser tab is the case
+being served. Pushing to the tab would mean subscribing every placeholder visitor to Web
+Push, which needs a service worker on that page.
+
 Resource loads (`<img>`, `<script src>`) are deliberately left open: a bundle loads its own
 files that way, the API's `GET` routes only read, and a `default-src 'self'` would hinge on
 how each browser resolves `'self'` for an opaque-origin document, which is exactly where a
