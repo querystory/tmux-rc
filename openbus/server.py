@@ -34,6 +34,7 @@ from contextlib import asynccontextmanager, suppress
 from functools import partial
 from pathlib import Path
 from typing import Annotated, Literal
+from urllib.parse import parse_qs
 
 # Load .env BEFORE importing the watcher/llm/telemetry chain — those read config from
 # os.environ at import time (model, GOOGLE_CLOUD_PROJECT, OTEL endpoint). Without this, a
@@ -590,9 +591,20 @@ async def no_cache(request, call_next):
     re-downloading app code and chart libraries that did not change. The mount answers
     any token with today's files, so a page from before a deploy fetching under its old
     token gets those bytes as before, uncached: an immutable URL never lies."""
-    resp = await call_next(request)
     # Match paths as StaticFiles resolves them, so /docs//mocks/ can't dodge a policy.
     path = posixpath.normpath("/" + request.url.path.lstrip("/")) + "/"
+    # A browser opening a page of a scratch folder in a tab of its own gets it in the app's
+    # viewer, the app around it (its message bar, its notice when a page lands). Not the
+    # viewer's own Open in browser (?bare), a Markdown page's source (?raw), nor a frame.
+    query = request.url.query
+    if (_scratch_dir and request.method == "GET" and path.startswith("/scratch/")
+            and request.url.path.count("/") > 2
+            and request.headers.get("sec-fetch-dest") == "document"
+            and not {"bare", "raw"} & set(parse_qs(query, keep_blank_values=True))):
+        page = request.url.path.removeprefix("/scratch/") + (f"?{query}" if query else "")
+        resp = RedirectResponse(scratch.viewer(page), 303)
+    else:
+        resp = await call_next(request)
     # The version (a scan of web/) is computed only for a hit under /v/, never for the API.
     versioned = path.startswith("/v/") and resp.status_code < 400
     if versioned and path.startswith(f"/v/{_web_version()}/"):
@@ -616,8 +628,7 @@ async def no_cache(request, call_next):
     # would still carry the front door's cookie. Resource loads stay open: a bundle needs
     # them, the API's GETs only read, and 'self' is unreliable in an opaque origin.
     if path.startswith(("/scratch/", "/docs/mocks/")):
-        resp.headers["Content-Security-Policy"] = (
-            scratch.PLACEHOLDER if resp.headers.get("X-Scratch-Pending") else scratch.SANDBOX)
+        resp.headers["Content-Security-Policy"] = scratch.SANDBOX
         # A browser opening a page from a folder of scratch, in a tab or the app's viewer (not
         # the gallery, a loose file, a thumbnail or an asset, nor an agent's curl checking its
         # page is served) is a visit, for the ☰ drawer's Recent.
@@ -909,6 +920,7 @@ async def get_state(v: int | None = None, client: str = "", visible: bool = Fals
         "tmux_running": w.tmux_running,  # False = no server at all (e.g. after a reboot)
         # The machine's name for the app's tab titles (docs/design/tab-icons.md): zero setup.
         "host": os.environ.get("TMUXRC_HOST_NAME") or socket.gethostname().split(".")[0],
+        "scratch": list(push.news) if push else [],  # the pages that landed last (push.py)
         "panes": panes,
     }
 
@@ -2422,8 +2434,7 @@ if _scratch_dir:
         pending=lambda name: scratch.placeholder(Path(_scratch_dir), name, _who),
         updating=lambda name: scratch.bar(
             Path(_scratch_dir), name, list(app.state.watcher.states),
-            lambda entry: live.running_pane(entry, app.state.watcher)),
-        there=lambda name: scratch.found(Path(_scratch_dir), name) is not None))
+            lambda entry: live.running_pane(entry, app.state.watcher))))
 
 
 def _visited(kind: str, key: str) -> None:

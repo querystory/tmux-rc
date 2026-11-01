@@ -80,7 +80,24 @@ card opens over the whole app in a viewer, a fresh frame under a slim bar. This 
 over a new tab because an installed phone app has no tab strip to come back from. The
 viewer's own frame can't drive the app, and the daemon's CSP sandboxes it as it does every
 scratch page. The bar keeps "Open in browser", a plain link, for a page that wants a whole
-window. Other links in the gallery still open a tab, so the gallery's frame only ever holds
+window.
+
+A page opened in a tab of its own, as an agent's link usually is, is sent to the viewer
+rather than shown bare. The viewer is where the app's chrome lives, the message bar and the
+notices, and keeping that chrome outside the sandboxed page means only the agent's content
+is sandboxed. The alternative, notifying from the placeholder, needed that page out of the
+sandbox (browsers never grant notifications to an opaque origin) and ran a second way of
+saying a page landed beside the push. Now one event says it: the daemon's Ready, which goes
+out as the push and, in the same words, to every open app as news on its state poll. The
+redirect only applies to a browser's top-level navigation, so an agent checking its page
+with curl still gets the page, a frame still gets the page, and "Open in browser" marks
+its link `?bare` to stay a plain tab.
+
+A page in progress reloads itself as it moves on and as it lands. The viewer otherwise
+denies script to every document after a frame's first, so that only the page it opened can
+ask to send a message. The placeholder says it is one, and the viewer answers its reloads
+with a fresh frame at the page it opened. That stays safe: whatever a page claims, the
+fresh frame loads the address the viewer chose, never where the page went. Other links in the gallery still open a tab, so the gallery's frame only ever holds
 the gallery. On a phone the gallery drops the app's page head and runs under the tab bar,
 and its own filter row carries Grid/List. A strip down the left edge is kept for the
 app's swipe back, because touches inside a frame never reach the app.
@@ -124,16 +141,6 @@ or a no-cors fetch still delivers the request, with the front door's cookie. So
 `form-action` and `connect-src` are `'none'` too. The price is that pages needing a backend
 or fetching remote data do not work. That is the right trade for a review tool; such pages
 have a documented escape hatch.
-
-The in-progress placeholder is the one page under `/scratch/` that keeps its origin
-(`allow-same-origin`). Browsers never grant notification permission to an opaque origin,
-and the placeholder's whole job is to tell a waiting tab the page landed. That is safe
-because the daemon writes the placeholder itself, escaping everything an agent supplies
-(title, description, the pane's status), and it is served only while the folder has no
-page. The agent's own page replaces it, back in the sandbox. Two alternatives were
-rejected. Notifying from the app would need the app open, and a browser tab is the case
-being served. Pushing to the tab would mean subscribing every placeholder visitor to Web
-Push, which needs a service worker on that page.
 
 Resource loads (`<img>`, `<script src>`) are deliberately left open: a bundle loads its own
 files that way, the API's `GET` routes only read, and a `default-src 'self'` would hinge on

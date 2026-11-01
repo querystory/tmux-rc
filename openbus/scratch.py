@@ -25,7 +25,7 @@ from datetime import datetime
 from html import escape, unescape
 from itertools import islice
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from . import agent_history, scratch_markdown, tmux
 
@@ -56,10 +56,12 @@ DOCS = "https://github.com/querystory/tmux-rc/blob/main/docs/scratch.md"
 SIDECARS = ("meta.json", "thumb.webp")  # what tmux-rc and agents add beside a page
 # What every /scratch/ response is served under (see server.py's no_cache middleware).
 SANDBOX = "sandbox allow-scripts allow-popups; form-action 'none'; connect-src 'none'"
-# The placeholder is the daemon's own page, everything in it escaped: on the real origin, as
-# an opaque one is never granted notifications (its "Notify me when it's ready").
-PLACEHOLDER = SANDBOX.replace(";", " allow-same-origin;", 1)
 PINS = 6  # pages pinned to the app's menu, at most: the sidebar's nav can't overflow
+
+
+def viewer(href: str) -> str:
+    """The app's viewer at a page of scratch (`href`: its path under /scratch/, query and all)."""
+    return "/m#" + urlencode({"view": "scratch", "open": f"/scratch/{href}"})
 
 
 def inside(path: Path, root: Path) -> bool:
@@ -637,7 +639,7 @@ def placeholder(root: Path, name: str, who) -> str | None:
     for any other folder. `who()` gives the panes, their accounts, the stylesheet and,
     optionally, pane_of (as page's); it scans every account, so only a pending folder asks.
     An archived folder answers at ARCHIVE/<name>, and at <name> while that is not taken."""
-    i = found(root, name)
+    i = _at(root, name)
     if not (i and i["pending"]):
         return None
     states, profiles, style, *pane_of = who()
@@ -667,7 +669,7 @@ def _ask(seen, every: int) -> str:
     return f"<script>{script}</script>"
 
 
-def found(root: Path, name: str) -> dict | None:
+def _at(root: Path, name: str) -> dict | None:
     """The card of the folder a link to `name` answers with: an archived one's at
     ARCHIVE/<name>, and at <name> while that is not taken."""
     under = name.startswith(scratch_markdown.ARCHIVE + "/") or not os.path.lexists(root / name)
@@ -686,7 +688,7 @@ def bar(root: Path, name: str, states: list[dict],
     its files change. None for any other folder. `states` and `pane_of` find its reviser as
     the gallery does (no accounts: it is asked every few seconds). Archived, as
     placeholder's. ("", "") while meta.json is unreadable (mid-write): no answer yet."""
-    i = found(root, name)
+    i = _at(root, name)
     if i and not i["read"]:
         return "", ""
     if not (i and i["updating"]):

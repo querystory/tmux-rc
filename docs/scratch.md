@@ -34,7 +34,8 @@ shows it as **Scratch**: a tab in the phone's tab bar, a place in the wide sideb
 
 - **Open** a card and the page fills the screen over the app, under a slim bar. Back,
   Escape or a swipe from the left edge returns to the gallery; **Open in browser** gives
-  the page a window of its own.
+  the page a window of its own. A page's link opened in a tab of its own (one an agent
+  handed out) lands in the app's viewer too, so the message bar is always there.
 - **Who made it** names the session and window, the agent and its account, and links to
   that pane while it is open. Tap it to jump there. The trail runs both ways: a pane's
   overview lists, under Links, its pages still in progress and its newest one, and
@@ -69,12 +70,10 @@ Needs-you; what keeps one finish to one buzz is that for two minutes after a Rea
 pane's plain "turn ended" Needs-you is skipped (a question still notifies). A page
 published in one go was never promised and does not notify.
 
-The placeholder's tab notifies too, for a browser with no push subscription: its **Notify
-me when it's ready** asks for the permission, and from then on a hidden tab shows
-`Ready: <title>` when the page lands (a click brings the tab back, which then opens the
-page). It also says when the agent's state changes (its pane gone idle, the agent
-stopped) and, at most every two minutes, what the pane is doing now. It shares the push's
-tag, so a device that gets both shows one.
+Every open app hears the same news: a notice, `Ready: <title>` with **Open**, and its
+Recent pages turn from in progress to the page. An app in a background tab also shows it
+as a notification when the browser allows them and no push reaches that device. An open
+viewer showing the page in progress shows the page as it lands.
 
 The same holds for revisions. An agent reworking a published page marks its `meta.json`
 `"updating": "<what's changing>"`; the card and the viewer read **Updating**, and the

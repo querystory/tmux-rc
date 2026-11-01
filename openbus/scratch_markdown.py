@@ -114,11 +114,10 @@ def page(path: Path, web: Path, notice: tuple[str, str] | None = None) -> str:
 
 
 ARCHIVE = ".archive"  # scratch's archived folders: hidden, like any dot folder
-# A 1x1, 2x1 and 3x1 GIF: a placeholder's ask answered "no change", "reload" and "reload:
-# it is done", its page landed or its update finished (Files).
+# A 1x1 and a 2x1 GIF: a placeholder's ask answered "no change" and "reload" (Files).
 PIXEL = bytes.fromhex("47494638396101000100800000000000ffffff21f90401000000002c"
                       "00000000010001000002024401003b")
-WIDE, DONE = (PIXEL[:6] + bytes([n]) + PIXEL[7:] for n in (2, 3))
+WIDE = PIXEL[:6] + b"\x02" + PIXEL[7:]
 
 
 class Files(StaticFiles):
@@ -131,13 +130,12 @@ class Files(StaticFiles):
     folder (in ARCHIVE) is served at ARCHIVE/<name>/, where the Archived gallery links it,
     and at its old link while no folder has taken that name since, so links handed out keep
     working. Which tree answers is decided by the folder alone: a page never mixes files of
-    an archived folder and a new one of the same name. `there` says whether a folder with
-    neither has a card (scratch.found): its wait is over only then."""
+    an archived folder and a new one of the same name."""
 
     def __init__(self, *, web: Path, pending=lambda _name: None, updating=lambda _name: None,
-                 there=lambda _name: True, **kwargs):
+                 **kwargs):
         super().__init__(**kwargs)
-        self.web, self.pending, self.updating, self.there = web, pending, updating, there
+        self.web, self.pending, self.updating = web, pending, updating
 
     def lookup_path(self, path):
         parts = Path(path).parts
@@ -154,15 +152,10 @@ class Files(StaticFiles):
     async def get_response(self, path, scope):
         seen = parse_qs(scope["query_string"].decode()).get("seen")
         folder = "/" not in path.removeprefix(ARCHIVE + "/")  # a folder's own URL
-        if seen and folder:  # a placeholder or bar asking: wide says reload, wider it is done
-            def asked():  # what it waits on, else whether the folder is there to show
-                wait = self.pending(path) or self.updating(path)
-                return wait, not wait and self.there(path)
-            wait, done = await anyio.to_thread.run_sync(asked)
-            # neither (meta.json mid-write, the folder gone): nothing landed, so ask again
-            same = wait == ("", "") or (wait and f'const SEEN = "{seen[0]}";' in "".join(wait)) \
-                or not (wait or done)
-            return Response(PIXEL if same else DONE if done else WIDE, media_type="image/gif")
+        if seen and folder:  # a placeholder or bar asking: wide says reload
+            wait = await anyio.to_thread.run_sync(lambda: self.pending(path) or self.updating(path))
+            same = wait == ("", "") or (wait and f'const SEEN = "{seen[0]}";' in "".join(wait))
+            return Response(PIXEL if same else WIDE, media_type="image/gif")
         try:
             response = await super().get_response(path, scope)
         except HTTPException as e:
