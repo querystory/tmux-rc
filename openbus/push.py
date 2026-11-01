@@ -619,7 +619,9 @@ class PushManager:
                     key, "Ready")
             elif verb and item["read"] and (verb == "Updated" or item["href"].endswith("/")):
                 if message := self._ready_push(item, now, verb):
-                    self.news.append({**message, "at": int(time.time() * 1000)})
+                    # the app's cursor: a ms clock, strictly increasing however the clock steps
+                    at = max(int(time.time() * 1000), self.news[-1]["at"] + 1 if self.news else 0)
+                    self.news.append({**message, "at": at})
                     self.watcher.nudge()
                     self.shoot(item)  # the gallery's spinner polls for it
                     self._waiting.pop(key, None)

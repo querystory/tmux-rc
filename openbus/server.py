@@ -34,7 +34,7 @@ from contextlib import asynccontextmanager, suppress
 from functools import partial
 from pathlib import Path
 from typing import Annotated, Literal
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, quote
 
 # Load .env BEFORE importing the watcher/llm/telemetry chain — those read config from
 # os.environ at import time (model, GOOGLE_CLOUD_PROJECT, OTEL endpoint). Without this, a
@@ -601,7 +601,7 @@ async def no_cache(request, call_next):
             and request.url.path.count("/") > 2
             and request.headers.get("sec-fetch-dest") == "document"
             and not {"bare", "raw"} & set(parse_qs(query, keep_blank_values=True))):
-        page = request.url.path.removeprefix("/scratch/") + (f"?{query}" if query else "")
+        page = quote(request.url.path.removeprefix("/scratch/")) + (f"?{query}" if query else "")
         resp = RedirectResponse(scratch.viewer(page), 303)
     else:
         resp = await call_next(request)
