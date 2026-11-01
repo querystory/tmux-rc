@@ -2956,7 +2956,8 @@ function scratchNews(news = []) {
   const fresh = newsAt === null ? [] : news.filter((n) => n.at > newsAt);
   newsAt = Math.max(newsAt ?? 0, ...news.map((n) => n.at));
   const one = fresh.length === 1 && fresh[0]; // several at once: one notice, the gallery to open
-  if (fresh.length) notice(one ? one.title : `Ready: ${fresh.length} pages`, 10000, ["Open", () => openLink(one ? one.url : "#view=scratch")]);
+  const gallery = () => { viewer.close(); scratchFrom = null; openLink("#view=scratch"); }; // all of it, out of any page
+  if (fresh.length) notice(one ? one.title : `Ready: ${fresh.length} pages`, 10000, ["Open", one ? () => openLink(one.url) : gallery]);
   for (const n of fresh) {
     if (document.hidden && window.Notification?.permission === "granted") navigator.serviceWorker?.getRegistration().then(async (sw) => {
       if (sw && !await sw.pushManager.getSubscription()) sw.showNotification(n.title, { body: n.body, tag: n.tag, data: { url: n.url } });
