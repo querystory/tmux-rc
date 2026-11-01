@@ -1,9 +1,9 @@
-"""Minimal Gemini-Flash-Lite-via-Vertex client for the lazy classification pass.
+"""Minimal Gemini Flash-Lite client (Vertex, or AI Studio by key) for the classification pass.
 
 This is a deliberate ~1-screen reimplementation of the small slice of the main app's
 `backend.genai.llm` we need, so tmux-rc stays standalone (no FastAPI/SQLAlchemy/
-WorkOS pull-in). Credentials come from Google ADC; only GOOGLE_CLOUD_PROJECT and an
-optional region are read from the environment.
+WorkOS pull-in). Vertex credentials come from Google ADC, with GOOGLE_CLOUD_PROJECT and an
+optional region from the environment; without a project, GEMINI_API_KEY selects AI Studio.
 """
 
 from __future__ import annotations
@@ -156,16 +156,32 @@ def _client():
         return _build_client()
 
 
+def provider() -> str:
+    """Where the parse client goes: 'vertex' whenever GOOGLE_CLOUD_PROJECT is set, else
+    'gemini-api' (AI Studio by GEMINI_API_KEY, which needs no GCP project at all)."""
+    return "vertex" if os.environ.get("GOOGLE_CLOUD_PROJECT") else "gemini-api"
+
+
 @cache
 def _build_client():
     from google import genai  # noqa: PLC0415 - same ~0.9s import as genai_types
 
     types = genai_types()
 
-    project = os.environ.get("GOOGLE_CLOUD_PROJECT")
-    if not project:
-        raise RuntimeError("GOOGLE_CLOUD_PROJECT is not set; cannot reach Vertex.")
-    location = os.environ.get("VERTEX_AI_REGION_GEMINI", "global")
+    # The same model and request config on either backend (see provider()).
+    if provider() == "vertex":
+        where = {
+            "vertexai": True,
+            "project": os.environ["GOOGLE_CLOUD_PROJECT"],
+            "location": os.environ.get("VERTEX_AI_REGION_GEMINI", "global"),
+        }
+    elif key := os.environ.get("GEMINI_API_KEY"):
+        where = {"vertexai": False, "api_key": key}  # beats GOOGLE_GENAI_USE_* env
+    else:
+        raise RuntimeError(
+            "Neither GOOGLE_CLOUD_PROJECT (Vertex) nor GEMINI_API_KEY (AI Studio) is set; "
+            "cannot reach Gemini."
+        )
     # Per-request timeout on EVERY call. Without it, a hung ADC token refresh or a stalled
     # Vertex socket blocks the parse thread forever — the watcher loop awaits that thread
     # and never ticks again, freezing all cards with NO recorded error (exactly the ~9h
@@ -182,12 +198,7 @@ def _build_client():
             f"google-genai HttpOptions.timeout unit changed ({_desc!r}); "
             "re-check TMUXRC_LLM_TIMEOUT_MS is still milliseconds"
         )
-    return genai.Client(
-        vertexai=True,
-        project=project,
-        location=location,
-        http_options=types.HttpOptions(timeout=_TIMEOUT_MS),
-    )
+    return genai.Client(**where, http_options=types.HttpOptions(timeout=_TIMEOUT_MS))
 
 
 # Shared backoff for OPERATIONAL failures. Vertex quota errors come in bursts; without a
@@ -452,7 +463,7 @@ def _emit(
         )
         emit_parse(
             model=_MODEL,
-            provider="vertex",
+            provider=provider(),
             pane_uid=pane_uid,
             pane_label=pane_label,
             pane_text=text,

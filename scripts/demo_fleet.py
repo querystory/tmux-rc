@@ -91,6 +91,22 @@ infra/terraform@plan-review infra/k8s infra infra/dns infra/k8s infra/certs site
 site-copy/email /work/marketing /work/marketing shop-web@deps-audit dashboard-ui/src@sidebar-toggle
 /work /work/notes invoice-tools dotfiles /work shop-api@webhooks shop-api@refunds infra""".split()  # noqa: SIM905 - a table reads better than 49 quoted strings
 
+# The website's Fleet graph shot (TMUXRC_DEMO_GRAPH=1, scripts/screenshots.mjs): one more
+# session, tmux-rc at work on itself, which that shot zooms into. Its own demo server, so
+# every other shot keeps the fleet above. Invented work, like the rest.
+if os.environ.get("TMUXRC_DEMO_GRAPH") == "1":
+    SESSIONS.append("tmux-rc")
+    ROWS += """\
+8|claude|need|graph zoom controls|9m|Zoom now eases toward the cursor. Merge it?|Merge,Keep testing
+8|claude|run|docs screenshot refresh|now||Re-shooting the website set against the demo fleet.
+8|codex|run|parser eval sweep|now||Scoring 40 synthetic captures against the new prompt.
+8|claude|run|push retry backoff|now||Adding jittered retries when a push endpoint times out.
+8|opencode|idle|restore smoke test|14m|u|Restored 3 sessions on a scratch tmux server. All resumed.
+8|omp|idle|changelog draft|38m||Drafted the changelog from this week's merged work.
+"""
+    WHERE += ["tmux-rc/web@graph-zoom", "tmux-rc/docs-site@shots", "tmux-rc/evals@parser-eval",
+              "tmux-rc/openbus@push-retry", "tmux-rc@restore-smoke", "tmux-rc"]
+
 
 def _where(i: int) -> tuple[str, str | None, str | None]:
     """(cwd, the worktree's path, its branch) of pane %i; no worktree outside a repository.
@@ -213,7 +229,32 @@ CAPTURES = {
         "Not signed in on ~/.claude-demo.", "", "> /login", "  Select login method:",
         grn("  > 1. Claude account with subscription"), "    2. Anthropic Console account", "",
         dim("  Opening the browser to sign in...")]),
+    # Tall enough to fill a wide screen's terminal: the run that found the flake, then the fix.
     "e2e triage": "\n".join([
+        f"{grn('●')} {b('Read')}(tests/e2e/checkout.spec.ts)",
+        f"  ⎿  Read {b('142')} lines",
+        "",
+        f'{grn('●')} {b('Search')}(pattern: "networkidle", path: "tests/e2e")',
+        f"  ⎿  Found {b('6')} matches across {b('4')} files",
+        "",
+        f"{grn('●')} {b('Bash')}(npx playwright test checkout.spec.ts --repeat-each 20)",
+        "  ⎿  Running 40 tests using 4 workers",
+        f"     {grn('✓')} checkout › pays with a saved card {dim('(3.6s)')}",
+        f"     {red('✘')} checkout › applies a coupon before payment {dim('(30.0s)')}",
+        f'       {red('TimeoutError')}: frame "payment" not attached after 30000ms',
+        f"     {grn('✓')} checkout › applies a coupon before payment {dim('(4.3s)')}",
+        f"     {yel('… +34 lines')} {dim('(ctrl+o to expand)')}",
+        f"     {grn('37 passed')}, {red('3 failed')} {dim('(2m 41s)')}",
+        "",
+        f"{b('●')} Three of 40 runs failed, all on the coupon test, each time the iframe attached",
+        "  after the network went idle. Capturing a trace of a failing run.",
+        "",
+        f"{grn('●')} {b('Update')}(tests/e2e/checkout.spec.ts)",
+        f"  ⎿  {dim('41')} {red('-   await page.waitForLoadState("networkidle");')}",
+        f"     {dim('41')} {grn('+   const payment = page.frameLocator("#payment-frame");')}",
+        f"     {dim('42')} {grn('+   await payment.locator("[name=card]").waitFor();')}",
+        f'     {dim('43')}     await page.getByRole("button", {{ name: "Pay" }}).click();',
+        "",
         f"{b('●')} The checkout flake reproduces only when the payment iframe loads after the",
         "  coupon request, so I added tracing and am re-running the spec 20 times.",
         "",
@@ -290,6 +331,27 @@ DETAIL = {
                         "endpoints. Both break existing clients, so they move to a v3 API.",
         "prs": [{"repo": "example-org/shop-api", "number": 409,
               "title": "Structured money type for order totals"}]},
+    # The tmux-rc session (TMUXRC_DEMO_GRAPH=1): what the zoomed Fleet graph labels.
+    "graph zoom controls": {"model": "Opus 5", "context_pct": 52, "cost": "$1.12"},
+    "docs screenshot refresh": {
+        "model": "Opus 5", "context_pct": 63, "cost": "$2.41", "agents": 1,
+        "working": {"verb": "Shooting", "elapsed": "2m 31s", "tokens": "14.2k"},
+        "subagents": [{"label": "Diff shots vs main", "state": "running", "elapsed": "3m 05s",
+                       "tokens": "6.8k"}]},
+    "parser eval sweep": {
+        "model": "GPT-6.1", "context_pct": 34, "cost": "$0.96", "agents": 2,
+        "working": {"verb": "Scoring", "elapsed": "12m", "tokens": "22.7k"},
+        "subagents": [{"label": "Running the test suite", "state": "running",
+                       "elapsed": "29m 10s", "tokens": "12.6k"},
+                      {"label": "Score hard captures", "state": "running", "elapsed": "6m 40s",
+                       "tokens": "9.3k"}]},
+    "push retry backoff": {
+        "model": "Sonnet 5", "context_pct": 27, "cost": "$1.37", "agents": 1,
+        "working": {"verb": "Editing", "elapsed": "48s", "tokens": "3.9k"},
+        "subagents": [{"label": "Find push call sites", "state": "running", "elapsed": "1m 20s",
+                       "tokens": "4.4k"}]},
+    "restore smoke test": {"model": "Claude Sonnet 5", "context_pct": 22, "cost": "$0.58"},
+    "changelog draft": {"model": "GPT-6.1", "context_pct": 18, "cost": "$0.33"},
     "refunds": {
         "headline": "Refund PRs ready to merge", "status_line": "Refund PRs ready to merge",
         "model": "Opus 5", "context_pct": 47, "cost": "$1.96",

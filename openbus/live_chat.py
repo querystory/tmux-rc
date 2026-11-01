@@ -186,8 +186,8 @@ class _Chat:
 
 
 class _Gemini(_Chat):
-    """A Gemini text model through the classifier's Vertex client (llm._client) — the same
-    project, credentials and region, with a longer timeout than a parse call needs."""
+    """A Gemini text model through the classifier's client (llm._client) — the same Vertex
+    project or AI Studio key, with a longer timeout than a parse call needs."""
 
     def __init__(self, model: LiveModel, system: str) -> None:
         super().__init__(model, system)

@@ -24,11 +24,11 @@ stay in the backend prompt; the voice prompt covers conversation and delegation.
 
 Configure `OPENAI_API_KEY` in `~/.config/tmux-rc/openai.env`, outside every checkout.
 Set `TMUXRC_LIVE_MODE=1` in the daemon environment (or root `.env`) and restart the
-daemon to load both settings. GPT-Live 1 then appears in the picker and is chosen by its
-label, like every other entry — but it is NOT a `TMUXRC_LIVE_MODELS` entry and cannot be
+daemon to load both settings. GPT-Live 1 then appears first in the picker and is the
+default voice model; picking another entry by its label still wins — but it is NOT a `TMUXRC_LIVE_MODELS` entry and cannot be
 one: the seam opens a *connection* and hands it to the shared coroutines, whereas this
 adapter owns the whole *session*. So it is routed by label ahead of the table lookup and
-appended to `/api/version`'s menu under the same "only if its key is set" rule the table
+put first in `/api/version`'s menu under the same "only if its key is set" rule the table
 entries follow; the two lists have to agree on what is selectable, or the socket would
 refuse the one pick the menu just offered.
 `TMUXRC_GPT_LIVE_VOICE` chooses the voice (default `marin`).
