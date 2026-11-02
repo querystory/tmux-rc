@@ -14,6 +14,7 @@ import tempfile
 import threading
 import time
 import tomllib
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -85,6 +86,32 @@ def codex_thread_shown(shown: list, screen: str) -> str | None:
     return sid if _ID.fullmatch(sid) else None
 
 
+def codex_named(home: Path) -> dict[str, str]:
+    """Codex's thread names under `home`, by thread id, from its index (session_index.jsonl,
+    beside the sessions dir: the last line for an id wins, a rename). Two threads can
+    share a name, so only names no other thread there has are kept."""
+    try:
+        with open(home / "session_index.jsonl") as index:
+            names = {r.get("id"): r.get("thread_name") for r in map(json.loads, index)}
+    except (OSError, ValueError, AttributeError):
+        return {}
+    count = Counter(names.values())
+    return {i: n for i, n in names.items() if isinstance(n, str) and n and count[n] == 1}
+
+
+def codex_shows(thread: str, name: str, title: str, shown: list, screen: str) -> bool:
+    """Whether a Codex pane shows this thread by its `name`. Codex titles the pane
+    "<thread name> | <project>", after any state it is in ("[ ! ] Action Required | "),
+    and a status bar configured with `thread-title` shows the name at that item's place
+    (never another segment: a branch can be "main" too). A bar showing another thread's
+    id rules it out."""
+    if codex_thread_shown(shown, screen) not in (None, thread):
+        return False
+    head = title.rpartition(" | ")[0]
+    return (name in (head, codex_status_item(shown, screen, "thread-title"))
+            or head.endswith(f" | {name}"))
+
+
 class Refused(Exception):  # noqa: N818 - a refusal, not an error: nothing was touched
     """Why this pane's session can't be expunged. A fixed sentence, never a path: it is
     audited."""
@@ -154,7 +181,7 @@ def _rollout_since(home: Path, start: str) -> bool:
     return any(p.stat().st_mtime >= began for p in home.glob("sessions/*/*/*/rollout-*.jsonl"))
 
 
-def _agent(pid: int, screen: str) -> Session | None:
+def _agent(pid: int, screen: str, title: str) -> Session | None:
     """The Claude or Codex session this process is, if it is one."""
     start = "".join(tmux.proc_stat(pid)[19:20])
     home = _home(pid, "CLAUDE_CONFIG_DIR", ".claude")
@@ -172,35 +199,33 @@ def _agent(pid: int, screen: str) -> Session | None:
     if args[:1] == ["login"]:
         return None
     # Codex keeps no registry, and its shared app-server, not this client, holds the
-    # rollout open; the thread id is only on the pane's status line (see live._codex_pane
-    # and codex_thread_shown); a place it can't be certain of refuses.
+    # rollout open: the pane names the thread, by its id on the status line, else by its
+    # name in the pane's title or on the status line (see codex_shows and live._codex_pane).
     home = _home(pid, "CODEX_HOME", ".codex")
     shown = codex_status_line(home)
-    if "session-id" not in shown:
-        # No thread can be named, but a fresh Codex (not a resume) that has written no
-        # rollout since it started has none to name: its first turn creates one.
+    named = [t for t, n in codex_named(home).items() if codex_shows(t, n, title, shown, screen)]
+    if not (sid := codex_thread_shown(shown, screen) or (named[0] if len(named) == 1 else "")):
+        # A fresh Codex (not a resume) that has written no rollout since it started has no
+        # thread to name: its first turn creates one.
         if not {"resume", "fork"} & set(args) and not _rollout_since(home, start):
             raise Empty("this agent has not saved a conversation yet")
-        raise Refused("Expunge can't tell which Codex conversation this is: Codex's status "
-                      "line doesn't show its thread id. Add \"session-id\" to status_line "
-                      "under [tui] in Codex's config.toml, then try again.")
-    if not (sid := codex_thread_shown(shown, screen)):
-        raise Refused("Expunge can't find this conversation's thread id on Codex's status "
-                      'line. Close any menu covering it, or move "session-id" to the '
-                      "front of status_line under [tui] in Codex's config.toml, then try "
-                      "again.")
+        raise Refused("can't tell which Codex conversation this pane is running: neither "
+                      "its title nor Codex's status line names it. Adding \"session-id\" "
+                      "to status_line under [tui] in Codex's config.toml shows its id there.")
     return Session("codex", sid, home, _index(pid, "codex"), pid, start)
 
 
-def identify(pane_pid: str, screen: str, expected: str | None = None) -> Session:
-    """The one agent session running in the pane, and `expected` if given (the session a
-    confirmation named). The search stops at the first agent down each branch, so an
-    agent's own subprocesses never count as a second session."""
+def identify(pane_pid: str, screen: str, expected: str | None = None,
+             title: str = "") -> Session:
+    """The one agent session running in the pane (`screen` and `title` are its own), and
+    `expected` if given (the session a confirmation named). The search stops at the first
+    agent down each branch, so an agent's own subprocesses never count as a second
+    session."""
     found, fresh, todo = [], [], [int(pane_pid)]
     while todo:
         pid = todo.pop()
         try:
-            agent = _agent(pid, screen)
+            agent = _agent(pid, screen, title)
         except Empty as e:  # still an agent: the walk goes on, and it counts toward "more than one"
             fresh.append(e)
             continue

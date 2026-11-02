@@ -33,12 +33,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from . import accounts, agent_history, live_providers, llm, plan_usage, push, telemetry, tmux
 from .classify import _host_tool, _load_prompt
-from .expunge import (
-    codex_status_item,
-    codex_status_line,
-    codex_status_segments,
-    codex_thread_shown,
-)
+from .expunge import codex_named, codex_shows, codex_status_line, codex_status_segments
 from .live_chat import TURNS_KEPT, TURNS_QUEUED
 from .live_providers import KEYS, LiveModel
 
@@ -1034,29 +1029,19 @@ def running_pane(entry: dict, watcher) -> str | None:
 
 def _codex_pane(watcher, entry: dict) -> str | None:
     """The one watched Codex pane showing this thread: its id on the status bar, else its
-    name in the pane's title or on the status bar. Codex's app-server daemon, not the
-    terminal client, holds a thread's rollout, so the process that proves it's running
-    names no pane; a status bar configured with `session-id` shows the id as a segment.
-    Only status chrome the parser validates counts, in panes classified as Codex (a shell
-    can print a captured footer). Two threads can share a name, so a name counts only while
-    no other thread in Codex's index has it, and only in a pane on that index's CODEX_HOME;
-    Codex titles the pane "<thread name> | <project>", and a status bar configured with
-    `thread-title` shows it at that item's place (never another segment: a branch can be
-    "main" too), unless the bar shows another thread's id."""
+    name (expunge.codex_shows). Codex's app-server daemon, not the terminal client, holds a
+    thread's rollout, so the process that proves it's running names no pane; a status bar
+    configured with `session-id` shows the id as a segment. Only status chrome the parser
+    validates counts, in panes classified as Codex (a shell can print a captured footer).
+    A name counts only in a pane on the CODEX_HOME whose index gives it."""
     codex = {d["pane_id"]: d.get("title") or "" for d in watcher.digest()
              if d.get("tool") == "codex"}
     panes = {p for p in codex if entry["session_id"] in codex_status_segments(_screen(watcher, p))}
     if not panes and (named := _codex_name(entry)):
         home, name = named
         shown = codex_status_line(home)
-
-        def shows(p: str, title: str) -> bool:
-            screen = _screen(watcher, p)
-            if codex_thread_shown(shown, screen) not in (None, entry["session_id"]):
-                return False  # its status bar names another thread
-            return name in (title.rpartition(" | ")[0],
-                            codex_status_item(shown, screen, "thread-title"))
-        panes = {p for p, title in codex.items() if shows(p, title)
+        panes = {p for p, title in codex.items()
+                 if codex_shows(entry["session_id"], name, title, shown, _screen(watcher, p))
                  and (pid := watcher.pane_birth(p))
                  and plan_usage.home("codex", plan_usage.pane_env(pid, "codex")) == home}
     return panes.pop() if len(panes) == 1 else None
@@ -1070,18 +1055,11 @@ def _screen(watcher, pane_id: str) -> str:
 
 
 def _codex_name(entry: dict) -> tuple[Path, str] | None:
-    """The CODEX_HOME the thread's rollout is in, and the thread's name in its index
-    (session_index.jsonl, beside the sessions dir: the last line for an id wins, a rename),
-    None when another thread there has it too."""
+    """The CODEX_HOME the thread's rollout is in, and the thread's name there, None when
+    another thread there has it too (expunge.codex_named)."""
     home, sep, _ = (entry.get("source") or "").rpartition("/sessions/")
-    try:
-        with open(os.path.join(home, "session_index.jsonl")) as index:
-            names = {r.get("id"): r.get("thread_name") for r in map(json.loads, index)}
-    except (OSError, ValueError, AttributeError):
-        return None
-    name = sep and names.get(entry["session_id"])
-    unique = name and list(names.values()).count(name) == 1
-    return (Path(plan_usage.canonical(home)), name) if unique else None
+    name = sep and codex_named(Path(home)).get(entry["session_id"])
+    return (Path(plan_usage.canonical(home)), name) if name else None
 
 
 def _home_relative(path: str) -> str:

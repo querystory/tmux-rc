@@ -126,6 +126,25 @@ def test_codex_without_session_id_on_its_status_line_refuses(monkeypatch, tmp_pa
         expunge.identify("10", CODEX_SCREEN)
 
 
+def test_codex_thread_comes_from_its_name_in_the_pane_title(monkeypatch, tmp_path):
+    # Without session-id on its status line, the pane's title names the thread: Codex
+    # titles it "<thread name> | <project>", after any state it is in.
+    fake_procs(monkeypatch, tmp_path, {10: ("codex", [], None)})
+    (tmp_path / "config.toml").write_text('[tui]\nstatus_line = ["model", "thread-title"]\n')
+    jsonl(tmp_path / "session_index.jsonl", [{"id": A, "thread_name": "Plan the export"},
+                                             {"id": B, "thread_name": "api"}])
+    for title in ("Plan the export | api", "[ ! ] Action Required | Plan the export | api"):
+        assert expunge.identify("10", "", title=title).session_id == A
+    # The project alone (a fresh Codex) is not a thread's name, even when one has it.
+    with pytest.raises(Refused, match="title"):
+        expunge.identify("10", "", title="api")
+    # Two threads with the name: neither is taken.
+    jsonl(tmp_path / "session_index.jsonl", [{"id": A, "thread_name": "Plan the export"},
+                                             {"id": B, "thread_name": "Plan the export"}])
+    with pytest.raises(Refused, match="title"):
+        expunge.identify("10", "", title="Plan the export | api")
+
+
 def test_a_leftover_registration_of_the_session_goes_too(claude):
     (claude / "sessions").mkdir()
     for pid, sid in ((1, A), (2, B)):
@@ -267,7 +286,7 @@ def test_codex_thread_comes_from_its_status_line(monkeypatch, tmp_path):
 
 def test_route_refuses_a_changed_session_without_killing(monkeypatch, claude):
     killed = []
-    monkeypatch.setattr(tmux, "find_pane", lambda p: SimpleNamespace(id=p, pid="1234"))
+    monkeypatch.setattr(tmux, "find_pane", lambda p: SimpleNamespace(id=p, pid="1234", title=""))
     monkeypatch.setattr(tmux, "kill_window", killed.append)
     monkeypatch.setattr(expunge, "identify", lambda *_a: session("claude", claude))
     monkeypatch.setattr(tmux, "capture_pane", lambda _p: "")
@@ -294,7 +313,7 @@ def test_route_kills_first_then_deletes(monkeypatch, claude):
 
     def find_pane(alias):  # "work:0.0" is %1; by the kill, %1 may be a newer process's
         calls.append(alias)
-        pane = SimpleNamespace(id="%1", pid=panes["%1"])
+        pane = SimpleNamespace(id="%1", pid=panes["%1"], title="")
         if len(calls) == 1:
             panes["%1"] = "999"
         return pane
@@ -328,7 +347,7 @@ def test_route_kills_first_then_deletes(monkeypatch, claude):
 
 def test_a_killed_window_leaves_the_next_state_at_once(monkeypatch):
     """The deck the watcher published before the kill must not outlive it until a tick."""
-    monkeypatch.setattr(tmux, "find_pane", lambda p: SimpleNamespace(id=p, pid="1234"))
+    monkeypatch.setattr(tmux, "find_pane", lambda p: SimpleNamespace(id=p, pid="1234", title=""))
     # tmux names what it killed: %1 and a split of it, %3.
     monkeypatch.setattr(tmux, "kill_window", lambda *_a: [("%1", "1234"), ("%3", "1240")])
     monkeypatch.setattr(tmux, "prefix_key", lambda: "C-b")
@@ -372,7 +391,7 @@ def test_an_unreadable_registration_refuses(monkeypatch, tmp_path):
 
 def test_route_refuses_when_the_identified_agent_is_gone(monkeypatch, claude):
     killed = []
-    monkeypatch.setattr(tmux, "find_pane", lambda p: SimpleNamespace(id="%1", pid="1234"))
+    monkeypatch.setattr(tmux, "find_pane", lambda p: SimpleNamespace(id="%1", pid="1234", title=""))
     monkeypatch.setattr(tmux, "kill_window", lambda *a: killed.append(a))
     monkeypatch.setattr(tmux, "capture_pane", lambda _p: "")
     monkeypatch.setattr(expunge, "identify", lambda *_a: session("claude", claude))
@@ -385,7 +404,7 @@ def test_route_refuses_when_the_identified_agent_is_gone(monkeypatch, claude):
 def test_close_with_a_birth_kills_only_that_incarnation(monkeypatch):
     # The no-conversation sheet's Kill window may outlive the pane it was drawn for.
     killed = []
-    monkeypatch.setattr(tmux, "find_pane", lambda p: SimpleNamespace(id="%1", pid="1234"))
+    monkeypatch.setattr(tmux, "find_pane", lambda p: SimpleNamespace(id="%1", pid="1234", title=""))
     monkeypatch.setattr(tmux, "kill_window", lambda pane_id, pid=None: killed.append(pid) or (
         [] if pid not in (None, "1234") else [("%1", "1234")]))
     server.app.state.watcher = SimpleNamespace(drop_panes=lambda _ids: None)

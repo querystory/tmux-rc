@@ -439,7 +439,8 @@ def test_codex_thread_is_found_by_its_name_in_the_pane_title(tmp_path, monkeypat
         "CODEX_HOME": "/another/codex-home" if pid == "pid-9" else f"{tmp_path}/"})
     w = SimpleNamespace(snapshots={}, pane_birth=lambda p: f"pid-{p[1:]}", digest=lambda: [
         {"pane_id": "%9", "tool": "codex", "title": "Pick an export format | other"},
-        {"pane_id": "%4", "tool": "codex", "title": "Pick an export format | proj"},
+        {"pane_id": "%4", "tool": "codex",  # after Codex's state, while it needs you
+         "title": "[ ! ] Action Required | Pick an export format | proj"},
         {"pane_id": "%5", "tool": "codex", "title": "Fix the build | proj"},
         {"pane_id": "%6", "tool": "codex", "title": "Draft the plan | proj"},
         {"pane_id": "%7", "tool": "claude", "title": "Draft the plan | proj"}])
