@@ -33,7 +33,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from . import accounts, agent_history, live_providers, llm, plan_usage, push, telemetry, tmux
 from .classify import _host_tool, _load_prompt
-from .expunge import codex_status_line, codex_status_segments, codex_thread
+from .expunge import codex_names, codex_status_line, codex_status_segments, codex_thread
 from .live_chat import TURNS_KEPT, TURNS_QUEUED
 from .live_providers import KEYS, LiveModel
 
@@ -1040,11 +1040,11 @@ def _codex_pane(watcher, entry: dict) -> str | None:
     home, sep, _ = (entry.get("source") or "").rpartition("/sessions/")
     if not panes and sep:
         home = Path(plan_usage.canonical(home))
-        shown = codex_status_line(home)
+        shown, names = codex_status_line(home), codex_names(home)
         panes = {p for p, title in codex.items()
-                 if codex_thread(home, title, shown, _screen(watcher, p)) == sid
-                 and (pid := watcher.pane_birth(p))
-                 and plan_usage.home("codex", plan_usage.pane_env(pid, "codex")) == home}
+                 if (pid := watcher.pane_birth(p))
+                 and plan_usage.home("codex", plan_usage.pane_env(pid, "codex")) == home
+                 and codex_thread(names, title, shown, _screen(watcher, p)) == sid}
     return panes.pop() if len(panes) == 1 else None
 
 

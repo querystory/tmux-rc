@@ -87,13 +87,22 @@ def codex_thread_shown(shown: list, screen: str) -> str | None:
     return sid if _ID.fullmatch(sid) else None
 
 
-def codex_thread(home: Path, title: str, shown: list, screen: str) -> str | None:
-    """The one thread a Codex pane on `home` shows: its id on the status line (at
+def codex_names(home: Path) -> dict:
+    """Thread names by id, from Codex's index under `home` (session_index.jsonl, beside the
+    sessions dir: the last line for an id wins, a rename); {} when it can't be read."""
+    try:
+        with open(home / "session_index.jsonl") as index:
+            return {r.get("id"): r.get("thread_name") for r in map(json.loads, index)}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def codex_thread(names: dict, title: str, shown: list, screen: str) -> str | None:
+    """The one thread a Codex pane shows: its id on the status line (at
     session-id's place), else the thread whose name the pane shows. Codex titles the pane
     "<thread name> | <project>", after "[ ! ] Action Required | " while it needs you, and a
     status bar configured with `thread-title` shows the name at that item's place (never
-    another segment: a branch can be "main" too). Names come from Codex's index
-    (session_index.jsonl, beside the sessions dir: the last line for an id wins, a rename).
+    another segment: a branch can be "main" too); `names` is its home's codex_names.
     Every reading of the title counts, and the pane names a thread only when exactly one
     thread there has any of them: two threads can share a name, and a name can look like a
     state and another name."""
@@ -101,11 +110,6 @@ def codex_thread(home: Path, title: str, shown: list, screen: str) -> str | None
         return sid
     head = title.rpartition(" | ")[0]
     shows = {head, _CODEX_STATE.sub("", head), codex_status_item(shown, screen, "thread-title")}
-    try:
-        with open(home / "session_index.jsonl") as index:
-            names = {r.get("id"): r.get("thread_name") for r in map(json.loads, index)}
-    except (OSError, ValueError, AttributeError):
-        return None
     named = [t for t, n in names.items() if n and n in shows]
     return named[0] if len(named) == 1 else None
 
@@ -200,7 +204,7 @@ def _agent(pid: int, screen: str, title: str) -> Session | None:
     # rollout open: the pane names the thread, by its id on the status line, else by its
     # name in the pane's title or on the status line (codex_thread, as live._codex_pane).
     home = _home(pid, "CODEX_HOME", ".codex")
-    if not (sid := codex_thread(home, title, codex_status_line(home), screen)):
+    if not (sid := codex_thread(codex_names(home), title, codex_status_line(home), screen)):
         # A fresh Codex (not a resume) that has written no rollout since it started has no
         # thread to name: its first turn creates one.
         if not {"resume", "fork"} & set(args) and not _rollout_since(home, start):
