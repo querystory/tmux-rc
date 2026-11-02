@@ -8,6 +8,7 @@ back only on its own vendor). See docs/design/agent-accounts.md, "Move to anothe
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -15,6 +16,7 @@ import shutil
 import subprocess
 import threading
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -23,30 +25,39 @@ from .expunge import Session
 
 NOTE_CHARS = 4000  # a tool note's cut, as Codex's importer cuts a tool result
 BUDGET = 400_000  # characters a written Claude transcript keeps: about 100k tokens
+TURN = BUDGET // 4  # and any one turn: the first ask and the newest turn always fit
 IMPORT_S = 60.0  # how long Codex's importer may take
 TOOL = {"function_call": "arguments", "custom_tool_call": "input"}  # a Codex call's input field
 
 
-def move(s: Session, to: str, target: Path, cwd: str, agent: str, path: str | None) -> str:
+def move(s: Session, to: str, target: Path, cwd: str, agent: str, path: str | None,
+         busy: Callable[[str], bool]) -> str:
     """Carry session `s` to agent `to` on the account at `target`; the new session's id.
-    `agent` is the target's executable, run on `path` (the tmux session's PATH)."""
+    `agent` is the target's executable, run on `path` (the tmux session's PATH); `busy`
+    says whether a thread id is running on the target (an earlier move's, appended to)."""
     logs = sorted((p for p in files(s, s.root) if p.suffix == ".jsonl" and p.is_file()),
                   key=lambda p: p.name)  # a Codex thread's rollout, then its later segments
     if not logs:
         raise LookupError("this session has no transcript to move yet")
     if to == "codex":
-        return to_codex(logs[0], agent, target, cwd, path)
+        return to_codex(logs[0], agent, target, cwd, path, busy)
     return to_claude(logs, target, cwd)
 
 
-def to_codex(transcript: Path, codex: str, home: Path, cwd: str, path: str | None) -> str:
+def to_codex(transcript: Path, codex: str, home: Path, cwd: str, path: str | None,
+             busy: Callable[[str], bool]) -> str:
     """Import a Claude transcript into the Codex account at `home` with Codex's importer; the
     new thread's id. The importer reads only $HOME/.claude/projects and resolves links first,
     so the app-server runs with HOME on a staging dir holding a copy. The copy's path is the
-    same every time, which Codex's import ledger keys on: a session moved again appends its new
-    turns to the same thread. Its environment is just these three: never the daemon's keys."""
-    stage = store_path().parent / "codex-import"
+    same every time for one source account (a copied session keeps its id on another), which
+    Codex's import ledger keys on: a session moved again appends its new turns to the same
+    thread, so that thread must not be running. Its environment is just these three: never
+    the daemon's keys. Only the copy is removed after: nothing else is ever deleted there."""
+    account = hashlib.sha256(str(transcript.parents[2].resolve()).encode()).hexdigest()[:16]
+    stage = store_path().parent / "codex-import" / account
     copy = stage / ".claude/projects" / transcript.parent.name / transcript.name
+    if any(busy(t) for t in _imported(home, str(copy))):
+        raise LookupError("it is running on that account, or may be: go to that window")
     copy.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     env = {"HOME": str(stage), "CODEX_HOME": str(home), "PATH": path or os.defpath}
     items = [{"itemType": "SESSIONS", "description": "tmux-rc move", "cwd": None,
@@ -81,7 +92,7 @@ def to_codex(transcript: Path, codex: str, home: Path, cwd: str, path: str | Non
                 p.kill()
         raise TimeoutError("Codex's importer did not finish")
     finally:
-        shutil.rmtree(stage, ignore_errors=True)
+        copy.unlink(missing_ok=True)
 
 
 def _imported(home: Path, source: str) -> list[str]:
@@ -112,15 +123,14 @@ def codex_turns(rollouts: list[Path]) -> list[list[str]]:
     """[role, text] per turn of a Codex thread, a role's consecutive items joined. The person's
     messages come from the events (the user-role items also carry Codex's injected context);
     the rest from the response items, minus reasoning and other agents' messages."""
-    turns: list[list[str]] = []
+    turns: list[tuple[str, list[str]]] = []
 
     def add(role: str, text) -> None:
         if not text:
             return
-        if turns and turns[-1][0] == role:
-            turns[-1][1] += "\n\n" + text
-        else:
-            turns.append([role, text])
+        if not turns or turns[-1][0] != role:
+            turns.append((role, []))
+        turns[-1][1].append(text)
 
     for log in rollouts:
         with log.open(encoding="utf-8", errors="replace") as f:
@@ -144,12 +154,15 @@ def codex_turns(rollouts: list[Path]) -> list[list[str]]:
                     add("assistant", _note("call", _text(p.get(TOOL[t])), str(p.get("name"))))
                 elif t in ("function_call_output", "custom_tool_call_output"):
                     add("assistant", _note("result", _text(p.get("output"))))
-    return turns
+    return [[role, "\n\n".join(parts)] for role, parts in turns]
 
 
 def budget(turns: list[list[str]], limit: int = BUDGET) -> list[list[str]]:
     """The first turn (the person's first ask) and the newest that fit in `limit` characters,
-    with a note where turns were left out."""
+    with a note where turns were left out; a turn over a quarter of it keeps its start."""
+    cap = limit // 4
+    turns = [[r, t if len(t) <= cap else t[:cap] + "\n[The rest of this turn was cut to fit.]"]
+             for r, t in turns]
     kept, size = [], len(turns[0][1]) if turns else 0
     for turn in reversed(turns[1:]):
         size += len(turn[1])
@@ -168,15 +181,21 @@ def to_claude(rollouts: list[Path], home: Path, cwd: str) -> str:
         raise LookupError("this session has no messages to move yet")
     sid, parent, now = str(uuid.uuid4()), None, datetime.now(UTC).isoformat()
     out = home / "projects" / re.sub(r"[^A-Za-z0-9]", "-", cwd) / f"{sid}.jsonl"
-    confined([out.parent], home)
+    confined([out], home)
     out.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     rows = []
-    for role, text in turns:
+    for role, text in turns:  # the person's, marked as such for agent-history and resume
         rows.append({"type": role, "uuid": (u := str(uuid.uuid4())), "parentUuid": parent,
+                     **({"origin": {"kind": "human"}} if role == "user" else {}),
                      "sessionId": sid, "cwd": cwd, "isSidechain": False, "userType": "external",
                      "timestamp": now, "message": {"role": role, "content": text if role == "user"
                                                    else [{"type": "text", "text": text}]}})
         parent = u
-    with os.fdopen(os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as f:
-        f.writelines(json.dumps(r) + "\n" for r in rows)
+    fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.writelines(json.dumps(r) + "\n" for r in rows)
+    except OSError:
+        out.unlink()  # this move's own file: a half transcript must not stay
+        raise
     return sid

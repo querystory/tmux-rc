@@ -285,8 +285,9 @@ the history reads the same either way:
   thread it names. The importer reads only `$HOME/.claude/projects` and resolves links, so
   the app-server runs with `HOME` on a staging folder holding a copy, under tmux-rc's state
   dir, and `CODEX_HOME` on the chosen account; its environment is only those and `PATH`,
-  never the daemon's keys. The copy's path is fixed because Codex's import ledger keys on
-  it: moving the same session again appends its new turns to the first imported thread.
+  never the daemon's keys. The copy's path is fixed per source account because Codex's
+  import ledger keys on it: moving the same session again appends its new turns to the
+  first imported thread, which is refused while that thread runs.
 - **Codex → Claude Code** writes a new Claude transcript under the chosen account, in the
   project folder Claude Code keeps for the cwd, and resumes it with `claude --resume`. The
   person's messages come from Codex's events, since its user-role items also carry the

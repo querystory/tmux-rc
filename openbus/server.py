@@ -1942,8 +1942,11 @@ def move_session(pane_id: str, body: MoveBody, request: Request):
         copied, moved = [], s
         try:
             if to != s.harness:  # a new session there, or Codex's earlier import of this one
+                def busy(sid):
+                    return accounts.running(replace(s, harness=to, root=target, session_id=sid),
+                                            target)
                 moved = replace(s, harness=to, root=target, session_id=agent_move.move(
-                    s, to, target, cwd, shutil.which(agent, path=path) or agent, path))
+                    s, to, target, cwd, shutil.which(agent, path=path) or agent, path, busy))
             elif not body.resume_existing:
                 copied = accounts.copy_session(s, target, replace=body.replace)
             elif not accounts.resumable(accounts.confined(accounts.files(s, target), target)):
@@ -1958,9 +1961,6 @@ def move_session(pane_id: str, body: MoveBody, request: Request):
         except (OSError, subprocess.SubprocessError) as e:  # only the type: it may hold a path
             _audit(request, "move_session", pane_id, detail, outcome=f"error: {type(e).__name__}")
             raise HTTPException(500, "the session could not be copied: nothing was kept") from e
-        if moved is not s and accounts.running(moved, target):
-            _refuse(request, "move_session", detail, 409,
-                    "it is running on that account, or may be: go to that window")
         argv = [*accounts.RESUME[to], moved.session_id]
         try:  # the copy stays: the session can still be resumed there by hand
             new = tmux.new_window(pane.session, f"{agent} on {profile['name']}"[:40],

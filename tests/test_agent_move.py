@@ -10,6 +10,7 @@ import pytest
 from openbus import agent_move, expunge
 
 TID = "01a10000-0000-7000-8000-00000000000a"
+IDLE = lambda _sid: False  # noqa: E731 - no thread runs on the target
 
 
 def _rollout(path, *items):
@@ -67,13 +68,16 @@ def test_a_long_thread_keeps_its_first_ask_and_the_newest_turns():
     assert kept[0] == ["user", "first ask"] and kept[-3:] == turns[-3:]
     assert kept[1][1].startswith("[Earlier turns were left out") and len(kept) == 5
     assert agent_move.budget(turns) == turns and agent_move.budget([]) == []
+    huge = agent_move.budget([["user", "q" * 900], ["assistant", "w" * 900]], limit=400)
+    assert [t[:100] for _, t in huge] == ["q" * 100, "w" * 100] and len(huge[1][1]) < 200
+    assert "cut to fit" in huge[1][1]  # the newest turn kept, its start
 
 
 def test_a_codex_session_becomes_a_claude_transcript_it_can_resume(tmp_path):
     codex, claude = tmp_path / ".codex", tmp_path / ".claude"
     _rollout(codex / f"sessions/2026/10/09/rollout-2026-10-09T10-00-00-{TID}.jsonl", *CONVERSATION)
     s = expunge.Session("codex", TID, codex, tmp_path / "agent-history", 0, "")
-    sid = agent_move.move(s, "claude", claude, "/srv/garden", "claude", None)
+    sid = agent_move.move(s, "claude", claude, "/srv/garden", "claude", None, IDLE)
     out = claude / f"projects/-srv-garden/{sid}.jsonl"
     assert stat.S_IMODE(out.stat().st_mode) == 0o600
     rows = [json.loads(line) for line in out.read_text().splitlines()]
@@ -81,6 +85,7 @@ def test_a_codex_session_becomes_a_claude_transcript_it_can_resume(tmp_path):
     assert [r["parentUuid"] for r in rows] == [None, rows[0]["uuid"]]  # one chain
     assert {r["sessionId"] for r in rows} == {sid} and rows[0]["cwd"] == "/srv/garden"
     assert rows[0]["message"] == {"role": "user", "content": "Water the tomatoes"}
+    assert rows[0]["origin"] == {"kind": "human"} and "origin" not in rows[1]
     assert rows[1]["message"]["content"][0]["text"].endswith("Watered bed 3.")
 
 
@@ -116,17 +121,21 @@ def test_a_claude_session_goes_through_codexs_own_importer(tmp_path, monkeypatch
     codex.mkdir()
     (codex / "reply.json").write_text(json.dumps([{"target": TID}]))
     s = expunge.Session("claude", "ab12", claude, tmp_path / "agent-history", 0, "")
-    assert agent_move.move(s, "codex", codex, "/srv/garden", str(fake), os.defpath) == TID
+    assert agent_move.move(s, "codex", codex, "/srv/garden", str(fake), os.defpath, IDLE) == TID
     seen = json.loads((codex / "seen.json").read_text())
     assert seen["under_home"] and seen["text"] == '{"type": "user"}\n'
     # Nothing of the daemon's (LC_CTYPE is the stand-in's own Python coercing its locale).
     assert set(seen["env"]) - {"LC_CTYPE"} == {"CODEX_HOME", "HOME", "PATH"}
-    assert not (tmp_path / "state/tmux-rc/codex-import").exists()  # the copy is gone
+    assert not list((tmp_path / "state").rglob("*.jsonl"))  # the copy is gone
     # Unchanged since, it imports nothing new: the thread is the one its ledger names.
     (codex / "reply.json").write_text("[]")
     (codex / "external_agent_session_imports.json").write_text(json.dumps(
         {"records": [{"source_path": seen["path"], "imported_thread_id": TID}]}))
-    assert agent_move.move(s, "codex", codex, "/srv/garden", str(fake), os.defpath) == TID
+    assert agent_move.move(s, "codex", codex, "/srv/garden", str(fake), os.defpath, IDLE) == TID
+    seen["path"] = "untouched"  # an append to a running thread is refused before any import
+    with pytest.raises(LookupError, match="running"):
+        agent_move.move(s, "codex", codex, "/srv/garden", str(fake), os.defpath, {TID}.__contains__)
+    assert json.loads((codex / "seen.json").read_text())["path"] != "untouched"
     (codex / "external_agent_session_imports.json").unlink()
     with pytest.raises(LookupError, match="nothing to import"):
-        agent_move.move(s, "codex", codex, "/srv/garden", str(fake), os.defpath)
+        agent_move.move(s, "codex", codex, "/srv/garden", str(fake), os.defpath, IDLE)
