@@ -86,6 +86,10 @@ def test_a_codex_session_becomes_a_claude_transcript_it_can_resume(tmp_path):
     assert {r["sessionId"] for r in rows} == {sid} and rows[0]["cwd"] == "/srv/garden"
     assert rows[0]["message"] == {"role": "user", "content": "Water the tomatoes"}
     assert rows[0]["origin"] == {"kind": "human"} and "origin" not in rows[1]
+    with pytest.raises(LookupError, match="too long"):
+        agent_move.move(s, "claude", claude, "/srv/" + "g" * 300, "claude", None, IDLE)
+    assert agent_move._text([{"type": "input_image"}, {"type": "text", "text": "this"}]) == \
+        "[An image was here; it did not carry over.]\nthis"
     assert rows[1]["message"]["content"][0]["text"].endswith("Watered bed 3.")
 
 

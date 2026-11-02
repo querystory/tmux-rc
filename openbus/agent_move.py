@@ -8,11 +8,13 @@ back only on its own vendor). See docs/design/agent-accounts.md, "Move to anothe
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import threading
 import uuid
@@ -27,6 +29,7 @@ NOTE_CHARS = 4000  # a tool note's cut, as Codex's importer cuts a tool result
 BUDGET = 400_000  # characters a written Claude transcript keeps: about 100k tokens
 TURN = BUDGET // 4  # and any one turn: the first ask and the newest turn always fit
 IMPORT_S = 60.0  # how long Codex's importer may take
+PROJECT_NAME = 200  # the longest project folder name Claude Code spells out whole
 TOOL = {"function_call": "arguments", "custom_tool_call": "input"}  # a Codex call's input field
 
 
@@ -58,8 +61,8 @@ def to_codex(transcript: Path, codex: str, home: Path, cwd: str, path: str | Non
     copy = stage / ".claude/projects" / transcript.parent.name / transcript.name
     if any(busy(t) for t in _imported(home, str(copy))):
         raise LookupError("it is running on that account, or may be: go to that window")
+    confined([copy], stage)  # no link out of the staging dir, checked before anything is made
     copy.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    confined([copy], stage)  # no link out of the staging dir
     try:  # only a file this move made is written, then removed
         fd = os.open(copy, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     except FileExistsError as e:
@@ -73,8 +76,12 @@ def to_codex(transcript: Path, codex: str, home: Path, cwd: str, path: str | Non
             shutil.copyfileobj(src, f)
         _whole_records(copy)  # the agent may be mid-append
         with subprocess.Popen([codex, "app-server"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                              stderr=subprocess.DEVNULL, env=env, cwd=stage, text=True) as p:
-            timer = threading.Timer(IMPORT_S, p.kill)  # ends the read below with EOF
+                              stderr=subprocess.DEVNULL, env=env, cwd=stage, text=True,
+                              start_new_session=True) as p:
+            def kill() -> None:  # the whole group: a wrapper's child may hold stdout open
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(p.pid, signal.SIGKILL)
+            timer = threading.Timer(IMPORT_S, kill)  # ends the read below with EOF
             timer.start()
             try:
                 for msg in ({"id": 0, "method": "initialize",
@@ -96,7 +103,7 @@ def to_codex(transcript: Path, codex: str, home: Path, cwd: str, path: str | Non
                         return done[-1]
             finally:
                 timer.cancel()
-                p.kill()
+                kill()
         raise TimeoutError("Codex's importer did not finish")
     finally:
         copy.unlink(missing_ok=True)
@@ -113,11 +120,12 @@ def _imported(home: Path, source: str) -> list[str]:
 
 
 def _text(content) -> str:
-    """A message's text: a string, or the text of its parts."""
+    """A message's text: a string, or the text of its parts, an image's place marked."""
     if isinstance(content, str):
         return content
-    return "\n".join(c.get("text") or "" for c in content if isinstance(c, dict)) \
-        if isinstance(content, list) else ""
+    return "\n".join(c.get("text") or ("[An image was here; it did not carry over.]"
+                                       if "image" in str(c.get("type")) else "")
+                     for c in content if isinstance(c, dict)) if isinstance(content, list) else ""
 
 
 def _note(kind: str, body: str, name: str = "") -> str:
@@ -188,6 +196,8 @@ def to_claude(rollouts: list[Path], home: Path, cwd: str) -> str:
         raise LookupError("this session has no messages to move yet")
     sid, parent, now = str(uuid.uuid4()), None, datetime.now(UTC).isoformat()
     out = home / "projects" / re.sub(r"[^A-Za-z0-9]", "-", cwd) / f"{sid}.jsonl"
+    if len(out.parent.name) > PROJECT_NAME:  # Claude Code shortens these its own way
+        raise LookupError("this folder's path is too long to write a Claude Code session for")
     confined([out], home)
     out.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     rows = []
