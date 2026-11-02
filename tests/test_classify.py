@@ -122,6 +122,11 @@ def test_a_handoff_mid_list_kept_a_copyable_only_is_offered():
     result = classify(_pane("claude"), running, _llm({"tool": "claude", "activity": "running",
                                                       "copyables": [copyable]}))
     assert "offers" not in result and result["activity"] == "running"
+    # Outside auto mode a finished reply may only show the code: the model's offer decides.
+    shown = _sample(name).replace("⏵⏵ auto mode on", "⏵⏵ accept edits on")
+    result = classify(_pane("claude"), shown, _llm({"tool": "claude", "activity": "idle",
+                                                    "copyables": [copyable]}))
+    assert "offers" not in result and result["activity"] == "idle"
 
 
 def _pane(cmd="bash", title="t"):

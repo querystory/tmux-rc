@@ -1514,10 +1514,13 @@ def classify(
     # Claude's final message is read on the ask view: a long one begins above the viewport.
     final = not over and tool in _TURN_ERROR_RE and _final_message(view, tool)
     # Only Claude Code's finished turn hands a command over as `! command`; a "!" row in a
-    # running turn's tool output or another program is bash's own.
+    # running turn's tool output or another program is bash's own. In auto mode, where the
+    # agent stops only when it needs the user, its handoff row is the turn's ask (_final_ask);
+    # elsewhere the row may just show code, so the model's own offer is needed.
     cps = result.get("copyables")
     copied = [c.get("text") for c in cps if isinstance(c, dict)] if (
-        isinstance(cps, list) and tool == "claude" and final) else []
+        isinstance(cps, list) and tool == "claude" and final
+        and claude_mode(visible) == "auto mode") else []
     if (offers := screen_offers(result.pop("offers", None), text, copied)) and not over:
         result["offers"] = offers = [_from_reply(offer, reply) for offer in offers]
     # The model's own read of this screen (not an activity carried over a failed parse) that
