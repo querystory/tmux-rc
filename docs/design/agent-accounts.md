@@ -264,6 +264,48 @@ the user rather than copied over from the old account, because it is a security 
 the provider asks per account. Like Expunge, the request is bound to the pane incarnation
 the menu was drawn for, and it is audited with the session id and the target dir.
 
+## Moving a session to another agent
+
+Pane "…" → **Move to another agent…** carries a Claude Code conversation to Codex, or a
+Codex one to Claude Code, on one of the other agent's signed-in accounts. It is the same
+sheet, endpoint and guarantees as an account move (one request bound to the incarnation and
+session, one move at a time, the PATH check, a new window in the same session and cwd, the
+audit, **Exit the old pane**, never a kill); only what lands on the target differs. An
+earlier plan sent a short handoff file instead; the conversation itself replaced it once
+Codex's importer turned out to be scriptable with a session's path.
+
+The target gets the conversation itself, not a summary. The person's messages and the
+replies carry over word for word, each tool call and result as a text note (a result cut to
+4,000 characters), and reasoning stays behind, since each vendor signs or encrypts its own.
+Those are the rules of Codex's own Claude Code importer, and both directions follow them, so
+the history reads the same either way:
+
+- **Claude Code → Codex** calls that importer rather than reimplementing it: tmux-rc runs a
+  short-lived `codex app-server` on stdio, asks it to import the transcript, and resumes the
+  thread it names. The importer reads only `$HOME/.claude/projects` and resolves links, so
+  the app-server runs with `HOME` on a staging folder holding a copy, under tmux-rc's state
+  dir, and `CODEX_HOME` on the chosen account; its environment is only those and `PATH`,
+  never the daemon's keys. The copy's path is fixed because Codex's import ledger keys on
+  it: moving the same session again appends its new turns to the first imported thread.
+- **Codex → Claude Code** writes a new Claude transcript under the chosen account, in the
+  project folder Claude Code keeps for the cwd, and resumes it with `claude --resume`. The
+  person's messages come from Codex's events, since its user-role items also carry the
+  context Codex injects. A long thread keeps its first message and the newest turns that
+  fit about 100k tokens, with a note where turns were left out, so the first Claude turn
+  stays affordable. Claude's transcript format is undocumented, which is the risk of this
+  direction; a writer this small is cheap to follow when it changes.
+
+Writing structured tool calls instead of notes was rejected: a model that "remembers"
+calling a tool it does not have, under another vendor's schema, is worse off than one told
+plainly what ran. Asking the source agent to summarise itself was rejected too: it spends
+the quota that running out of is a main reason to move.
+
+Crossing vendors is a consent decision, unlike an account move. The last step of the sheet
+says the conversation, tool output included, goes from one vendor to the other, and gives
+the transcript's size; nothing is sent before that tap. If the import fails the move is
+refused and nothing is opened. A fallback handoff file for that case, and agents other than
+these two, are left for later.
+
 ## Safety
 
 - No credentials file is ever shared, copied or linked, and discovering, naming or adding
