@@ -100,6 +100,8 @@ def test_a_handed_over_command_keeps_its_bash_prefix():
     assert classify_mod.screen_offers([], "● Run it:\n\n  ! make tea\n\n❯ ", copied) == [
         "! make tea"]
     assert classify_mod.screen_offers([], typed, copied) == []
+    # A copyable's real row break is no wrap: joined, it would send another command.
+    assert classify_mod.screen_offers([], "● Run it:\n\n  ! make\n  tea\n\n❯ ", ["make\ntea"]) == []
 
 
 def test_a_handoff_mid_list_kept_a_copyable_only_is_offered():
@@ -111,6 +113,10 @@ def test_a_handoff_mid_list_kept_a_copyable_only_is_offered():
     result = classify(_pane("claude"), _sample(name),
                       _llm({"tool": "claude", "activity": "idle", "copyables": [copyable]}))
     assert result["offers"] == [command] and result["waiting_on"] == "user"
+    # A shell printing a "!" row (bash's negation) offers nothing it only copied.
+    shell = classify(_pane("bash"), "$ cat check.sh\n! grep -q x f\n\n$ ",
+                     _llm({"tool": "shell", "copyables": [{"label": "c", "text": "grep -q x f"}]}))
+    assert "offers" not in shell
 
 
 def _pane(cmd="bash", title="t"):

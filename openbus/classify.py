@@ -1006,8 +1006,8 @@ def screen_offers(offers: object, text: str, copied: object = ()) -> list[str]:
     command rather than say it to the agent. Any other sighting (an older turn, a reply to
     type) leaves it as is. A reply ("delete it" for "I'd delete this job, unless you want to
     keep it") is the user's words, so it is on the screen word by word rather than whole.
-    Text the model `copied` (its copyables) that is such a handed-over command is offered
-    too, as the model sometimes keeps it a copyable only."""
+    Text the model `copied` (its copyables, on one line) that is such a handed-over command
+    is offered too, as the model sometimes keeps it a copyable only."""
     listed = offers if isinstance(offers, list) else ()
     visible = _ask_view(text)
     # The final assistant message (from its bullet, or the top when the view begins inside
@@ -1019,7 +1019,9 @@ def screen_offers(offers: object, text: str, copied: object = ()) -> list[str]:
     flat = lambda texts: (re.sub(r"[ \t]*\n[ \t]*", " ", o.strip())  # noqa: E731
                           for o in texts if isinstance(o, str))
     whole = [f"! {o}" if not o.startswith("!") and handed(f"! {o}") else o for o in flat(listed)]
-    whole += [o for o in (o if o.startswith("! ") else f"! {o}" for o in flat(copied)) if handed(o)]
+    # A copyable keeps its real newlines (the model joins wraps), so one with rows is no line.
+    whole += [o for o in (o if o.startswith("! ") else f"! {o}" for o in flat(
+        c for c in copied if isinstance(c, str) and "\n" not in c.strip())) if handed(o)]
     # A reply is the user's own words for the final message's ask ("merge PR #5144" for
     # "Approvals to merge PR #5385 and PR #5144"), read off one paragraph (_invited). A
     # `! command` the agent wrote without its "!" is on the screen as the command alone.
@@ -1511,8 +1513,10 @@ def classify(
     over = spent or blocked
     # Claude's final message is read on the ask view: a long one begins above the viewport.
     final = not over and tool in _TURN_ERROR_RE and _final_message(view, tool)
+    # Only Claude Code hands a command over as `! command`; elsewhere a "!" row is bash's own.
     cps = result.get("copyables")
-    copied = [c.get("text") for c in cps if isinstance(c, dict)] if isinstance(cps, list) else []
+    copied = [c.get("text") for c in cps if isinstance(c, dict)] if (
+        isinstance(cps, list) and tool == "claude") else []
     if (offers := screen_offers(result.pop("offers", None), text, copied)) and not over:
         result["offers"] = offers = [_from_reply(offer, reply) for offer in offers]
     # The model's own read of this screen (not an activity carried over a failed parse) that
