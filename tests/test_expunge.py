@@ -135,9 +135,13 @@ def test_codex_thread_comes_from_its_name_in_the_pane_title(monkeypatch, tmp_pat
                                              {"id": B, "thread_name": "api"}])
     for title in ("Plan the export | api", "[ ! ] Action Required | Plan the export | api"):
         assert expunge.identify("10", "", title=title).session_id == A
-    # The project alone (a fresh Codex) is not a thread's name, even when one has it.
-    with pytest.raises(Refused, match="title"):
-        expunge.identify("10", "", title="api")
+    # The project alone (a fresh Codex) is not a thread's name, even when one has it, nor
+    # is Codex's state before it.
+    jsonl(tmp_path / "session_index.jsonl", [{"id": A, "thread_name": "Plan the export"},
+                                             {"id": B, "thread_name": "[ ! ] Action Required"}])
+    for title in ("api", "[ ! ] Action Required | api"):
+        with pytest.raises(Refused, match="title"):
+            expunge.identify("10", "", title=title)
     # Part of a name is not a name: "Plan the export" is no state before "api".
     with pytest.raises(Refused, match="title"):
         expunge.identify("10", "", title="Plan the export | api | proj")

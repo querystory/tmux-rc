@@ -108,8 +108,10 @@ def codex_thread(names: dict, title: str, shown: list, screen: str) -> str | Non
     state and another name."""
     if sid := codex_thread_shown(shown, screen):
         return sid
-    head = title.rpartition(" | ")[0]
-    shows = {head, _CODEX_STATE.sub("", head), codex_status_item(shown, screen, "thread-title")}
+    # The title read as is and with the state taken off: a project alone under either
+    # (a fresh Codex) is no name, so neither reading counts.
+    heads = {t.rpartition(" | ")[0] for t in (title, _CODEX_STATE.sub("", title))}
+    shows = {codex_status_item(shown, screen, "thread-title"), *(heads if all(heads) else ())}
     named = [t for t, n in names.items() if n and n in shows]
     return named[0] if len(named) == 1 else None
 
