@@ -793,8 +793,9 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 /* Activity, last on the page: until its slot scrolls into view, a strip pinned to the bottom
    edge (atlas.js), growing into the full chart as the slot arrives. */
 .atlas-pulse .fleet-chart-axis { transition: height .25s; }
-#session-atlas > .atlas-pulse.compact { position: sticky; bottom: 0; z-index: 3; padding-block: 6px 8px; border-radius: 16px 16px 0 0; box-shadow: 0 -4px 16px rgb(0 0 0 / .12); }
+#session-atlas > .atlas-pulse.compact { position: sticky; bottom: 0; z-index: 3; cursor: pointer; padding-block: 6px 8px; border-radius: 16px 16px 0 0; box-shadow: 0 -4px 16px rgb(0 0 0 / .12); }
 .atlas-pulse.compact .fleet-chart-axis { height: 32px; }
+.atlas-pulse.compact > * { pointer-events: none; }
 .atlas-pulse.compact :is(.atlas-state-legend, .atlas-history-note, .atlas-panel-heading > :not(h3, .fleet-now, .fleet-average)) { display: none; }
 #session-atlas > .atlas-pulse.compact > .atlas-panel-heading:first-child { flex-wrap: nowrap; min-height: 0; margin: 0 0 4px; }
 .atlas-pulse.compact > .atlas-panel-heading > * { white-space: nowrap; }

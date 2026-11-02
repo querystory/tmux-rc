@@ -612,11 +612,12 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   // arrives; a page that fits shows it full from the start. The sentinel marks the slot.
   const pulse = root._pulse = el('section', root._compact ? 'atlas-panel atlas-pulse compact' : 'atlas-panel atlas-pulse');
   const sentinel = root._sentinel ||= el('div');
-  root._slot ||= new IntersectionObserver(([entry]) => {
-    root._compact = main.compact = !entry.isIntersecting;
-    root._pulse.classList.toggle('compact', root._compact);
-  });
+  const compact = root._fold ||= on => { root._compact = main.compact = on; root._pulse.classList.toggle('compact', on); };
+  root._slot ||= new IntersectionObserver(([entry]) => compact(!entry.isIntersecting));
   root._slot.observe(sentinel);
+  // The strip is a way to the chart, not the chart: a tap anywhere on it opens the full one
+  // in its slot and scrolls there (opened first, so the scroll aims at its full height).
+  pulse.onclick = () => root._compact && (compact(false), pulse.scrollIntoView({ behavior: 'smooth', block: 'end' }));
   const heading = el('div', 'atlas-panel-heading');
   const now = el('span', 'fleet-now');
   now.append(el('b', '', String(running(liveCounts(panes)))), el('span', 'muted', ' running'));
