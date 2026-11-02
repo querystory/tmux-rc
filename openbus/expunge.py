@@ -26,6 +26,8 @@ from .classify import _codex_model_segments, _session_chrome
 _ID = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
 # The status bar cut to a phone's width: "<thread> · GPT…  ⚠ 2 warnings · f2 to view".
 _CLIPPED_BAR = re.compile(rf"\s+{_ID.pattern}(?: · [^·]+)+")
+# The state Codex puts before a pane's title while it needs you: "[ ! ] Action Required | ".
+_CODEX_STATE = re.compile(r"^\[ \S \] [^|]+ \| ")
 _ENTRY = re.compile(r"[A-Za-z0-9_-]{1,128}")  # any agent-history entry id (agent-history validID)
 
 # Per harness: the session's own files and dirs, relative to its config dir, and the
@@ -101,15 +103,14 @@ def codex_named(home: Path) -> dict[str, str]:
 
 def codex_shows(thread: str, name: str, title: str, shown: list, screen: str) -> bool:
     """Whether a Codex pane shows this thread by its `name`. Codex titles the pane
-    "<thread name> | <project>", after any state it is in ("[ ! ] Action Required | "),
+    "<thread name> | <project>", after the state it shows while it needs you,
     and a status bar configured with `thread-title` shows the name at that item's place
     (never another segment: a branch can be "main" too). A bar showing another thread's
     id rules it out."""
     if codex_thread_shown(shown, screen) not in (None, thread):
         return False
-    head = title.rpartition(" | ")[0]
-    return (name in (head, codex_status_item(shown, screen, "thread-title"))
-            or head.endswith(f" | {name}"))
+    head = _CODEX_STATE.sub("", title).rpartition(" | ")[0]
+    return name in (head, codex_status_item(shown, screen, "thread-title"))
 
 
 class Refused(Exception):  # noqa: N818 - a refusal, not an error: nothing was touched
@@ -203,8 +204,11 @@ def _agent(pid: int, screen: str, title: str) -> Session | None:
     # name in the pane's title or on the status line (see codex_shows and live._codex_pane).
     home = _home(pid, "CODEX_HOME", ".codex")
     shown = codex_status_line(home)
-    named = [t for t, n in codex_named(home).items() if codex_shows(t, n, title, shown, screen)]
-    if not (sid := codex_thread_shown(shown, screen) or (named[0] if len(named) == 1 else "")):
+    if not (sid := codex_thread_shown(shown, screen)):
+        named = [t for t, n in codex_named(home).items()
+                 if codex_shows(t, n, title, shown, screen)]
+        sid = named[0] if len(named) == 1 else None
+    if not sid:
         # A fresh Codex (not a resume) that has written no rollout since it started has no
         # thread to name: its first turn creates one.
         if not {"resume", "fork"} & set(args) and not _rollout_since(home, start):

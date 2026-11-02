@@ -138,6 +138,9 @@ def test_codex_thread_comes_from_its_name_in_the_pane_title(monkeypatch, tmp_pat
     # The project alone (a fresh Codex) is not a thread's name, even when one has it.
     with pytest.raises(Refused, match="title"):
         expunge.identify("10", "", title="api")
+    # Part of a name is not a name: "Plan the export" is no state before "api".
+    with pytest.raises(Refused, match="title"):
+        expunge.identify("10", "", title="Plan the export | api | proj")
     # Two threads with the name: neither is taken.
     jsonl(tmp_path / "session_index.jsonl", [{"id": A, "thread_name": "Plan the export"},
                                              {"id": B, "thread_name": "Plan the export"}])
