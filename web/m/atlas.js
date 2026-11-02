@@ -610,14 +610,28 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   // Activity closes the page. Until its slot scrolls into view it waits as a strip pinned to
   // the bottom edge (the same chart, compact), and grows into the full chart as the slot
   // arrives; a page that fits shows it full from the start. The sentinel marks the slot.
-  const pulse = root._pulse = el('section', root._compact ? 'atlas-panel atlas-pulse compact' : 'atlas-panel atlas-pulse');
+  const pulse = root._pulse = el('section', 'atlas-panel atlas-pulse');
   const sentinel = root._sentinel ||= el('div');
-  const compact = root._fold ||= on => { root._compact = main.compact = on; root._pulse.classList.toggle('compact', on); };
+  // The strip is one button to the chart, not the chart: its insides inert until it opens.
+  const compact = root._fold ||= on => {
+    const strip = root._pulse;
+    root._compact = main.compact = on;
+    strip.classList.toggle('compact', on);
+    [...strip.children].forEach(child => { child.inert = on; });
+    on ? Object.assign(strip, { tabIndex: 0, role: 'button', ariaLabel: 'Show the full Activity chart' })
+      : ['tabindex', 'role', 'aria-label'].forEach(name => strip.removeAttribute(name));
+  };
   root._slot ||= new IntersectionObserver(([entry]) => compact(!entry.isIntersecting));
   root._slot.observe(sentinel);
-  // The strip is a way to the chart, not the chart: a tap anywhere on it opens the full one
-  // in its slot and scrolls there (opened first, so the scroll aims at its full height).
-  pulse.onclick = () => root._compact && (compact(false), pulse.scrollIntoView({ behavior: 'smooth', block: 'end' }));
+  // A tap or Enter opens the full chart in its slot, then scrolls there once it has grown
+  // (the scroll aims at its full height, not the strip's).
+  pulse.onclick = () => {
+    if (!root._compact) return;
+    compact(false);
+    getComputedStyle(pulse).height; // start the growth now, so its transitions are listed
+    Promise.all(pulse.getAnimations({ subtree: true }).map(a => a.finished)).then(() => pulse.scrollIntoView({ behavior: 'smooth', block: 'end' }));
+  };
+  pulse.onkeydown = event => { if (root._compact && ['Enter', ' '].includes(event.key)) { event.preventDefault(); pulse.onclick(); } };
   const heading = el('div', 'atlas-panel-heading');
   const now = el('span', 'fleet-now');
   now.append(el('b', '', String(running(liveCounts(panes)))), el('span', 'muted', ' running'));
@@ -664,6 +678,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   });
   toggles.append(el('span', 'fleet-gap'), resetZoomButton(main));
   pulse.append(toggles, main.el);
+  compact(!!root._compact);
   nodes.push(...after);
 
   // One card per tmux session: its running count, who needs you, its trend on the shared
