@@ -496,8 +496,9 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     },
     // Where "Move to another account" can take a pane: its provider's other signed-in
     // accounts, once it has several, each with its line under the name: one on the pane's
-    // own login is listed, and says the copy would stay on that login.
-    moveTargets: (paneId, provider) => { const from = ofPane(paneId); return several(provider) ? signedIn().filter((p) => p.provider === provider && !p.panes.includes(paneId)).map((p) => ({ ...p,
+    // own login is listed, and says the copy would stay on that login. "Move to another
+    // agent" asks for provider `to`'s: every signed-in one.
+    moveTargets: (paneId, provider, to = provider) => { const from = ofPane(paneId); return to !== provider || several(provider) ? signedIn().filter((p) => p.provider === to && !p.panes.includes(paneId)).map((p) => ({ ...p,
       sub: from?.same_as?.includes(p.dir) ? `Same login as ${from.name}: the copy stays on that login and its limits` : sub(p) })) : []; },
   };
 }

@@ -1164,6 +1164,8 @@ function render() {
   const account = pane && accounts.badge(pane.pane_id);
   show("move-pane", !!pane && accounts.moveTargets(pane.pane_id, pane.tool).length > 0);
   html($("move-pane"), `${licon("users", 18)}<span>Move to another account…${account ? `<small class="acct-on">Now on ${account}</small>` : ""}</span>`);
+  show("move-agent", !!OTHER_AGENT[pane?.tool] && accounts.moveTargets(pane.pane_id, pane.tool, OTHER_AGENT[pane.tool]).length > 0);
+  html($("move-agent"), `${licon("bot", 18)}<span>Move to another agent…</span>`);
   markEnding($("detail"), pane);
   text($("pane-location"), pane ? [sessionOf(pane), pane.window_name || pane.pane_id].filter(Boolean).join(" / ") : "Waiting for session state");
   if (account) $("pane-location").insertAdjacentHTML(wide ? "beforeend" : "afterbegin", wide ? ` · ${account}` : `${account} `);
@@ -2915,24 +2917,27 @@ $("expunge-pane").onclick = async () => {
   });
 };
 // Move to another account: copy the pane's agent session into another account's dir and
-// resume it there in a new window; this pane and the original are left alone
-// (docs/design/agent-accounts.md).
+// resume it there in a new window; this pane and the original are left alone. Move to another
+// agent is the same sheet, carrying the conversation to the other agent (with its vendor's
+// consent step) rather than copying it (docs/design/agent-accounts.md).
 // Not while a choice runs: the sheet is where its outcome shows.
+const OTHER_AGENT = { claude: "codex", codex: "claude" }, AGENT = { claude: ["Claude Code", "Anthropic"], codex: ["Codex", "OpenAI"] };
 $("close-move").onclick = () => $("move-choices").inert || $("move-dialog").close();
 $("move-dialog").addEventListener("cancel", (e) => { if ($("move-choices").inert) e.preventDefault(); });
-$("move-pane").onclick = async () => {
+const moveSheet = (other) => async () => {
   closePaneMenu();
   const pane = panes.find((p) => p.pane_id === active);
   if (!pane) return;
+  const to = other ? OTHER_AGENT[pane.tool] : pane.tool, [name, vendor] = AGENT[to] || [];
   // Which account each pane runs on, fresh: a stale list offers the pane its own.
   if (!await accounts.refresh()) return notice("Could not load the accounts.", 6000);
-  const targets = accounts.moveTargets(pane.pane_id, pane.tool);
-  if (!targets.length) return notice("No other signed-in account to move it to.", 6000);
+  const targets = accounts.moveTargets(pane.pane_id, pane.tool, to);
+  if (!targets.length) return notice(other ? `No signed-in ${name} account to move it to.` : "No other signed-in account to move it to.", 6000);
   // No status means no answer at all: the server may have done it, so never just "could not".
   const failed = (what, maybe, error) => notice(error.status === undefined ? `Connection lost; ${maybe}` : `Could not ${what}: ${error.detail || error.message}`, 6000);
   // The session it runs now, which every request below is bound to (Expunge's preview names it).
-  let session_id;
-  try { ({ session_id } = await request(`${paneUrl(pane.pane_id, "expunge")}?birth=${encodeURIComponent(pane.birth ?? "")}`)); }
+  let session_id, size;
+  try { ({ session_id, size } = await request(`${paneUrl(pane.pane_id, "expunge")}?birth=${encodeURIComponent(pane.birth ?? "")}`)); }
   catch (error) { return failed("move this session", "nothing was moved.", error); }
   if (!session_id) return notice("This window has no saved conversation to move.", 6000);
   const sheet = (what, choices) => {
@@ -2955,8 +2960,8 @@ $("move-pane").onclick = async () => {
   const go = (id) => { $("move-dialog").close(); openLaunched(id); };
   const move = async (p, flags = {}) => {
     try {
-      const r = await post(paneUrl(pane.pane_id, "move"), { dir: p.dir, birth: pane.birth, session_id, ...flags }, NO_TIMEOUT);
-      sheet(`It is running on ${p.name} in a new window. This window still runs it on this account until it exits.`, [
+      const r = await post(paneUrl(pane.pane_id, "move"), { dir: p.dir, birth: pane.birth, session_id, ...other && { agent: to }, ...flags }, NO_TIMEOUT);
+      sheet(other ? `${name} is running it on ${p.name} in a new window. This window still runs it here until it exits.` : `It is running on ${p.name} in a new window. This window still runs it on this account until it exits.`, [
         ["Go to the new window", "", () => go(r.pane_id)],
         ["Exit the old pane", "Types /exit here, then goes to the new window", async () => {
           try { await post(paneUrl(pane.pane_id, "exit"), { birth: pane.birth, session_id }); }
@@ -2971,10 +2976,17 @@ $("move-pane").onclick = async () => {
       failed("move the session", "the move may have completed. Look for its new window before trying again.", error);
     }
   };
-  sheet(`Copies this ${pane.tool === "codex" ? "Codex" : "Claude Code"} session to the account you pick and resumes it there, in a new window in ${pane.session}. It is a copy, never a move: the original stays readable on this account, and this window keeps running until you exit it. An account that has never opened this folder asks you to trust it first.`,
-    targets.map((p) => [accounts.chip(p), p.sub, () => move(p)]));
+  // To another agent the conversation leaves its vendor, so the last step says so and what goes.
+  const consent = (p) => sheet(`Sends this conversation, tool output included (a ${bytes(size)} transcript), from ${AGENT[pane.tool][1]} to ${vendor}, and resumes it in ${name}${targets.length > 1 ? ` on ${p.name}` : ""}, in a new window in ${pane.session}. Messages carry over word for word; tool calls and their output as notes, each cut to 4,000 characters; reasoning stays behind.${to === "claude" ? " A long conversation keeps its first request and the newest turns that fit, and a very long turn only its start." : ""} This window keeps running until you exit it.`,
+    [[`Send to ${vendor} and start`, "", () => move(p)]]);
+  text($("move-title"), other ? `Move to ${name}` : "Move to another account");
+  if (other && targets.length === 1) consent(targets[0]);
+  else sheet(other ? `Which ${name} account should it move to?` : `Copies this ${AGENT[pane.tool][0]} session to the account you pick and resumes it there, in a new window in ${pane.session}. It is a copy, never a move: the original stays readable on this account, and this window keeps running until you exit it. An account that has never opened this folder asks you to trust it first.`,
+    targets.map((p) => [accounts.chip(p), p.sub, () => other ? consent(p) : move(p)]));
   $("move-dialog").showModal();
 };
+$("move-pane").onclick = moveSheet(false);
+$("move-agent").onclick = moveSheet(true);
 window.addEventListener("hashchange", route);
 // A push tapped while the app is open: sw.js names the address to show, and it is routed
 // here like any move. pushState, not location.hash, so the bare-list "/m" routes too.
