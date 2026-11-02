@@ -94,6 +94,23 @@ def test_a_handed_over_command_keeps_its_bash_prefix():
     # A long final message begins above the viewport: its handoff is still this turn's.
     long = "● Run it:\n\x1e[visible screen]\x1f\n  first rows of it.\n\n  ! make tea\n\n❯ "
     assert classify_mod.screen_offers(["make tea"], long) == ["! make tea"]
+    # The model may keep a handed-over command a copyable only: it is offered all the same,
+    # unlike copied text the message does not hand over to run here.
+    copied = ["make tea", "! make tea", "it is queued"]
+    assert classify_mod.screen_offers([], "● Run it:\n\n  ! make tea\n\n❯ ", copied) == [
+        "! make tea"]
+    assert classify_mod.screen_offers([], typed, copied) == []
+
+
+def test_a_handoff_mid_list_kept_a_copyable_only_is_offered():
+    # Live: a numbered item hands over a wrapped `! command`, notes follow, and the model
+    # kept the command as a copyable with no `send`: the card had no Send it or Copy.
+    name = "155_claude_handoff_mid_list_before_notes"
+    command = _sample(name, "expected")["offers"][0]
+    copyable = {"label": "Command", "text": command[2:]}
+    result = classify(_pane("claude"), _sample(name),
+                      _llm({"tool": "claude", "activity": "idle", "copyables": [copyable]}))
+    assert result["offers"] == [command] and result["waiting_on"] == "user"
 
 
 def _pane(cmd="bash", title="t"):
