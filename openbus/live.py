@@ -33,7 +33,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from . import accounts, agent_history, live_providers, llm, plan_usage, push, telemetry, tmux
 from .classify import _host_tool, _load_prompt
-from .expunge import codex_named, codex_shows, codex_status_line, codex_status_segments
+from .expunge import codex_status_line, codex_status_segments, codex_thread
 from .live_chat import TURNS_KEPT, TURNS_QUEUED
 from .live_providers import KEYS, LiveModel
 
@@ -1029,19 +1029,20 @@ def running_pane(entry: dict, watcher) -> str | None:
 
 def _codex_pane(watcher, entry: dict) -> str | None:
     """The one watched Codex pane showing this thread: its id on the status bar, else its
-    name (expunge.codex_shows). Codex's app-server daemon, not the terminal client, holds a
-    thread's rollout, so the process that proves it's running names no pane; a status bar
-    configured with `session-id` shows the id as a segment. Only status chrome the parser
-    validates counts, in panes classified as Codex (a shell can print a captured footer).
-    A name counts only in a pane on the CODEX_HOME whose index gives it."""
+    name (expunge.codex_thread). Codex's app-server daemon, not the terminal client, holds
+    a thread's rollout, so the process that proves it's running names no pane. Only status
+    chrome the parser validates counts, in panes classified as Codex (a shell can print a
+    captured footer). A name counts only in a pane on the CODEX_HOME the rollout is in."""
     codex = {d["pane_id"]: d.get("title") or "" for d in watcher.digest()
              if d.get("tool") == "codex"}
-    panes = {p for p in codex if entry["session_id"] in codex_status_segments(_screen(watcher, p))}
-    if not panes and (named := _codex_name(entry)):
-        home, name = named
+    sid = entry["session_id"]
+    panes = {p for p in codex if sid in codex_status_segments(_screen(watcher, p))}
+    home, sep, _ = (entry.get("source") or "").rpartition("/sessions/")
+    if not panes and sep:
+        home = Path(plan_usage.canonical(home))
         shown = codex_status_line(home)
         panes = {p for p, title in codex.items()
-                 if codex_shows(entry["session_id"], name, title, shown, _screen(watcher, p))
+                 if codex_thread(home, title, shown, _screen(watcher, p)) == sid
                  and (pid := watcher.pane_birth(p))
                  and plan_usage.home("codex", plan_usage.pane_env(pid, "codex")) == home}
     return panes.pop() if len(panes) == 1 else None
@@ -1052,14 +1053,6 @@ def _screen(watcher, pane_id: str) -> str:
     and drops panes while this runs)."""
     hist = watcher.snapshots.get(pane_id)
     return (hist and hist[-1]["text"]) or ""
-
-
-def _codex_name(entry: dict) -> tuple[Path, str] | None:
-    """The CODEX_HOME the thread's rollout is in, and the thread's name there, None when
-    another thread there has it too (expunge.codex_named)."""
-    home, sep, _ = (entry.get("source") or "").rpartition("/sessions/")
-    name = sep and codex_named(Path(home)).get(entry["session_id"])
-    return (Path(plan_usage.canonical(home)), name) if name else None
 
 
 def _home_relative(path: str) -> str:

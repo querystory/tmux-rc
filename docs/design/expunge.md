@@ -40,9 +40,10 @@ So the hard part is the identity, not the deletion.
   is trusted only when every item shows or `session-id` comes first. Without it, the
   thread's name is the next best signal, the one Live also uses: Codex titles the pane
   "<thread name> | <project>" (after a state such as "Action Required"), and its index,
-  `session_index.jsonl`, maps names to ids. A name counts only while no other thread in
-  that index has it and exactly one thread's name matches the pane, because a wrong match
-  would delete, or move, another conversation. The project alone (a fresh Codex) never
+  `session_index.jsonl`, maps names to ids. The pane names a thread only when exactly
+  one thread in that index has the name under any reading of the title (with or without
+  the state), because two threads can share a name and a wrong match would delete, or
+  move, another conversation. The project alone (a fresh Codex) never
   matches, since a name is only taken from before the last " | ". Only when neither
   signal names a thread does the sheet suggest adding `session-id` to `config.toml`.
   Move to another account shares this lookup, so its refusals are worded for either
