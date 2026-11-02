@@ -117,6 +117,11 @@ def test_a_handoff_mid_list_kept_a_copyable_only_is_offered():
     shell = classify(_pane("bash"), "$ cat check.sh\n! grep -q x f\n\n$ ",
                      _llm({"tool": "shell", "copyables": [{"label": "c", "text": "grep -q x f"}]}))
     assert "offers" not in shell
+    # Nor does a running turn's tool output.
+    running = _sample(name).replace("✻ Baked for 41s · done 3:12 PM", "✻ Baking… (41s)")
+    result = classify(_pane("claude"), running, _llm({"tool": "claude", "activity": "running",
+                                                      "copyables": [copyable]}))
+    assert "offers" not in result and result["activity"] == "running"
 
 
 def _pane(cmd="bash", title="t"):

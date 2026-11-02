@@ -722,7 +722,7 @@ def _ground_visible_fields(
         if retry and isinstance(retry.get("links"), list) and retry["links"]:
             result["links"] = retry["links"]
         state_fields = ("activity", "waiting_on", "resets", "headline", "question", "rewind",
-                        "offers")
+                        "offers", "copyables")
         if bad_question and result.get("tool") == "omp":
             state_fields += ("tables", "tasks")
         for key in state_fields:
@@ -1513,10 +1513,11 @@ def classify(
     over = spent or blocked
     # Claude's final message is read on the ask view: a long one begins above the viewport.
     final = not over and tool in _TURN_ERROR_RE and _final_message(view, tool)
-    # Only Claude Code hands a command over as `! command`; elsewhere a "!" row is bash's own.
+    # Only Claude Code's finished turn hands a command over as `! command`; a "!" row in a
+    # running turn's tool output or another program is bash's own.
     cps = result.get("copyables")
     copied = [c.get("text") for c in cps if isinstance(c, dict)] if (
-        isinstance(cps, list) and tool == "claude") else []
+        isinstance(cps, list) and tool == "claude" and final) else []
     if (offers := screen_offers(result.pop("offers", None), text, copied)) and not over:
         result["offers"] = offers = [_from_reply(offer, reply) for offer in offers]
     # The model's own read of this screen (not an activity carried over a failed parse) that
