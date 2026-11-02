@@ -59,11 +59,18 @@ def to_codex(transcript: Path, codex: str, home: Path, cwd: str, path: str | Non
     if any(busy(t) for t in _imported(home, str(copy))):
         raise LookupError("it is running on that account, or may be: go to that window")
     copy.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    confined([copy], stage)  # no link out of the staging dir
+    try:  # only a file this move made is written, then removed
+        fd = os.open(copy, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    except FileExistsError as e:
+        raise LookupError("an interrupted move left its copy in tmux-rc's state dir "
+                          "(codex-import): remove it, then try again") from e
     env = {"HOME": str(stage), "CODEX_HOME": str(home), "PATH": path or os.defpath}
     items = [{"itemType": "SESSIONS", "description": "tmux-rc move", "cwd": None,
               "details": {"sessions": [{"path": str(copy), "cwd": cwd, "title": None}]}}]
     try:
-        shutil.copyfile(transcript, copy)
+        with os.fdopen(fd, "wb") as f, transcript.open("rb") as src:
+            shutil.copyfileobj(src, f)
         _whole_records(copy)  # the agent may be mid-append
         with subprocess.Popen([codex, "app-server"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                               stderr=subprocess.DEVNULL, env=env, cwd=stage, text=True) as p:

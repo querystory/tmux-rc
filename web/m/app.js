@@ -2969,7 +2969,7 @@ const moveSheet = (other) => async () => {
     }
   };
   // To another agent the conversation leaves its vendor, so the last step says so and what goes.
-  const consent = (p) => sheet(`Sends this conversation, tool output included (a ${bytes(size)} transcript), from ${AGENT[pane.tool][1]} to ${vendor}, and resumes it in ${name}${targets.length > 1 ? ` on ${p.name}` : ""}, in a new window in ${pane.session}. Messages carry over word for word; tool calls and their output as notes, each cut to 4,000 characters; reasoning stays behind.${to === "claude" ? " A long conversation keeps its first request and the newest turns that fit." : ""} This window keeps running until you exit it.`,
+  const consent = (p) => sheet(`Sends this conversation, tool output included (a ${bytes(size)} transcript), from ${AGENT[pane.tool][1]} to ${vendor}, and resumes it in ${name}${targets.length > 1 ? ` on ${p.name}` : ""}, in a new window in ${pane.session}. Messages carry over word for word; tool calls and their output as notes, each cut to 4,000 characters; reasoning stays behind.${to === "claude" ? " A long conversation keeps its first request and the newest turns that fit, and a very long turn only its start." : ""} This window keeps running until you exit it.`,
     [[`Send to ${vendor} and start`, "", () => move(p)]]);
   text($("move-title"), other ? `Move to ${name}` : "Move to another account");
   if (other && targets.length === 1) consent(targets[0]);
