@@ -611,6 +611,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   // the bottom edge (the same chart, compact), and grows into the full chart as the slot
   // arrives; a page that fits shows it full from the start. The sentinel marks the slot.
   const pulse = root._pulse = el('section', 'atlas-panel atlas-pulse');
+  pulse.dataset.key = 'activity'; // a rebuild keeps focus on it
   const sentinel = root._sentinel ||= el('div');
   // The strip is one button to the chart, not the chart: its insides inert until it opens.
   const compact = root._fold ||= on => {
@@ -624,12 +625,12 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   root._slot ||= new IntersectionObserver(([entry]) => compact(!entry.isIntersecting));
   root._slot.observe(sentinel);
   // A tap or Enter opens the full chart in its slot, then scrolls there once it has grown
-  // (the scroll aims at its full height, not the strip's).
+  // (the scroll aims at its full height, not the strip's), to the section a rebuild left.
   pulse.onclick = () => {
     if (!root._compact) return;
     compact(false);
     getComputedStyle(pulse).height; // start the growth now, so its transitions are listed
-    Promise.all(pulse.getAnimations({ subtree: true }).map(a => a.finished)).then(() => pulse.scrollIntoView({ behavior: 'smooth', block: 'end' }));
+    Promise.allSettled(pulse.getAnimations({ subtree: true }).map(a => a.finished)).then(() => root._pulse.scrollIntoView({ behavior: 'smooth', block: 'end' }));
   };
   pulse.onkeydown = event => { if (root._compact && ['Enter', ' '].includes(event.key)) { event.preventDefault(); pulse.onclick(); } };
   const heading = el('div', 'atlas-panel-heading');
