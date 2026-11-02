@@ -686,7 +686,11 @@ cost-breakdown|1500,1380|%77|Monthly cost breakdown|Compute, storage and egress 
 latency-heatmap|4400,4300|%18|-|p50 and p99 by endpoint over the long-input bench."""
 SCRATCH_WRITERS = {"cost-breakdown": {"harness": "claude", "session_id": "demo-cost",
                                       "source": "~/.claude/projects/ops/demo-cost.jsonl",
-                                      "title": "Billing export analysis"}}
+                                      "title": "Billing export analysis"},
+                   # Codex stamps its app-server's pane, so its pages go by the transcript.
+                   "ab-sweep-interim": {"harness": "codex", "session_id": "demo-sweep",
+                                        "title": "prompt A/B sweep",
+                                        "running": {"tmux_pane": "%14"}}}
 # Every folder is a real page, shot for its thumbnail as the gallery shoots any page:
 # Markdown and HTML, charts drawn inline (no script, nothing fetched).
 _HEAT = "".join(f'<rect x="{150 + c * 52}" y="{20 + r * 40}" width="50" height="38" '

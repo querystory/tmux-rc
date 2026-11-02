@@ -5,11 +5,13 @@ tmux (argv, directory) comes from the agent-history index; a session that is alr
 running is never started twice; and without agent-history the tools don't exist."""
 
 import asyncio
+import json
 import logging
 import os
 import shutil
 import stat
 import subprocess
+from types import SimpleNamespace
 
 import pytest
 
@@ -421,3 +423,49 @@ def test_resume_card_says_which_session_past_its_title(history, monkeypatch):
     assert ws.sent[0]["text"] == "Resume tmuxrc live mode"
     assert ws.sent[0]["session"] == {"tool": "claude", "cwd": "~/src/repo",
                                      "last_active": "2026-09-05T15:29:22Z", "id": "live-1"}
+
+
+def test_codex_thread_is_found_by_its_name_in_the_pane_title(tmp_path, monkeypatch):
+    # Without session-id on the status bar, Codex titles the pane "<thread name> | <project>":
+    # the name counts while it is the only thread in Codex's index with it, in one pane on
+    # that index's CODEX_HOME (another home's thread can have the name too).
+    (tmp_path / "session_index.jsonl").write_text("".join(json.dumps(r) + "\n" for r in (
+        {"id": "t1", "thread_name": "Draft the plan"},
+        {"id": "t1", "thread_name": "Pick an export format"},  # renamed: the last line wins
+        {"id": "t2", "thread_name": "Draft the plan"},
+        {"id": "t3", "thread_name": "Fix the build"},
+        {"id": "t4", "thread_name": "Fix the build"})))
+    monkeypatch.setattr(L.plan_usage, "pane_env", lambda pid, _tool: {
+        "CODEX_HOME": "/another/codex-home" if pid == "pid-9" else f"{tmp_path}/"})
+    w = SimpleNamespace(snapshots={}, pane_birth=lambda p: f"pid-{p[1:]}", digest=lambda: [
+        {"pane_id": "%9", "tool": "codex", "title": "Pick an export format | other"},
+        {"pane_id": "%4", "tool": "codex", "title": "Pick an export format | proj"},
+        {"pane_id": "%5", "tool": "codex", "title": "Fix the build | proj"},
+        {"pane_id": "%6", "tool": "codex", "title": "Draft the plan | proj"},
+        {"pane_id": "%7", "tool": "claude", "title": "Draft the plan | proj"}])
+
+    def pane(sid, source=f"{tmp_path}/sessions/2026/01/02/rollout-x.jsonl"):
+        return L.running_pane({"session_id": sid, "harness": "codex", "source": source,
+                               "running": {"harness": "codex"}}, w)
+    assert pane("t1") == "%4"
+    assert pane("t2") == "%6"  # its old name is t1's no more
+    assert pane("t3") is None  # two threads share the name
+    assert pane("t1", "/elsewhere/rollout-x.jsonl") is None  # no index found
+    # A pane the user named shows the name on its status bar, at thread-title's place in
+    # the configured order: never another segment (a branch can share it), and never on a
+    # bar showing another thread's id.
+    (tmp_path / "config.toml").write_text(
+        '[tui]\nstatus_line = ["model-with-reasoning", "current-dir", "thread-title"]\n')
+    w.digest = lambda: [{"pane_id": "%4", "tool": "codex", "title": "my pane"}]
+
+    def bar(*segments):
+        w.snapshots = {"%4": [{"id": "s", "ts": 1.0,
+                               "text": "output\n\n› \n\n  " + " · ".join(segments)}]}
+    bar("gpt-6 medium", "/repo", "Pick an export format")
+    assert pane("t1") == "%4"
+    bar("gpt-6 medium", "Pick an export format", "Something else")
+    assert pane("t1") is None
+    (tmp_path / "config.toml").write_text('[tui]\nstatus_line = ["model-with-reasoning", '
+                                          '"session-id", "thread-title"]\n')
+    bar("gpt-6 medium", "0000aaaa-0000-7000-8000-000000000009", "Pick an export format")
+    assert pane("t1") is None

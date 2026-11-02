@@ -2392,13 +2392,33 @@ if _scratch_dir:
 
     @app.get("/api/scratch/{name}/pane")
     def scratch_maker(name: str) -> dict:
-        """The open pane that made a scratch folder (scratch.maker): the viewer's composer."""
-        pane = scratch.maker(Path(_scratch_dir), name, list(app.state.watcher.states)) or {}
+        """The open pane a scratch folder's messages go to (scratch.maker): the viewer's
+        composer."""
+        watcher = app.state.watcher
+        pane = scratch.maker(Path(_scratch_dir), name, list(watcher.states),
+                             lambda entry: live.running_pane(entry, watcher)) or {}
         return {"pane": pane.get("pane_id"), "birth": pane.get("birth"),
                 "about": scratch.about(Path(_scratch_dir), name)}
 
+    class ScratchPane(BaseModel):
+        pane: str
+        birth: str
+
+    @app.put("/api/scratch/{name}/pane")
+    def scratch_move(name: str, body: ScratchPane, request: Request) -> dict:
+        """Send a scratch folder's messages to this open pane from now on (scratch.bind)."""
+        try:
+            scratch.bind(Path(_scratch_dir), name, body.pane, body.birth,
+                         list(app.state.watcher.states))
+        except ValueError as e:
+            _refuse(request, "scratch_move", name[:120], 422, str(e))
+        _audit(request, "scratch_move", body.pane, name[:120])
+        return scratch_maker(name)
+
     def _pins() -> Path:
         return accounts.store_path().with_name("pins.json")  # the state dir: every device's
+
+    scratch.BINDINGS = _pins().with_name("bindings.json")
 
     @app.get("/api/pins")
     def get_pins() -> list[dict]:

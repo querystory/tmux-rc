@@ -68,15 +68,20 @@ def codex_status_line(home: Path) -> list:
         return []
 
 
+def codex_status_item(shown: list, screen: str, item: str) -> str:
+    """The segment at `item`'s place in the configured order (`shown`), "" for none. Codex
+    leaves out an empty item (no branch outside a repo), so that place is certain only when
+    every item shows, or when it comes first; anything else is ""."""
+    if item not in shown:
+        return ""
+    segments, at = codex_status_segments(screen), shown.index(item)
+    return segments[at] if segments and (len(segments) == len(shown) or at == 0) else ""
+
+
 def codex_thread_shown(shown: list, screen: str) -> str | None:
-    """The thread id on the status line, from the segment at session-id's place in the
-    configured order: never just any UUID-shaped one, which a branch can be. Codex leaves
-    out an empty item (no branch outside a repo), so that place is certain only when every
-    item shows, or when it comes first; anything else is None."""
-    if "session-id" not in shown:
-        return None
-    segments, at = codex_status_segments(screen), shown.index("session-id")
-    sid = segments[at] if segments and (len(segments) == len(shown) or at == 0) else ""
+    """The thread id on the status line, from the segment at session-id's place: never
+    just any UUID-shaped one, which a branch can be."""
+    sid = codex_status_item(shown, screen, "session-id")
     return sid if _ID.fullmatch(sid) else None
 
 
