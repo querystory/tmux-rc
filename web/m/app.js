@@ -2899,7 +2899,7 @@ $("expunge-pane").onclick = async () => {
   const birth = panes.find((p) => p.pane_id === pane)?.birth; // the incarnation this menu is for
   if (!pane) return;
   let plan;
-  try { plan = await request(`${paneUrl(pane, "expunge")}?birth=${encodeURIComponent(birth ?? "")}`); } catch (error) { return expungeSheet(error.detail || "Could not find this pane's session."); }
+  try { plan = await request(`${paneUrl(pane, "expunge")}?birth=${encodeURIComponent(birth ?? "")}`); } catch (error) { return expungeSheet(`Could not expunge this window: ${error.detail || error.message}`); }
   if (plan.nothing) return expungeSheet("This window has no saved conversation to expunge. Close the window instead?", () => killWindow(pane, birth), true);
   const harness = plan.harness === "codex" ? "Codex" : "Claude Code", n = plan.files.length;
   expungeSheet(`This kills the tmux window of “${title}”, ending everything running in it, and permanently deletes its ${harness} session ${plan.session_id.slice(0, 8)}: ${items(n)}${plan.shared.length ? `, plus its entries in ${plan.shared.join(", ")}` : ""}.${plan.harness === "codex" ? " Codex's own databases keep their copy of the thread." : ""}`, async () => {
@@ -2928,10 +2928,12 @@ $("move-pane").onclick = async () => {
   if (!await accounts.refresh()) return notice("Could not load the accounts.", 6000);
   const targets = accounts.moveTargets(pane.pane_id, pane.tool);
   if (!targets.length) return notice("No other signed-in account to move it to.", 6000);
+  // No status means no answer at all: the server may have done it, so never just "could not".
+  const failed = (what, maybe, error) => notice(error.status === undefined ? `Connection lost; ${maybe}` : `Could not ${what}: ${error.detail || error.message}`, 6000);
   // The session it runs now, which every request below is bound to (Expunge's preview names it).
   let session_id;
   try { ({ session_id } = await request(`${paneUrl(pane.pane_id, "expunge")}?birth=${encodeURIComponent(pane.birth ?? "")}`)); }
-  catch (error) { return notice(error.detail || "Could not find this pane's session.", 6000); }
+  catch (error) { return failed("move this session", "nothing was moved.", error); }
   if (!session_id) return notice("This window has no saved conversation to move.", 6000);
   const sheet = (what, choices) => {
     text($("move-what"), what);
@@ -2951,8 +2953,6 @@ $("move-pane").onclick = async () => {
     }));
   };
   const go = (id) => { $("move-dialog").close(); openLaunched(id); };
-  // No status means no answer at all: the server may have done it, so never just "could not".
-  const failed = (what, maybe, error) => notice(error.status === undefined ? `Connection lost; ${maybe}` : `Could not ${what}: ${error.detail || error.message}`, 6000);
   const move = async (p, flags = {}) => {
     try {
       const r = await post(paneUrl(pane.pane_id, "move"), { dir: p.dir, birth: pane.birth, session_id, ...flags }, NO_TIMEOUT);

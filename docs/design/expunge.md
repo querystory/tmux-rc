@@ -37,8 +37,17 @@ So the hard part is the identity, not the deletion.
   Live resume path already trusts (`live._codex_pane`). The id is the segment at
   `session-id`'s place in Codex's `[tui] status_line` order, never just any UUID-shaped
   segment, since a branch can look like one. Codex leaves out empty items, so that place
-  is trusted only when every item shows or `session-id` comes first. Otherwise Expunge
-  refuses and says, in the sheet, which line of `config.toml` to change.
+  is trusted only when every item shows or `session-id` comes first. Without it, the
+  thread's name is the next best signal, the one Live also uses: Codex titles the pane
+  "<thread name> | <project>" (after a state such as "Action Required"), and its index,
+  `session_index.jsonl`, maps names to ids. The pane names a thread only when exactly
+  one thread in that index has the name under any reading of the title (with or without
+  the state), because two threads can share a name and a wrong match would delete, or
+  move, another conversation. The project alone (a fresh Codex) never
+  matches, since a name is only taken from before the last " | ". Only when neither
+  signal names a thread does the sheet suggest adding `session-id` to `config.toml`.
+  Move to another account shares this lookup, so its refusals are worded for either
+  action and each sheet names its own.
 
 The walk stops at the first agent down each branch, so an agent's own subprocesses
 (a headless `claude -p` it ran) are not a second session. Two agents side by side, a
@@ -52,8 +61,8 @@ the status-line config hint, which was both jargon and beside the point. So the
 preview answers "nothing", the same way for both harnesses, and the sheet offers to
 kill the window instead, through the ordinary kill and its confirmation. Treating a
 missing transcript as nothing also means a configured but not-yet-started Codex
-thread is no longer refused as an unknown id. A Codex without `session-id` configured
-can't name its thread, but if it is not a resume and no rollout has been written since
+thread is no longer refused as an unknown id. A Codex whose pane names no
+thread, but if it is not a resume and no rollout has been written since
 it started, it has no thread to name, so it is nothing too. Any rollout written since
 counts against that, even another pane's, because a wrong "nothing" would hide a real
 conversation, while a wrong hint only asks for a setting. A fresh agent still counts

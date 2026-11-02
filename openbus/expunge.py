@@ -25,6 +25,8 @@ from .classify import _codex_model_segments, _session_chrome
 _ID = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
 # The status bar cut to a phone's width: "<thread> · GPT…  ⚠ 2 warnings · f2 to view".
 _CLIPPED_BAR = re.compile(rf"\s+{_ID.pattern}(?: · [^·]+)+")
+# The state Codex puts before a pane's title while it needs you: "[ ! ] Action Required | ".
+_CODEX_STATE = re.compile(r"^\[ ! \] Action Required \| ")
 _ENTRY = re.compile(r"[A-Za-z0-9_-]{1,128}")  # any agent-history entry id (agent-history validID)
 
 # Per harness: the session's own files and dirs, relative to its config dir, and the
@@ -83,6 +85,35 @@ def codex_thread_shown(shown: list, screen: str) -> str | None:
     just any UUID-shaped one, which a branch can be."""
     sid = codex_status_item(shown, screen, "session-id")
     return sid if _ID.fullmatch(sid) else None
+
+
+def codex_names(home: Path) -> dict:
+    """Thread names by id, from Codex's index under `home` (session_index.jsonl, beside the
+    sessions dir: the last line for an id wins, a rename); {} when it can't be read."""
+    try:
+        with open(home / "session_index.jsonl") as index:
+            return {r.get("id"): r.get("thread_name") for r in map(json.loads, index)}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def codex_thread(names: dict, title: str, shown: list, screen: str) -> str | None:
+    """The one thread a Codex pane shows: its id on the status line (at
+    session-id's place), else the thread whose name the pane shows. Codex titles the pane
+    "<thread name> | <project>", after "[ ! ] Action Required | " while it needs you, and a
+    status bar configured with `thread-title` shows the name at that item's place (never
+    another segment: a branch can be "main" too); `names` is its home's codex_names.
+    Every reading of the title counts, and the pane names a thread only when exactly one
+    thread there has any of them: two threads can share a name, and a name can look like a
+    state and another name."""
+    if sid := codex_thread_shown(shown, screen):
+        return sid
+    # The title read as is and with the state taken off: a project alone under either
+    # (a fresh Codex) is no name, so neither reading counts.
+    heads = {t.rpartition(" | ")[0] for t in (title, _CODEX_STATE.sub("", title))}
+    shows = {codex_status_item(shown, screen, "thread-title"), *(heads if all(heads) else ())}
+    named = [t for t, n in names.items() if n and n in shows]
+    return named[0] if len(named) == 1 else None
 
 
 class Refused(Exception):  # noqa: N818 - a refusal, not an error: nothing was touched
@@ -154,7 +185,7 @@ def _rollout_since(home: Path, start: str) -> bool:
     return any(p.stat().st_mtime >= began for p in home.glob("sessions/*/*/*/rollout-*.jsonl"))
 
 
-def _agent(pid: int, screen: str) -> Session | None:
+def _agent(pid: int, screen: str, title: str) -> Session | None:
     """The Claude or Codex session this process is, if it is one."""
     start = "".join(tmux.proc_stat(pid)[19:20])
     home = _home(pid, "CLAUDE_CONFIG_DIR", ".claude")
@@ -172,35 +203,31 @@ def _agent(pid: int, screen: str) -> Session | None:
     if args[:1] == ["login"]:
         return None
     # Codex keeps no registry, and its shared app-server, not this client, holds the
-    # rollout open; the thread id is only on the pane's status line (see live._codex_pane
-    # and codex_thread_shown); a place it can't be certain of refuses.
+    # rollout open: the pane names the thread, by its id on the status line, else by its
+    # name in the pane's title or on the status line (codex_thread, as live._codex_pane).
     home = _home(pid, "CODEX_HOME", ".codex")
-    shown = codex_status_line(home)
-    if "session-id" not in shown:
-        # No thread can be named, but a fresh Codex (not a resume) that has written no
-        # rollout since it started has none to name: its first turn creates one.
+    if not (sid := codex_thread(codex_names(home), title, codex_status_line(home), screen)):
+        # A fresh Codex (not a resume) that has written no rollout since it started has no
+        # thread to name: its first turn creates one.
         if not {"resume", "fork"} & set(args) and not _rollout_since(home, start):
             raise Empty("this agent has not saved a conversation yet")
-        raise Refused("Expunge can't tell which Codex conversation this is: Codex's status "
-                      "line doesn't show its thread id. Add \"session-id\" to status_line "
-                      "under [tui] in Codex's config.toml, then try again.")
-    if not (sid := codex_thread_shown(shown, screen)):
-        raise Refused("Expunge can't find this conversation's thread id on Codex's status "
-                      'line. Close any menu covering it, or move "session-id" to the '
-                      "front of status_line under [tui] in Codex's config.toml, then try "
-                      "again.")
+        raise Refused("can't tell which Codex conversation this pane is running: neither "
+                      "its title nor Codex's status line names it. Adding \"session-id\" "
+                      "to status_line under [tui] in Codex's config.toml shows its id there.")
     return Session("codex", sid, home, _index(pid, "codex"), pid, start)
 
 
-def identify(pane_pid: str, screen: str, expected: str | None = None) -> Session:
-    """The one agent session running in the pane, and `expected` if given (the session a
-    confirmation named). The search stops at the first agent down each branch, so an
-    agent's own subprocesses never count as a second session."""
+def identify(pane_pid: str, screen: str, expected: str | None = None,
+             title: str = "") -> Session:
+    """The one agent session running in the pane (`screen` and `title` are its own), and
+    `expected` if given (the session a confirmation named). The search stops at the first
+    agent down each branch, so an agent's own subprocesses never count as a second
+    session."""
     found, fresh, todo = [], [], [int(pane_pid)]
     while todo:
         pid = todo.pop()
         try:
-            agent = _agent(pid, screen)
+            agent = _agent(pid, screen, title)
         except Empty as e:  # still an agent: the walk goes on, and it counts toward "more than one"
             fresh.append(e)
             continue

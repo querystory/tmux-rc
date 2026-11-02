@@ -1818,7 +1818,7 @@ def _pane_session(pane_id: str, birth: str, expected: str | None = None):
     if pane.pid != birth:
         raise HTTPException(409, "this is a different window now")
     try:  # a screen from a newer pane under this id fails the pid guard on the kill
-        s = expunge.identify(pane.pid, screen, expected)
+        s = expunge.identify(pane.pid, screen, expected, pane.title)
         return pane, s, expunge.targets(s)
     except expunge.Refused as e:
         raise HTTPException(409, str(e)) from e
