@@ -17,7 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from openbus import push, server, tmux
-from openbus.classify import classify, highlighted_row, picker_digest, picker_read
+from openbus.classify import classify, highlighted_row, picker_digest
 from openbus.tmux import Pane
 
 # A user turn that starts with the target's own word, above a box highlighting No.
@@ -129,7 +129,9 @@ def test_a_stepper_row_is_read_as_its_option():
     for screen, at in ((STEPPER, 0), (on, 1)):
         question = classify(PANE, f"{tmux.VISIBLE_SCREEN}\n{screen}", model)["question"]
         assert (question["selected"], question["picker"]) == (at, picker_digest(screen, asked))
-        assert picker_read(screen, asked)[1] == rows[at]  # /send's read-back names it too
+    # Literal arrows in a label stay literal: the row as drawn names its own option.
+    literal = ["Keep default (2m)", "Timeout at ‹ 30s › per call", rows[1]]
+    assert highlighted_row(on, asked, literal) == literal[1]
 
 
 def test_a_picker_digest_changes_with_anything_drawn_from_its_prompt_down():

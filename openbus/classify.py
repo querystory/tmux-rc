@@ -227,14 +227,9 @@ def _live_prompt(visible: str, prompt: str) -> tuple[re.Match, int] | None:
 _DIALOG_TOP_RE = re.compile(r"^(?:[─━▔]{3,}|╭)", re.MULTILINE)
 
 
-# A stepper row draws its value between ←/→ arrows ("Autocompact at ‹ 400k › tokens"),
-# which the option names plainly.
-_STEPPER_RE = re.compile(r"‹ (.*?) ›")
-
-
 def _drawn_row(visible: str, live: tuple[re.Match, int]) -> str | None:
     *_, row = [None, *_HIGHLIGHT_RE.finditer(visible, live[0].end(), live[1])]
-    return row and _STEPPER_RE.sub(r"\1", row["label"])
+    return row and row["label"]
 
 
 def picker_read(text: str, prompt: str) -> tuple[str, str | None] | None:
@@ -270,9 +265,19 @@ def highlighted_row(visible: str, prompt: str, options: list) -> str | None:
     """The one option the live picker's highlighted row under prompt names, or None."""
     live = _live_prompt(visible, prompt)
     label = live and _drawn_row(visible, live)
-    named = label is not None and [option for option in options if isinstance(option, str)
-                                   and (label == option or label.startswith(f"{option}  "))]
-    return named[0] if named and len(named) == 1 else None
+    if label is None:
+        return None
+    # A stepper row draws its value between ←/→ arrows ("Autocompact at ‹ 400k › tokens")
+    # that its option leaves out; read so only where the row as drawn names no option.
+    for drawn in (label, _STEPPER_RE.sub(r"\1", label)):
+        named = [option for option in options if isinstance(option, str)
+                 and (drawn == option or drawn.startswith(f"{option}  "))]
+        if named:
+            return named[0] if len(named) == 1 else None
+    return None
+
+
+_STEPPER_RE = re.compile(r"‹ (.*?) ›")
 
 
 # The last prompt row, when empty (its greyed suggestion already stripped): an agent idle

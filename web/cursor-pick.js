@@ -197,7 +197,7 @@ async function walk(io, targetText, targetIndex) {
   // only LOOK — see the bail below — or the budget would quietly be one larger than the
   // constant says.
   let read = null; // the screen the last key made, read back by /send
-  let stale = 0;
+  let stale = 0, armed = false;
   for (let moves = 0; moves <= CURSOR_MAX_STEPS; moves++) {
     const live = picker(io);
     if (!live) return false;
@@ -229,6 +229,8 @@ async function walk(io, targetText, targetIndex) {
     if (want < 0) return false; // gone, or two rows wear the title and neither is "the" one
     if (at === null) return false; // no trustworthy anchor — walking blind picks a row
     if (at !== want && moves === CURSOR_MAX_STEPS) return false; // budget spent; only looked
+    // Arrived by moving: let the last arrow age past the widget's misfire guard, then re-read.
+    if (at === want && moves && !armed) { armed = true; await sleep(ARM_MS); moves--; continue; }
     const key = at === want ? km.select : at < want ? km.next : km.prev;
     if (!key) return false; // the widget never advertised this key — don't invent one
     const before = io.parsedAt();
@@ -243,7 +245,6 @@ async function walk(io, targetText, targetIndex) {
     if (!sent) return false; // undelivered: the anchor is now a lie
     if (at === want) return took(sent, q.picker);
     read = after(q, sent);
-    if (read?.selected === want) await sleep(ARM_MS); // the commit comes next
     if (read) { if (read.selected === at) return false; continue; } // a key that moved nothing
     // A move that landed MOVED the highlight. A frame still reporting the old anchor is
     // either one that predates the key or a move that did nothing (the end of the list, a
