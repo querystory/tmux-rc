@@ -19,6 +19,7 @@ import openbus.live as L
 from openbus import agent_history, tmux
 from openbus.tmux import Pane
 from tests.test_live_mode import _FC, _METER, _WS, _run, _Session, _Watcher
+from tests.test_new_session import sock  # noqa: F401  (a fixture: a private tmux socket)
 
 _REAL_ANCESTORS = tmux.ancestors  # before the autouse stub replaces it
 
@@ -52,6 +53,7 @@ def history(monkeypatch, tmp_path):
              window_active="1", pane_active="1"),
         Pane("work", "2", "w", "0", "%3", "zsh", "", cwd="/repo/sub"),
     ])
+    monkeypatch.setattr(tmux, "server_running", lambda: True)
     monkeypatch.setattr(tmux, "new_window",
                         lambda *a: opened.append(a) or "%40")
     return sessions, opened
@@ -74,6 +76,20 @@ def test_resume_opens_the_indexed_command_in_its_directory(history, argv):
     # argv and cwd are the index's, in the tmux session already working in that repo.
     assert opened == [("work", "tmuxrc live mode", argv, "/repo")]
     assert any(m["type"] == "typed" and m["pane_id"] == "%40" for m in ws.sent)
+
+
+@pytest.mark.skipif(not shutil.which("tmux"), reason="tmux is not installed")
+@pytest.mark.usefixtures("sock")
+def test_resume_with_no_tmux_server_starts_one(monkeypatch, tmp_path):
+    # After a reboot no server runs, and the resume must start one rather than fail.
+    # A real tmux on a private socket, nobody else's server.
+    monkeypatch.setattr(agent_history, "get", lambda sid: {**LIVE, "cwd": str(tmp_path)})
+    monkeypatch.setattr(L.accounts, "resume_command", lambda entry: ["sleep", "30"])
+    monkeypatch.setattr(L.telemetry, "emit_action", lambda **k: None)
+    r = _call("resume_session", {"session_id": "live-1"})[1]
+    assert r["status"] == "opened"
+    assert tmux.run("display-message", "-p", "-t", r["pane_id"],
+                    "#{session_name}|#{pane_current_path}") == f"tmuxrc live mode|{tmp_path}"
 
 
 def test_a_claude_resume_runs_on_the_account_its_transcript_is_under(history, monkeypatch):
@@ -380,16 +396,16 @@ def test_new_window_passes_argv_without_a_shell(monkeypatch):
 def test_new_window_argv_reaches_the_program_unparsed(tmp_path, monkeypatch):
     # tmux execs a multi-argument command directly (no shell), which is what makes the
     # argv form safe for index data. Pinned against a real, private tmux server.
-    sock = str(tmp_path / "tmux.sock")
+    socket = str(tmp_path / "tmux.sock")
     real = subprocess.run
 
     def private(argv, *a, **k):
         if argv[:1] == ["tmux"]:
-            argv = ["tmux", "-S", sock, *argv[1:]]
+            argv = ["tmux", "-S", socket, *argv[1:]]
         return real(argv, *a, **k)
     monkeypatch.setattr(tmux.subprocess, "run", private)
     out, marker = tmp_path / "argv", tmp_path / "PWNED"
-    real(["tmux", "-S", sock, "new-session", "-d", "-s", "t"], check=True)
+    real(["tmux", "-S", socket, "new-session", "-d", "-s", "t"], check=True)
     try:
         tmux.new_window("t", "n", ["sh", "-c", 'printf "%s|" "$@" > "$0"', str(out),
                                    f"a b;touch {marker}", "$(x)"], str(tmp_path))
@@ -400,7 +416,7 @@ def test_new_window_argv_reaches_the_program_unparsed(tmp_path, monkeypatch):
         assert out.read_text() == f"a b;touch {marker}|$(x)|"
         assert not marker.exists()
     finally:
-        real(["tmux", "-S", sock, "kill-server"], check=False)
+        real(["tmux", "-S", socket, "kill-server"], check=False)
 
 
 def test_resume_card_says_which_session_past_its_title(history, monkeypatch):

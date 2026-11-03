@@ -1116,15 +1116,16 @@ async def _resume_locked(websocket, sid: str, watcher, rec: dict) -> dict:
     title = entry.get("title") or entry["session_id"][:8]
     name = title[:24]
     try:  # tmux can fail here too; report, don't kill the session
-        target = _session_for(await asyncio.to_thread(tmux.list_panes), cwd)
-        if target is None:
-            return {"status": "error", "reason": "no tmux session to open a window in"}
-        pane_id = await asyncio.to_thread(tmux.new_window, target, name, argv, cwd)
+        # After a reboot no server runs: start one with its own session, as Restore does.
+        up = await asyncio.to_thread(tmux.server_running)
+        target = _session_for(await asyncio.to_thread(tmux.list_panes) if up else [], cwd)
+        pane_id = await asyncio.to_thread(tmux.new_window, target, name, argv, cwd) if target \
+            else await asyncio.to_thread(tmux.new_session, name, cwd, argv, name)
     except Exception as e:
         logger.warning("[live] resume_session failed for %s", entry["session_id"], exc_info=True)
-        rec["detail"] = str(e)[:120]
-        return {"status": "error", "reason": "could not open a window"}
-    rec.update(pane_id=pane_id, window=name, tmux_session=target)
+        rec["detail"] = (getattr(e, "stderr", None) or str(e)).strip()[:120]
+        return {"status": "error", "reason": "could not open a window", "detail": rec["detail"]}
+    rec.update(pane_id=pane_id, window=name, tmux_session=target or name)
     pid = await _launched_pid(pane_id)
     if pid is None:  # the window closed at once: the command failed to start
         return {"status": "error", "reason": "the resumed session exited immediately"}
