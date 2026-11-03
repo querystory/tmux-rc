@@ -11,6 +11,7 @@ import os
 import shutil
 import stat
 import subprocess
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -84,12 +85,18 @@ def test_resume_with_no_tmux_server_starts_one(monkeypatch, tmp_path):
     # After a reboot no server runs, and the resume must start one rather than fail.
     # A real tmux on a private socket, nobody else's server.
     monkeypatch.setattr(agent_history, "get", lambda sid: {**LIVE, "cwd": str(tmp_path)})
-    monkeypatch.setattr(L.accounts, "resume_command", lambda entry: ["sleep", "30"])
+    # A trailing ';' would end the tmux command unescaped: it must reach the program.
+    monkeypatch.setattr(L.accounts, "resume_command", lambda entry: ["sh", "-c", "sleep 30", "a;"])
     monkeypatch.setattr(L.telemetry, "emit_action", lambda **k: None)
     r = _call("resume_session", {"session_id": "live-1"})[1]
     assert r["status"] == "opened"
-    assert tmux.run("display-message", "-p", "-t", r["pane_id"],
-                    "#{session_name}|#{pane_current_path}") == f"tmuxrc live mode|{tmp_path}"
+    want = f'tmuxrc live mode|sh -c "sleep 30" "a;"|{tmp_path}'
+    for _ in range(50):  # tmux 3.6 chdirs the pane late (see test_new_session)
+        if (got := tmux.run("display-message", "-p", "-t", r["pane_id"],
+                            "#{session_name}|#{pane_start_command}|#{pane_current_path}")) == want:
+            break
+        time.sleep(0.02)
+    assert got == want
 
 
 def test_a_claude_resume_runs_on_the_account_its_transcript_is_under(history, monkeypatch):
