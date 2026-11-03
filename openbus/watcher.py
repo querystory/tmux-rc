@@ -20,7 +20,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import partial
 
-from . import fit, tmux, transcript
+from . import fit, tmux, transcript, workers
 from .classify import (
     _OMP_CTX_RE,
     _OPENCODE_RUNNING_RE,
@@ -311,6 +311,10 @@ class Watcher:
 
     def __init__(self, target: str | None, use_llm: bool = True, history=None):
         self.history = history
+        worker_path = os.environ.get("TMUXRC_WORKER_SNAPSHOT")
+        self._worker_reader = workers.Reader(worker_path) if worker_path else None
+        self.workers: list[dict] = []
+        self.worker_source: dict | None = None
         self.target = target
         # A one-pane watch list sees one pane, and must never replace a server's snapshot.
         self._recorder = Recorder(history) if history and not target else None
@@ -881,8 +885,30 @@ class Watcher:
                         history_server: str | None = None, unread: set = frozenset()) -> None:
         # Publish a fresh snapshot so replacing/enriching the next startup result does
         # not mutate the deck already visible to HTTP handlers between version bumps.
+        published, reported, source = states, [], None
+        worker_sessions, workers_observed = None, False
+        if self._worker_reader is not None:
+            now = time.time()
+            source = {"status": self._worker_reader.read(now)}
+            server = history_server
+            if server is None:
+                try:
+                    server = tmux.server_uid(strict=True)
+                except (OSError, subprocess.CalledProcessError):
+                    pass
+            if self._worker_reader.snapshot is not None:
+                published, reported = workers.reconcile(
+                    self._worker_reader.snapshot, states, server, now)
+                # Stale known workers retain Unknown states. An empty (or pane-only)
+                # stale roster cannot establish zero background workers for its session.
+                sessions = {p.get("session", "") for p in published if p.get("worker_source")}
+                known = {w["session"] for w in reported if not w.get("pane_id")}
+                fresh = now - self._worker_reader.snapshot["observed_at"] <= workers.STALE_SECONDS
+                worker_sessions = sorted(sessions - known)
+                workers_observed = fresh or not worker_sessions
         with self._publish_lock:
-            self.states = [dict(s) for s in states]
+            self.workers, self.worker_source = reported, source
+            self.states = [dict(s) for s in published]
             self._booted = True
             self._bump_state_if_changed(self.states)
         # Progressive UI publication mixes old and newly parsed pane states. Only
@@ -900,7 +926,12 @@ class Watcher:
                 # workers are the old card's too, so none of them count as observed.
                 self.history.record([{**s, "activity": "unknown", "subagents": [], "agents": 0}
                                      if s.get("pane_id") in unread else s
-                                     for s in self.states], current, births=self._birth)
+                                     for s in self.states], current, births=self._birth,
+                                    **({"workers": self.workers,
+                                        "workers_observed": workers_observed,
+                                        "worker_sessions": worker_sessions,
+                                       }
+                                       if self._worker_reader else {}))
             else:
                 self._collection_failed = True
 
@@ -987,7 +1018,7 @@ class Watcher:
     def _bump_state_if_changed(self, states: list[dict]) -> None:
         # tmux_running is in the fingerprint: an empty deck whose server stops (or starts)
         # changes nothing else, and the phone would hold a stale empty state for a poll.
-        fp = (self.tmux_running, self._deck_fp(states))
+        fp = (self.tmux_running, self._deck_fp(states), repr(self.workers), self.worker_source)
         if fp == self._state_fp:
             return
         self._state_fp = fp

@@ -220,3 +220,33 @@ def test_booted_flips_after_inventory_publication():
     assert w.booted() is False
     w._publish_states([])
     assert w.booted() is True
+
+
+def test_state_response_keeps_worker_inventory_with_its_pane_snapshot(monkeypatch):
+    from openbus import server
+
+    watcher = Watcher(None)
+    watcher.states = [dict(A)]
+    watcher.workers = [{"id": "first", "activity": "running"}]
+    watcher.worker_source = {"status": "fresh"}
+    watcher._bump_state_if_changed(watcher.states)
+    version = watcher.state_version()
+
+    class DuringEnrichment:
+        def where(self, _cwd):
+            # A publication after snapshot capture must not mix two inventories.
+            with watcher._publish_lock:
+                watcher.states = [dict(B)]
+                watcher.workers = [{"id": "second", "activity": "idle"}]
+                watcher.worker_source = {"status": "stale"}
+                watcher._bump_state_if_changed(watcher.states)
+
+    monkeypatch.setattr(server.app.state, "watcher", watcher, raising=False)
+    monkeypatch.setattr(server.app.state, "loops", DuringEnrichment(), raising=False)
+    monkeypatch.setattr(server.tmux, "prefix_key", lambda: "C-b")
+    result = _run(server.get_state())
+    assert result["version"] == version
+    assert result["panes"][0]["pane_id"] == A["pane_id"]
+    assert result["workers"] == [{"id": "first", "activity": "running"}]
+    assert result["worker_source"] == {"status": "fresh"}
+    assert watcher.workers[0]["id"] == "second"
