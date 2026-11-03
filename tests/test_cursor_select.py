@@ -17,7 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from openbus import push, server, tmux
-from openbus.classify import classify, highlighted_row, picker_digest
+from openbus.classify import classify, highlighted_row, picker_digest, picker_read
 from openbus.tmux import Pane
 
 # A user turn that starts with the target's own word, above a box highlighting No.
@@ -102,6 +102,34 @@ def test_classify_overrides_a_misread_anchor():
     plain = SCREEN.replace(" ❯ No", "   No")
     result = classify(PANE, f"{tmux.VISIBLE_SCREEN}\n{plain}", lambda s, t: misread)
     assert "picker" not in result["question"]
+
+
+# A stepper row (invented wording, Claude Code's shape): its value sits between ←/→ arrows
+# the option leaves out, and the footer adds ←/→ to the usual ↑/↓ and enter.
+STEPPER = """────────────────────
+ Lower the timeout?
+
+   Shorter waits fail faster, and retry more often.
+
+   Want a 30s timeout instead? Switch back any time.
+
+   ❯ Keep default (2m)
+     Timeout at ‹ 30s › per call
+
+   ↑/↓ choose · ←/→ change length · enter confirm · esc not now"""
+
+
+def test_a_stepper_row_is_read_as_its_option():
+    """Either row of a stepper picker grounds the highlight, so a walk can drive it."""
+    asked, rows = "Want a 30s timeout instead?", ["Keep default (2m)", "Timeout at 30s per call"]
+    on = STEPPER.replace("❯ Keep", "  Keep").replace("  Timeout at", "❯ Timeout at")
+    def model(system, text):
+        return {"tool": "claude", "question": {"prompt": asked, "answer_style": "cursor",
+                "options": rows, "keymap": {"next": "Down", "prev": "Up", "select": "Enter"}}}
+    for screen, at in ((STEPPER, 0), (on, 1)):
+        question = classify(PANE, f"{tmux.VISIBLE_SCREEN}\n{screen}", model)["question"]
+        assert (question["selected"], question["picker"]) == (at, picker_digest(screen, asked))
+        assert picker_read(screen, asked)[1] == rows[at]  # /send's read-back names it too
 
 
 def test_a_picker_digest_changes_with_anything_drawn_from_its_prompt_down():

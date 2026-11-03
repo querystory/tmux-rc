@@ -227,9 +227,14 @@ def _live_prompt(visible: str, prompt: str) -> tuple[re.Match, int] | None:
 _DIALOG_TOP_RE = re.compile(r"^(?:[─━▔]{3,}|╭)", re.MULTILINE)
 
 
+# A stepper row draws its value between ←/→ arrows ("Autocompact at ‹ 400k › tokens"),
+# which the option names plainly.
+_STEPPER_RE = re.compile(r"‹ (.*?) ›")
+
+
 def _drawn_row(visible: str, live: tuple[re.Match, int]) -> str | None:
     *_, row = [None, *_HIGHLIGHT_RE.finditer(visible, live[0].end(), live[1])]
-    return row and row["label"]
+    return row and _STEPPER_RE.sub(r"\1", row["label"])
 
 
 def picker_read(text: str, prompt: str) -> tuple[str, str | None] | None:

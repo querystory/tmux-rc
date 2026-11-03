@@ -56,6 +56,8 @@ export const STALE = "stale";
 const PARSE_WAIT_MS = 15000; // per move: a long list reparses in ~8s; a wedged parse must not strand the walk
 const SETTLE_MS = 4000;     // after the commit, before the lock is handed back
 const POLL_MS = 120;
+// Claude Code drops an Enter that lands within 250ms of an arrow (its picker's misfire guard).
+const ARM_MS = 300;
 
 // One wording for every dead end. They are all the same thing from the user's side —
 // this UI cannot drive that widget — and the alternative to saying it is the silent
@@ -241,6 +243,7 @@ async function walk(io, targetText, targetIndex) {
     if (!sent) return false; // undelivered: the anchor is now a lie
     if (at === want) return took(sent, q.picker);
     read = after(q, sent);
+    if (read?.selected === want) await sleep(ARM_MS); // the commit comes next
     if (read) { if (read.selected === at) return false; continue; } // a key that moved nothing
     // A move that landed MOVED the highlight. A frame still reporting the old anchor is
     // either one that predates the key or a move that did nothing (the end of the list, a
