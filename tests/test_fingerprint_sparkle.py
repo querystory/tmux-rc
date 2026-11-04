@@ -189,3 +189,20 @@ def test_omp_new_tool_line_changes_the_fingerprint():
                      ("timeout: 1.2s", "timeout: 1.5s"), ("▶4% complete", "▶5% complete"),
                      ("3 (+0.18)", "3 (+0.19)"), ("A 14s > x", "B 14s > x")):
         assert _fingerprint(old) != _fingerprint(new)  # not omp's chrome shapes
+
+
+def _agents(task, timer, tokens, width=72):
+    """Claude Code's background-agent rows: the timer and tokens are right-aligned, so the
+    padding before them shifts whenever either changes width."""
+    head, tail = f"◯ general-purpose  {task}", f"{timer} · ↓ {tokens} tokens"
+    return f"{head}{tail.rjust(width - len(head))}\n◯ Explore  Map the widget loader   1h 9m"
+
+
+def test_agent_row_padding_shift_shares_one_fingerprint():
+    task = "Tidy the crumb parser"
+    same = {_fingerprint(_agents(task, t, k)) for t, k in
+            (("9s", "8.1k"), ("10s", "8.1k"), ("59s", "99.9k"), ("1m 0s", "100.0k"))}
+    assert len(same) == 1
+    assert _fingerprint("Took 1h 40m.") == _fingerprint("Took 1h 41m.")
+    assert _fingerprint(_agents(task, "9s", "8.1k")) != _fingerprint(
+        _agents("Tidy the crumb lexer", "9s", "8.1k"))
