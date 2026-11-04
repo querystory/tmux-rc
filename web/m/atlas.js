@@ -1,9 +1,10 @@
+import { scopeHistory } from './fleet-history.js';
 import { atlasCharts, fleetChart, latestAverage, shownStates, unchanged } from './atlas-charts.js';
-import { needsYou, isRunning, markWorking, modelProvider, paneName, AGENT_TOOLS } from './pane-model.js';
+import { needsYou, markWorking, modelProvider, paneName } from './pane-model.js';
 
-export const STATES = ['Needs you', 'Running', 'Idle', 'Unknown', 'Compacting', 'Waiting', 'Quota blocked'];
+import { STATES, stateOf, liveCounts as countFleet } from './fleet-counts.js';
+export { STATES, stateOf } from './fleet-counts.js';
 const sum = rows => rows.some(row => row == null) ? null : STATES.map((_, i) => rows.reduce((n, row) => n + (row[i] || 0), 0));
-export const stateOf = (p) => needsYou(p) ? 0 : p.activity === 'compacting' ? 4 : p.activity === 'waiting' ? 5 : p.activity === 'quota_blocked' ? 6 : isRunning(p) ? 1 : p.activity === 'idle' ? 2 : 3;
 const toolOf = p => p.tool || 'other';
 // 'unknown' (classifier could not tell) and 'other' (no tool) are buckets, not agents to
 // filter to: they still count under All, but get no chip of their own.
@@ -20,19 +21,7 @@ const METRICS = [['all', 'Panes + background agents'], ['panes', 'Panes only']];
 // Live counts by state in the chosen metric, as history.py's agent_counts records them: a
 // worker's state like a pane's (its waits are external unless it says otherwise), and an
 // agent's own count of busy workers covering any the parsed roster missed.
-function liveCounts(panes) {
-  const counts = STATES.map(() => 0);
-  panes.forEach(p => {
-    counts[stateOf(p)]++;
-    // Omitted means none parsed (the agent's own count still applies); null means unmeasured.
-    const subs = 'subagents' in p ? p.subagents : [];
-    if (fleet.metric !== 'all' || !AGENT_TOOLS.has(p.tool) || !Array.isArray(subs)) return;
-    const busy = counts[1] + counts[4];
-    subs.forEach(a => { if (a && a.state !== 'done') counts[stateOf({ activity: a.state, waiting_on: a.waiting_on || 'external' })]++; });
-    counts[1] += Math.max(0, (p.agents || 0) - (counts[1] + counts[4] - busy));
-  });
-  return counts;
-}
+const liveCounts = (panes, workers = []) => countFleet(panes, workers, fleet.metric);
 const ms = span => parseInt(span, 10) * (span.endsWith('d') ? 86400000 : 3600000);
 // Range and average are per browser; the goal is the daemon's.
 const fleet = { average: '1d', metric: 'all' };
@@ -94,19 +83,7 @@ function el(tag, cls, text) {
 // One scope of the history: the whole fleet, or some tools' and/or one session's panes. The
 // tools are the app's agent filter (app.js), shared with the list.
 const inTools = (scope, tool) => !scope.tools?.length || scope.tools.includes(tool);
-function scoped(scope, samples = history) {
-  if (!scope.tools?.length && !scope.session) return samples;
-  return samples.map(s => {
-    if (s.n === null) return s;
-    const groups = (s.groups || []).filter(g => inTools(scope, g.tool) && (!scope.session || g.session === scope.session));
-    // A partial log reconstruction cannot prove a filtered fleet was empty. Keep
-    // its timestamp as a gap, including at either end of the selected range.
-    if (!s.groups || (s.source === 'logs' && !groups.length)) return { ...s, n: null, groups: [], source: 'gap' };
-    return { ...s, groups, n: groups.reduce((counts, g) => counts.map((n, i) => n + (g.n[i] || 0)), STATES.map(() => 0)),
-      foreground: s.foreground == null && !groups.length ? null : sum(groups.map(g => g.foreground)),
-      background: s.background == null && !groups.length ? null : sum(groups.map(g => g.background)) };
-  });
-}
+const scoped = (scope, samples = history) => scopeHistory(scope, samples);
 
 // A sample's (or group's) counts in the chosen metric. Older history has no background
 // counts; under 'all' those buckets are gaps, not panes alone.
@@ -507,9 +484,9 @@ function stateChip(state, n) {
 // The split under an open pane on a wide screen: one row (running now, the average, the
 // goal; then, unfolded, the chart's own controls; Dashboard last) over the chart once its
 // seam is pulled up. The seam itself belongs to the layout (app.js).
-export function renderFleet(root, panes, { open, toggle, dashboard, icon }) {
+export function renderFleet(root, panes, { open, toggle, dashboard, icon, workers = [] }) {
   // The header counts everything running; each chip counts only the layer it toggles.
-  const counts = liveCounts(panes), now = [running(counts), counts[0], counts[2], counts[1]];
+  const counts = liveCounts(panes, workers), now = [running(counts), counts[0], counts[2], counts[1]];
   if (unchanged(root, [open, settings, history, historyData, historyError, goal, draft, draftInvalid, ...now])) return;
   const focus = focusKey(root);
   const spark = root._spark ||= fleetChart(false), chart = root._chart ||= fleetChart(true);
@@ -541,20 +518,21 @@ const STOP = new Set(('the a an and or to of in on for with from is are was were
 // `after` is the caller's nodes to place under the filters (app.js: the grid of cards);
 // `foot` and `radar` are the slots in it for the heatmap card and the word cloud, and
 // `openHeat` opens the heatmap's own view.
-export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}, icon, after, foot, openHeat, radar, chip = () => '') {
-  const allPanes = panes;
+export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}, icon, after, foot, openHeat, radar, chip = () => '', workers = [], workerSource = null) {
+  const allPanes = panes, allWorkers = workers;
   const scope = root._scope ||= { tools: [], session: '' };
   // The session cards chart the last week (the heatmap's history, the chart's until it loads)
   // and need one averaging window before it. The filters offer what the chart and that week hold.
   const src = heat ? heat.samples : history, step = heat ? heat.step : historyData?.step || 60000, end = src.at(-1)?.t ?? 0, recent = src.filter(s => s.t > end - ms('7d') - ms(fleet.average));
   const weekGroups = recent.filter(s => s.t > end - ms('7d')).flatMap(s => s.groups || []), seen = [...history.flatMap(s => s.groups), ...weekGroups];
-  const tools = [...new Set(['claude', 'codex', 'shell', ...allPanes.map(toolOf), ...seen.map(g => g.tool)].filter(isAgent))];
-  const sessions = [...new Set([...allPanes.map(p => p.session), ...seen.map(g => g.session)].filter(Boolean))].sort();
+  const tools = [...new Set(['claude', 'codex', 'shell', ...allPanes.map(toolOf), ...allWorkers.map(toolOf), ...seen.map(g => g.tool)].filter(isAgent))];
+  const sessions = [...new Set([...allPanes.map(p => p.session), ...allWorkers.map(w => w.session), ...seen.map(g => g.session)].filter(Boolean))].sort();
   panes = allPanes.filter(p => inTools(scope, toolOf(p)) && (!scope.session || p.session === scope.session));
+  workers = allWorkers.filter(w => inTools(scope, toolOf(w)) && (!scope.session || w.session === scope.session));
   // Preserve focus and pointer targets across unchanged long polls.
   // draft too: the goal editor is shared, so an edit on one surface refreshes the other.
   refreshHeat();
-  if (unchanged(root, [heat, ...sessions.map(chip), String(scope.tools), scope.session, history, historyData, historyError, settings, goal, draft, draftInvalid, ...allPanes.flatMap(p => [p.pane_id, p.session, paneName(p), p.activity,
+  if (unchanged(root, [JSON.stringify(allWorkers), workerSource?.status, heat, ...sessions.map(chip), String(scope.tools), scope.session, history, historyData, historyError, settings, goal, draft, draftInvalid, ...allPanes.flatMap(p => [p.pane_id, p.session, paneName(p), p.activity,
     p.waiting_on, p.tool, p.model, p.session_summary, p.status_line, p.agents, JSON.stringify(p.subagents)])])) return;
   const focus = focusKey(root);
   const charts = root._charts ||= atlasCharts();
@@ -635,7 +613,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   pulse.onkeydown = event => { if (root._compact && ['Enter', ' '].includes(event.key)) { event.preventDefault(); pulse.onclick(); } };
   const heading = el('div', 'atlas-panel-heading');
   const now = el('span', 'fleet-now');
-  now.append(el('b', '', String(running(liveCounts(panes)))), el('span', 'muted', ' running'));
+  now.append(el('b', '', String(running(liveCounts(panes, workers)))), el('span', 'muted', ' running'));
   const info = el('button', 'icon-button atlas-info');
   info.innerHTML = icon('info', 16);
   info.dataset.key = 'history-info';
@@ -651,7 +629,9 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   metricControls.onchange = () => setFleet({ metric: metricControls.value });
   // The goal is fleet-wide: a page filtered to one tool or session draws none.
   const target = scope.tools.length || scope.session ? null : goal;
-  heading.append(el('h3', '', 'Activity over time'), now, averageText(data, target), info, el('span', 'fleet-gap'),
+  // The worker source's freshness belongs with the totals it feeds, not among the filters.
+  const reports = workerSource ? [el('span', 'muted', `Worker reports ${workerSource.status}`)] : [];
+  heading.append(el('h3', '', 'Activity over time'), now, averageText(data, target), ...reports, info, el('span', 'fleet-gap'),
     metricControls, rangeControl(), averageControl(), goalControl(icon));
   pulse.append(heading);
   if (root._info) {
@@ -659,7 +639,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
     [historyData ? 'Saved by this machine’s daemon. Gaps mean no observation. The purple line is the trailing average of Running; the dashed one is the goal.' : '',
       'Drag the handles under the chart to zoom; Ctrl + scroll zooms, and on touch, pinch zooms.',
       fleet.metric === 'panes' ? 'Counts each pane once. Older history grouped compacting and external waits under Running.'
-        : 'Counts each pane once plus the background agents (sub-agents, workers) its agent shows; hidden workers may be missed, and this is not CPU or token use. Older history has no background counts, so it shows as gaps here; choose Panes only to see it.',
+        : 'Counts each pane once plus the background agents (sub-agents, workers) its agent shows or a configured worker source reports; hidden workers may be missed, and this is not CPU or token use. Older history has no background counts, so it shows as gaps here; choose Panes only to see it.',
       data.some(s => s.source === 'logs') ? historyData.backfill_note : '',
       scope.session && history.some(s => s.source === 'logs') ? 'Older log records have no tmux session identity; they are excluded from this session filter.' : '',
     ].filter(Boolean).forEach(note => notes.append(el('p', '', note)));
@@ -686,7 +666,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   // scale, and its panes by state underneath. Sessions with live panes come first.
   // Their keys are the live panes plus the week's sessions (in the tool filter).
   const week = weekGroups.filter(g => inTools(scope, g.tool)).map(g => g.session);
-  const live = new Set(panes.map(p => p.session)), keys = scope.session ? [scope.session]
+  const live = new Set([...panes.map(p => p.session), ...workers.map(w => w.session)]), keys = scope.session ? [scope.session]
     : [...new Set([...live, ...week].filter(Boolean))].sort().sort((a, b) => live.has(b) - live.has(a));
   const multiples = el('section', 'atlas-panel atlas-multiples');
   const cards = root._cards ||= new Map();
@@ -706,12 +686,13 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   series.forEach(([key, slice]) => {
     const chart = cards.get(key) || fleetChart(false);
     cards.set(key, chart);
-    const members = panes.filter(p => p.session === key), need = members.filter(needsYou).length;
+    const members = panes.filter(p => p.session === key), reported = workers.filter(w => w.session === key);
+    const need = members.filter(needsYou).length + (fleet.metric === 'all' ? reported.filter(w => !w.pane_id && needsYou(w)).length : 0);
     const card = el('div', 'atlas-multiple'), head = el('span', 'atlas-multiple-head'), dots = el('div', 'atlas-dots');
     Object.assign(card, { role: 'group', ariaLabel: `Session ${key}` }); // its panes' buttons are grouped under its name
     head.append(el('b', '', key));
     head.insertAdjacentHTML('beforeend', chip(key)); // its default account (accounts.js)
-    head.append(el('span', 'fleet-gap'), el('b', '', String(running(liveCounts(members)))), el('span', 'muted', ' running'),
+    head.append(el('span', 'fleet-gap'), el('b', '', String(running(liveCounts(members, reported)))), el('span', 'muted', ' running'),
       ...(need ? [el('span', 'atlas-need', `${need} need you`)] : []));
     members.forEach(p => {
       const dot = el('button', `atlas-dot s${stateOf(p)}`);

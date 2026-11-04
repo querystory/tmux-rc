@@ -52,6 +52,9 @@ class Watcher:
     def nudge(self):  # /api/state's long-poll told of news (a page landed)
         self.nudged = getattr(self, "nudged", 0) + 1
 
+    def snapshot(self):
+        return self.state_version(), [dict(s) for s in self.states], [], None
+
     def pane_birth(self, pane_id):
         return self.births.get(pane_id)
 

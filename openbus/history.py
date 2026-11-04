@@ -86,7 +86,7 @@ def sum_counts(rows: list[dict], key: str) -> list[int] | None:
     return [sum(row[key][i] for row in rows if i < len(row[key])) for i in range(len(STATES))]
 
 
-def grouped(panes: list[dict]) -> tuple[list[int], list[dict]]:
+def grouped(panes: list[dict], workers: list[dict] | None = None) -> tuple[list[int], list[dict]]:
     groups = {}
     counts = [0] * len(STATES)
     for p in panes:
@@ -100,7 +100,25 @@ def grouped(panes: list[dict]) -> tuple[list[int], list[dict]]:
         members = group.pop("members")
         for key in ("foreground", "background"):
             group[key] = sum_counts(members, key)
+    for worker in workers or []:
+        key = (worker["session"], worker["tool"])
+        group = groups.setdefault(key, {"session": key[0], "tool": key[1],
+                                       "n": [0] * len(STATES),
+                                       "foreground": [0] * len(STATES),
+                                       "background": [0] * len(STATES)})
+        if group["background"] is not None:
+            group["background"][worker["state"]] += 1
     return counts, list(groups.values())
+
+
+def worker_records(workers: list[dict]) -> list[dict]:
+    """Structural background observations; pane-bound workers already count as panes."""
+    return sorted(({
+        "uid": json.dumps([w.get("source"), w.get("run_id"), w["id"]]),
+        "session": w.get("session") or "",
+        "tool": w.get("tool") or "other", "state": state_index(w),
+    } for w in workers if not w.get("pane_id") and w.get("activity") != "done"),
+                  key=lambda w: w["uid"])
 
 
 def pane_key(server: str, pane_id: str, birth: str | None) -> str:
@@ -281,7 +299,8 @@ class History:
             db.close()
 
     def record(self, states: list[dict], server: str, now: float | None = None,
-               *, births: dict[str, str] | None = None) -> None:
+               *, births: dict[str, str] | None = None, workers: list[dict] | None = None,
+               workers_observed: bool = True, worker_sessions: list[str] | None = None) -> None:
         now = time.time() if now is None else now
         births = births or {}
         panes = sorted(({
@@ -291,7 +310,13 @@ class History:
             **agent_counts(p),
         } for p in states), key=lambda p: p["uid"])
         # Version the inventory itself so even an empty observation records capability.
-        payload = json.dumps({"version": 2, "panes": panes},
+        # Worker fields are optional additions to version 2: an older reader takes the
+        # panes and ignores them, so no schema bump strands a database on rollback.
+        inventory = {"version": 2, "panes": panes} if workers is None else {
+            "version": 2, "panes": panes, "workers": worker_records(workers),
+            "workers_observed": workers_observed, "worker_sessions": worker_sessions,
+        }
+        payload = json.dumps(inventory,
                              separators=(",", ":"), sort_keys=True)
         if payload == self._last and now - self._written < HEARTBEAT: return
         if self._failed and now - self._failed < HEARTBEAT: return
@@ -456,10 +481,14 @@ class History:
                     (at,),
                 ).fetchone()
                 source, panes, versioned = "gap", None, False
+                workers, workers_observed, worker_sessions = [], True, None
                 if live and at - live[0] <= COVERAGE:
                     source, payload = "daemon", json.loads(live[1])
                     versioned = isinstance(payload, dict) and payload.get("version") == 2
                     panes = payload["panes"] if versioned else payload
+                    workers = payload.get("workers", []) if versioned else []
+                    workers_observed = payload.get("workers_observed", True) if versioned else True
+                    worker_sessions = payload.get("worker_sessions") if versioned else None
                 elif live_start is None or at < live_start:
                     while cursor < len(records) and records[cursor][0] <= at:
                         t, uid, tool, state, valid_until = records[cursor]
@@ -471,10 +500,16 @@ class History:
                              if at - p["t"] <= BACKFILL_TTL and at < p["valid_until"]]
                     if panes: source = "logs"
                     else: panes = None
-                counts, groups = grouped(panes) if panes is not None else (None, [])
+                counts, groups = grouped(panes, workers) if panes is not None else (None, [])
+                if not workers_observed and worker_sessions:
+                    groups = [{**group, "background": None}
+                              if group["session"] in worker_sessions else group for group in groups]
                 samples.append({"t": bucket * 1000, "n": counts,
                                 "groups": groups, "source": source,
-                                **{key: sum_counts(groups, key) if panes or versioned else None
+                                **({"worker_gap_sessions": worker_sessions}
+                                   if not workers_observed else {}),
+                                **{key: (None if key == "background" and not workers_observed else
+                                         sum_counts(groups, key) if panes or versioned else None)
                                    for key in ("foreground", "background")}})
         return {"samples": samples, "step": step * 1000, "first": first * 1000, "now": now * 1000,
                 "goal": int(goal[0]) if goal else None,
