@@ -429,11 +429,11 @@ function route() {
   if (dashboardVisible() && !wasDashboardVisible) refreshHistory(); // every poll keeps it fresh; forced, the refetch rebuilt every chart on each visit
   if (active && changed) {
     const id = active;
-    // A dead deep link selects before state can say so; a 404 is the gone-pane path, and a
+    // Validate a deep link without switching any desktop window; a 404 is the gone-pane path, and a
     // rejection after the user moved on must not overwrite whatever notice that left.
     post(paneUrl(id, "select")).catch((error) => {
       if (error.status === 404) leaveMissingPane(id);
-      else if (stillOnPane(location.hash, id)) notice("Could not focus this pane on the host.");
+      else if (stillOnPane(location.hash, id)) notice("Could not open this pane.");
     });
   }
   // Land in the pane, on its name (focusing Back painted its ring on open), or on the terminal

@@ -54,7 +54,6 @@ def test_opening_a_pane_is_a_visit_and_recent_lists_only_live_ones(tmp_path, mon
     monkeypatch.setattr(server.app.state, "history", h, raising=False)
     monkeypatch.setattr(server.tmux, "server_uid", lambda: "boot:1")
     monkeypatch.setattr(server.tmux, "find_pane", lambda p: SimpleNamespace(id=p, pid=births[p]))
-    monkeypatch.setattr(server.tmux, "select_pane", lambda _id: None)
     monkeypatch.setattr(server, "_audit", lambda *_a, **_k: None)
     (tmp_path / "s" / "mock").mkdir(parents=True)
     (tmp_path / "s" / "mock" / "index.html").write_text("<title>A mock</title>")

@@ -494,13 +494,6 @@ def find_pane(target: str | None) -> Pane | None:
     return None
 
 
-def select_pane(pane_id: str) -> None:
-    """Make this pane the active one in tmux (focus its window + the pane within it),
-    so tapping a card on the phone focuses the same pane on the host."""
-    _run(["select-window", "-t", pane_id])
-    _run(["select-pane", "-t", pane_id])
-
-
 def kill_window(pane_id: str, pid: str | None = None) -> list[tuple[str, str]]:
     """Close the WINDOW that contains this pane (kill-window targets the pane's window),
     matching the phone's mental model: rows and cards are titled by window, and windows —
