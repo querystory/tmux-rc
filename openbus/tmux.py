@@ -526,6 +526,10 @@ def _literal(arg: str) -> str:
     return arg[:-1] + "\\;" if arg.endswith(";") else arg
 
 
+def _argv(command: str | list[str] | None) -> list[str]:
+    return [_literal(a) for a in ([command] if isinstance(command, str) else command or [])]
+
+
 def rename(pane: Pane, session: str | None, name: str | None) -> bool:
     """Rename the pane's session, then name the pane (Pane.display_title; "" gives it back to
     its app's title); None leaves that name alone. False, renaming nothing, when the pane at
@@ -585,10 +589,9 @@ def new_window(session: str, name: str, command: str | list[str], cwd: str | Non
     agent session only exists in the directory it was started in).
     A `command` given as a list is executed directly by tmux, with no shell, so its
     arguments are never parsed as shell syntax, but each still goes through _literal."""
-    argv = [_literal(a) for a in (command if isinstance(command, list) else [command])]
     return _run(
         ["new-window", "-d", "-P", "-F", "#{pane_id}", "-c", cwd or "#{session_path}",
-         "-t", f"{session}:", "-n", name, "--", *argv]
+         "-t", f"{session}:", "-n", name, "--", *_argv(command)]
     ).strip()
 
 
@@ -662,8 +665,7 @@ def new_session(name: str, cwd: str, command: str | list[str] | None = None, win
         argv += ["-n", window]
     if size:
         argv += ["-x", str(size[0]), "-y", str(size[1])]
-    command = [command] if isinstance(command, str) else command or []
-    return _run([*argv, *command], prefix=scope,
+    return _run([*argv, *_argv(command)], prefix=scope,
                 env=server_env() if env is None else env).strip()
 
 
