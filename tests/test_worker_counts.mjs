@@ -35,3 +35,32 @@ test("custom harness workers count without a built-in tool registration", () => 
   assert.deepEqual(liveCounts([], workers), [1, 1, 0, 0, 0, 0, 0]);
   assert.deepEqual(liveCounts([], workers, "panes"), [0, 0, 0, 0, 0, 0, 0]);
 });
+
+test("pane-bound workers retain harness attribution without counting the pane twice", () => {
+  const panes = [{pane_id: "%2", session: "garden", tool: "shell", activity: "running"}];
+  const workers = [{pane_id: "%2", session: "garden", tool: "garden-runner", activity: "running"}];
+  for (const tools of [[], ["garden-runner"], ["shell"], ["shell", "garden-runner"]]) {
+    const selected = rows => rows.filter(row => !tools.length || tools.includes(row.tool));
+    assert.deepEqual(liveCounts(selected(panes), selected(workers)), [0, 1, 0, 0, 0, 0, 0]);
+    assert.deepEqual(liveCounts(selected(panes), selected(workers), "panes"),
+      tools.length === 1 && tools[0] === "garden-runner" ? [0, 0, 0, 0, 0, 0, 0] : [0, 1, 0, 0, 0, 0, 0]);
+  }
+});
+
+test("worker scope follows its controller session while binding deduplicates the fleet", () => {
+  const panes = [{pane_id: "%2", session: "orchard", tool: "shell", activity: "running"}];
+  const workers = [{pane_id: "%2", session: "garden", tool: "garden-runner", activity: "running"}];
+  assert.deepEqual(liveCounts(panes, workers), [0, 1, 0, 0, 0, 0, 0]);
+  for (const session of ["garden", "orchard"]) {
+    const selected = rows => rows.filter(row => row.session === session);
+    assert.deepEqual(liveCounts(selected(panes), selected(workers)), [0, 1, 0, 0, 0, 0, 0]);
+  }
+});
+
+test("bound worker attention uses the reported state only when its pane is outside scope", () => {
+  const panes = [{pane_id: "%2", tool: "shell", activity: "idle"}];
+  const workers = [{pane_id: "%2", tool: "garden-runner", activity: "waiting", waiting_on: "user"}];
+  assert.deepEqual(liveCounts(panes, workers), [0, 0, 1, 0, 0, 0, 0]);
+  assert.deepEqual(liveCounts([], workers), [1, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(liveCounts([], [{...workers[0], activity: "done"}]), [0, 0, 0, 0, 0, 0, 0]);
+});

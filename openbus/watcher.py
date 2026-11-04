@@ -1010,6 +1010,7 @@ class Watcher:
                 s.get("session"), s.get("window_index"), s.get("window_name"),
                 s.get("label"), s.get("title"), s.get("name"), s.get("cwd"),
                 s.get("activity"), s.get("tool"), s.get("events_seq"),
+                s.get("worker_source"),  # an empty roster still replaces parsed worker counts
                 s.get("secret"),  # the composer mode: a tty change with an unchanged screen
                 tuple((p.get("repo"), p.get("number"), p.get("title"))
                       for p in (s.get("prs") or [])),

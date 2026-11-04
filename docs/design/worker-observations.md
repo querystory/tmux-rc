@@ -29,8 +29,10 @@ alone is insufficient. The daemon checks these against its inventory before attr
 A worker may provide `pane` with the same `{pane_id, birth, server}` shape when that
 worker actually occupies its own foreground pane. This explicit local producer assertion
 must not be copied from an inherited `TMUX_PANE`: headless children inherit their parent's
-pane. A matching binding prevents counting the worker twice. A controller's session is
-used for grouping; the worker's `tool` supplies its harness group.
+pane. A matching binding prevents counting the worker twice when its pane is included
+in the selected scope. Tool and session filters retain the worker's reported attribution
+when its bound pane is outside that scope. A controller's session is used for grouping;
+the worker's `tool` supplies its harness group.
 
 Activities are `running`, `idle`, `waiting`, `compacting`, `quota_blocked`, `unknown`,
 and `done`. Waiting requires `waiting_on` equal to `user` or `external`. Done workers

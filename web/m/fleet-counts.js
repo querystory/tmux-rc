@@ -14,8 +14,9 @@ export function liveCounts(panes, workers = [], metric = 'all') {
     subs.forEach(a => { if (a && a.state !== 'done') counts[stateOf({ activity: a.state, waiting_on: a.waiting_on || 'external' })]++; });
     counts[1] += Math.max(0, (p.agents || 0) - (counts[1] + counts[4] - busy));
   });
+  const paneIds = new Set(panes.map(p => p.pane_id));
   if (metric === 'all') workers.forEach(w => {
-    if (!w.pane_id && w.activity !== 'done') counts[stateOf(w)]++;
+    if ((!w.pane_id || !paneIds.has(w.pane_id)) && w.activity !== 'done') counts[stateOf(w)]++;
   });
   return counts;
 }

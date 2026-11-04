@@ -89,6 +89,7 @@ def sum_counts(rows: list[dict], key: str) -> list[int] | None:
 def grouped(panes: list[dict], workers: list[dict] | None = None) -> tuple[list[int], list[dict]]:
     groups = {}
     counts = [0] * len(STATES)
+    pane_by_uid = {p["uid"]: p for p in panes if "uid" in p}
     for p in panes:
         key = (p.get("session"), p.get("tool") or "other")
         group = groups.setdefault(key, {"session": key[0], "tool": key[1],
@@ -106,18 +107,27 @@ def grouped(panes: list[dict], workers: list[dict] | None = None) -> tuple[list[
                                        "n": [0] * len(STATES),
                                        "foreground": [0] * len(STATES),
                                        "background": [0] * len(STATES)})
-        if group["background"] is not None:
+        bound = pane_by_uid.get(worker.get("pane_uid"))
+        if bound is not None:
+            # Retain the harness attribution for filters that exclude the bound pane.
+            group.setdefault("bound_workers", []).append({
+                "state": worker["state"], "pane_session": bound["session"],
+                "pane_tool": bound["tool"],
+            })
+        elif group["background"] is not None:
             group["background"][worker["state"]] += 1
     return counts, list(groups.values())
 
 
-def worker_records(workers: list[dict]) -> list[dict]:
-    """Structural background observations; pane-bound workers already count as panes."""
+def worker_records(workers: list[dict], server: str, births: dict[str, str]) -> list[dict]:
+    """Structural observations, retaining pane lifetimes for scoped deduplication."""
     return sorted(({
         "uid": json.dumps([w.get("source"), w.get("run_id"), w["id"]]),
         "session": w.get("session") or "",
         "tool": w.get("tool") or "other", "state": state_index(w),
-    } for w in workers if not w.get("pane_id") and w.get("activity") != "done"),
+        **({"pane_uid": pane_key(server, w["pane_id"], births.get(w["pane_id"]))}
+           if w.get("pane_id") else {}),
+    } for w in workers if w.get("activity") != "done"),
                   key=lambda w: w["uid"])
 
 
@@ -313,7 +323,7 @@ class History:
         # Worker fields are optional additions to version 2: an older reader takes the
         # panes and ignores them, so no schema bump strands a database on rollback.
         inventory = {"version": 2, "panes": panes} if workers is None else {
-            "version": 2, "panes": panes, "workers": worker_records(workers),
+            "version": 2, "panes": panes, "workers": worker_records(workers, server, births),
             "workers_observed": workers_observed, "worker_sessions": worker_sessions,
         }
         payload = json.dumps(inventory,

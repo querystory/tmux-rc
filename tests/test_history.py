@@ -544,7 +544,7 @@ def test_structured_workers_survive_unknown_parent_and_restart(tmp_path):
     worker = {"id": "worker", "session": "work", "tool": "codex", "activity": "running",
               "label": "Do not persist", "observed_at": 600}
     original = dict(worker)
-    assert worker_records([worker])[0] == {
+    assert worker_records([worker], "s", {})[0] == {
         "uid": '[null, null, "worker"]', "session": "work", "tool": "codex", "state": 1,
     }
     assert worker == original
@@ -555,6 +555,47 @@ def test_structured_workers_survive_unknown_parent_and_restart(tmp_path):
     sample = h.query(now=660)["samples"][-1]
     assert sample["n"] == [0] * 7
     assert sample["background"] == [0, 0, 0, 1, 0, 0, 0]
+
+
+@pytest.mark.parametrize("bound_session", ["garden", "orchard"])
+@pytest.mark.parametrize("bound_tool", ["shell", "garden-runner"])
+def test_pane_bound_worker_history_retains_harness_attribution(tmp_path, bound_session, bound_tool):
+    h = History(tmp_path / "h.db")
+    worker = {"id": "prune", "tool": "garden-runner", "activity": "waiting",
+              "waiting_on": "user", "session": "garden", "pane_id": "%2"}
+    h.record([pane("%2", session=bound_session, tool=bound_tool)], "s", 600,
+             births={"%2": "123"}, workers=[worker])
+    sample = History(h.path).query(now=600)["samples"][-1]
+    assert sample["n"] == [0, 1, 0, 0, 0, 0, 0]
+    assert sample["background"] == [0] * 7
+    custom = next(g for g in sample["groups"]
+                  if g["session"] == "garden" and g["tool"] == "garden-runner")
+    assert custom["bound_workers"] == [{
+        "state": 0, "pane_session": bound_session, "pane_tool": bound_tool,
+    }]
+    assert custom["background"] == [0] * 7
+    with h.connect() as db:
+        payload = json.loads(db.execute("SELECT panes FROM snapshots").fetchone()[0])
+    assert payload["version"] == 2
+    assert payload["workers"][0]["pane_uid"] == payload["panes"][0]["uid"] == "s:%2:123"
+    assert payload["workers"][0]["tool"] == "garden-runner"
+
+
+def test_worker_history_binding_does_not_match_a_recycled_pane():
+    from openbus.history import grouped, worker_records
+
+    worker = {"id": "prune", "tool": "garden-runner", "activity": "running",
+              "session": "garden", "pane_id": "%2"}
+    original = dict(worker)
+    records = worker_records([worker], "s", {"%2": "old"})
+    assert worker == original
+    pane_record = {"uid": "s:%2:new", "tool": "shell", "session": "orchard",
+                   "state": 2, "foreground": [0] * 7, "background": [0] * 7}
+    counts, groups = grouped([pane_record], records)
+    assert counts == [0, 0, 1, 0, 0, 0, 0]
+    custom = next(g for g in groups if g["tool"] == "garden-runner")
+    assert custom["background"] == [0, 1, 0, 0, 0, 0, 0]
+    assert "bound_workers" not in custom
 
 
 def test_disabled_worker_adapter_keeps_version_two_payload(tmp_path):

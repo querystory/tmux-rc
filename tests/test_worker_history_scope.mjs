@@ -43,3 +43,47 @@ test('custom harness tool filter retains its independent worker history', () => 
   assert.deepEqual(filtered.n, zero);
   assert.deepEqual(filtered.background, busy);
 });
+
+const boundCustom = {session: 'garden', tool: 'garden-runner', n: zero,
+  foreground: zero, background: zero,
+  bound_workers: [{state: 1, pane_session: 'garden', pane_tool: 'shell'}]};
+const boundSample = {source: 'daemon', n: busy, foreground: zero, background: zero,
+  groups: [garden, boundCustom]};
+
+test('pane-bound history counts under its harness only when its pane is excluded', () => {
+  const [custom] = scopeHistory({tools: ['garden-runner']}, [boundSample]);
+  assert.deepEqual(custom.n, zero);
+  assert.deepEqual(custom.background, busy);
+  for (const scope of [{}, {tools: ['shell']}, {tools: ['shell', 'garden-runner']}, {session: 'garden'}]) {
+    const [included] = scopeHistory(scope, [boundSample]);
+    assert.deepEqual(included.n, busy);
+    assert.deepEqual(included.background, zero);
+  }
+  assert.deepEqual(boundSample.background, zero);
+  assert.deepEqual(boundCustom.background, zero);
+});
+
+test('pane-bound history uses both pane session and tool when deduplicating', () => {
+  const crossSession = {...boundSample, groups: [{...garden, session: 'orchard'},
+    {...boundCustom, bound_workers: [{state: 1, pane_session: 'orchard', pane_tool: 'shell'}]}]};
+  const [controller] = scopeHistory({session: 'garden'}, [crossSession]);
+  assert.deepEqual(controller.n, zero);
+  assert.deepEqual(controller.background, busy);
+  const [pane] = scopeHistory({session: 'orchard'}, [crossSession]);
+  assert.deepEqual(pane.n, busy);
+  assert.deepEqual(pane.background, zero);
+  assert.deepEqual(scopeHistory({tools: ['shell', 'garden-runner']}, [crossSession])[0].background, zero);
+  const [unrelated] = scopeHistory({session: 'meadow', tools: ['garden-runner']}, [crossSession]);
+  assert.deepEqual(unrelated.n, zero);
+  assert.deepEqual(unrelated.background, zero);
+});
+
+test('pane-bound history preserves source coverage gaps and legacy observations', () => {
+  const stale = {...boundSample, background: null, worker_gap_sessions: ['garden']};
+  assert.equal(scopeHistory({tools: ['garden-runner']}, [stale])[0].background, null);
+  const unmeasured = {...boundSample, groups: [garden, {...boundCustom, background: null}]};
+  assert.equal(scopeHistory({tools: ['garden-runner']}, [unmeasured])[0].background, null);
+  const legacy = {...boundSample, groups: [garden]};
+  assert.deepEqual(scopeHistory({tools: ['garden-runner']}, [legacy])[0].n, zero);
+  assert.deepEqual(scopeHistory({tools: ['garden-runner']}, [legacy])[0].background, zero);
+});
