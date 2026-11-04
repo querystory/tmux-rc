@@ -30,7 +30,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Callable
-from contextlib import asynccontextmanager, nullcontext, suppress
+from contextlib import asynccontextmanager, suppress
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
@@ -877,15 +877,11 @@ async def get_state(v: int | None = None, client: str = "", visible: bool = Fals
     # legacy first-load behavior) must get the current state now, not hold for ~25s.
     if v is not None and v == version and version > 0:
         version = await w.wait_for_state_change(v, STATE_HOLD_SECONDS)
-    # Snapshot version and panes together, AFTER any wait: re-read the version so the echo
-    # matches what we're about to serialize, and shallow-copy each pane dict so the worker
-    # thread's in-place updates (the fast tmux_active flip) can't mutate objects mid-encode.
-    with getattr(w, "_publish_lock", nullcontext()):
-        version = w.state_version()
-        panes = [dict(s) for s in w.states]
-        reported = ({"workers": [dict(worker) for worker in w.workers],
-                     "worker_source": dict(w.worker_source)}
-                    if getattr(w, "worker_source", None) is not None else {})
+    # Snapshot version, panes and workers together, AFTER any wait, so the echoed version
+    # matches what we're about to serialize and no tick can mix two inventories into it.
+    version, panes, reported_workers, worker_source = w.snapshot()
+    reported = ({} if worker_source is None else
+                {"workers": reported_workers, "worker_source": worker_source})
     if loops := getattr(app.state, "loops", None):  # the Fleet graph's Repo and Worktree lenses
         for s in panes:
             s["worktree"] = loops.where(s.get("cwd"))

@@ -428,6 +428,15 @@ class Watcher:
         The /api/state long-poll returns as soon as this passes the client's version."""
         return self._state_version
 
+    def snapshot(self) -> tuple[int, list[dict], list[dict], dict | None]:
+        """One publication, taken whole: its version, a copy of each pane, the reported
+        workers, and their source's status (None when no worker source is configured).
+        Copies, so a later in-place update (the fast tmux_active flip) cannot reach them."""
+        with self._publish_lock:
+            return (self._state_version, [dict(s) for s in self.states],
+                    [dict(w) for w in self.workers],
+                    None if self.worker_source is None else dict(self.worker_source))
+
     # ASYNC109 is suppressed below. The rule wants the caller to wrap this in a cancel
     # scope instead, but that changes the contract: this returns the current version on
     # timeout rather than raising, because the HTTP long-poll behind it has to answer
@@ -781,7 +790,7 @@ class Watcher:
                 s["tmux_active"] = p.id == focused
                 _stamp_identity(s, p)
                 states.append(s)
-            self._publish_states(states, record_history=False)
+            self._publish_states(states, record_history=False, history_server=history_server)
         # Drain the forced-reparse requests for THIS pass in one atomic swap, so a
         # request that arrives mid-tick (handler thread) is never lost to a check-then-
         # discard race in _tick_pane — it either makes this snapshot or stays queued in
@@ -838,7 +847,7 @@ class Watcher:
             if prepublish:
                 s["tmux_active"] = p.id == focused
                 s["events_seq"] = self._events_seq.get(p.id, 0)
-                self._publish_states(states, record_history=False)
+                self._publish_states(states, record_history=False, history_server=history_server)
         # Mark the pane tmux currently has focused, so the phone can default its
         # selection to the pane the user is actually on (not just the top-sorted one).
         focused = tmux.active_pane_id()
@@ -903,9 +912,9 @@ class Watcher:
                 # stale roster cannot establish zero background workers for its session.
                 sessions = {p.get("session", "") for p in published if p.get("worker_source")}
                 known = {w["session"] for w in reported if not w.get("pane_id")}
-                fresh = now - self._worker_reader.snapshot["observed_at"] <= workers.STALE_SECONDS
+                stale = workers.is_stale(self._worker_reader.snapshot, now)
                 worker_sessions = sorted(sessions - known)
-                workers_observed = fresh or not worker_sessions
+                workers_observed = not stale or not worker_sessions
         with self._publish_lock:
             self.workers, self.worker_source = reported, source
             self.states = [dict(s) for s in published]

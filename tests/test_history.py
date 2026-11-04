@@ -599,3 +599,15 @@ def test_unmeasured_workers_preserve_unrelated_session_observations(tmp_path):
     assert stale["worker_gap_sessions"] == ["garden"]
     assert next(g for g in stale["groups"] if g["session"] == "orchard") == orchard
     assert next(g for g in stale["groups"] if g["session"] == "garden")["background"] is None
+
+
+def test_worker_inventory_stays_readable_as_version_two_panes(tmp_path):
+    # An older reader takes `panes` from any version 2 payload and ignores the rest.
+    h = History(tmp_path / "h.db")
+    h.record([pane()], "s", 600, workers=[{"id": "a", "tool": "codex", "activity": "running",
+                                           "session": "work"}])
+    with h.connect() as db:
+        payload = json.loads(db.execute("SELECT panes FROM snapshots").fetchone()[0])
+    assert payload["version"] == 2
+    assert [p["tool"] for p in payload["panes"]] == [pane()["tool"]]
+    assert len(payload["workers"]) == 1

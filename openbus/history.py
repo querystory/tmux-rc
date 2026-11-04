@@ -240,15 +240,10 @@ def _add_visits(db) -> None:
     db.execute("CREATE INDEX visits_by_time ON visits(at)")
 
 
-def _worker_inventory_format(db) -> None:
-    # Older readers cannot decode v3 payloads. The schema bump makes them refuse this DB.
-    db.execute("INSERT OR REPLACE INTO metadata VALUES ('inventory_format', '3')")
-
-
 MIGRATIONS = (_create_base, _add_valid_until, _widen_states, _compress_snapshots,
               _add_checkpoints, _add_plan_usage, _index_plan_usage, _index_plan_usage_resets,
               _drop_plan_usage_resets, _add_layout_snapshots, _add_visits,
-              partial(_widen_states, legacy="BETWEEN 0 AND 5"), _worker_inventory_format)
+              partial(_widen_states, legacy="BETWEEN 0 AND 5"))  # Quota blocked, state 6
 
 
 class History:
@@ -315,8 +310,10 @@ class History:
             **agent_counts(p),
         } for p in states), key=lambda p: p["uid"])
         # Version the inventory itself so even an empty observation records capability.
+        # Worker fields are optional additions to version 2: an older reader takes the
+        # panes and ignores them, so no schema bump strands a database on rollback.
         inventory = {"version": 2, "panes": panes} if workers is None else {
-            "version": 3, "panes": panes, "workers": worker_records(workers),
+            "version": 2, "panes": panes, "workers": worker_records(workers),
             "workers_observed": workers_observed, "worker_sessions": worker_sessions,
         }
         payload = json.dumps(inventory,
@@ -487,7 +484,7 @@ class History:
                 workers, workers_observed, worker_sessions = [], True, None
                 if live and at - live[0] <= COVERAGE:
                     source, payload = "daemon", json.loads(live[1])
-                    versioned = isinstance(payload, dict) and payload.get("version") in (2, 3)
+                    versioned = isinstance(payload, dict) and payload.get("version") == 2
                     panes = payload["panes"] if versioned else payload
                     workers = payload.get("workers", []) if versioned else []
                     workers_observed = payload.get("workers_observed", True) if versioned else True

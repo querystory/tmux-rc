@@ -66,6 +66,11 @@ def _binding(value: object) -> None:
         raise ValueError("complete pane lifetime required")
 
 
+def is_stale(snapshot: dict, now: float) -> bool:
+    """Whether a roster is too old to vouch for its workers' activity."""
+    return now - snapshot["observed_at"] > STALE_SECONDS
+
+
 def reconcile(snapshot: dict, states: list[dict], server: str | None,
               now: float) -> tuple[list[dict], list[dict]]:
     """Bind only current pane lifetimes and keep the parser's own records untouched."""
@@ -76,7 +81,7 @@ def reconcile(snapshot: dict, states: list[dict], server: str | None,
         return bool(pane and server == binding["server"] and pane.get("birth") == binding["birth"])
 
     controllers = {c["pane_id"] for c in snapshot["controllers"] if bound(c)}
-    stale = now - snapshot["observed_at"] > STALE_SECONDS
+    stale = is_stale(snapshot, now)
     workers = [{
         "id": w["id"], "source": snapshot["source_id"], "run_id": snapshot["run_id"],
         "tool": w["tool"], "activity": "unknown" if stale else w["activity"],
@@ -101,22 +106,21 @@ class Reader:
 
     def read(self, now: float) -> str:
         try:
-            with self.path.open("rb") as stream:
-                raw = stream.read(MAX_BYTES + 1)
-            if len(raw) > MAX_BYTES:
-                self._reject("worker snapshot too large")
-            candidate = validate(json.loads(raw), now)
-            identity = candidate["source_id"], candidate["run_id"]
-            self._accept(candidate, identity)
-            self.snapshot = candidate
+            self.snapshot = self._load(now)
         except (OSError, ValueError, TypeError, RecursionError):
-            stale = self.snapshot and now - self.snapshot["observed_at"] > STALE_SECONDS
+            stale = self.snapshot is not None and is_stale(self.snapshot, now)
             return "stale" if stale else "unavailable"
-        return "stale" if now - self.snapshot["observed_at"] > STALE_SECONDS else "fresh"
+        return "stale" if is_stale(self.snapshot, now) else "fresh"
 
-    @staticmethod
-    def _reject(message: str) -> None:
-        raise ValueError(message)
+    def _load(self, now: float) -> dict:
+        """The file's snapshot if it may replace the current one; raises otherwise."""
+        with self.path.open("rb") as stream:
+            raw = stream.read(MAX_BYTES + 1)
+        if len(raw) > MAX_BYTES:
+            raise ValueError("worker snapshot too large")
+        candidate = validate(json.loads(raw), now)
+        self._accept(candidate, (candidate["source_id"], candidate["run_id"]))
+        return candidate
 
     def _accept(self, candidate: dict, identity: tuple[str, str]) -> None:
         if identity in self.retired:

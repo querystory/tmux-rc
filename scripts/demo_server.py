@@ -87,6 +87,7 @@ class DemoWatcher:
         self.events_log = demo.events_log()
         self.snapshots = {}
         self.tmux_running = True
+        self.worker_source, self.workers = None, []
         if os.environ.get("TMUXRC_DEMO_WORKERS") == "1":
             self.worker_source = {"status": "fresh"}
             self.workers = [
@@ -102,9 +103,10 @@ class DemoWatcher:
     def states(self):
         panes = list(FLEET.values()) + ([SIGN_IN] if _signing_in else [])
         return [{**p, "subagents": [], "agents": 0} if p["pane_id"] == "%9" else p
-                for p in panes] if hasattr(self, "worker_source") else panes
+                for p in panes] if self.worker_source else panes
 
     def state_version(self): return 1
+    def snapshot(self): return 1, [dict(s) for s in self.states], self.workers, self.worker_source
     def pane_birth(self, _pane_id): return None
     def is_stale(self): return False
     def booted(self): return True

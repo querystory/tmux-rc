@@ -541,7 +541,6 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   const nodes = [];
   const controls = el('div', 'atlas-controls');
   controls.append(el('span', 'atlas-controls-label muted', 'Sessions'));
-  if (workerSource) controls.append(el('span', 'muted', `Worker reports: ${workerSource.status}`));
   const redraw = () => setFleet({}); // through app.js, which repaints what follows the filters (Plan usage)
   // The tmux sessions to pick from: the history's too, and the one picked. The app's filter
   // menu offers the same list (scope.sessions), and both pick through the app (app.js).
@@ -630,7 +629,9 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   metricControls.onchange = () => setFleet({ metric: metricControls.value });
   // The goal is fleet-wide: a page filtered to one tool or session draws none.
   const target = scope.tools.length || scope.session ? null : goal;
-  heading.append(el('h3', '', 'Activity over time'), now, averageText(data, target), info, el('span', 'fleet-gap'),
+  // The worker source's freshness belongs with the totals it feeds, not among the filters.
+  const reports = workerSource ? [el('span', 'muted', `Worker reports ${workerSource.status}`)] : [];
+  heading.append(el('h3', '', 'Activity over time'), now, averageText(data, target), ...reports, info, el('span', 'fleet-gap'),
     metricControls, rangeControl(), averageControl(), goalControl(icon));
   pulse.append(heading);
   if (root._info) {

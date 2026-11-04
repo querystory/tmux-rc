@@ -136,6 +136,6 @@ stale after thirty seconds. Panes-only counts should remain the same throughout.
 the setting and restart to disable collection. Nothing launches or controls the producer
 on behalf of the harness.
 
-History databases gain a schema version marker for worker inventories. Older readers
-refuse the newer database rather than misreading it. Keep a database backup before
-upgrading if rollback to an older release is needed.
+Worker inventories are optional fields of the existing history format, so the database
+schema is unchanged and rollback needs no backup. An older release reads the same history
+as panes only: it ignores reported workers and their coverage gaps.

@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from openbus.workers import Reader, reconcile, validate
+from openbus.workers import STALE_SECONDS, Reader, is_stale, reconcile, validate
 
 
 def snapshot():
@@ -38,7 +38,9 @@ def test_binding_requires_worker_pane_lifetime():
 
 @pytest.mark.parametrize("change", [
     {"observed_at": float("nan")}, {"observed_at": 200}, {"sequence": True},
-    {"controllers": []}, {"workers": [{"id": "x", "activity": "waiting"}]},
+    {"controllers": []},
+    # Registered and complete but for its target, so only the waiting rule can reject it.
+    {"workers": [{"id": "x", "controller_pane_id": "%1", "tool": "codex", "activity": "waiting"}]},
 ])
 def test_invalid_inventory_rejected(change):
     with pytest.raises(ValueError):
@@ -239,3 +241,8 @@ def test_custom_harness_flows_from_file_to_its_own_history_group(tmp_path):
     assert custom["n"] == [0] * 7
     assert custom["background"] == [0, 1, 0, 0, 0, 0, 0]
     assert sample["n"] == [0, 0, 1, 0, 0, 0, 0]
+
+
+def test_a_roster_goes_stale_only_past_the_freshness_window():
+    assert not is_stale(snapshot(), 100 + STALE_SECONDS)
+    assert is_stale(snapshot(), 100 + STALE_SECONDS + 0.001)
