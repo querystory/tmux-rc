@@ -56,6 +56,8 @@ export const STALE = "stale";
 const PARSE_WAIT_MS = 15000; // per move: a long list reparses in ~8s; a wedged parse must not strand the walk
 const SETTLE_MS = 4000;     // after the commit, before the lock is handed back
 const POLL_MS = 120;
+// Claude Code drops an Enter that lands within 250ms of an arrow (its picker's misfire guard).
+const ARM_MS = 300;
 
 // One wording for every dead end. They are all the same thing from the user's side —
 // this UI cannot drive that widget — and the alternative to saying it is the silent
@@ -195,7 +197,7 @@ async function walk(io, targetText, targetIndex) {
   // only LOOK — see the bail below — or the budget would quietly be one larger than the
   // constant says.
   let read = null; // the screen the last key made, read back by /send
-  let stale = 0;
+  let stale = 0, armed = false;
   for (let moves = 0; moves <= CURSOR_MAX_STEPS; moves++) {
     const live = picker(io);
     if (!live) return false;
@@ -227,6 +229,8 @@ async function walk(io, targetText, targetIndex) {
     if (want < 0) return false; // gone, or two rows wear the title and neither is "the" one
     if (at === null) return false; // no trustworthy anchor — walking blind picks a row
     if (at !== want && moves === CURSOR_MAX_STEPS) return false; // budget spent; only looked
+    // Arrived by moving: let the last arrow age past the widget's misfire guard, then re-read.
+    if (at === want && moves && !armed) { armed = true; await sleep(ARM_MS); moves--; continue; }
     const key = at === want ? km.select : at < want ? km.next : km.prev;
     if (!key) return false; // the widget never advertised this key — don't invent one
     const before = io.parsedAt();
