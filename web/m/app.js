@@ -102,6 +102,7 @@ const LUCIDE = {
   network: '<rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3M12 12V8"/>',
   fileText: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4M10 9H8M16 13H8M16 17H8"/>',
   pin: '<path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>',
+  download: '<path d="M12 15V3M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/>',
   activity: '<path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/>',
   listTodo: '<rect x="3" y="5" width="6" height="6" rx="1"/><path d="m3 17 2 2 4-4M13 6h8M13 12h8M13 18h8"/>',
   files: '<path d="M20 7h-3a2 2 0 0 1-2-2V2"/><path d="M9 18a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h7l4 4v10a2 2 0 0 1-2 2Z"/><path d="M3 7.6v12.8A1.6 1.6 0 0 0 4.6 22h9.8"/>',
@@ -959,9 +960,11 @@ function paintPins(list) {
   html($("drawer-pins"), recentList("Pinned", list.map((p) => `<button type="button" data-via="pin-${esc(p.name)}">${licon(pinGlyph(p.icon))}<span>${esc(p.title)}</span></button>`)));
   // The viewer's Pin: for a folder of scratch (an archived page's link is under .archive/).
   const folder = viewedFolder(), on = list.some((p) => p.name === folder), full = !on && list.length >= 6;
-  $("viewer-pin").hidden = !folder || folder.startsWith(".");
+  $("viewer-pin").hidden = $("viewer-get").hidden = !folder || folder.startsWith(".");
+  $("viewer-get").href = `/scratch/${encodeURIComponent(folder)}/?download=1`; // a navigation, not <a download>: iOS's standalone PWA saves it
   Object.assign($("viewer-pin"), { disabled: full, title: full ? "Six pins at most: unpin one first" : on ? "Unpin from the menu" : "Pin to the menu" }).setAttribute("aria-pressed", on);
   html($("viewer-pin"), licon("pin", 16) + (on ? "Pinned" : "Pin"));
+  html($("viewer-get"), licon("download", 16)); // the icon alone: a phone's bar keeps room for the title
 }
 const loadPins = () => request("/api/pins").then(paintPins, () => {});
 // Every scratch page's link in the app (a pin, a recent page, a pane's Links, a card's ask) opens
@@ -970,7 +973,7 @@ const loadPins = () => request("/api/pins").then(paintPins, () => {});
 // drawer's, which shuts first).
 const viewLink = (a) => { openPage("scratch"); viewScratch(a.href, a.title || a.firstChild.textContent); };
 const scratchLink = (a) => !!scratchUrl(a?.href, location.href);
-addEventListener("click", (e) => { const a = e.target.closest?.("a"); if (!e.defaultPrevented && a?.id !== "viewer-out" && scratchLink(a)) inApp(() => viewLink(a))(e); });
+addEventListener("click", (e) => { const a = e.target.closest?.("a"); if (!e.defaultPrevented && !["viewer-out", "viewer-get"].includes(a?.id) && scratchLink(a)) inApp(() => viewLink(a))(e); });
 // One save at a time: each reads the list the one before it wrote, so none drops another's pin.
 let pinSave = Promise.resolve();
 $("viewer-pin").onclick = () => {
