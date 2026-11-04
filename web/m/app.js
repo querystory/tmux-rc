@@ -885,7 +885,9 @@ scratchFrame.addEventListener("load", tellScratch);
 // in progress links the pane making it) may open a pane, with a draft for its composer, and nothing else: its origin is opaque,
 // so the placeholder can't be told from another page, and a pane opened is only navigation.
 addEventListener("message", (e) => {
-  const { pane, view, open, title, scratch, names, draft: offered, intent } = e.data || {}, href = scratchUrl(open, location.href);
+  const { pane, view, open, title, scratch, names, draft: offered, intent, pending } = e.data || {}, href = scratchUrl(open, location.href);
+  const shown = viewer.querySelector("iframe");
+  if (pending && e.source === shown?.contentWindow) shown.pending = true; // a placeholder (viewerFrame)
   // The page the viewer opened (a pinned one included) may ask to send a line, and only ask
   // (askSend). Only that document runs script in its frame (viewScratch), so an ask from the frame
   // is the page the sheet names. Its origin is opaque, so "null".
@@ -919,21 +921,28 @@ function scratchPage() {
 // like every /scratch/ page), under a bar: Back, its title, and a real link out to a tab.
 // A fresh frame each time, so its loads add nothing to the app's history; gone once closed.
 const viewer = $("scratch-viewer");
-function viewScratch(href, title) {
-  title = String(title || "Scratch page"); // a "Ready" push's link names no title
-  text($("viewer-title"), title);
-  $("viewer-out").href = href;
+// A page that navigates its frame shows something else: the box is for the page opened, so it goes.
+// Nor does what it navigates to (or a reload) run script: from its first load on, the frame is
+// sandboxed for every later document, so only the page opened can ask to send (askSend) or post
+// at all. A token for the page could be handed on, and the next page can post before its load.
+// Not sooner: WebKit (Safari) applies the attribute to the navigation under way, the page's own.
+// A page in progress (its placeholder says so) reloads itself as it moves on and when it lands:
+// a fresh frame at the page opened, then, whose first load runs its script again.
+function viewerFrame(href, title) {
   viewer.querySelector("iframe")?.remove();
-  // A page that navigates its frame shows something else: the box is for the page opened, so it goes.
-  // Nor does what it navigates to (or a reload) run script: from its first load on, the frame is
-  // sandboxed for every later document, so only the page opened can ask to send (askSend) or post
-  // at all. A token for the page could be handed on, and the next page can post before its load.
-  // Not sooner: WebKit (Safari) applies the attribute to the navigation under way, the page's own.
   const frame = Object.assign(document.createElement("iframe"), { src: href, title, onload() {
-    if (++this.loads > 1) { viewerTo = null; paintViewerForm(); } else this.sandbox = "allow-popups allow-popups-to-escape-sandbox";
+    if (++this.loads > 1 && this.pending) return viewerFrame(href, title);
+    if (this.loads > 1) { viewerTo = null; paintViewerForm(); } else this.sandbox = "allow-popups allow-popups-to-escape-sandbox";
   }, loads: 0 });
   frame.addEventListener("load", tellScratch); frame.addEventListener("load", loadRecent); // the visit is in by its load
   $("viewer-form").before(frame);
+}
+function viewScratch(href, title) {
+  title = String(title || "Scratch page"); // a "Ready" push's link names no title
+  text($("viewer-title"), title);
+  const out = new URL(href, location.href); out.searchParams.set("bare", ""); // a tab, not the viewer again (server.py)
+  $("viewer-out").href = out;
+  viewerFrame(href, title);
   viewer.showModal(); viewer.focus(); paintPins(pins); loadPins(); findMaker(href); // cached now, then as stored: a slot freed meanwhile
 }
 // Scratch pages pinned to the menu (GET/PUT /api/pins: the daemon keeps them, so every device
@@ -979,11 +988,11 @@ for (const load of [loadPins, loadRecent]) { addEventListener("focus", load); lo
 // or the one the user moved the page to with the To chip. A Composer per pane, sent through
 // compose() like the pane's footer and a sidebar Reply.
 async function findMaker(href) {
-  viewerTo = moving = null; paintViewerForm(); text($("viewer-status"), "");
+  viewerTo = moving = null; paintViewerForm(); text($("viewer-status"), ""); const out = $("viewer-out").href;
   const url = new URL(href), [, , folder, ...view] = url.pathname.split("/"); // the page and query it opened at
   const to = folder ? { ...await request(`/api/scratch/${folder}/pane`).catch(() => ({})), folder: decodeURIComponent(folder), view: view.join("/") + url.search + url.hash } : {};
   // Another page opened meanwhile, this one navigated, or it names no pane or no sendable folder.
-  if (!viewer.open || $("viewer-out").href !== href || viewer.querySelector("iframe")?.loads > 1 || !to.about) return;
+  if (!viewer.open || $("viewer-out").href !== out || viewer.querySelector("iframe")?.loads > 1 || !to.about) return;
   shotChip(true); useMaker(to);
 }
 function useMaker(to) {
@@ -1804,7 +1813,7 @@ async function pollState(signal) {
       const ids = (data.panes || []).map((p) => `${p.pane_id}:${p.birth}:${p.tool}`).join(); // birth: a recycled id is a new pane
       if (ids !== paneIds || Date.now() - accountsAt > 20000) { paneIds = ids; accountsAt = Date.now(); accounts.refresh(); }
       const wasRunning = loaded ? tmuxRunning : null; // null: the first answer always asks
-      statePanes = data.panes || []; showPanes(); loaded = true; booted = data.booted !== false; tmuxRunning = data.tmux_running !== false; prefix = data.prefix || "C-b"; host = data.host || "";
+      scratchNews(data.scratch); statePanes = data.panes || []; showPanes(); loaded = true; booted = data.booted !== false; tmuxRunning = data.tmux_running !== false; prefix = data.prefix || "C-b"; host = data.host || "";
       if (wasRunning !== tmuxRunning || restore.due()) restore.refresh(); // a server came or went: the offer changes
       $("ctrl-b").hidden = data.prefix === "C-b"; // absent prefix: can't know it's C-b, so show it
       if (!document.hidden) { refreshHistory(); refreshCached(); }
@@ -2989,9 +2998,25 @@ $("move-agent").onclick = moveSheet(true);
 window.addEventListener("hashchange", route);
 // A push tapped while the app is open: sw.js names the address to show, and it is routed
 // here like any move. pushState, not location.hash, so the bare-list "/m" routes too.
-navigator.serviceWorker?.addEventListener("message", ({ data }) => {
-  if (data?.open) { history.pushState(null, "", data.open); route(); }
-});
+const openLink = (url) => { history.pushState(null, "", url); route(); };
+navigator.serviceWorker?.addEventListener("message", ({ data }) => { if (data?.open) openLink(data.open); });
+// Pages that landed (push.py's news in /api/state), each told once: a notice with Open, the
+// Recent pages read again, and while the app is hidden the push's own notification, unless a
+// push reaches this device already (its tag would show it twice). A first state's news is old.
+let newsAt = null;
+function scratchNews(news = []) {
+  const fresh = newsAt === null ? [] : news.filter((n) => n.at > newsAt);
+  newsAt = Math.max(newsAt ?? 0, ...news.map((n) => n.at));
+  const one = fresh.length === 1 && fresh[0]; // several at once: one notice, the gallery to open
+  const gallery = () => { viewer.close(); scratchFrom = null; openLink("#view=scratch"); }; // all of it, out of any page
+  if (fresh.length) notice(one ? one.title : `Ready: ${fresh.length} pages`, 10000, ["Open", one ? () => openLink(one.url) : gallery]);
+  for (const n of fresh) {
+    if (document.hidden && window.Notification?.permission === "granted") navigator.serviceWorker?.getRegistration().then(async (sw) => {
+      if (sw && !await sw.pushManager.getSubscription()) sw.showNotification(n.title, { body: n.body, tag: n.tag, data: { url: n.url } });
+    }).catch(() => {});
+  }
+  if (fresh.length) openRecent();
+}
 // Only catch up a frame that was held for a selection; composer keystrokes also fire this.
 document.addEventListener("selectionchange", () => { if (terminalVisible() && captureDirty) paintCapture(); });
 document.addEventListener("visibilitychange", () => { if (!document.hidden) awayPane = null; render(); sendPresence(); startState(); restartDetail(); fitViewport(); }); // render: the tab's icon notes or clears "done"

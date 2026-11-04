@@ -994,8 +994,13 @@ class Watcher:
         if fp == self._state_fp:
             return
         self._state_fp = fp
+        self.nudge()
+
+    def nudge(self) -> None:
+        """Pass the version on: every /api/state long-poll answers now, for a deck change or
+        news that is not the deck's (a scratch page landed, PushManager.news)."""
         self._state_version += 1
-        # Runs in the watcher worker thread; the Event lives on the loop. Only SET it —
+        # Runs in a worker thread; the Event lives on the loop. Only SET it —
         # waiters clear it themselves before re-checking the version, so a set that lands
         # between a waiter's check and its wait() is not lost (no clear races the waiter).
         # No loop yet (very first tick before start finished) ⇒ nothing is waiting, skip.

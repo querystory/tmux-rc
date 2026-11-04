@@ -30,7 +30,9 @@ const tab = document.querySelector("link[rel=icon]"), icon = {icon};
 let frame = 0;
 if (document.body.className === "stopped") tab.href = tabIcon(icon, { state: "stopped" });
 else setInterval(() => { tab.href = tabIcon(icon, { frame: frame++ }); }, matchMedia("(prefers-reduced-motion: reduce)").matches ? 500 : 125);
-// In the app's viewer, the pane opens in the app rather than a second app in this frame.
+// In the app's viewer, this frame is the page in progress (app.js viewerFrame), and the pane
+// opens in the app rather than a second app in this frame.
+if (window.top !== window) parent.postMessage({ pending: true }, "*");
 if (window.top !== window) for (const a of document.querySelectorAll('a[href^="/m/#pane="]'))
   a.onclick = (e) => { e.preventDefault(); parent.postMessage({ pane: decodeURIComponent(a.getAttribute("href").slice(9)) }, "*"); };
 </script>{ask}</body></html>
