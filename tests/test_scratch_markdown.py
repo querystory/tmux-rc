@@ -162,4 +162,10 @@ def test_download_saves_a_folder_page_as_a_file_named_after_it(tmp_path):
     assert page.text == "<p>site</p>" and "content-disposition" not in c.get("/site/").headers
     md = c.get("/notes/?download=1")  # rendered, not the Markdown
     assert md.headers["content-disposition"].endswith("notes.html") and "<th>Step</th>" in md.text
-    assert "content-disposition" not in c.get("/gone/?download=1").headers
+    (tmp_path / ".archive" / "old").mkdir(parents=True)
+    (tmp_path / ".archive" / "old" / "index.html").write_text("old")
+    old = c.get("/.archive/old/?download=1").headers["content-disposition"]
+    assert old.endswith("''old.html")
+    pending = M.Files(directory=tmp_path, html=True, web=WEB_DIR, pending=lambda _n: "making")
+    c = TestClient(Starlette(routes=[Mount("/", pending)]))
+    assert c.get("/next/?download=1").status_code == 204  # a placeholder: the app stays put
