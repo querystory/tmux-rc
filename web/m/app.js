@@ -951,7 +951,7 @@ function paintPins(list) {
   // The viewer's Pin: for a folder of scratch (an archived page's link is under .archive/).
   const folder = viewedFolder(), on = list.some((p) => p.name === folder), full = !on && list.length >= 6;
   $("viewer-pin").hidden = !folder || folder.startsWith(".");
-  const get = new URL($("viewer-out").href); get.searchParams.set("download", 1);
+  const get = new URL($("viewer-out").href || location.href); get.searchParams.set("download", 1);
   Object.assign($("viewer-get"), { hidden: !folder, href: get.href }); // a navigation, not <a download>: iOS's standalone PWA saves it
   Object.assign($("viewer-pin"), { disabled: full, title: full ? "Six pins at most: unpin one first" : on ? "Unpin from the menu" : "Pin to the menu" }).setAttribute("aria-pressed", on);
   html($("viewer-pin"), licon("pin", 16) + (on ? "Pinned" : "Pin"));
