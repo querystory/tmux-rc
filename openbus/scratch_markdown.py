@@ -157,7 +157,9 @@ class Files(StaticFiles):
         if response.status_code == 202:  # nothing to save yet (a placeholder): stay on the app
             return Response(status_code=204)
         name = quote(path.removeprefix(ARCHIVE + "/").split("/")[0])  # the page's folder
-        response.headers["content-disposition"] = f"attachment; filename*=UTF-8''{name}.html"
+        html = response.headers.get("content-type", "").startswith("text/html")  # a .md's too
+        ext = ".html" if html else Path(getattr(response, "path", "")).suffix  # a PDF stays one
+        response.headers["content-disposition"] = f"attachment; filename*=UTF-8''{name}{ext}"
         return response
 
     async def _response(self, path, scope):
