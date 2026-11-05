@@ -171,6 +171,7 @@ let viewerTo = null; const viewerDrafts = new Map(); // the scratch viewer's mak
 let dashboard = false, page = null;
 const CARDS = { heat: "heat-card", usage: "usage-panel", loops: "loops-card", graph: "graph-card" };
 const dashboardVisible = () => !active && (WIDE.matches || dashboard);
+let reportedWorkers = [], workerSource = null;
 let panes = [], statePanes = [], paneIds = null, accountsAt = 0, active = null, view = "summary", filter = [], loaded = false, booted = false, tmuxRunning = true;
 let focusPushComposer = false, linked = null; // linked: a link's draft, offered once its pane's state is in (offerDraft)
 // The sort is a per-browser preference, as the sidebar's grouping is: how you like to read the
@@ -599,7 +600,7 @@ const renderLanding = steady(() => {
     renderList();
     navigate();
     $("sessions").scrollTop = $("sb-scroll").scrollTop = $("side-list").scrollTop = 0;
-  }, licon, [$("landing-cards")], $("heat-card"), () => openPage("heat"), $("radar-card"), accounts.sessionBadge);
+  }, licon, [$("landing-cards")], $("heat-card"), () => openPage("heat"), $("radar-card"), accounts.sessionBadge, reportedWorkers.filter(w => panes.some(p => p.pane_id === w.controller_pane_id && accounts.matches(p))), workerSource);
   renderLoopsCard($("loops-card"), accounts.loops(loops), openLane, licon);
   renderGraphCard($("graph-card"), panes.filter(accounts.matches), graphCtx);
 });
@@ -800,7 +801,7 @@ fleetHandle.onkeydown = (e) => {
 const openDashboard = () => navigate(null, "dashboard");
 function renderFleetSplit() {
   if (!WIDE.matches || !active) return;
-  renderFleet($("fleet"), panes, { open: fleetShown > STRIP, icon: licon, toggle: foldFleet, dashboard: openDashboard });
+  renderFleet($("fleet"), panes, { open: fleetShown > STRIP, icon: licon, toggle: foldFleet, dashboard: openDashboard, workers: reportedWorkers });
 }
 const refreshHistory = (force) => refreshAtlasHistory(request, () => { if (dashboardVisible()) renderLanding(); renderFleetSplit(); }, force);
 // Plan limits move on the daemon's minute poll (Claude's every five), so a minute is plenty.
@@ -1804,6 +1805,7 @@ async function pollState(signal) {
       const ids = (data.panes || []).map((p) => `${p.pane_id}:${p.birth}:${p.tool}`).join(); // birth: a recycled id is a new pane
       if (ids !== paneIds || Date.now() - accountsAt > 20000) { paneIds = ids; accountsAt = Date.now(); accounts.refresh(); }
       const wasRunning = loaded ? tmuxRunning : null; // null: the first answer always asks
+      reportedWorkers = data.workers || []; workerSource = data.worker_source || null;
       statePanes = data.panes || []; showPanes(); loaded = true; booted = data.booted !== false; tmuxRunning = data.tmux_running !== false; prefix = data.prefix || "C-b"; host = data.host || "";
       if (wasRunning !== tmuxRunning || restore.due()) restore.refresh(); // a server came or went: the offer changes
       $("ctrl-b").hidden = data.prefix === "C-b"; // absent prefix: can't know it's C-b, so show it
