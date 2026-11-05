@@ -453,7 +453,8 @@ function fake(spec) {{
       // A select the widget ignores: the picker reads back exactly as it was sent to.
       if (k === km.select && spec.dead_select) return {{ picker: q.picker, row: "" }};
       if (k === km.select && !spec.hold_open) p.open = false;
-      return spec.reads ? {{ picker: `f${{p.sends}}`, row: (spec.drawn || p.options)[p.selected] }} : true;
+      const row = (spec.drawn || p.options)[p.selected]; // as drawn: a stepper's ‹ › too
+      return spec.reads ? {{ picker: `f${{p.sends}}`, row }} : true;
     }},
     sendText: async (t) => {{
       if (spec.refuse_text && !p.refused) {{ p.refused = true; p.parsed_at += 1; return STALE; }}
