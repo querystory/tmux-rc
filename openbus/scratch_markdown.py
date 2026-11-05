@@ -152,9 +152,12 @@ class Files(StaticFiles):
 
     async def get_response(self, path, scope):
         response = await self._response(path, scope)
-        if "download" in parse_qs(scope["query_string"].decode()) and response.status_code == 200:
-            name = quote(path.removeprefix(ARCHIVE + "/").split("/")[0])  # the page's folder
-            response.headers["content-disposition"] = f"attachment; filename*=UTF-8''{name}.html"
+        if "download" not in parse_qs(scope["query_string"].decode()):
+            return response
+        if response.status_code != 200:  # nothing to save yet (a placeholder): stay on the app
+            return Response(status_code=204)
+        name = quote(path.removeprefix(ARCHIVE + "/").split("/")[0])  # the page's folder
+        response.headers["content-disposition"] = f"attachment; filename*=UTF-8''{name}.html"
         return response
 
     async def _response(self, path, scope):
