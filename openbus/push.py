@@ -498,6 +498,9 @@ class PushManager:
         self._waiting: dict[tuple[str, int], str] = {}
         self._done: set[tuple[str, int]] = set()
         self._ready: dict[tuple, float] = {}  # (pane, birth) -> when its "Ready" went out
+        # The last pages that landed, as their push said it, for every open app (/api/state):
+        # its notice and its Recent.
+        self.news: deque[dict] = deque(maxlen=10)
 
     def start(self) -> None:
         self._task = asyncio.create_task(self._loop())
@@ -615,7 +618,11 @@ class PushManager:
                 self._waiting[key] = "Updated" if item["revising"] else self._waiting.get(
                     key, "Ready")
             elif verb and item["read"] and (verb == "Updated" or item["href"].endswith("/")):
-                if self._ready_push(item, now, verb) or not self.store.subscriptions():
+                if message := self._ready_push(item, now, verb):
+                    # the app's cursor: a ms clock, strictly increasing however the clock steps
+                    at = max(int(time.time() * 1000), self.news[-1]["at"] + 1 if self.news else 0)
+                    self.news.append({**message, "at": at})
+                    self.watcher.nudge()
                     self.shoot(item)  # the gallery's spinner polls for it
                     self._waiting.pop(key, None)
                     self._done.add(key)  # a later rewrite of its meta.json is not news
@@ -623,25 +630,27 @@ class PushManager:
                     self._waiting[key] = verb
                     self._mtimes.pop(name)
 
-    def _ready_push(self, item: dict, now: float, verb: str = "Ready") -> bool:
+    def _ready_push(self, item: dict, now: float, verb: str = "Ready") -> dict | None:
         """Tell every device a pending page has landed, under a tag of its own: a page is news
         of its own, so it never silently replaces a Needs-you. A plain Needs-you right after
         it is skipped (evaluate), so one finish still buzzes once. An "Updated" page names no
-        pane: its reviser need not be the pane that made it."""
+        pane: its reviser need not be the pane that made it. The message once sent, or with
+        no device to send it to; None for a full queue."""
         pane = verb == "Ready" and next((s for s in self.watcher.states
                                          if s.get("pane_id") == item["pane"]
                                          and scratch.made_in(s, item["created"])), None)
         body = item["description"] or (pane and f"{pane.get('tool')} finished it in "
                                        f"{scratch.where(pane)}")
-        sent = self.sender.send({
+        message = {
             "title": _push_text(f"{verb}: {item['title']}", 100),
             "body": _push_text(body or f"Its page is {verb.lower()}.", PUSH_BODY_MAX),
             "tag": f"scratch:{item['name']}",
             "url": "/m#" + urlencode({"view": "scratch", "open": f"/scratch/{item['href']}"}),
-            "actions": []})
+            "actions": []}
+        sent = self.sender.send(message)
         if sent and pane:
             self._ready[(item["pane"], pane.get("birth"))] = now
-        return sent
+        return message if sent or not self.store.subscriptions() else None
 
     def evaluate(self) -> None:
         if self._stopping.is_set() or self.watcher.is_stale():

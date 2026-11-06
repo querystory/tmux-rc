@@ -34,7 +34,8 @@ shows it as **Scratch**: a tab in the phone's tab bar, a place in the wide sideb
 
 - **Open** a card and the page fills the screen over the app, under a slim bar. Back,
   Escape or a swipe from the left edge returns to the gallery; **Open in browser** gives
-  the page a window of its own.
+  the page a window of its own. A page's link opened in a tab of its own (one an agent
+  handed out) lands in the app's viewer too, so the message bar is always there.
 - **Who made it** names the session and window, the agent and its account, and links to
   that pane while it is open. Tap it to jump there. The trail runs both ways: a pane's
   overview lists, under Links, its pages still in progress and its newest one, and
@@ -68,6 +69,11 @@ opens the page in the app. It is a notification of its own, never swallowed by t
 Needs-you; what keeps one finish to one buzz is that for two minutes after a Ready, that
 pane's plain "turn ended" Needs-you is skipped (a question still notifies). A page
 published in one go was never promised and does not notify.
+
+Every open app hears the same news: a notice, `Ready: <title>` with **Open**, and its
+Recent pages turn from in progress to the page. Only the push itself notifies, so a device
+with notifications turned off is not alerted. An open viewer showing the page in progress
+shows the page as it lands.
 
 The same holds for revisions. An agent reworking a published page marks its `meta.json`
 `"updating": "<what's changing>"`; the card and the viewer read **Updating**, and the
