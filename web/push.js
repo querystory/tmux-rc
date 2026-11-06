@@ -62,12 +62,11 @@ export async function setupPush(button, announce = () => {}, bell = "") {
   let subscription, saved = null; // saved: the endpoint the daemon last acknowledged
   const state = () => pushState(Notification.permission, subscription, saved);
   const save = async () => {
-    const { endpoint } = subscription; // a visibility refresh may replace it while this is out
     const response = await fetch("/api/push/subscribe", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(subscription.toJSON()),
     }).catch(() => null);
-    saved = response?.ok ? endpoint : null;
+    saved = response?.ok ? subscription.endpoint : null;
     return !!saved;
   };
   const refresh = async () => {
@@ -85,8 +84,9 @@ export async function setupPush(button, announce = () => {}, bell = "") {
     announce("Notifications could not reconnect; tap Push notifications in Settings to reconnect");
   }
   await refresh();
-  // Permission is changed in the OS's settings, outside the app: re-read on the way back.
-  document.addEventListener("visibilitychange", () => document.hidden || refresh());
+  // Permission is changed in the OS's settings, outside the app: re-read on the way back,
+  // unless a tap is under way (it holds the subscription it acts on, and refreshes after).
+  document.addEventListener("visibilitychange", () => document.hidden || button.disabled || refresh());
   button.disabled = false;
   button.onclick = async () => {
     button.disabled = true;
