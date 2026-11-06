@@ -140,7 +140,7 @@ def test_endpoint_validates_range(tmp_path, monkeypatch):
 
     from openbus.server import app
 
-    monkeypatch.setattr(app.state, "history", History(tmp_path / "h.db"), raising=False)
+    monkeypatch.setitem(app.state._state, "history", History(tmp_path / "h.db"))
     client = TestClient(app)
     assert client.get("/api/history?window=bogus").status_code == 400
     assert client.get("/api/history?window=all").json()["samples"][0]["n"] is None
@@ -153,7 +153,7 @@ def test_endpoint_pages_back_with_before(tmp_path, monkeypatch):
 
     h = History(tmp_path / "h.db")
     h.record([], "s", 600)
-    monkeypatch.setattr(app.state, "history", h, raising=False)
+    monkeypatch.setitem(app.state._state, "history", h)
     samples = TestClient(app).get("/api/history?window=1h&before=4200000").json()["samples"]
     assert samples[0]["t"] == 600_000
     assert samples[-1]["t"] == 4_200_000  # the range ends at `before`, not now
@@ -181,7 +181,7 @@ def test_history_unavailable_is_explicit(monkeypatch):
 
     from openbus.server import app
 
-    monkeypatch.setattr(app.state, "history", None, raising=False)
+    monkeypatch.setitem(app.state._state, "history", None)
     assert TestClient(app).get("/api/history").status_code == 503
 
 
@@ -477,7 +477,7 @@ def test_goal_round_trips_and_is_audited(tmp_path, monkeypatch):
 
     from openbus import server
 
-    monkeypatch.setattr(server.app.state, "history", History(tmp_path / "h.db"), raising=False)
+    monkeypatch.setitem(server.app.state._state, "history", History(tmp_path / "h.db"))
     audit = Mock()
     monkeypatch.setattr(server, "_audit", audit)
     client = TestClient(server.app)
@@ -497,7 +497,7 @@ def test_endpoint_rejects_unbounded_windows(tmp_path, monkeypatch):
 
     from openbus.server import app
 
-    monkeypatch.setattr(app.state, "history", History(tmp_path / "h.db"), raising=False)
+    monkeypatch.setitem(app.state._state, "history", History(tmp_path / "h.db"))
     client = TestClient(app)
     for query in ("window=91d", "window=0h", "window=1w", "window=24h&lead=all", "lead=-1d"):
         assert client.get(f"/api/history?{query}").status_code == 400, query

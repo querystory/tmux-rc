@@ -37,8 +37,8 @@ def pane(monkeypatch):
 @pytest.fixture
 def client(monkeypatch):
     woken = []  # a rename only wakes the watcher: names aren't on screen, nothing to re-parse
-    monkeypatch.setattr(S.app.state, "watcher", SimpleNamespace(wake=lambda: woken.append("tick")),
-                        raising=False)
+    monkeypatch.setitem(S.app.state._state, "watcher",
+                        SimpleNamespace(wake=lambda: woken.append("tick")))
     monkeypatch.setattr(S, "_audit", lambda *a, **k: None)
     c = TestClient(S.app)
     c.woken = woken
