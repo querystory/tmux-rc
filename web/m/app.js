@@ -860,7 +860,7 @@ loopsView.ariaLabel = "Open loops";
 detailCard($("loops-card"), "Open loops", "", () => openPage("loops"));
 // The Fleet graph (graph.js): the card's at a glance, the view's to pan, zoom and regroup.
 const graphView = Object.assign(document.createElement("section"), { className: "fg-view", ariaLabel: "Fleet graph" });
-const graphCtx = { icon: licon, logos: LOGOS, open: (id) => navigate(id), close: closePage, owner: accounts.owner, several: accounts.any };
+const graphCtx = { icon: licon, logos: LOGOS, open: (id) => navigate(id), owner: accounts.owner, several: accounts.any };
 detailCard($("graph-card"), "Fleet graph", "", () => openPage("graph"));
 // A lane's count on the card opens the view at that lane, unfolded.
 function openLane(lane) {
@@ -2787,8 +2787,7 @@ function placePill() {
   const phone = !WIDE.matches, bar = phone && $("dash-page").querySelector(":scope > .landing-head"), dash = phone && dashboard;
   const own = page === "usage" && (usageView._filter ||= usageView.querySelector(".uv-filter")), to = own && (bar || usageView.firstChild);
   if (own && own.parentElement !== to) to.append(own); // held by the view: another view drops the head it sat in
-  // The graph's full screen covers its bar (graph.js), so there the scope heads the view instead.
-  const head = !own && CARDS[page] && bar && (page === "graph" ? graphView.querySelector(".fg-scope") : bar);
+  const head = !own && CARDS[page] && bar;
   const picker = renderSidebar.picker, at = head ? picker : bar ? $("find") : dash ? document.querySelector(".app-header") : $("find");
   if (head) { if (picker.parentElement !== head) head.append(picker); }
   else if (dash && picker.nextElementSibling !== $("new-window")) $("new-window").before(picker);
