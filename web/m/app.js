@@ -940,10 +940,10 @@ function viewerFrame(href, title) {
   $("viewer-form").before(frame);
 }
 function viewScratch(href, title) {
-  title = String(title || "Scratch page"); // a "Ready" push's link names no title
-  text($("viewer-title"), title);
   const out = new URL(href, location.href); out.searchParams.set("bare", ""); // a tab, not the viewer again (server.py)
-  $("viewer-out").href = out;
+  $("viewer-out").href = out; // a "Ready" push's link names no title, a pane's link only its URL: the folder, till findMaker
+  title = !title || /^\w+:\/\//.test(title) ? viewedFolder() || "Scratch page" : String(title);
+  text($("viewer-title"), title);
   viewerFrame(href, title);
   viewer.showModal(); viewer.focus(); paintPins(pins); loadPins(); findMaker(href); // cached now, then as stored: a slot freed meanwhile
 }
@@ -963,9 +963,10 @@ function paintPins(list) {
   $("viewer-pin").hidden = !folder || folder.startsWith(".");
   const get = new URL($("viewer-out").href || location.href); get.searchParams.set("download", 1);
   Object.assign($("viewer-get"), { hidden: !folder, href: get.href }); // a navigation, not <a download>: iOS's standalone PWA saves it
-  Object.assign($("viewer-pin"), { disabled: full, title: full ? "Six pins at most: unpin one first" : on ? "Unpin from the menu" : "Pin to the menu" }).setAttribute("aria-pressed", on);
-  html($("viewer-pin"), licon("pin", 16) + (on ? "Pinned" : "Pin"));
-  html($("viewer-get"), licon("download", 16)); // the icon alone: a phone's bar keeps room for the title
+  const pinTitle = full ? "Six pins at most: unpin one first" : on ? "Unpin from the menu" : "Pin to the menu";
+  Object.assign($("viewer-pin"), { disabled: full, title: pinTitle, ariaLabel: pinTitle }).setAttribute("aria-pressed", on);
+  html($("viewer-pin"), licon("pin") + `<span>${on ? "Pinned" : "Pin"}</span>`); // the label only where it fits (style.css)
+  html($("viewer-get"), licon("download"));
 }
 const loadPins = () => request("/api/pins").then(paintPins, () => {});
 // Every scratch page's link in the app (a pin, a recent page, a pane's Links, a card's ask) opens
@@ -996,8 +997,9 @@ async function findMaker(href) {
   viewerTo = moving = null; paintViewerForm(); text($("viewer-status"), ""); const out = $("viewer-out").href;
   const url = new URL(href), [, , folder, ...view] = url.pathname.split("/"); // the page and query it opened at
   const to = folder ? { ...await request(`/api/scratch/${folder}/pane`).catch(() => ({})), folder: decodeURIComponent(folder), view: view.join("/") + url.search + url.hash } : {};
-  // Another page opened meanwhile, this one navigated, or it names no pane or no sendable folder.
-  if (!viewer.open || $("viewer-out").href !== out || viewer.querySelector("iframe")?.loads > 1 || !to.about) return;
+  if (!viewer.open || $("viewer-out").href !== out) return; // another page opened meanwhile
+  if (to.title) text($("viewer-title"), to.title); // the gallery's: meta.json's, or the page's <title>
+  if (viewer.querySelector("iframe")?.loads > 1 || !to.about) return; // it navigated, or names no pane or no sendable folder
   shotChip(true); useMaker(to);
 }
 function useMaker(to) {
@@ -2085,6 +2087,7 @@ enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("attach-file"), () => active && !sending ? draft() : null);
 
 for (const [id, name] of Object.entries({ "menu-open": "menu", collapse: "panel", "dash-nav": "gauge", "graph-nav": "network", "scratch-nav": "images", "close-viewer": "back", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", "viewer-send": "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-export": "x", "close-move": "x", "close-rename": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down", "view-summary": "fileText", "view-terminal": "terminal" })) icon(id, name);
+html($("viewer-out"), licon("external") + "<span>Open in browser</span>");
 // The phone's tab bar: Sessions, home, in the middle, Usage and Scratch either end. The gauge is Dashboard's
 // everywhere; the 2×2 grid is the layout picker's. Only Needs you carries a count. The ☰ drawer
 // lists the same five (below), so one list names them.
