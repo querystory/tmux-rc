@@ -106,23 +106,28 @@ def forget(names: list[str]) -> None:
 
 def _work(root: Path, web: Path) -> None:
     global _worker  # noqa: PLW0603
-    with serving(root, web) as base:
-        while True:
-            with _lock:
-                if not _pending:
-                    _worker = None  # under the lock, so queue() starts one for what comes next
-                    return
-                item = _pending.pop(0)
-                moves = _moves[item["name"]]
-            for step in (_thumbnail, _description):
-                try:  # each on its own: one failing must stop neither the other nor the queue
-                    step(root, f"{base}/{item['href']}", item)
-                except Exception:
-                    logger.warning("Scratch %s for %s failed", step.__name__, item["name"],
-                                   exc_info=True)
-            with _lock:  # a folder archived or restored meanwhile was not worked: ask again
-                moved = _moves[item["name"]] != moves
-                (_tried.discard if moved else _done.add)(_version(item))
+    try:
+        with serving(root, web) as base:
+            while True:
+                with _lock:
+                    if not _pending:
+                        _worker = None  # under the lock, so queue() starts one for what comes next
+                        return
+                    item = _pending.pop(0)
+                    moves = _moves[item["name"]]
+                for step in (_thumbnail, _description):
+                    try:  # each on its own: one failing must stop neither the other nor the queue
+                        step(root, f"{base}/{item['href']}", item)
+                    except Exception:
+                        logger.warning("Scratch %s for %s failed", step.__name__, item["name"],
+                                       exc_info=True)
+                with _lock:  # a folder archived or restored meanwhile was not worked: ask again
+                    moved = _moves[item["name"]] != moves
+                    (_tried.discard if moved else _done.add)(_version(item))
+    finally:  # however it ended (serving() could not bind, say), never a dead worker
+        with _lock:  # that would keep queue() from starting the next
+            if _worker is threading.current_thread():
+                _worker = None
 
 
 class _Static(SimpleHTTPRequestHandler):

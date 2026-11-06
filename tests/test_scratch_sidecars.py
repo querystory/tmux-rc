@@ -226,6 +226,26 @@ def test_each_folder_version_is_worked_once(tmp_path, monkeypatch):
     assert S._worker is None  # nothing new to do
 
 
+def test_a_worker_that_cannot_serve_lets_the_next_listing_start_another(tmp_path, monkeypatch):
+    said = []
+    monkeypatch.setattr(S, "_tried", set())
+    monkeypatch.setattr(S, "shoot", lambda *_: None)
+    monkeypatch.setattr(S, "describe", lambda *a: said.append(a[2]))
+    monkeypatch.setattr(S.threading, "excepthook", lambda _: None)  # the bind error, expected
+    real = S.serving
+    monkeypatch.setattr(S, "serving", lambda *_: 1 / 0)  # the port could not be bound, say
+    _page(tmp_path)
+    S.queue(tmp_path, WEB_DIR, scratch.items(tmp_path))
+    if worker := S._worker:  # unless it is already gone
+        worker.join()
+    assert S._worker is None and not said
+    monkeypatch.setattr(S, "serving", real)
+    S.queue(tmp_path, WEB_DIR, [])  # the folder is still waiting: the next listing serves it
+    while (worker := S._worker) is not None:
+        worker.join()
+    assert said == ["T"]
+
+
 def test_a_failed_shot_still_gets_a_description(tmp_path, monkeypatch):
     said = []
     monkeypatch.setattr(S, "_tried", set())
