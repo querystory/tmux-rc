@@ -71,9 +71,9 @@ pane's plain "turn ended" Needs-you is skipped (a question still notifies). A pa
 published in one go was never promised and does not notify.
 
 Every open app hears the same news: a notice, `Ready: <title>` with **Open**, and its
-Recent pages turn from in progress to the page. An app in a background tab also shows it
-as a notification when the browser allows them and no push reaches that device. An open
-viewer showing the page in progress shows the page as it lands.
+Recent pages turn from in progress to the page. Only the push itself notifies, so a device
+with notifications turned off is not alerted. An open viewer showing the page in progress
+shows the page as it lands.
 
 The same holds for revisions. An agent reworking a published page marks its `meta.json`
 `"updating": "<what's changing>"`; the card and the viewer read **Updating**, and the

@@ -3004,22 +3004,16 @@ window.addEventListener("hashchange", route);
 // here like any move. pushState, not location.hash, so the bare-list "/m" routes too.
 const openLink = (url) => { history.pushState(null, "", url); route(); };
 navigator.serviceWorker?.addEventListener("message", ({ data }) => { if (data?.open) openLink(data.open); });
-// Pages that landed (push.py's news in /api/state), each told once: a notice with Open, the
-// Recent pages read again, and while the app is hidden the push's own notification, unless a
-// push reaches this device already (its tag would show it twice). A first state's news is old.
+// Pages that landed (push.py's news in /api/state), each told once: a notice with Open and the
+// Recent pages read again. A notification is the push's alone, so a device that turned them
+// off gets none, and two tabs never show one twice. A first state's news is old.
 let newsAt = null;
 function scratchNews(news = []) {
   const fresh = newsAt === null ? [] : news.filter((n) => n.at > newsAt);
   newsAt = Math.max(newsAt ?? 0, ...news.map((n) => n.at));
   const one = fresh.length === 1 && fresh[0]; // several at once: one notice, the gallery to open
   const gallery = () => { viewer.close(); scratchFrom = null; openLink("#view=scratch"); }; // all of it, out of any page
-  if (fresh.length) notice(one ? one.title : `Ready: ${fresh.length} pages`, 10000, ["Open", one ? () => openLink(one.url) : gallery]);
-  for (const n of fresh) {
-    if (document.hidden && window.Notification?.permission === "granted") navigator.serviceWorker?.getRegistration().then(async (sw) => {
-      if (sw && !await sw.pushManager.getSubscription()) sw.showNotification(n.title, { body: n.body, tag: n.tag, renotify: true, data: { url: n.url } }); // as sw.js: an Updated again alerts again
-    }).catch(() => {});
-  }
-  if (fresh.length) openRecent();
+  if (fresh.length) { notice(one ? one.title : `Ready: ${fresh.length} pages`, 10000, ["Open", one ? () => openLink(one.url) : gallery]); openRecent(); }
 }
 // Only catch up a frame that was held for a selection; composer keystrokes also fire this.
 document.addEventListener("selectionchange", () => { if (terminalVisible() && captureDirty) paintCapture(); });

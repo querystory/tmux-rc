@@ -499,7 +499,7 @@ class PushManager:
         self._done: set[tuple[str, int]] = set()
         self._ready: dict[tuple, float] = {}  # (pane, birth) -> when its "Ready" went out
         # The last pages that landed, as their push said it, for every open app (/api/state):
-        # its notice, its Recent, and its own notification when no push reaches that device.
+        # its notice and its Recent.
         self.news: deque[dict] = deque(maxlen=10)
 
     def start(self) -> None:
