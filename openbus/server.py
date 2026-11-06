@@ -2412,11 +2412,13 @@ if _scratch_dir:
         return {"done": done}
 
     @app.get("/api/scratch/{name}/pane")
-    def scratch_maker(name: str) -> dict:
+    def scratch_maker(name: str, archived: bool = False) -> dict:
         """The open pane a scratch folder's messages go to (scratch.maker): the viewer's
-        composer. And its title, for the viewer's bar, archived or not."""
-        watcher = app.state.watcher
+        composer. And its title, for the viewer's bar; an archived folder's is all it has."""
         root = Path(_scratch_dir)
+        if archived:  # a live folder may have its name since
+            return {"title": (scratch.named(scratch.archive(root), name) or {}).get("title")}
+        watcher = app.state.watcher
         pane = scratch.maker(root, name, list(watcher.states),
                              lambda entry: live.running_pane(entry, watcher)) or {}
         page = scratch.named(root, name) or scratch.named(scratch.archive(root), name) or {}
