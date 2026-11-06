@@ -47,12 +47,12 @@ _PAGE = Path(__file__).resolve().parent / "scratch.html"
 _PENDING = Path(__file__).resolve().parent / "scratch_pending.html"
 _ASK = Path(__file__).resolve().parent / "scratch_ask.js"
 STALL = 30 * 60  # an in-progress folder's agent quiet this long has stopped
+STUCK = 4 * STALL  # and one this old has, however busy its pane is (on other work)
 # What a card, then the placeholder, says of a page in progress, by progress().
 STATES = {"working": ("In progress",
                       "An agent is working on this page. It opens here once it's ready."),
           "quiet": ("In progress", "The agent's pane is idle. It may still be working."),
-          "stopped": ("Stopped",
-                      "The agent stopped without publishing this page.")}
+          "stopped": ("Stopped", "No page was made. Its agent stopped or moved on.")}
 DOCS = "https://github.com/querystory/tmux-rc/blob/main/docs/scratch.md"
 SIDECARS = ("meta.json", "thumb.webp")  # what tmux-rc and agents add beside a page
 # What every /scratch/ response is served under (see server.py's no_cache middleware).
@@ -504,9 +504,10 @@ def progress(pane: dict | None, named: str | None, created: float) -> str:
     from the pane `named` in
     its meta.json, `pane` while that is still open: working while it runs or waits on its
     tools or subagents; quiet while it idles, which in the pane of a session whose subagent
-    builds the page is not the end; stopped once it is gone or quiet for STALL. With no
-    pane named, working until STALL after `created`."""
-    if named and not pane:
+    builds the page is not the end; stopped once it is gone, quiet for STALL, or STUCK
+    after `created` (its agent busy since on other work). With no pane named, working
+    until STALL after `created`."""
+    if (named and not pane) or time.time() - created > STUCK:
         return "stopped"
     if pane and (pane.get("activity") in ("running", "compacting") or pane.get("agents")
                  or pane.get("waiting_on") == "external"):
@@ -671,7 +672,8 @@ def placeholder(root: Path, name: str, who) -> str | None:
     """What a pending folder's URL shows until its page lands: what it will be, who is
     making it and what that pane is doing now, reloading itself (the sandbox allows no
     fetch) every 5s, every 30s after ten minutes, and every minute once stopped. None
-    for any other folder. `who()` gives the panes, their accounts, the stylesheet and,
+    for any other folder. Once stopped, it links the pane's pages published since instead of
+    what the pane is doing. `who()` gives the panes, their accounts, the stylesheet and,
     optionally, pane_of (as page's); it scans every account, so only a pending folder asks.
     An archived folder answers at ARCHIVE/<name>, and at <name> while that is not taken."""
     i = _at(root, name)
@@ -679,6 +681,7 @@ def placeholder(root: Path, name: str, who) -> str | None:
         return None
     states, profiles, style, *pane_of = who()
     resolve([i], states, profiles, *pane_of)
+    stopped = i["state"] == "stopped"
     e = {k: escape(str(v)) for k, v in i.items() if v is not None}
     headline = next((s.get("headline") for s in states if s.get("pane_id") == i["pane"]), "")
     where = _where(i, e)
@@ -686,16 +689,27 @@ def placeholder(root: Path, name: str, who) -> str | None:
     web = style.parent.parent
     icon = json.dumps((web / "scratch.svg").read_text())  # drawn on by the page, with tab-icon.js
     fill = {"tokens": scratch_markdown.tokens(style), "title": e["title"], "state": i["state"],
-            "label": "Stopped" if i["state"] == "stopped" else "In progress", "icon": icon,
+            "label": STATES[i["state"]][0], "icon": icon,
             "draw": (web / "tab-icon.js").read_text(),
             "say": STATES[i["state"]][1], "who": e["who"], "where": where and f" · {where}",
             "desc": f'<p>{e["description"]}</p>' if i["description"] else "",
-            "now": f'<p class="now">Now: {escape(str(headline))}</p>' if headline else "",
+            "now": _since(root, i, states, profiles, *pane_of) if stopped else
+            f'<p class="now">Now: {escape(str(headline))}</p>' if headline else "",
             "ago": f"{age}m" if age < 60 else f"{age // 60}h {age % 60}m",
-            "every": 60000 if i["state"] == "stopped" else 5000 if age < 10 else 30000}
+            "every": 60000 if stopped else 5000 if age < 10 else 30000}
     fill["seen"] = hash(tuple(fill.values()))  # what scratch_markdown.Files compares, as SEEN
     fill["ask"] = _ask(fill["seen"], fill["every"])
     return re.sub(r"\{(\w+)\}", lambda m: str(fill[m[1]]), _PENDING.read_text())
+
+
+def _since(root: Path, i: dict, *who) -> str:
+    """Links to the three newest pages i's pane, while open, published or revised after `i`
+    began: matched by writer as the gallery's cards are (resolve, `who` as for it)."""
+    listed = items(root) if i["pane"] else []
+    resolve(listed, *who)
+    newer = [f'<a href="/scratch/{o["href"]}">{escape(o["title"])}</a>' for o in listed
+             if o["pane"] == i["pane"] and o["updated"] > i["since"] and not o["pending"]]
+    return f'<p>Its newer pages: {", ".join(newer[:3])}</p>' if newer else ""
 
 
 def _ask(seen, every: int) -> str:
