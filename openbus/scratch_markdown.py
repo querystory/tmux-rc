@@ -17,6 +17,7 @@ import anyio
 import markdown
 from markdown.blockprocessors import BlockProcessor
 from markdown.extensions import Extension
+from markdown.preprocessors import Preprocessor
 from pygments.formatters import HtmlFormatter
 from starlette.exceptions import HTTPException
 from starlette.responses import HTMLResponse, Response
@@ -30,6 +31,9 @@ _TOKENS = re.compile(r"^(?::root(?:\.light)? \{.*?^\}|\.acct-(?:badge|dot)\b[^\n
 _CALLOUT = re.compile(r"^ {0,3}> ?\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\] *$",
                       re.IGNORECASE | re.MULTILINE)
 _QUOTED = re.compile(r" {0,3}> ?")
+# A list item straight under a line of text that is neither indented nor an item itself.
+# As on GitHub (CommonMark), only a list numbered from 1 interrupts text: "2026. was" stays.
+_INTERRUPT = re.compile(r"^((?![-*+] |\d+\. )\S.*\n)(?=(?:[-*+]|1\.) +\S)", re.MULTILINE)
 # GitHub's CAUTION is red, Material's caution orange: it becomes a danger titled Caution.
 _ADMONITION = {"caution": 'danger "Caution"'}
 # Highlighting is done here, so the page carries Pygments' classes for both themes, each
@@ -65,8 +69,17 @@ class _Callouts(BlockProcessor):
                       if b.strip()]
 
 
+class _Lists(Preprocessor):
+    """A list straight under a line of text, as GitHub starts it: Python-Markdown wants a
+    blank line first, so it gets one. Runs after fences and raw HTML are stashed (20)."""
+
+    def run(self, lines):
+        return _INTERRUPT.sub(r"\1\n", "\n".join(lines)).split("\n")
+
+
 class _GitHub(Extension):
     def extendMarkdown(self, md):  # noqa: N802 - Python-Markdown's name
+        md.preprocessors.register(_Lists(md), "github_lists", 15)
         md.parser.blockprocessors.register(_Callouts(md.parser), "github_callouts", 21)
 
 
