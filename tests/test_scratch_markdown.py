@@ -113,6 +113,7 @@ def test_an_export_is_the_daemons_pages_as_static_files(tmp_path):
     (src / "both.html").write_text("html wins")
     (src / "meta.json").write_text('{"title": "Launch plan"}')
     _doc(src, ".env", "SECRET=1")
+    _doc(src, ".git/index.md", "# Not a page")
     scratch.export(src, out, WEB_DIR)
     page = (out / "index.html").read_text()
     assert page == M.page(src / "index.md", WEB_DIR, app="_app/", raw="index.md")

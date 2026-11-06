@@ -84,9 +84,12 @@ def export(folder: Path, out: Path, web: Path) -> None:
             raise SystemExit(why)
     def unreadable(e: OSError):  # a folder the walk cannot read fails the export, not drops
         raise e
-    kept = {d / f for d, _, files in folder.walk(on_error=unreadable) for f in files
-            if (d / f).is_file() and not (d / f).is_symlink() and d / f != folder / "meta.json"
-            and not any(part.startswith(".") for part in (d / f).relative_to(folder).parts)}
+    kept = set()
+    for d, dirs, files in folder.walk(on_error=unreadable):
+        dirs[:] = [n for n in dirs if not n.startswith(".")]  # a .git or .venv is never read
+        kept |= {d / f for f in files
+                 if not f.startswith(".") and (d / f).is_file() and not (d / f).is_symlink()}
+    kept.discard(folder / "meta.json")
     used = set()
     for file in kept:
         rel = file.relative_to(folder)
