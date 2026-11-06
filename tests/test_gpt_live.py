@@ -374,7 +374,7 @@ def test_picker_key_gating_and_route_selection(monkeypatch):
         called.append("gpt")
 
     monkeypatch.setattr(G, "run_session", run)
-    monkeypatch.setattr(server.app.state, "watcher", Watcher(), raising=False)
+    monkeypatch.setitem(server.app.state._state, "watcher", Watcher())
     monkeypatch.setattr(L._Meter, "finish", lambda s: None)
     with (
         TestClient(server.app).websocket_connect(
@@ -438,7 +438,7 @@ def test_unavailable_model_never_connects(monkeypatch, selection, key):
         monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
     else:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.setattr(server.app.state, "watcher", Watcher(), raising=False)
+    monkeypatch.setitem(server.app.state._state, "watcher", Watcher())
     monkeypatch.setattr(L._Meter, "finish", lambda s: None)
 
     async def unexpected(*args):
@@ -465,7 +465,7 @@ def test_provider_diagnostic_reaches_browser(monkeypatch):
 
     monkeypatch.setenv("TMUXRC_LIVE_MODE", "1")
     monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
-    monkeypatch.setattr(server.app.state, "watcher", Watcher(), raising=False)
+    monkeypatch.setitem(server.app.state._state, "watcher", Watcher())
     monkeypatch.setattr(L._Meter, "finish", lambda s: None)
 
     async def fail(*args):

@@ -555,8 +555,7 @@ def test_only_the_sign_in_window_it_opened_can_be_closed(client, home, monkeypat
     assert "kill-window" not in str(client.calls)  # refused before any window is touched
     monkeypatch.setattr(T, "find_pane",
                         lambda pane_id: T.Pane("work", "3", "w", "0", pane_id, "claude", "t"))
-    monkeypatch.setattr(S.app.state, "watcher", SimpleNamespace(drop_panes=lambda ids: None),
-                        raising=False)
+    monkeypatch.setitem(S.app.state._state, "watcher", SimpleNamespace(drop_panes=lambda ids: None))
     monkeypatch.setattr(T, "_run", lambda argv, **_: (client.calls.append(argv), "%42 4242")[1])
     assert client.post("/api/accounts/login/close",
                        json={"pane_id": "%42", "pid": "4242"}).status_code == 200
