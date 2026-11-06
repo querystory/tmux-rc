@@ -1015,10 +1015,11 @@ const paneWhere = (p) => { const name = paneName(p); return name.startsWith(`${p
 $("viewer-move").onchange = async () => {
   const p = panes.find((q) => viewerKey(q) === $("viewer-move").value), { folder } = viewerTo || {};
   if (!p || !folder) return;
-  const frame = viewer.querySelector("iframe"), move = moving = moveSave = moveSave.catch(() => {}).then(() => request(`/api/scratch/${encodeURIComponent(folder)}/pane`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pane: p.pane_id, birth: p.birth }) }));
+  const out = $("viewer-out").href, move = moving = moveSave = moveSave.catch(() => {}).then(() => request(`/api/scratch/${encodeURIComponent(folder)}/pane`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pane: p.pane_id, birth: p.birth }) }));
   paintViewerForm();
   let failed; const to = await move.catch((e) => { failed = e; });
-  if (moving !== move || !viewer.open || viewer.querySelector("iframe") !== frame || frame.loads > 1) return; // a later pick, or another visit
+  // A later pick, another visit, or the page navigated (a page in progress reloading is the same visit: viewerFrame).
+  if (moving !== move || !viewer.open || $("viewer-out").href !== out || viewer.querySelector("iframe")?.loads > 1) return;
   moving = null;
   if (to) return useMaker({ ...viewerTo, ...to });
   text($("viewer-status"), `Could not move the page: ${failed.detail || failed.message}`); paintViewerForm();
