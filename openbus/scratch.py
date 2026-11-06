@@ -74,13 +74,17 @@ def export(folder: Path, out: Path, web: Path) -> None:
     """`tmux-rc scratch export <folder> <out>`: the folder as static files any file host can
     serve (docs/scratch.md), each .md page also rendered to its .html as the daemon renders
     it, with the app files the pages load copied under _app/. Its meta.json, anything
-    hidden and any symlink out of it are left out. `out` starts empty, so nothing deleted
-    from the folder is published again. The host must send SANDBOX itself."""
-    if out.exists() and any(out.iterdir()):
-        raise SystemExit(f"{out} is not empty: export into a new directory")
-    kept = {f for f in folder.rglob("*") if f.is_file() and inside(f, folder)
-            and f != folder / "meta.json"
-            and not any(part.startswith(".") for part in f.relative_to(folder).parts)}
+    hidden and every symlink (whose target could be either) are left out. `out` starts
+    empty, so nothing deleted from the folder is published again. The host must send
+    SANDBOX itself."""
+    for refused, why in ((not folder.is_dir(), f"{folder} is not a folder"),
+                         ((folder / "_app").exists(), f"{folder} has its own _app"),
+                         (out.exists() and any(out.iterdir()), f"{out} is not empty")):
+        if refused:
+            raise SystemExit(why)
+    kept = {d / f for d, _, files in folder.walk() for f in files
+            if (d / f).is_file() and not (d / f).is_symlink() and d / f != folder / "meta.json"
+            and not any(part.startswith(".") for part in (d / f).relative_to(folder).parts)}
     used = set()
     for file in kept:
         rel = file.relative_to(folder)

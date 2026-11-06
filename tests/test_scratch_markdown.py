@@ -125,10 +125,16 @@ def test_an_export_is_the_daemons_pages_as_static_files(tmp_path):
     assert not re.search(r"(src|href)=\"/", page)  # nothing at the daemon's own paths
     with pytest.raises(SystemExit, match="not empty"):  # it would keep what the folder lost
         scratch.export(src, out, WEB_DIR)
-    (tmp_path / "elsewhere.html").write_text("outside")
-    (src / "deep/more.html").symlink_to(tmp_path / "elsewhere.html")
-    scratch.export(src, tmp_path / "again", WEB_DIR)  # a symlink out is no .html to win
+    with pytest.raises(SystemExit, match="is not a folder"):  # a typo in its name
+        scratch.export(tmp_path / "nowhere", tmp_path / "x", WEB_DIR)
+    (src / "deep/more.html").symlink_to(src / ".env")  # a symlink is never exported
+    (src / "settings.txt").symlink_to(src / ".env")
+    scratch.export(src, tmp_path / "again", WEB_DIR)
     assert "Just text." in (tmp_path / "again/deep/more.html").read_text()
+    assert not (tmp_path / "again/settings.txt").exists()
+    _doc(src, "_app/logo.svg", "<svg/>")
+    with pytest.raises(SystemExit, match="_app"):
+        scratch.export(src, tmp_path / "third", WEB_DIR)
 
 
 def test_a_rewrite_shows_on_reload(tmp_path):
