@@ -88,7 +88,8 @@ def test_the_docs_sites_markdown_and_githubs_callouts_render(tmp_path):
 
 def test_a_list_straight_under_text_starts_as_on_github(tmp_path):
     text = ("**Where.** the garden shed:\n- rakes\n- spades\n  still a spade\n\n"
-            "Steps:\n1. water\n2. wait\n\n- tight\nlazy line\n- still tight\n\n"
+            "Steps:\n1. water\n2. wait\n\n"
+            "- tight\nlazy line\n- still tight\n## Next\nThen:\n- plums\n\n"
             "The harvest of\n2026. was a good year\n- apples\n\n"
             "```text\nfenced\n- left alone\n```\n\n"
             "| Tool | Shelf |\n|------|-------|\n| hoe | top |\n")
