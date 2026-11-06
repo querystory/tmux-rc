@@ -2414,13 +2414,14 @@ if _scratch_dir:
     @app.get("/api/scratch/{name}/pane")
     def scratch_maker(name: str) -> dict:
         """The open pane a scratch folder's messages go to (scratch.maker): the viewer's
-        composer. And its title, for the viewer's bar."""
+        composer. And its title, for the viewer's bar, archived or not."""
         watcher = app.state.watcher
-        pane = scratch.maker(Path(_scratch_dir), name, list(watcher.states),
+        root = Path(_scratch_dir)
+        pane = scratch.maker(root, name, list(watcher.states),
                              lambda entry: live.running_pane(entry, watcher)) or {}
+        page = scratch.named(root, name) or scratch.named(scratch.archive(root), name) or {}
         return {"pane": pane.get("pane_id"), "birth": pane.get("birth"),
-                "about": scratch.about(Path(_scratch_dir), name),
-                "title": (scratch.named(Path(_scratch_dir), name) or {}).get("title")}
+                "about": scratch.about(root, name), "title": page.get("title")}
 
     class ScratchPane(BaseModel):
         pane: str

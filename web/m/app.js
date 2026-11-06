@@ -995,7 +995,7 @@ for (const load of [loadPins, loadRecent]) { addEventListener("focus", load); lo
 // compose() like the pane's footer and a sidebar Reply.
 async function findMaker(href) {
   viewerTo = moving = null; paintViewerForm(); text($("viewer-status"), ""); const out = $("viewer-out").href;
-  const url = new URL(href), [, , folder, ...view] = url.pathname.split("/"); // the page and query it opened at
+  const url = new URL(href), [, , folder, ...view] = url.pathname.replace("/scratch/.archive/", "/scratch/").split("/"); // the page and query it opened at; archived, it has no pane
   const to = folder ? { ...await request(`/api/scratch/${folder}/pane`).catch(() => ({})), folder: decodeURIComponent(folder), view: view.join("/") + url.search + url.hash } : {};
   if (!viewer.open || $("viewer-out").href !== out) return; // another page opened meanwhile
   if (to.title) text($("viewer-title"), to.title); // the gallery's: meta.json's, or the page's <title>
