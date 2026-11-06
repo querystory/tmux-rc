@@ -30,7 +30,7 @@ async function bell({ permission = "granted", held = true, answers = [true], tap
   await ctx.setupPush(button, () => {});
   const labels = [button.title];
   if (away) { // the user leaves for the OS's settings, changes something there and comes back
-    away(Notification, () => { sub = null; });
+    away(Notification, () => { sub = null; }, () => { sub = fresh; });
     await listeners.visibilitychange();
     labels.push(button.title);
   }
@@ -79,4 +79,10 @@ test("Orphaned whose subscription the browser drops as permission returns subscr
   const { labels, sent } = await bell({ permission: "default", dropOnAsk: true });
   assert.deepEqual(labels, [OFF, ON]);
   assert.deepEqual(sent, ["config", "subscribe"]);
+});
+
+test("a subscription replaced elsewhere and not yet saved shows Reconnect on return, not On", async () => {
+  const { labels, sent } = await bell({ away: (_n, _drop, replace) => replace() });
+  assert.deepEqual(labels, [ON, REPAIR, ON]);
+  assert.deepEqual(sent, ["subscribe", "subscribe"]); // the tap saves the replacement; nothing unsubscribes
 });

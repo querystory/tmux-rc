@@ -34,9 +34,9 @@ export function sendPresence() {
   navigator.sendBeacon("/api/push/presence", body);
 }
 
-// The bell's one state, from the browser's permission and subscription and the daemon's ack.
+// The bell's one state, from the browser's permission and subscription and the endpoint the daemon acked.
 const pushState = (permission, subscription, saved) => !subscription ? "Off"
-  : permission !== "granted" ? "Orphaned" : saved ? "On" : "NeedsRepair";
+  : permission !== "granted" ? "Orphaned" : saved === subscription.endpoint ? "On" : "NeedsRepair";
 const PUSH_LABELS = {
   Off: "Notify me when a session needs me",
   On: "Turn off notifications",
@@ -59,14 +59,15 @@ export async function setupPush(button, announce = () => {}, bell = "") {
     button.disabled = true;
     return;
   }
-  let subscription, saved = false; // saved: the daemon acknowledged this subscription
+  let subscription, saved = null; // saved: the endpoint the daemon last acknowledged
   const state = () => pushState(Notification.permission, subscription, saved);
   const save = async () => {
     const response = await fetch("/api/push/subscribe", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(subscription.toJSON()),
     }).catch(() => null);
-    return saved = !!response?.ok;
+    saved = response?.ok ? subscription.endpoint : null;
+    return !!saved;
   };
   const refresh = async () => {
     subscription = await registration.pushManager.getSubscription();
