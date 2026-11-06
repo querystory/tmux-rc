@@ -97,6 +97,7 @@ def test_a_list_straight_under_text_starts_as_on_github(tmp_path):
     assert "<li>spades\n  still a spade</li>\n</ul>" in html
     assert "<p>Steps:</p>\n<ol>\n<li>water</li>\n<li>wait</li>\n</ol>" in html
     assert "<li>tight\nlazy line</li>\n<li>still tight</li>" in html
+    assert "<p>Then:</p>\n<ul>\n<li>plums</li>" in html
     assert "<p>The harvest of\n2026. was a good year</p>\n<ul>\n<li>apples</li>" in html
     assert "fenced\n- left alone" in html and "<td>hoe</td>" in html
 

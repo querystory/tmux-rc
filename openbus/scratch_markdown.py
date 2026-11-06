@@ -79,7 +79,8 @@ class _Lists(Preprocessor):
             if not listed and out and out[-1].strip() and _INTERRUPT.match(line):
                 out.append("")
             starts = not out or not out[-1].strip()  # an item here starts a list
-            listed = bool(line.strip()) and (listed or (starts and bool(_ITEM.match(line))))
+            listed = (bool(line.strip()) and not line.startswith("#")  # a heading ends one
+                      and (listed or (starts and bool(_ITEM.match(line)))))
             out.append(line)
         return out
 
