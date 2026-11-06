@@ -928,8 +928,8 @@ const viewer = $("scratch-viewer");
 // sandboxed for every later document, so only the page opened can ask to send (askSend) or post
 // at all. A token for the page could be handed on, and the next page can post before its load.
 // Not sooner: WebKit (Safari) applies the attribute to the navigation under way, the page's own.
-// A page in progress (its placeholder says so) reloads itself as it moves on and when it lands:
-// a fresh frame at the page opened, then, whose first load runs its script again.
+// A page that reloads itself (a placeholder, an updating page: scratch_ask.js says so) gets a
+// fresh frame at the page opened for each reload, whose first load runs its script again.
 function viewerFrame(href, title) {
   viewer.querySelector("iframe")?.remove();
   const frame = Object.assign(document.createElement("iframe"), { src: href, title, onload() {
@@ -1018,10 +1018,11 @@ const paneWhere = (p) => { const name = paneName(p); return name.startsWith(`${p
 $("viewer-move").onchange = async () => {
   const p = panes.find((q) => viewerKey(q) === $("viewer-move").value), { folder } = viewerTo || {};
   if (!p || !folder) return;
-  const frame = viewer.querySelector("iframe"), move = moving = moveSave = moveSave.catch(() => {}).then(() => request(`/api/scratch/${encodeURIComponent(folder)}/pane`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pane: p.pane_id, birth: p.birth }) }));
+  const out = $("viewer-out").href, move = moving = moveSave = moveSave.catch(() => {}).then(() => request(`/api/scratch/${encodeURIComponent(folder)}/pane`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pane: p.pane_id, birth: p.birth }) }));
   paintViewerForm();
   let failed; const to = await move.catch((e) => { failed = e; });
-  if (moving !== move || !viewer.open || viewer.querySelector("iframe") !== frame || frame.loads > 1) return; // a later pick, or another visit
+  // A later pick, another visit, or the page navigated (a page in progress reloading is the same visit: viewerFrame).
+  if (moving !== move || !viewer.open || $("viewer-out").href !== out || viewer.querySelector("iframe")?.loads > 1) return;
   moving = null;
   if (to) return useMaker({ ...viewerTo, ...to });
   text($("viewer-status"), `Could not move the page: ${failed.detail || failed.message}`); paintViewerForm();
@@ -3009,22 +3010,16 @@ window.addEventListener("hashchange", route);
 // here like any move. pushState, not location.hash, so the bare-list "/m" routes too.
 const openLink = (url) => { history.pushState(null, "", url); route(); };
 navigator.serviceWorker?.addEventListener("message", ({ data }) => { if (data?.open) openLink(data.open); });
-// Pages that landed (push.py's news in /api/state), each told once: a notice with Open, the
-// Recent pages read again, and while the app is hidden the push's own notification, unless a
-// push reaches this device already (its tag would show it twice). A first state's news is old.
+// Pages that landed (push.py's news in /api/state), each told once: a notice with Open and the
+// Recent pages read again. A notification is the push's alone, so a device that turned them
+// off gets none, and two tabs never show one twice. A first state's news is old.
 let newsAt = null;
 function scratchNews(news = []) {
   const fresh = newsAt === null ? [] : news.filter((n) => n.at > newsAt);
   newsAt = Math.max(newsAt ?? 0, ...news.map((n) => n.at));
   const one = fresh.length === 1 && fresh[0]; // several at once: one notice, the gallery to open
   const gallery = () => { viewer.close(); scratchFrom = null; openLink("#view=scratch"); }; // all of it, out of any page
-  if (fresh.length) notice(one ? one.title : `Ready: ${fresh.length} pages`, 10000, ["Open", one ? () => openLink(one.url) : gallery]);
-  for (const n of fresh) {
-    if (document.hidden && window.Notification?.permission === "granted") navigator.serviceWorker?.getRegistration().then(async (sw) => {
-      if (sw && !await sw.pushManager.getSubscription()) sw.showNotification(n.title, { body: n.body, tag: n.tag, data: { url: n.url } });
-    }).catch(() => {});
-  }
-  if (fresh.length) openRecent();
+  if (fresh.length) { notice(one ? one.title : `Ready: ${fresh.length} pages`, 10000, ["Open", one ? () => openLink(one.url) : gallery]); openRecent(); }
 }
 // Only catch up a frame that was held for a selection; composer keystrokes also fire this.
 document.addEventListener("selectionchange", () => { if (terminalVisible() && captureDirty) paintCapture(); });
@@ -3035,8 +3030,11 @@ window.addEventListener("pagehide", () => { stateController?.abort(); detailCont
 // A link shared to the app, by Android's share sheet (the manifest's share_target) or an iOS
 // Shortcut opening /m?url=…: the list is the picker, and route() hands it to the pane picked.
 // A draft link holds 500 characters (url-state.js linkDraft): a longer one is refused, not cut.
+// A scratch page's link opened in a tab of its own comes as /m?scratch=… (server.py), its
+// #fragment still on: the viewer opens the page at that fragment.
 const sharing = new URLSearchParams(location.search), link = sharing.get("url") || sharing.get("text") || sharing.get("title");
-if (link) history.replaceState(null, "", location.pathname + location.hash);
+const tabbed = sharing.get("scratch"), at = tabbed === null ? location.hash : `#${new URLSearchParams({ view: "scratch", open: `/scratch/${tabbed}${location.hash}` })}`;
+if (link || tabbed !== null) history.replaceState(null, "", location.pathname + at);
 fitViewport(); route(); startState();
 if (link?.length > 500) notice("That link is too long for a draft (over 500 characters). Copy and paste it instead.");
 else if (link) { notice(`Pick a pane for ${link.length > 80 ? `${link.slice(0, 80)}…` : link}`, 0, ["Cancel", renderList]); shared = link; }
