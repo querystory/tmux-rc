@@ -30,6 +30,7 @@ test("unknown fields and bad values are ignored", () => {
   assert.equal(parseHash("#pane=%254&compose=1").compose, true);
   assert.equal(formatHash(parseHash("#pane=%254&from=push&compose=1")), "pane=%254");
   assert.equal(dropOneShots("#pane=%254&view=summary&compose=1&draft=hi&acct=a,b"), "pane=%254&view=summary&acct=a,b"); // a view stays as written
+  assert.equal(dropOneShots("#pane=%254&%63ompose=1&%64raft=hi"), "pane=%254");
   // A "Ready" push names the scratch page to open (app.js checks it with scratchUrl), once.
   assert.equal(parseHash("#view=scratch&open=%2Fscratch%2Fwip%2F").open, "/scratch/wip/");
   assert.equal(formatHash(parseHash("#view=scratch&open=%2Fscratch%2Fwip%2F")), "view=scratch");
