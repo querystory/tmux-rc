@@ -82,6 +82,7 @@ def export(folder: Path, out: Path, web: Path) -> None:
                          (out.exists() and any(out.iterdir()), f"{out} is not empty")):
         if refused:
             raise SystemExit(why)
+    out.mkdir(parents=True, exist_ok=True)  # there, even for a folder with nothing to export
     def unreadable(e: OSError):  # a folder the walk cannot read fails the export, not drops
         raise e
     kept = set()
