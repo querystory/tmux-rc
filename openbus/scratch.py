@@ -73,6 +73,29 @@ def inside(path: Path, root: Path) -> bool:
         return False
 
 
+def export(folder: Path, out: Path, web: Path) -> None:
+    """`tmux-rc scratch export <folder> <out>`: the folder as static files any file host can
+    serve (docs/scratch.md), each .md page also rendered to its .html as the daemon renders
+    it, with the app files the pages load copied under _app/. Its meta.json, anything
+    hidden and any symlink out of it are left out. The host must send SANDBOX itself."""
+    used = set()
+    for file in sorted(folder.rglob("*")):
+        rel = file.relative_to(folder)
+        if (not file.is_file() or rel == Path("meta.json") or not inside(file, folder)
+                or any(part.startswith(".") for part in rel.parts)):
+            continue
+        (out / rel).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(file, out / rel)
+        if file.suffix == ".md" and not file.with_suffix(".html").exists():
+            app = "../" * (len(rel.parts) - 1) + "_app/"
+            html = scratch_markdown.page(file, web, app=app, raw=quote(file.name))
+            (out / rel).with_suffix(".html").write_text(html)
+            used |= {a for a in ("scratch.svg", scratch_markdown.MERMAID[1:]) if app + a in html}
+    for asset in used:
+        (out / "_app" / asset).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(web / asset, out / "_app" / asset)
+
+
 def _meta(folder: Path) -> dict | None:
     """meta.json's string fields: {} for none, None for one malformed (perhaps half-written)."""
     path = folder / "meta.json"
