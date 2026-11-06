@@ -59,7 +59,7 @@ print(int(sorted(seen()) == ["sub", "viewed", "wip"]))
 # and an agent's plain GET get the page itself.
 doc = {"Sec-Fetch-Dest": "document"}
 print(int(c.get("/scratch/sub/x%20v2.html?a=1", headers=doc).headers.get("location")
-          == "/m#view=scratch&open=%2Fscratch%2Fsub%2Fx%2520v2.html%3Fa%3D1"
+          == "/m?scratch=sub%2Fx%2520v2.html%3Fa%3D1"
           and all(c.get(p, headers=doc).status_code == 200 for p in (
               "/scratch/sub/?bare=", "/scratch/", "/scratch/mock.html", "/scratch/notes.md?raw"))
           and c.get("/scratch/sub/").status_code == 200))

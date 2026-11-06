@@ -644,7 +644,8 @@ class PushManager:
         message = {
             "title": _push_text(f"{verb}: {item['title']}", 100),
             "body": _push_text(body or f"Its page is {verb.lower()}.", PUSH_BODY_MAX),
-            "tag": f"scratch:{item['name']}", "url": scratch.viewer(item["href"]),
+            "tag": f"scratch:{item['name']}",
+            "url": "/m#" + urlencode({"view": "scratch", "open": f"/scratch/{item['href']}"}),
             "actions": []}
         sent = self.sender.send(message)
         if sent and pane:

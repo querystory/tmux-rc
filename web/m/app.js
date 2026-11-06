@@ -3016,7 +3016,7 @@ function scratchNews(news = []) {
   if (fresh.length) notice(one ? one.title : `Ready: ${fresh.length} pages`, 10000, ["Open", one ? () => openLink(one.url) : gallery]);
   for (const n of fresh) {
     if (document.hidden && window.Notification?.permission === "granted") navigator.serviceWorker?.getRegistration().then(async (sw) => {
-      if (sw && !await sw.pushManager.getSubscription()) sw.showNotification(n.title, { body: n.body, tag: n.tag, data: { url: n.url } });
+      if (sw && !await sw.pushManager.getSubscription()) sw.showNotification(n.title, { body: n.body, tag: n.tag, renotify: true, data: { url: n.url } }); // as sw.js: an Updated again alerts again
     }).catch(() => {});
   }
   if (fresh.length) openRecent();
@@ -3030,8 +3030,11 @@ window.addEventListener("pagehide", () => { stateController?.abort(); detailCont
 // A link shared to the app, by Android's share sheet (the manifest's share_target) or an iOS
 // Shortcut opening /m?url=…: the list is the picker, and route() hands it to the pane picked.
 // A draft link holds 500 characters (url-state.js linkDraft): a longer one is refused, not cut.
+// A scratch page's link opened in a tab of its own comes as /m?scratch=… (server.py), its
+// #fragment still on: the viewer opens the page at that fragment.
 const sharing = new URLSearchParams(location.search), link = sharing.get("url") || sharing.get("text") || sharing.get("title");
-if (link) history.replaceState(null, "", location.pathname + location.hash);
+const tabbed = sharing.get("scratch"), at = tabbed === null ? location.hash : `#${new URLSearchParams({ view: "scratch", open: `/scratch/${tabbed}${location.hash}` })}`;
+if (link || tabbed !== null) history.replaceState(null, "", location.pathname + at);
 fitViewport(); route(); startState();
 if (link?.length > 500) notice("That link is too long for a draft (over 500 characters). Copy and paste it instead.");
 else if (link) { notice(`Pick a pane for ${link.length > 80 ? `${link.slice(0, 80)}…` : link}`, 0, ["Cancel", renderList]); shared = link; }

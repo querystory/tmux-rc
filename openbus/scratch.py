@@ -25,7 +25,7 @@ from datetime import datetime
 from html import escape, unescape
 from itertools import islice
 from pathlib import Path
-from urllib.parse import quote, urlencode
+from urllib.parse import quote
 
 from . import agent_history, scratch_markdown, tmux
 
@@ -59,11 +59,6 @@ SIDECARS = ("meta.json", "thumb.webp")  # what tmux-rc and agents add beside a p
 SANDBOX = "sandbox allow-scripts allow-popups; form-action 'none'; connect-src 'none'"
 PINS = 6  # pages pinned to the app's menu, at most: the sidebar's nav can't overflow
 BINDINGS: Path | None = None  # where bind() keeps the panes pages were moved to (server sets it)
-
-
-def viewer(href: str) -> str:
-    """The app's viewer at a page of scratch (`href`: its path under /scratch/, query and all)."""
-    return "/m#" + urlencode({"view": "scratch", "open": f"/scratch/{href}"})
 
 
 def inside(path: Path, root: Path) -> bool:

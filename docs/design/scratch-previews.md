@@ -91,7 +91,9 @@ saying a page landed beside the push. Now one event says it: the daemon's Ready,
 out as the push and, in the same words, to every open app as news on its state poll. The
 redirect only applies to a browser's top-level navigation, so an agent checking its page
 with curl still gets the page, a frame still gets the page, and "Open in browser" marks
-its link `?bare` to stay a plain tab.
+its link `?bare` to stay a plain tab. The redirect names the page in the app's query, not
+its fragment: a browser keeps a link's own `#section` across a redirect only when the new
+address has none, and the app moves it onto the page it opens.
 
 A page in progress reloads itself as it moves on and as it lands. The viewer otherwise
 denies script to every document after a frame's first, so that only the page it opened can
