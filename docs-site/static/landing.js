@@ -23,7 +23,6 @@ for (const group of document.querySelectorAll('[data-tabs]')) {
       other.tabIndex = active ? 0 : -1;
       const panel = document.getElementById(other.dataset.panel);
       panel.hidden = !active;
-      if (active) panel.querySelector('source[data-defer]')?.remove(); // its real image, now wanted
     }
   }
   for (const [index, tab] of tabs.entries()) {
@@ -41,7 +40,58 @@ for (const group of document.querySelectorAll('[data-tabs]')) {
     });
   }
 }
-if (matchMedia('(max-width:700px)').matches) document.getElementById('phone-tab').click();
+
+// The screenshot strip: a chip jumps to its feature's first shot, the toggle filters by device,
+// and the chip of the leftmost shot in view lights up. A jump pins its chip until the visitor
+// scrolls, since the strip's last shots can never reach its left edge.
+const strip = document.getElementById('strip'), shots = [...strip.children];
+const chips = [...document.querySelectorAll('[data-feature]:not(.shot)')], filters = [...document.querySelectorAll('[data-filter]')];
+const press = (buttons, on) => { for (const button of buttons) button.setAttribute('aria-pressed', String(button === on)); };
+const highlight = (feature) => press(chips, chips.find((chip) => chip.dataset.feature === feature));
+const inView = new Set();
+let pinned = false;
+function follow() {
+  const first = shots.find((shot) => inView.has(shot));
+  if (first && !pinned) highlight(first.dataset.feature);
+}
+const unpin = () => { pinned = false; follow(); };
+const observer = new IntersectionObserver((entries) => {
+  for (const entry of entries) entry.isIntersecting ? inView.add(entry.target) : inView.delete(entry.target);
+  follow();
+}, { root: strip, threshold: 0.6 });
+for (const shot of shots) observer.observe(shot);
+function filter(show) {
+  strip.dataset.show = show;
+  press(filters, filters.find((button) => button.dataset.filter === show));
+  strip.scrollLeft = 0;
+  ends();
+}
+// A phone starts on phone shots, anything else on both; a visitor's own pick is kept.
+const SHOW = 'tmuxrc-site-shots';
+for (const button of filters) button.addEventListener('click', () => {
+  filter(button.dataset.filter);
+  unpin();
+  try { localStorage.setItem(SHOW, button.dataset.filter); } catch {}
+});
+for (const chip of chips) chip.addEventListener('click', () => {
+  const first = () => shots.find((shot) => shot.dataset.feature === chip.dataset.feature && shot.offsetParent);
+  if (!first()) filter('both'); // the feature has no shot on this device
+  pinned = true;
+  highlight(chip.dataset.feature);
+  first().scrollIntoView({ block: 'nearest', inline: 'start' }); // smooth unless reduced motion (landing.css)
+});
+for (const type of ['wheel', 'touchstart', 'pointerdown', 'keydown']) strip.addEventListener(type, unpin, { passive: true });
+const [back, forward] = document.querySelectorAll('[data-step]');
+for (const button of [back, forward]) button.addEventListener('click', () => { unpin(); strip.scrollBy({ left: button.dataset.step * strip.clientWidth * 0.8 }); });
+function ends() {
+  back.disabled = strip.scrollLeft < 1;
+  forward.disabled = strip.scrollLeft + strip.clientWidth > strip.scrollWidth - 1;
+}
+strip.addEventListener('scroll', ends, { passive: true });
+addEventListener('resize', ends);
+let show = matchMedia('(max-width:640px), (pointer:coarse)').matches ? 'phone' : 'both';
+try { show = localStorage.getItem(SHOW) || show; } catch {}
+filter(show);
 
 for (const button of document.querySelectorAll('[data-copy]')) {
   const label = button.getAttribute('aria-label');
@@ -64,10 +114,9 @@ for (const button of document.querySelectorAll('[data-copy]')) {
   });
 }
 
-// Any screenshot opens full size; a click anywhere, Esc or the close button shuts it. `src`,
-// not `currentSrc`: the hero's phone placeholder must never be what opens.
+// Any screenshot opens full size; a click anywhere, Esc or the close button shuts it.
 const zoom = document.getElementById('zoom'), zoomed = zoom.querySelector('img');
-for (const img of document.querySelectorAll('.screen img, .phones img, .preview-pair img, .feature-detail img')) {
+for (const img of document.querySelectorAll('.shot img, .feature-detail img')) {
   img.tabIndex = 0;
   img.setAttribute('role', 'button');
   img.setAttribute('aria-haspopup', 'dialog');

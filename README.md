@@ -137,17 +137,27 @@ keep, the requirements other tools left open for us, and the alternatives we res
 
 ## Run
 
-Prereqs: `tmux`, Python 3.12+, [`uv`](https://docs.astral.sh/uv/), and Google Cloud
-credentials for Vertex (the Gemini Flash Lite classification pass). Because the daemon
-runs unattended for long stretches, it authenticates with a long-lived **service-account
+Prereqs: `tmux`, Python 3.12+, [`uv`](https://docs.astral.sh/uv/), and a way to reach
+Gemini Flash Lite for the classification pass. The simplest is a **Gemini API key**: get one
+at [aistudio.google.com](https://aistudio.google.com/apikey) and put `GEMINI_API_KEY=…` in
+`~/.config/tmux-rc/openai.env` (mode 600, outside every checkout), with no Google Cloud project
+needed. The free tier works for trying it out, but Google may use free-tier requests to improve
+its products, and your pane text is what gets sent, so enable billing on the key for private
+work. The alternative is Vertex, which takes over whenever
+`GOOGLE_CLOUD_PROJECT` is set and suits an org that already bills AI through GCP. Because the
+daemon runs unattended for long stretches, Vertex authenticates with a long-lived **service-account
 key** rather than developer ADC (which expires and needs a browser reauth — see
 [docs/design/durable-vertex-auth.md](docs/design/durable-vertex-auth.md)). Point
 `GOOGLE_APPLICATION_CREDENTIALS` at the key file — an **absolute** path, since google-auth
 does not expand `~` (`.env.example` has the mint command).
 
+**Live Mode (voice) with `gpt-live-1`:** set `OPENAI_API_KEY` and `TMUXRC_LIVE_MODE=1`, and
+voice uses `gpt-live-1` by default. Without the key it falls back to Gemini on Vertex
+([details](docs/design/live-mode.md#gpt-live-1)).
+
 ```bash
 uv sync
-cp .env.example .env          # then edit .env: GOOGLE_CLOUD_PROJECT + GOOGLE_APPLICATION_CREDENTIALS
+cp .env.example .env          # then edit .env: the two Vertex vars, or delete them to use the key
 
 # In another terminal, start a tmux session and run an agent in it:
 tmux new -s work
@@ -251,8 +261,8 @@ uvx --from "git+https://github.com/querystory/tmux-rc.git" tmux-rc
 ```
 
 > `GOOGLE_APPLICATION_CREDENTIALS` **must be an absolute path** — google-auth does not
-> expand `~`. To run heuristics-only with no Vertex creds at all, set `TMUXRC_NO_LLM=1`
-> (see the table below). All other `TMUXRC_*` vars work the same way.
+> expand `~`. With no key or Vertex creds at all, `TMUXRC_NO_LLM=1` runs heuristics-only,
+> with no summaries or answers (see the table below). All other `TMUXRC_*` vars work the same way.
 
 ### Config (env)
 
@@ -260,13 +270,14 @@ Loaded from `.env` at startup (real shell env vars still override). See `.env.ex
 
 | var | default | meaning |
 | --- | --- | --- |
-| `GOOGLE_CLOUD_PROJECT` | — | GCP project for Vertex (required for the LLM pass) |
+| `GEMINI_API_KEY` | — | AI Studio key for the LLM pass: the simplest setup, no GCP project needed. Used only when `GOOGLE_CLOUD_PROJECT` is unset. Keep it in `~/.config/tmux-rc/openai.env` (mode 600), not `.env` |
+| `GOOGLE_CLOUD_PROJECT` | — | GCP project for Vertex, the alternative to `GEMINI_API_KEY`; when set, Vertex is used |
 | `GOOGLE_APPLICATION_CREDENTIALS` | — | absolute path to the Vertex service-account key ([why](docs/design/durable-vertex-auth.md)) |
 | `VERTEX_AI_REGION_GEMINI` | `global` | Vertex region |
 | `TMUXRC_GEMINI_MODEL` | `gemini-3.1-flash-lite` | the classifier model |
 | `TMUXRC_IN_PER_M` / `TMUXRC_OUT_PER_M` | `0.25` / `1.50` | its USD prices per 1M tokens, for the cost figures |
 | `TMUXRC_LLM_TIMEOUT_MS` | `20000` | per-call timeout |
-| `TMUXRC_NO_LLM` | unset | `1` runs heuristics-only (no Vertex calls) |
+| `TMUXRC_NO_LLM` | unset | `1` runs heuristics-only (no model calls) |
 | `TMUXRC_TARGET` | unset (all panes) | watch one pane: a pane id (`%3`) or `session:window[.pane]` by index. The derived labels `.env.example` describes also work; a card's title does not |
 | `TMUXRC_TMUX_SOCKET` | unset (default server) | a `tmux -L` socket name, for a dev daemon that must not touch your real server |
 | `TMUXRC_HOST` / `TMUXRC_PORT` | `127.0.0.1` / `18030` | HTTP bind |
@@ -283,7 +294,7 @@ Loaded from `.env` at startup (real shell env vars still override). See `.env.ex
 | `TMUXRC_LIVE_REGION` | `us-central1` | Vertex region for voice models (needs one that serves them; not `global`) |
 | `TMUXRC_LIVE_MODELS` | Gemini 2.5 voice on Vertex, plus the chat defaults | the models Chat and Voice offer, inline JSON or a path (`.env.example` has the shape, backends and rates) |
 | `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `AZURE_OPENAI_API_KEY` + `AZURE_OPENAI_ENDPOINT` | — | keys for the other Live backends, read from `~/.config/tmux-rc/openai.env`, never `.env`; a model whose key is missing is listed greyed with the reason |
-| `TMUXRC_GPT_LIVE_VOICE` / `TMUXRC_GPT_LIVE_BACKEND` | `marin` / `gpt-5.6-luna` | GPT-Live's voice and backend model (offered when `OPENAI_API_KEY` is set); `TMUXRC_GPT_LIVE_{INPUT,CACHED,OUTPUT}_PER_M` price a backend override |
+| `TMUXRC_GPT_LIVE_VOICE` / `TMUXRC_GPT_LIVE_BACKEND` | `marin` / `gpt-5.6-luna` | GPT-Live 1's voice and backend model; `OPENAI_API_KEY` makes it the default voice model ([details](docs/design/live-mode.md#gpt-live-1)); `TMUXRC_GPT_LIVE_{INPUT,CACHED,OUTPUT}_PER_M` price a backend override |
 | `TMUXRC_PUSH_SUBJECT` | `mailto:tmux-rc@openbus.io` | VAPID contact; a real `mailto:`, or Apple rejects delivery |
 | `TMUXRC_PUSH_ALLOWED_HOSTS` | Apple, Google, Mozilla, Microsoft relays | push endpoints accepted at subscribe, hosts or `.suffix`es |
 | `TMUXRC_SCRATCH_DIR` | unset (not served) | directory served read-only at `/scratch/` for agents' previews — [docs/scratch.md](docs/scratch.md) |

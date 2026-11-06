@@ -205,10 +205,6 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
             + `<small class="acct-else">${set(session, provider) && pick !== def ? `Now new windows use ${def ? `<b>${esc(def.name)}</b>` : esc(defaults[session][provider])}` : `Otherwise new windows use the standard ~/.${provider} login`}</small>`)
           + btns('<button type="button" data-back>Back</button>', '<button type="button" class="primary" data-start>Start</button>');
       }).join("");
-      for (const b of choices.querySelectorAll("button[data-provider]")) {
-        const p = several(b.dataset.provider) && byDir(picks[b.dataset.provider]), small = b.querySelector(".acct-on");
-        small.hidden = !p; small.innerHTML = p ? `on ${badge(p)}` : ""; // before the row's description
-      }
     };
     box.onclick = (e) => {
       const b = e.target.closest("button[data-dir]");
@@ -496,8 +492,9 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     },
     // Where "Move to another account" can take a pane: its provider's other signed-in
     // accounts, once it has several, each with its line under the name: one on the pane's
-    // own login is listed, and says the copy would stay on that login.
-    moveTargets: (paneId, provider) => { const from = ofPane(paneId); return several(provider) ? signedIn().filter((p) => p.provider === provider && !p.panes.includes(paneId)).map((p) => ({ ...p,
+    // own login is listed, and says the copy would stay on that login. "Move to another
+    // agent" asks for provider `to`'s: every signed-in one.
+    moveTargets: (paneId, provider, to = provider) => { const from = ofPane(paneId); return to !== provider || several(provider) ? signedIn().filter((p) => p.provider === to && !p.panes.includes(paneId)).map((p) => ({ ...p,
       sub: from?.same_as?.includes(p.dir) ? `Same login as ${from.name}: the copy stays on that login and its limits` : sub(p) })) : []; },
   };
 }

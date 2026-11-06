@@ -149,3 +149,25 @@ def test_the_gallery_reads_a_markdown_page(tmp_path, monkeypatch):
     monkeypatch.setattr(llm, "one_sentence", lambda prompt: asked.append(prompt) or "Plans.")
     S.describe(tmp_path / "doc" / "meta.json", items["doc"]["page"], "T", tmp_path)
     assert "Mind the gap Between trains." in asked[0] and "!!!" not in asked[0]
+
+
+def test_download_saves_a_folder_page_as_a_file_named_after_it(tmp_path):
+    _doc(tmp_path, "notes/index.md")
+    (tmp_path / "site").mkdir()
+    (tmp_path / "site" / "index.html").write_text("<p>site</p>")
+    files = M.Files(directory=tmp_path, html=True, web=WEB_DIR)
+    c = TestClient(Starlette(routes=[Mount("/", files)]))
+    page = c.get("/site/?download=1")
+    assert page.headers["content-disposition"] == "attachment; filename*=UTF-8''site.html"
+    assert page.text == "<p>site</p>" and "content-disposition" not in c.get("/site/").headers
+    md = c.get("/notes/?download=1")  # rendered, not the Markdown
+    assert md.headers["content-disposition"].endswith("notes.html") and "<th>Step</th>" in md.text
+    (tmp_path / ".archive" / "old").mkdir(parents=True)
+    (tmp_path / ".archive" / "old" / "index.html").write_text("old")
+    old = c.get("/.archive/old/?download=1").headers["content-disposition"]
+    assert old.endswith("''old.html")
+    (tmp_path / "site" / "report.pdf").write_bytes(b"%PDF")
+    assert c.get("/site/report.pdf?download=1").headers["content-disposition"].endswith("site.pdf")
+    pending = M.Files(directory=tmp_path, html=True, web=WEB_DIR, pending=lambda _n: "making")
+    c = TestClient(Starlette(routes=[Mount("/", pending)]))
+    assert c.get("/next/?download=1").status_code == 204  # a placeholder: the app stays put

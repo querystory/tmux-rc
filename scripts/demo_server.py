@@ -174,6 +174,7 @@ def install() -> None:
             get_many=lambda ids: {e["session_id"]: e for e in demo.SCRATCH_WRITERS.values()
                                   if e["session_id"] in ids}, reconcile=lambda: None)
         server.scratch_sidecars.browser = lambda: None  # thumbnails are seeded, never shot
+        live.running_pane = lambda entry, _watcher: entry.get("running", {}).get("tmux_pane")
     live.enabled = lambda: True
     live.offered = lambda: [live_providers.LiveModel("Demo chat", "demo", "anthropic")]
     live_providers.models = list
