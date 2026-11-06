@@ -10,6 +10,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import hashlib
 import io
@@ -2559,6 +2560,13 @@ if WEB_DIR.is_dir():
 def main() -> None:
     if sys.argv[1:2] in (["export"], ["import"]):
         export.cli(sys.argv[1:])
+        return
+    if sys.argv[1:3] == ["scratch", "export"]:
+        cli = argparse.ArgumentParser(prog="tmux-rc scratch export", description=(
+            "Write a scratch folder as static HTML any file host can serve."))
+        cli.add_argument("folder", type=Path)
+        cli.add_argument("out", type=Path)
+        scratch.export(**vars(cli.parse_args(sys.argv[3:])), web=WEB_DIR)
         return
     import uvicorn  # noqa: PLC0415 - entrypoint-only; keeps `import openbus.server` cheap
 
