@@ -82,7 +82,9 @@ def export(folder: Path, out: Path, web: Path) -> None:
                          (out.exists() and any(out.iterdir()), f"{out} is not empty")):
         if refused:
             raise SystemExit(why)
-    kept = {d / f for d, _, files in folder.walk() for f in files
+    def unreadable(e: OSError):  # a folder the walk cannot read fails the export, not drops
+        raise e
+    kept = {d / f for d, _, files in folder.walk(on_error=unreadable) for f in files
             if (d / f).is_file() and not (d / f).is_symlink() and d / f != folder / "meta.json"
             and not any(part.startswith(".") for part in (d / f).relative_to(folder).parts)}
     used = set()

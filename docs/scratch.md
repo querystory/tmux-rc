@@ -129,9 +129,9 @@ up: the renderer ships with the daemon. Why Markdown gets a renderer of its own:
 To put a folder on a plain file host (a bucket behind a proxy, say), run
 `tmux-rc scratch export <folder> <out>`: `<out>` gets the folder's files, each `.md` also
 rendered to its `.html` as the daemon renders it, with the icon and Mermaid copied under
-`_app/`. `meta.json`, hidden files and symlinks stay behind. The host serves files as they are, so a
-link to another `.md` shows its source there (link the `.html`), and the host must send
-the sandbox header itself.
+`_app/`. `meta.json`, hidden files and symlinks stay behind. The host serves files as they
+are, so a link to another `.md` shows its source there (link the `.html`), and the host
+must send the sandbox header itself.
 
 ## Scratch and Claude's Artifacts
 
