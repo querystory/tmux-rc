@@ -598,13 +598,14 @@ async def no_cache(request, call_next):
     path = posixpath.normpath("/" + request.url.path.lstrip("/")) + "/"
     # A browser opening a page of a scratch folder in a tab of its own gets it in the app's
     # viewer, the app around it (its message bar, its notice when a page lands). Not the
-    # viewer's own Open in browser (?bare), a Markdown page's source (?raw), nor a frame.
+    # viewer's own Open in browser (?bare), a Markdown page's source (?raw), a save
+    # (?download, a file and no page), nor a frame.
     # Its address takes no #fragment, so the browser keeps the link's for the app to read.
     query = request.url.query
     if (_scratch_dir and request.method == "GET" and path.startswith("/scratch/")
             and request.url.path.count("/") > 2
             and request.headers.get("sec-fetch-dest") == "document"
-            and not {"bare", "raw"} & set(parse_qs(query, keep_blank_values=True))):
+            and not {"bare", "raw", "download"} & set(parse_qs(query, keep_blank_values=True))):
         page = quote(request.url.path.removeprefix("/scratch/")) + (f"?{query}" if query else "")
         resp = RedirectResponse("/m?" + urlencode({"scratch": page}), 303)
     else:
