@@ -204,5 +204,6 @@ def test_agent_row_padding_shift_shares_one_fingerprint():
             (("9s", "8.1k"), ("10s", "8.1k"), ("59s", "99.9k"), ("1m 0s", "100.0k"))}
     assert len(same) == 1
     assert _fingerprint("Took 1h 40m.") == _fingerprint("Took 1h 41m.")
+    assert _fingerprint("parent\n  ⣾ building") != _fingerprint("parent\n    ⣾ building")
     assert _fingerprint(_agents(task, "9s", "8.1k")) != _fingerprint(
         _agents("Tidy the crumb lexer", "9s", "8.1k"))
