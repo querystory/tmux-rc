@@ -5,6 +5,7 @@ import os
 import re
 from urllib.request import urlopen
 
+import pytest
 from fastapi.testclient import TestClient
 from starlette.applications import Starlette
 from starlette.routing import Mount
@@ -122,6 +123,12 @@ def test_an_export_is_the_daemons_pages_as_static_files(tmp_path):
         "_app/m/vendor/mermaid.min.js", "_app/scratch.svg", "both.html", "both.md",
         "deep/more.html", "deep/more.md", "index.html", "index.md"]
     assert not re.search(r"(src|href)=\"/", page)  # nothing at the daemon's own paths
+    with pytest.raises(SystemExit, match="not empty"):  # it would keep what the folder lost
+        scratch.export(src, out, WEB_DIR)
+    (tmp_path / "elsewhere.html").write_text("outside")
+    (src / "deep/more.html").symlink_to(tmp_path / "elsewhere.html")
+    scratch.export(src, tmp_path / "again", WEB_DIR)  # a symlink out is no .html to win
+    assert "Just text." in (tmp_path / "again/deep/more.html").read_text()
 
 
 def test_a_rewrite_shows_on_reload(tmp_path):

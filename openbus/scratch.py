@@ -74,16 +74,19 @@ def export(folder: Path, out: Path, web: Path) -> None:
     """`tmux-rc scratch export <folder> <out>`: the folder as static files any file host can
     serve (docs/scratch.md), each .md page also rendered to its .html as the daemon renders
     it, with the app files the pages load copied under _app/. Its meta.json, anything
-    hidden and any symlink out of it are left out. The host must send SANDBOX itself."""
+    hidden and any symlink out of it are left out. `out` starts empty, so nothing deleted
+    from the folder is published again. The host must send SANDBOX itself."""
+    if out.exists() and any(out.iterdir()):
+        raise SystemExit(f"{out} is not empty: export into a new directory")
+    kept = {f for f in folder.rglob("*") if f.is_file() and inside(f, folder)
+            and f != folder / "meta.json"
+            and not any(part.startswith(".") for part in f.relative_to(folder).parts)}
     used = set()
-    for file in sorted(folder.rglob("*")):
+    for file in kept:
         rel = file.relative_to(folder)
-        if (not file.is_file() or rel == Path("meta.json") or not inside(file, folder)
-                or any(part.startswith(".") for part in rel.parts)):
-            continue
         (out / rel).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(file, out / rel)
-        if file.suffix == ".md" and not file.with_suffix(".html").exists():
+        if file.suffix == ".md" and file.with_suffix(".html") not in kept:  # an .html wins
             app = "../" * (len(rel.parts) - 1) + "_app/"
             html = scratch_markdown.page(file, web, app=app, raw=quote(file.name))
             (out / rel).with_suffix(".html").write_text(html)
