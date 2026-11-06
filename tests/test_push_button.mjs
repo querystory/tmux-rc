@@ -8,10 +8,10 @@ const source = readFileSync(new URL("../web/push.js", import.meta.url), "utf8").
 // Boots the bell with the browser holding `held` (a subscription or null) under
 // `permission`, the daemon answering subscribe POSTs from `answers` (true: ok), then taps
 // it `taps` times. Returns the label after boot and after each tap, the requests sent and what was announced.
-async function bell({ permission = "granted", held = true, answers = [true], taps = 1, grant = "granted", away, dropOnAsk = false, midSave, midUnsubscribe, pendingRead }) {
+async function bell({ permission = "granted", held = true, answers = [true], taps = 1, grant = "granted", away, dropOnAsk = false, midSave, midUnsubscribe, pendingRead, stuck = false }) {
   const sent = [], said = [], listeners = {};
   let gate, answerRead;
-  let sub = held ? { endpoint: "e1", toJSON: () => ({ endpoint: "e1" }), unsubscribe: async () => { sub = null; return true; } } : null;
+  let sub = held ? { endpoint: "e1", toJSON: () => ({ endpoint: "e1" }), unsubscribe: async () => { if (stuck) throw new Error("stuck"); sub = null; return true; } } : null;
   const fresh = { endpoint: "e2", toJSON: () => ({ endpoint: "e2" }) };
   const button = { classList: { toggle() {} }, setAttribute() {} };
   const Notification = { permission, requestPermission: async () => { if (dropOnAsk) sub = null; return Notification.permission = grant; } };
@@ -109,4 +109,9 @@ test("a return read still out when the tap starts cannot change what the tap sav
   const { labels } = await bell({ answers: [false, true], pendingRead: true,
     midSave: async (replace, _resume, answerRead) => { replace(); answerRead(); await null; } });
   assert.deepEqual(labels, [REPAIR, REPAIR]); // e1 was saved; the e2 that read returned never was
+});
+
+test("a browser that fails to unsubscribe after the daemon dropped it reads Reconnect, not On", async () => {
+  const { labels } = await bell({ stuck: true });
+  assert.deepEqual(labels, [ON, REPAIR]);
 });

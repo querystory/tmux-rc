@@ -98,6 +98,7 @@ export async function setupPush(button, announce = () => {}, bell = "") {
           body: JSON.stringify({ endpoint: held.endpoint }),
         });
         if (!response.ok) throw new Error("Could not turn off notifications");
+        saved = null; // the daemon has dropped it, even if the browser fails to below
         await held.unsubscribe();
         announce("Notifications turned off");
       } else { // Off, NeedsRepair and Orphaned all turn on: get permission, a subscription, the daemon's ack
