@@ -83,7 +83,7 @@ def test_classifier_capture_splits_before_wrapping(monkeypatch):
         ";", "display-message", "-p", calls[0][9],
         ";", "capture-pane", "-p", "-J", "-e", "-t", "%12", "-S", "0",
         ";", "display-message", "-p", "-t", "%12",
-        "#{e|-|:#{cursor_y},#{pane_height}} #{pane_width}",
+        "#{e|-|:#{cursor_y},#{pane_height}} #{pane_width} #{alternate_on}",
     ]]
     assert text == f"old menu\n{tmux.VISIBLE_SCREEN}\n› ⟪placeholder⟫Ask a question⟪/placeholder⟫"
     assert tmux.strip_dim(text) == "old menu\n› Ask a question"
@@ -179,6 +179,20 @@ def test_short_screen_is_unchanged(monkeypatch):
     out = "old\n{}\na\n\n" + "\n" * 300 + "-300 80\n"
     monkeypatch.setattr(tmux, "_run", lambda args: out.format(args[9]))
     assert tmux.capture_pane("%1", mark_dim=True) == f"old\n{tmux.VISIBLE_SCREEN}\na\n"
+
+
+def test_blank_runs_reach_the_model_as_one_blank_row(monkeypatch):
+    # A short conversation in a tall window: the input box sits far below the reply.
+    box = ["─" * 20, "❯ ", "─" * 20, "  ⏵⏵ auto mode on"]
+    screen = ["Shipped the fix.", "", "", "Want a test too?", *[""] * 160, *box]
+    def run(alt):
+        rows = "\n".join(screen)
+        monkeypatch.setattr(tmux, "_run", lambda args: f"{args[9]}\n{rows}\n-3 80 {alt}\n")
+        return tmux.capture_pane("%1", mark_dim=True)
+    text = run(1)  # a full-screen app, as the phone's keptRows squeezes it
+    assert tmux.strip_dim(text) == "\n".join(["Shipped the fix.", "", "Want a test too?", "", *box])
+    assert tmux.strip_dim(run(0)) == "\n".join(screen)  # a shell's rows stay as printed
+    assert classify.claude_mode(classify._visible(text)) == "auto mode"
 
 
 def test_real_tall_pane_moves_its_top_rows_into_history(tmp_path, monkeypatch):
