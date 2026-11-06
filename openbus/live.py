@@ -26,13 +26,14 @@ import time
 import unicodedata
 import uuid
 from collections import deque
+from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from . import accounts, agent_history, live_providers, llm, push, telemetry, tmux
+from . import accounts, agent_history, live_providers, llm, plan_usage, push, telemetry, tmux
 from .classify import _host_tool, _load_prompt
-from .expunge import codex_status_segments
+from .expunge import codex_names, codex_status_line, codex_status_segments, codex_thread
 from .live_chat import TURNS_KEPT, TURNS_QUEUED
 from .live_providers import KEYS, LiveModel
 
@@ -1017,27 +1018,41 @@ _resumed: dict[str, tuple[str, str, dict]] = {}  # session id -> (pane id, pid, 
 
 def running_pane(entry: dict, watcher) -> str | None:
     """The pane a running agent-history session is in, in THIS tmux server, or None.
-    Blocking (it may ask tmux): the scratch gallery shares it."""
+    Blocking (it may ask tmux): the scratch gallery shares it. A Codex thread is in the pane
+    showing it even when no process holds it (another CODEX_HOME's app-server has exited)."""
     running = entry.get("running")
     pane = running and tmux.running_pane(running)
-    if running and not pane and entry.get("harness") == "codex":
-        pane = _codex_pane(watcher, entry["session_id"])
+    if not pane and entry.get("harness") == "codex":
+        pane = _codex_pane(watcher, entry)
     return pane or None
 
 
-def _codex_pane(watcher, thread_id: str) -> str | None:
-    """The one watched Codex pane whose status bar shows this thread's id. Codex's
-    app-server daemon, not the terminal client, holds a thread's rollout, so the process
-    that proves it's running names no pane; a status bar configured with `session-id`
-    shows the id as one of its segments. Only status chrome the parser validates
-    counts, in panes classified as Codex (a shell can print a captured footer). Names
-    aren't used: two live threads can share one."""
-    codex = {d["pane_id"] for d in watcher.digest() if d.get("tool") == "codex"}
-    # A copy: the watcher thread adds and drops panes while this runs.
-    panes = {pane_id for pane_id, hist in list(watcher.snapshots.items())
-             if hist and pane_id in codex
-             and thread_id in codex_status_segments(hist[-1]["text"] or "")}
+def _codex_pane(watcher, entry: dict) -> str | None:
+    """The one watched Codex pane showing this thread: its id on the status bar, else its
+    name (expunge.codex_thread). Codex's app-server daemon, not the terminal client, holds
+    a thread's rollout, so the process that proves it's running names no pane. Only status
+    chrome the parser validates counts, in panes classified as Codex (a shell can print a
+    captured footer). A name counts only in a pane on the CODEX_HOME the rollout is in."""
+    codex = {d["pane_id"]: d.get("title") or "" for d in watcher.digest()
+             if d.get("tool") == "codex"}
+    sid = entry["session_id"]
+    panes = {p for p in codex if sid in codex_status_segments(_screen(watcher, p))}
+    home, sep, _ = (entry.get("source") or "").rpartition("/sessions/")
+    if not panes and sep:
+        home = Path(plan_usage.canonical(home))
+        shown, names = codex_status_line(home), codex_names(home)
+        panes = {p for p, title in codex.items()
+                 if (pid := watcher.pane_birth(p))
+                 and plan_usage.home("codex", plan_usage.pane_env(pid, "codex")) == home
+                 and codex_thread(names, title, shown, _screen(watcher, p)) == sid}
     return panes.pop() if len(panes) == 1 else None
+
+
+def _screen(watcher, pane_id: str) -> str:
+    """The pane's last snapshot's text, "" for none ([] or gone: the watcher thread adds
+    and drops panes while this runs)."""
+    hist = watcher.snapshots.get(pane_id)
+    return (hist and hist[-1]["text"]) or ""
 
 
 def _home_relative(path: str) -> str:
@@ -1101,15 +1116,16 @@ async def _resume_locked(websocket, sid: str, watcher, rec: dict) -> dict:
     title = entry.get("title") or entry["session_id"][:8]
     name = title[:24]
     try:  # tmux can fail here too; report, don't kill the session
-        target = _session_for(await asyncio.to_thread(tmux.list_panes), cwd)
-        if target is None:
-            return {"status": "error", "reason": "no tmux session to open a window in"}
-        pane_id = await asyncio.to_thread(tmux.new_window, target, name, argv, cwd)
+        # After a reboot no server runs: start one with its own session, as Restore does.
+        up = await asyncio.to_thread(tmux.server_running)
+        target = _session_for(await asyncio.to_thread(tmux.list_panes) if up else [], cwd)
+        pane_id = await asyncio.to_thread(tmux.new_window, target, name, argv, cwd) if target \
+            else await asyncio.to_thread(tmux.new_session, name, cwd, argv, name)
     except Exception as e:
         logger.warning("[live] resume_session failed for %s", entry["session_id"], exc_info=True)
-        rec["detail"] = str(e)[:120]
-        return {"status": "error", "reason": "could not open a window"}
-    rec.update(pane_id=pane_id, window=name, tmux_session=target)
+        rec["detail"] = (getattr(e, "stderr", None) or str(e)).strip()[:120]
+        return {"status": "error", "reason": "could not open a window", "detail": rec["detail"]}
+    rec.update(pane_id=pane_id, window=name, tmux_session=target or name)
     pid = await _launched_pid(pane_id)
     if pid is None:  # the window closed at once: the command failed to start
         return {"status": "error", "reason": "the resumed session exited immediately"}
