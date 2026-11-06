@@ -927,8 +927,8 @@ const viewer = $("scratch-viewer");
 // sandboxed for every later document, so only the page opened can ask to send (askSend) or post
 // at all. A token for the page could be handed on, and the next page can post before its load.
 // Not sooner: WebKit (Safari) applies the attribute to the navigation under way, the page's own.
-// A page in progress (its placeholder says so) reloads itself as it moves on and when it lands:
-// a fresh frame at the page opened, then, whose first load runs its script again.
+// A page that reloads itself (a placeholder, an updating page: scratch_ask.js says so) gets a
+// fresh frame at the page opened for each reload, whose first load runs its script again.
 function viewerFrame(href, title) {
   viewer.querySelector("iframe")?.remove();
   const frame = Object.assign(document.createElement("iframe"), { src: href, title, onload() {

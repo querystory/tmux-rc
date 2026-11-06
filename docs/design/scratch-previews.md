@@ -95,9 +95,9 @@ its link `?bare` to stay a plain tab. The redirect names the page in the app's q
 its fragment: a browser keeps a link's own `#section` across a redirect only when the new
 address has none, and the app moves it onto the page it opens.
 
-A page in progress reloads itself as it moves on and as it lands. The viewer otherwise
+A page in progress, or one being updated, reloads itself as it changes. The viewer otherwise
 denies script to every document after a frame's first, so that only the page it opened can
-ask to send a message. The placeholder says it is one, and the viewer answers its reloads
+ask to send a message. The reload script says the page is one, and the viewer answers its reloads
 with a fresh frame at the page it opened. That stays safe: whatever a page claims, the
 fresh frame loads the address the viewer chose, never where the page went. Other links in the gallery still open a tab, so the gallery's frame only ever holds
 the gallery. On a phone the gallery drops the app's page head and runs under the tab bar,
