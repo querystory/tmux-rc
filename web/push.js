@@ -62,11 +62,12 @@ export async function setupPush(button, announce = () => {}, bell = "") {
   let subscription, saved = null; // saved: the endpoint the daemon last acknowledged
   const state = () => pushState(Notification.permission, subscription, saved);
   const save = async () => {
+    const { endpoint } = subscription; // a visibility refresh may replace it while this is out
     const response = await fetch("/api/push/subscribe", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(subscription.toJSON()),
     }).catch(() => null);
-    saved = response?.ok ? subscription.endpoint : null;
+    saved = response?.ok ? endpoint : null;
     return !!saved;
   };
   const refresh = async () => {

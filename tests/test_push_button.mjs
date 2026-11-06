@@ -8,7 +8,7 @@ const source = readFileSync(new URL("../web/push.js", import.meta.url), "utf8").
 // Boots the bell with the browser holding `held` (a subscription or null) under
 // `permission`, the daemon answering subscribe POSTs from `answers` (true: ok), then taps
 // it `taps` times. Returns the label after boot and after each tap, and the requests sent.
-async function bell({ permission = "granted", held = true, answers = [true], taps = 1, grant = "granted", away, dropOnAsk = false }) {
+async function bell({ permission = "granted", held = true, answers = [true], taps = 1, grant = "granted", away, dropOnAsk = false, midSave }) {
   const sent = [], listeners = {};
   let sub = held ? { endpoint: "e1", toJSON: () => ({ endpoint: "e1" }), unsubscribe: async () => { sub = null; return true; } } : null;
   const fresh = { endpoint: "e2", toJSON: () => ({ endpoint: "e2" }) };
@@ -22,6 +22,7 @@ async function bell({ permission = "granted", held = true, answers = [true], tap
       pushManager: { getSubscription: async () => sub, subscribe: async () => (sub = fresh) } }) } },
     fetch: async (url) => {
       sent.push(url.replace("/api/push/", ""));
+      if (url.endsWith("/subscribe") && sent.length > 1) await midSave?.(() => { sub = fresh; }, listeners.visibilitychange);
       if (url.endsWith("config")) return { ok: true, json: async () => ({ public_key: "AAAA" }) };
       return { ok: url.endsWith("subscribe") && !url.endsWith("unsubscribe") ? answers.shift() ?? true : true };
     },
@@ -85,4 +86,9 @@ test("a subscription replaced elsewhere and not yet saved shows Reconnect on ret
   const { labels, sent } = await bell({ away: (_n, _drop, replace) => replace() });
   assert.deepEqual(labels, [ON, REPAIR, ON]);
   assert.deepEqual(sent, ["subscribe", "subscribe"]); // the tap saves the replacement; nothing unsubscribes
+});
+
+test("a subscription replaced while a save is out is not taken as saved", async () => {
+  const { labels } = await bell({ answers: [false, true], midSave: async (replace, resume) => { replace(); await resume(); } });
+  assert.deepEqual(labels, [REPAIR, REPAIR]); // e1 was saved, e2 never was
 });
