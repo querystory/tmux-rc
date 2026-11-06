@@ -31,9 +31,9 @@ _TOKENS = re.compile(r"^(?::root(?:\.light)? \{.*?^\}|\.acct-(?:badge|dot)\b[^\n
 _CALLOUT = re.compile(r"^ {0,3}> ?\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\] *$",
                       re.IGNORECASE | re.MULTILINE)
 _QUOTED = re.compile(r" {0,3}> ?")
-# A list item straight under a line of text that is neither indented nor an item itself.
+_ITEM = re.compile(r"(?:[-*+]|\d+\.) ")
 # As on GitHub (CommonMark), only a list numbered from 1 interrupts text: "2026. was" stays.
-_INTERRUPT = re.compile(r"^((?![-*+] |\d+\. )\S.*\n)(?=(?:[-*+]|1\.) +\S)", re.MULTILINE)
+_INTERRUPT = re.compile(r"(?:[-*+]|1\.) +\S")
 # GitHub's CAUTION is red, Material's caution orange: it becomes a danger titled Caution.
 _ADMONITION = {"caution": 'danger "Caution"'}
 # Highlighting is done here, so the page carries Pygments' classes for both themes, each
@@ -71,10 +71,16 @@ class _Callouts(BlockProcessor):
 
 class _Lists(Preprocessor):
     """A list straight under a line of text, as GitHub starts it: Python-Markdown wants a
-    blank line first, so it gets one. Runs after fences and raw HTML are stashed (20)."""
+    blank line first, so it gets one. Runs once fences and raw HTML are stashed (20)."""
 
     def run(self, lines):
-        return _INTERRUPT.sub(r"\1\n", "\n".join(lines)).split("\n")
+        out, listed = [], False  # listed: in a list's lines, its lazy continuations too
+        for line in lines:
+            if not listed and out and out[-1].strip() and _INTERRUPT.match(line):
+                out.append("")
+            listed = bool(line.strip()) and (listed or bool(_ITEM.match(line)))
+            out.append(line)
+        return out
 
 
 class _GitHub(Extension):
