@@ -1818,7 +1818,8 @@ async function pollState(signal) {
       const u = data.usage; // LLM spend this run: parser + voice, the debug readout the old UI kept under its status dot
       $("connection").title = (data.stale ? "Watcher stalled; pane summaries may be out of date" : "Connected")
         + (u ? ` | LLM $${u.cost.toFixed(3)}, ${Math.round((u.in_tokens + u.out_tokens + (u.live?.in_tokens || 0) + (u.live?.out_tokens || 0)) / 1000)}k tokens` : "");
-      render(); focusPushComposer = false; // a push's focus is spent on the first fresh state: its ask, or none
+      render(); // a push's focus is spent on the first fresh, classified state of its pane: its ask, or none
+      if (booted && !panePending(panes.find((p) => p.pane_id === active))) focusPushComposer = false;
       await pause(version ? 100 : 1500, signal);
     } catch {
       if (signal.aborted) return;
