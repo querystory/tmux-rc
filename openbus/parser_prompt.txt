@@ -289,7 +289,10 @@ visible caption in "title". Omit "tables" when no tabular data is visible.
 as shown: its label and its first sentence ("1. Prune container images older than 14
 days."), never as "options" (options are replies the user types); "question.subject" is
 the heading or lead-in line just above that list, quoted as shown, which says what is
-being decided.
+being decided. A list the message puts to the user as a whole (decisions with the
+defaults it proposes, steps to approve) is one ask, its rows left on screen for the user
+to read: its replies are at most three short ones in the user's words that answer the
+list as a whole ("Go with defaults"), buttons on the phone's card beside a Reply box.
 
 ANSWERED QUESTIONS can remain visible in the transcript after the agent moves on.
 A submitted answer (including an omp Ask result showing the chosen option) followed
