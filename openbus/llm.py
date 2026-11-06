@@ -241,6 +241,14 @@ def _backoff_remaining() -> float:
     return max(0.0, _backoff["until"] - time.time())
 
 
+def _admit() -> tuple[float, float]:
+    """(seconds still backing off, this call's start stamp), read together under the
+    arming lock: a brake armed in between would otherwise look older than the call, so
+    the call's success would lift it and its failure would double it again."""
+    with _backoff_lock:
+        return _backoff_remaining(), time.time()
+
+
 def backing_off() -> bool:
     """True while the shared failure backoff is armed — callers with their own attempt budgets
     (e.g. bootstrap retries) should skip rather than burn attempts on calls that
@@ -328,10 +336,7 @@ def classify_text(
     back). `image_png` is wired for the future image-input mode; text-only by default.
     `changed` (a real content-change parse vs a heartbeat re-parse) and the pane's stable
     `pane_uid`/`pane_label` are passed straight through to the benchmark telemetry."""
-    # Admitted and stamped under the arming lock: a brake armed in between would otherwise
-    # look older than this call, and this call's success would lift it.
-    with _backoff_lock:
-        wait, t0 = _backoff_remaining(), time.time()
+    wait, t0 = _admit()
     if wait > 0:
         # Rate-limited: skip the call entirely (no tokens burned, no telemetry — nothing
         # happened). The UI still shows why cards are degrading via last_error.
@@ -397,9 +402,9 @@ def summarize_events(event_texts: list[str]) -> str | None:
 def one_sentence(prompt: str) -> str | None:
     """The model's one-line answer to `prompt` as plain text, or None on failure. Cheap: no
     schema, tiny output."""
-    if _backoff_remaining() > 0:
+    wait, t0 = _admit()
+    if wait > 0:
         return None  # skip while rate-limited — same gate as classify_text
-    t0 = time.time()
     try:
         types = genai_types()
         resp = _generate(model=_MODEL, contents=[prompt],
