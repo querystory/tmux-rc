@@ -1,0 +1,14 @@
+{
+  "description": "Synthetic: a finished auto-mode turn reports on two PRs and ends by handing the user a `! gh pr merge` command, then Claude Code prints \"Waiting for 2 background agents to finish\" and an agents panel tall enough to push the mode line out of the last rows. The handed-over command is still an offer, so the pane waits on the user rather than on the agents.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ how are the two export PRs?\n\n● Both review loops finished.\n\n  - acme/widgets#87 (CSV export streams rows): Copilot is clean and CI is green.\n  - acme/widgets#88 (export retries): CI is green, but it has only run against the local\n    stub, not the real storage bucket.\n\n  #87 is ready to merge. #88 could merge too, but I'd wait for the real test.\n\n  ! gh pr merge 87 --squash -R acme/widgets\n\n✻ Waiting for 2 background agents to finish\n\n────────────────────────────────────────────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────────────────────────────────────────────\n  ~/src/widgets on main | Opus 5.5 | 18% ctx\n  ⏵⏵ auto mode on · 3 shells\n\n  ● main\n  ◯ general-purpose  Testing the retries against the bucket\n  ◯ general-purpose  Rewording the export docs\n  ◯ general-purpose  Checking the follow-up PR\n  ↓ 2 more",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "headline": "PR #87 is ready to merge while agents test retries and docs",
+    "offers": [
+      "! gh pr merge 87 --squash -R acme/widgets"
+    ]
+  }
+}

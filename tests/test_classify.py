@@ -129,6 +129,68 @@ def test_a_handoff_mid_list_kept_a_copyable_only_is_offered():
     assert "offers" not in result and result["activity"] == "idle"
 
 
+_RULE = "─" * 40
+# A turn handing over a command it also handed over earlier, then Claude's notes on its
+# background agents, a draft in the input box and the agent list below the mode row.
+_TEA = (f"● Ready:\n\n  ! make tea\n\n❯ and?\n\n● Still ready:\n\n  ! make tea\n\n"
+        f'● Agent "Kettle check" finished · 3m 2s\n\n'
+        f'● Agent "Cup count" is waiting on its own background work · 1m 4s\n\n'
+        f"{_RULE}\n❯ brew coffee\n{_RULE}\n  ⏵⏵ auto mode on · 2 shells\n\n  ● main\n"
+        "  ◯ general-purpose  Warming the pot\n  ◯ general-purpose  Counting cups\n"
+        "  ◯ general-purpose  Finding sugar\n  ↓ 2 more")
+
+
+def test_offers_read_past_agent_notes_repeats_and_the_draft():
+    screen, rule = _TEA, _RULE
+    assert classify_mod.claude_mode(screen) == "auto mode"
+    assert classify_mod._last_message(screen.split(rule, 1)[0]).startswith("Still ready:")
+    # The repeated command keeps its "!"; the user's own draft is no offer.
+    assert classify_mod.screen_offers(["make tea", "brew coffee"], screen) == ["! make tea"]
+    # A bare sighting elsewhere (a reply to type) still leaves the command as written.
+    bare = screen.replace("● Ready:\n\n  ! make tea", "● Reply: make tea")
+    assert classify_mod.screen_offers(["make tea"], bare) == ["make tea"]
+    # The finished turn's final message is the reply, not the note after it.
+    done = screen.replace("\n\n● Agent", "\n\n✻ Worked for 9s\n\n● Agent", 1).replace(
+        "❯ brew coffee", "❯ ")
+    assert classify_mod._final_message(done, "claude").strip().startswith("Still ready:")
+
+
+def test_a_command_among_a_questions_replies_is_one_offer():
+    """The model put the handed-over command among a question's replies (and the offers),
+    with the draft as another reply and the wrong mode: one Send it row, no draft reply,
+    and the mode the status line shows."""
+    def read(*options, offers=()):
+        return _llm({"tool": "claude", "activity": "waiting", "mode": "plan",
+                     "offers": list(offers), "question": {"prompt": "Still ready:",
+                     "answer_style": "text", "options": list(options)}})
+    r = classify(_pane("claude"), _TEA, read("! make tea", "brew coffee", offers=["! make tea"]))
+    assert (r["offers"], r.get("question"), r["mode"]) == (["! make tea"], None, "auto")
+    # Copied without its "!", the command is the same Send it row; a reply of its own stays.
+    r = classify(_pane("claude"), _TEA, read("make tea", "pour it"))
+    assert (r["offers"], r["question"]["options"]) == (["! make tea"], ["pour it"])
+    # A command only the draft shows (typed in bash mode) is no offer, and the question stays.
+    r = classify(_pane("claude"), _TEA.replace("❯ brew coffee", "! brew coffee"),
+                 read("! brew coffee"))
+    assert (r.get("offers"), r["question"]["options"]) == (None, [])
+    # Under a live background-agent wait, a command only among the replies still offers.
+    waiting = (f"{VISIBLE_SCREEN}● Ready:\n\n  ! make tea\n\n✻ Waiting for 2 background agents "
+               f"to finish… (4m 12s)\n\n{_RULE}\n❯ \n{_RULE}\n  ⏵⏵ auto mode on")
+    r = classify(_pane("claude"), waiting, read("! make tea"))
+    assert (r["offers"], r.get("question")) == (["! make tea"], None)
+    # Under the agent's own live spinner the reply is left to the question's live check.
+    working = waiting.replace("Waiting for 2 background agents to finish… (4m 12s)",
+                              "Pushing… (3s · esc to interrupt)")
+    assert classify(_pane("claude"), working, read("! make tea")).get("offers") is None
+    # A command an answered turn handed over is done with: the open message hands none.
+    answered = waiting.replace("✻ Waiting for 2 background agents to finish… (4m 12s)",
+                               "❯ thanks\n\n● All done.\n\n✻ Worked for 3s")
+    assert classify(_pane("claude"), answered, read("! make tea")).get("offers") is None
+    # A reply copied with the wrap of an indented row is the same one Send it row.
+    wrapped = waiting.replace("! make tea", "! make tea --cups 2\n  --sugar")
+    r = classify(_pane("claude"), wrapped, read("! make tea --cups 2\n--sugar"))
+    assert (r["offers"], r.get("question")) == (["! make tea --cups 2 --sugar"], None)
+
+
 def _pane(cmd="bash", title="t"):
     return Pane("work", "0", "bash", "0", "%0", cmd, title, "/home/x/proj")
 
