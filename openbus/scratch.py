@@ -706,7 +706,6 @@ def placeholder(root: Path, name: str, who) -> str | None:
     if not (i and i["pending"]):
         return None
     states, profiles, style, *pane_of = who()
-    named = i["pane"]
     resolve([i], states, profiles, *pane_of)
     stopped = i["state"] == "stopped"
     e = {k: escape(str(v)) for k, v in i.items() if v is not None}
@@ -720,7 +719,7 @@ def placeholder(root: Path, name: str, who) -> str | None:
             "draw": (web / "tab-icon.js").read_text(),
             "say": STATES[i["state"]][1], "who": e["who"], "where": where and f" · {where}",
             "desc": f'<p>{e["description"]}</p>' if i["description"] else "",
-            "now": _since(root, named, i) if stopped else
+            "now": _since(root, i, states, profiles, *pane_of) if stopped else
             f'<p class="now">Now: {escape(str(headline))}</p>' if headline else "",
             "ago": f"{age}m" if age < 60 else f"{age // 60}h {age % 60}m",
             "every": 60000 if stopped else 5000 if age < 10 else 30000}
@@ -729,10 +728,13 @@ def placeholder(root: Path, name: str, who) -> str | None:
     return re.sub(r"\{(\w+)\}", lambda m: str(fill[m[1]]), _PENDING.read_text())
 
 
-def _since(root: Path, pane: str | None, i: dict) -> str:
-    """Links to the three newest pages pane `pane` published or revised after `i` began."""
-    newer = [f'<a href="/scratch/{o["href"]}">{escape(o["title"])}</a>' for o in items(root)
-             if pane and o["pane"] == pane and o["updated"] > i["since"] and not o["pending"]]
+def _since(root: Path, i: dict, *who) -> str:
+    """Links to the three newest pages i's pane, while open, published or revised after `i`
+    began: matched by writer as the gallery's cards are (resolve, `who` as for it)."""
+    listed = items(root) if i["pane"] else []
+    resolve(listed, *who)
+    newer = [f'<a href="/scratch/{o["href"]}">{escape(o["title"])}</a>' for o in listed
+             if o["pane"] == i["pane"] and o["updated"] > i["since"] and not o["pending"]]
     return f'<p>Its newer pages: {", ".join(newer[:3])}</p>' if newer else ""
 
 
