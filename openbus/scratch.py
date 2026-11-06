@@ -77,16 +77,29 @@ def export(folder: Path, out: Path, web: Path) -> None:
     """`tmux-rc scratch export <folder> <out>`: the folder as static files any file host can
     serve (docs/scratch.md), each .md page also rendered to its .html as the daemon renders
     it, with the app files the pages load copied under _app/. Its meta.json, anything
-    hidden and any symlink out of it are left out. The host must send SANDBOX itself."""
+    hidden and every symlink (whose target could be either) are left out. `out` starts
+    empty, so nothing deleted from the folder is published again. The host must send
+    SANDBOX itself."""
+    for refused, why in ((not folder.is_dir(), f"{folder} is not a folder"),
+                         ((folder / "_app").exists(), f"{folder} has its own _app"),
+                         (out.exists() and any(out.iterdir()), f"{out} is not empty")):
+        if refused:
+            raise SystemExit(why)
+    out.mkdir(parents=True, exist_ok=True)  # there, even for a folder with nothing to export
+    def unreadable(e: OSError):  # a folder the walk cannot read fails the export, not drops
+        raise e
+    kept = set()
+    for d, dirs, files in folder.walk(on_error=unreadable):
+        dirs[:] = [n for n in dirs if not n.startswith(".")]  # a .git or .venv is never read
+        kept |= {d / f for f in files
+                 if not f.startswith(".") and (d / f).is_file() and not (d / f).is_symlink()}
+    kept.discard(folder / "meta.json")
     used = set()
-    for file in sorted(folder.rglob("*")):
+    for file in kept:
         rel = file.relative_to(folder)
-        if (not file.is_file() or rel == Path("meta.json") or not inside(file, folder)
-                or any(part.startswith(".") for part in rel.parts)):
-            continue
         (out / rel).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(file, out / rel)
-        if file.suffix == ".md" and not file.with_suffix(".html").exists():
+        if file.suffix == ".md" and file.with_suffix(".html") not in kept:  # an .html wins
             app = "../" * (len(rel.parts) - 1) + "_app/"
             html = scratch_markdown.page(file, web, app=app, raw=quote(file.name))
             (out / rel).with_suffix(".html").write_text(html)

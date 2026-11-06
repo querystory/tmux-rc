@@ -5,6 +5,7 @@ import os
 import re
 from urllib.request import urlopen
 
+import pytest
 from fastapi.testclient import TestClient
 from starlette.applications import Starlette
 from starlette.routing import Mount
@@ -129,6 +130,7 @@ def test_an_export_is_the_daemons_pages_as_static_files(tmp_path):
     (src / "both.html").write_text("html wins")
     (src / "meta.json").write_text('{"title": "Launch plan"}')
     _doc(src, ".env", "SECRET=1")
+    _doc(src, ".git/index.md", "# Not a page")
     scratch.export(src, out, WEB_DIR)
     page = (out / "index.html").read_text()
     assert page == M.page(src / "index.md", WEB_DIR, app="_app/", raw="index.md")
@@ -139,6 +141,18 @@ def test_an_export_is_the_daemons_pages_as_static_files(tmp_path):
         "_app/m/vendor/mermaid.min.js", "_app/scratch.svg", "both.html", "both.md",
         "deep/more.html", "deep/more.md", "index.html", "index.md"]
     assert not re.search(r"(src|href)=\"/", page)  # nothing at the daemon's own paths
+    with pytest.raises(SystemExit, match="not empty"):  # it would keep what the folder lost
+        scratch.export(src, out, WEB_DIR)
+    with pytest.raises(SystemExit, match="is not a folder"):  # a typo in its name
+        scratch.export(tmp_path / "nowhere", tmp_path / "x", WEB_DIR)
+    (src / "deep/more.html").symlink_to(src / ".env")  # a symlink is never exported
+    (src / "settings.txt").symlink_to(src / ".env")
+    scratch.export(src, tmp_path / "again", WEB_DIR)
+    assert "Just text." in (tmp_path / "again/deep/more.html").read_text()
+    assert not (tmp_path / "again/settings.txt").exists()
+    _doc(src, "_app/logo.svg", "<svg/>")
+    with pytest.raises(SystemExit, match="_app"):
+        scratch.export(src, tmp_path / "third", WEB_DIR)
 
 
 def test_a_rewrite_shows_on_reload(tmp_path):
