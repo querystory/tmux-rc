@@ -78,7 +78,8 @@ class _Lists(Preprocessor):
         for line in lines:
             if not listed and out and out[-1].strip() and _INTERRUPT.match(line):
                 out.append("")
-            listed = bool(line.strip()) and (listed or bool(_ITEM.match(line)))
+            starts = not out or not out[-1].strip()  # an item here starts a list
+            listed = bool(line.strip()) and (listed or (starts and bool(_ITEM.match(line))))
             out.append(line)
         return out
 
