@@ -241,8 +241,8 @@ def test_state_response_keeps_worker_inventory_with_its_pane_snapshot(monkeypatc
                 watcher.worker_source = {"status": "stale"}
                 watcher._bump_state_if_changed(watcher.states)
 
-    monkeypatch.setattr(server.app.state, "watcher", watcher, raising=False)
-    monkeypatch.setattr(server.app.state, "loops", DuringEnrichment(), raising=False)
+    monkeypatch.setitem(server.app.state._state, "watcher", watcher)
+    monkeypatch.setitem(server.app.state._state, "loops", DuringEnrichment())
     monkeypatch.setattr(server.tmux, "prefix_key", lambda: "C-b")
     result = _run(server.get_state())
     assert result["version"] == version
