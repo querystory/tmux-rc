@@ -103,8 +103,8 @@ service worker (by the time a push arrives, the decision must already be made).
 
 **1. Notify even while someone is watching.** A visible browser window or recent tmux
 input does not suppress pushes. An open desktop tab must not silence the phone, and
-working in one pane does not mean the user has seen another pane's question. Existing
-presence endpoints remain compatible with clients, but presence does not gate delivery.
+working in one pane does not mean the user has seen another pane's question. So the
+daemon keeps no client presence at all.
 
 **2. Once per question, not once per tick.** A blocked pane stays blocked across
 dozens of parses. The notifier keys on a fingerprint of **(pane incarnation, full
@@ -211,7 +211,7 @@ inherit it for free. That sort doesn't bound a request that connects and then
 stalls, though: the sender is a synchronous `requests` call, so it runs **off the
 watcher and request hot paths** (its own worker thread, fed by a queue) with
 explicit connect/read timeouts. An FCM/APNs outage must degrade to dropped pushes —
-never to stalled parsing or presence updates (blocked-event-loop slowness is already
+never to stalled parsing or state polls (blocked-event-loop slowness is already
 a known failure class in this daemon). The queue is small and bounded. A full queue
 rejects the new enqueue without evicting already-accepted work; the notifier leaves
 that wait unmarked and can retry while it remains current. Relay failures after
