@@ -31,6 +31,7 @@ import threading
 import time
 from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
+from dataclasses import replace
 from functools import partial
 from pathlib import Path
 from typing import Annotated, Literal
@@ -84,6 +85,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints  # noqa: E4
 from . import (  # noqa: E402
     accounts,
     agent_history,
+    agent_move,
     export,
     expunge,
     fit,
@@ -267,6 +269,7 @@ class MoveBody(ExpungeBody):  # bound to the pane incarnation and session, likew
     dir: str  # the target profile's config dir
     replace: bool = False  # the account has an older copy of the session: copy over it
     resume_existing: bool = False  # ...or resume that copy as it is
+    agent: Literal["claude", "codex"] | None = None  # the agent to carry it to; None: its own
 
 
 class NewWindowBody(BaseModel):
@@ -1818,7 +1821,7 @@ def _pane_session(pane_id: str, birth: str, expected: str | None = None):
     if pane.pid != birth:
         raise HTTPException(409, "this is a different window now")
     try:  # a screen from a newer pane under this id fails the pid guard on the kill
-        s = expunge.identify(pane.pid, screen, expected)
+        s = expunge.identify(pane.pid, screen, expected, pane.title)
         return pane, s, expunge.targets(s)
     except expunge.Refused as e:
         raise HTTPException(409, str(e)) from e
@@ -1826,8 +1829,9 @@ def _pane_session(pane_id: str, birth: str, expected: str | None = None):
 
 @app.get("/api/panes/{pane_id}/expunge")
 def expunge_preview(pane_id: str, birth: str):
-    """What Expunge would delete, for the confirmation to name, or {"nothing": true} when
-    the pane has no saved conversation (a sign-in window), which the client offers to close."""
+    """What Expunge would delete, for the confirmation to name (Move looks the session up
+    here too), or {"nothing": true} when the pane has no saved conversation (a sign-in
+    window), which the client offers to close."""
     try:
         _, s, (own, shared) = _pane_session(pane_id, birth)
     except HTTPException as e:
@@ -1835,7 +1839,9 @@ def expunge_preview(pane_id: str, birth: str):
             return {"nothing": True}
         raise
     return {"harness": s.harness, "session_id": s.session_id,
-            "files": [p.name for p in own], "shared": [p.name for p in shared]}
+            "files": [p.name for p in own], "shared": [p.name for p in shared],
+            # the transcript's size, for Move to another agent to say what it would send
+            "size": sum(p.stat().st_size for p in own if p.suffix == ".jsonl" and p.is_file())}
 
 
 @app.post("/api/panes/{pane_id}/expunge")
@@ -1901,10 +1907,17 @@ def _started(s, target: Path, pane_id: str) -> bool:
 
 @app.post("/api/panes/{pane_id}/move")
 def move_session(pane_id: str, body: MoveBody, request: Request):
-    """Copy the pane's agent session to another account and resume it there, in a new
-    window of the same session and cwd. The source pane and its files are left as they are.
-    See docs/design/agent-accounts.md."""
-    detail = f"dir={body.dir[:120]!r}"
+    """Copy the pane's agent session to another account, or carry it to the other agent
+    (agent_move), and resume it there, in a new window of the same session and cwd. The
+    source pane and its files are left as they are. See docs/design/agent-accounts.md.
+    One at a time from the lookup through the launch: a move waiting on another (an import
+    can take a while) sees the pane as it is then, and the first one's agent."""
+    with _MOVES:
+        return _move(pane_id, body, request)
+
+
+def _move(pane_id: str, body: MoveBody, request: Request):
+    detail = f"dir={body.dir[:120]!r} agent={body.agent}"
     try:
         pane, s, _ = _pane_session(pane_id, body.birth, body.session_id)
         cwd = os.readlink(f"/proc/{s.pid}/cwd")
@@ -1912,12 +1925,13 @@ def move_session(pane_id: str, body: MoveBody, request: Request):
         _refuse(request, "move_session", detail, e.status_code, e.detail)
     except OSError:
         _refuse(request, "move_session", detail, 409, "the agent's working directory can't be read")
-    profile = accounts.find(body.dir, s.harness)
+    to = body.agent or s.harness
+    profile = accounts.find(body.dir, to)
     if not (profile and profile["signed_in"]):
         _refuse(request, "move_session", detail, 404, "not a signed-in account")
     detail = f"session={s.session_id} {detail}"
-    target, argv = Path(profile["dir"]), [*accounts.RESUME[s.harness], s.session_id]
-    if target.samefile(s.root):  # whatever the spelling, link or mount
+    target, agent = Path(profile["dir"]), accounts.RESUME[to][0]
+    if to == s.harness and target.samefile(s.root):  # whatever the spelling, link or mount
         _refuse(request, "move_session", detail, 409, "the session is already on that account")
     if body.replace and body.resume_existing:
         _refuse(request, "move_session", detail, 400, "replace or resume, not both")
@@ -1925,41 +1939,47 @@ def move_session(pane_id: str, body: MoveBody, request: Request):
     # it sets one, else the tmux server's.
     env = tmux.show_env(pane.session)
     path = env["PATH"] if "PATH" in env else tmux.server_path()
-    if path is not None and not shutil.which(argv[0], path=path):
+    if path is not None and not shutil.which(agent, path=path):
         _refuse(request, "move_session", detail, 400,
-                f"{argv[0]} is not on the tmux session's PATH, so no window could start it")
-    with _MOVES:  # through the launch, so a second request sees the first one's agent
-        if accounts.running(s, target):  # so its copy is neither offered nor touched
+                f"{agent} is not on the tmux session's PATH, so no window could start it")
+    if to == s.harness and accounts.running(s, target):  # its copy is left untouched
+        _refuse(request, "move_session", detail, 409,
+                "it is running on that account, or may be: go to that window")
+    copied, moved = [], s
+    try:
+        if to != s.harness:  # a new session there, or Codex's earlier import of this one
+            def busy(sid):
+                return accounts.running(replace(s, harness=to, root=target, session_id=sid),
+                                        target)
+            moved = replace(s, harness=to, root=target, session_id=agent_move.move(
+                s, to, target, cwd, shutil.which(agent, path=path) or agent, path, busy))
+        elif not body.resume_existing:
+            copied = accounts.copy_session(s, target, replace=body.replace)
+        elif not accounts.resumable(accounts.confined(accounts.files(s, target), target)):
             _refuse(request, "move_session", detail, 409,
-                    "it is running on that account, or may be: go to that window")
-        copied = []
-        try:
-            if not body.resume_existing:
-                copied = accounts.copy_session(s, target, replace=body.replace)
-            elif not accounts.resumable(accounts.confined(accounts.files(s, target), target)):
-                _refuse(request, "move_session", detail, 409,
-                        "that account has no transcript of it to resume")
-        except FileExistsError as e:  # the sheet offers to replace or resume it
-            _refuse(request, "move_session", detail, 409, str(e),
-                    copied=accounts.copied_at(s, target),
-                    resumable=accounts.resumable(accounts.files(s, target)))
-        except (LookupError, ValueError) as e:
-            _refuse(request, "move_session", detail, 409, str(e))
-        except OSError as e:  # only the type: the message can carry a path
-            _audit(request, "move_session", pane_id, detail, outcome=f"error: {type(e).__name__}")
-            raise HTTPException(500, "the session could not be copied: nothing was kept") from e
-        try:  # the copy stays: the session can still be resumed there by hand
-            new = tmux.new_window(pane.session, f"{argv[0]} on {profile['name']}"[:40],
-                                  accounts.command(s.harness, profile["dir"], argv), cwd=cwd)
-        except (subprocess.CalledProcessError, OSError) as e:
-            _audit(request, "move_session", pane_id, detail, outcome="error: copied, no window")
-            raise HTTPException(500, "the session was copied, but its window could not be "
-                                     "opened") from e
-        # A window is not yet an agent: hold the next move until this one shows as running.
-        if not _started(s, target, new):
-            _audit(request, "move_session", new, f"from={pane.id} {detail}",
-                   outcome="error: copied, agent did not start")
-            raise HTTPException(500, "the session was copied, but its agent did not start")
+                    "that account has no transcript of it to resume")
+    except FileExistsError as e:  # the sheet offers to replace or resume it
+        _refuse(request, "move_session", detail, 409, str(e),
+                copied=accounts.copied_at(s, target),
+                resumable=accounts.resumable(accounts.files(s, target)))
+    except (LookupError, ValueError, TimeoutError) as e:
+        _refuse(request, "move_session", detail, 409, str(e))
+    except (OSError, subprocess.SubprocessError) as e:  # only the type: it may hold a path
+        _audit(request, "move_session", pane_id, detail, outcome=f"error: {type(e).__name__}")
+        raise HTTPException(500, "the session could not be copied: nothing was kept") from e
+    argv = [*accounts.RESUME[to], moved.session_id]
+    try:  # the copy stays: the session can still be resumed there by hand
+        new = tmux.new_window(pane.session, f"{agent} on {profile['name']}"[:40],
+                              accounts.command(to, profile["dir"], argv), cwd=cwd)
+    except (subprocess.CalledProcessError, OSError) as e:
+        _audit(request, "move_session", pane_id, detail, outcome="error: copied, no window")
+        raise HTTPException(500, "the session was copied, but its window could not be "
+                                 "opened") from e
+    # A window is not yet an agent: hold the next move until this one shows as running.
+    if not _started(moved, target, new):
+        _audit(request, "move_session", new, f"from={pane.id} {detail}",
+               outcome="error: copied, agent did not start")
+        raise HTTPException(500, "the session was copied, but its agent did not start")
     _audit(request, "move_session", new, f"from={pane.id} {detail}")
     return {**_opened(new), "copied": copied}
 
@@ -2392,13 +2412,33 @@ if _scratch_dir:
 
     @app.get("/api/scratch/{name}/pane")
     def scratch_maker(name: str) -> dict:
-        """The open pane that made a scratch folder (scratch.maker): the viewer's composer."""
-        pane = scratch.maker(Path(_scratch_dir), name, list(app.state.watcher.states)) or {}
+        """The open pane a scratch folder's messages go to (scratch.maker): the viewer's
+        composer."""
+        watcher = app.state.watcher
+        pane = scratch.maker(Path(_scratch_dir), name, list(watcher.states),
+                             lambda entry: live.running_pane(entry, watcher)) or {}
         return {"pane": pane.get("pane_id"), "birth": pane.get("birth"),
                 "about": scratch.about(Path(_scratch_dir), name)}
 
+    class ScratchPane(BaseModel):
+        pane: str
+        birth: str
+
+    @app.put("/api/scratch/{name}/pane")
+    def scratch_move(name: str, body: ScratchPane, request: Request) -> dict:
+        """Send a scratch folder's messages to this open pane from now on (scratch.bind)."""
+        try:
+            scratch.bind(Path(_scratch_dir), name, body.pane, body.birth,
+                         list(app.state.watcher.states))
+        except ValueError as e:
+            _refuse(request, "scratch_move", name[:120], 422, str(e))
+        _audit(request, "scratch_move", body.pane, name[:120])
+        return scratch_maker(name)
+
     def _pins() -> Path:
         return accounts.store_path().with_name("pins.json")  # the state dir: every device's
+
+    scratch.BINDINGS = _pins().with_name("bindings.json")
 
     @app.get("/api/pins")
     def get_pins() -> list[dict]:

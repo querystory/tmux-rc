@@ -6,7 +6,7 @@ import { Composer, bindAttach, enterSubmits, sendBlock, block } from "/m/compose
 import { answerBody, pickCursorRow, STALE, UNTAKEN } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { linkGroups, askLink } from "/pr-links.js";
-import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf, tabTitle, tabIconKey, isRunning, sendIntent } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, AGENT_TOOLS, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf, tabTitle, tabIconKey, isRunning, sendIntent } from "/m/pane-model.js";
 import { tabIcon } from "/tab-icon.js";
 import { parseHash, formatHash, historyMode, PAGES, scratchUrl } from "/m/url-state.js";
 import "/long-press.js"; // globalThis.longPress: a classic script, so the scratch gallery shares it
@@ -102,6 +102,7 @@ const LUCIDE = {
   network: '<rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3M12 12V8"/>',
   fileText: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4M10 9H8M16 13H8M16 17H8"/>',
   pin: '<path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>',
+  download: '<path d="M12 15V3M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/>',
   activity: '<path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/>',
   listTodo: '<rect x="3" y="5" width="6" height="6" rx="1"/><path d="m3 17 2 2 4-4M13 6h8M13 12h8M13 18h8"/>',
   files: '<path d="M20 7h-3a2 2 0 0 1-2-2V2"/><path d="M9 18a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h7l4 4v10a2 2 0 0 1-2 2Z"/><path d="M3 7.6v12.8A1.6 1.6 0 0 0 4.6 22h9.8"/>',
@@ -321,7 +322,8 @@ const hashFor = (id = null, nextView = "summary", acct = accounts.key()) => {
   return formatHash({ pane: id, view: nextView, dashboard: nextView === "dashboard" || !!nextPage, page: nextPage, filter, acct, agent: scope.tools, q: $("search").value });
 };
 // Such a link's plain click routes in place instead.
-const inApp = (go) => (e) => { if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; e.preventDefault(); go(); };
+const plainClick = (e) => !(e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey); // a modified click opens a tab
+const inApp = (go) => (e) => { if (!plainClick(e)) return; e.preventDefault(); go(); };
 // A pane's row (either layout's) or rail icon, as its link.
 const paneLink = (a, id) => { a.href = `#${hashFor(id)}`; a.onclick = inApp(() => navigate(id)); };
 // Every user-driven move goes through here: the URL is written first, then the view is
@@ -931,7 +933,7 @@ function viewScratch(href, title) {
   const frame = Object.assign(document.createElement("iframe"), { src: href, title, onload() {
     if (++this.loads > 1) { viewerTo = null; paintViewerForm(); } else this.sandbox = "allow-popups allow-popups-to-escape-sandbox";
   }, loads: 0 });
-  frame.addEventListener("load", tellScratch);
+  frame.addEventListener("load", tellScratch); frame.addEventListener("load", loadRecent); // the visit is in by its load
   $("viewer-form").before(frame);
   viewer.showModal(); viewer.focus(); paintPins(pins); loadPins(); findMaker(href); // cached now, then as stored: a slot freed meanwhile
 }
@@ -949,12 +951,20 @@ function paintPins(list) {
   // The viewer's Pin: for a folder of scratch (an archived page's link is under .archive/).
   const folder = viewedFolder(), on = list.some((p) => p.name === folder), full = !on && list.length >= 6;
   $("viewer-pin").hidden = !folder || folder.startsWith(".");
+  const get = new URL($("viewer-out").href || location.href); get.searchParams.set("download", 1);
+  Object.assign($("viewer-get"), { hidden: !folder, href: get.href }); // a navigation, not <a download>: iOS's standalone PWA saves it
   Object.assign($("viewer-pin"), { disabled: full, title: full ? "Six pins at most: unpin one first" : on ? "Unpin from the menu" : "Pin to the menu" }).setAttribute("aria-pressed", on);
   html($("viewer-pin"), licon("pin", 16) + (on ? "Pinned" : "Pin"));
+  html($("viewer-get"), licon("download", 16)); // the icon alone: a phone's bar keeps room for the title
 }
 const loadPins = () => request("/api/pins").then(paintPins, () => {});
-// Over Scratch, as the gallery's own pages are: route() closes a viewer left anywhere else.
-$("sb-pins").onclick = (e) => { const a = e.target.closest("a"); if (a) inApp(() => { openPage("scratch"); viewScratch(a.href, a.title); })(e); }; // a modified click opens a tab
+// Every scratch page's link in the app (a pin, a recent page, a pane's Links, a card's ask) opens
+// in the viewer, over Scratch as the gallery's own pages are: route() closes a viewer left
+// anywhere else. Not the viewer's own way out to a tab, nor a click handled already (the
+// drawer's, which shuts first).
+const viewLink = (a) => { openPage("scratch"); viewScratch(a.href, a.title || a.firstChild.textContent); };
+const scratchLink = (a) => !!scratchUrl(a?.href, location.href);
+addEventListener("click", (e) => { const a = e.target.closest?.("a"); if (!e.defaultPrevented && !["viewer-out", "viewer-get"].includes(a?.id) && scratchLink(a)) inApp(() => viewLink(a))(e); });
 // One save at a time: each reads the list the one before it wrote, so none drops another's pin.
 let pinSave = Promise.resolve();
 $("viewer-pin").onclick = () => {
@@ -967,20 +977,43 @@ $("viewer-pin").onclick = () => {
     } catch (e) { $("viewer-pin").title = `Could not save the pin: ${e.detail || e.message}`; }
   });
 };
-addEventListener("focus", loadPins); loadPins(); // another device's pin shows once this one is back
+for (const load of [loadPins, loadRecent]) { addEventListener("focus", load); load(); } // another device's pin, or a page opened there, shows once this one is back
 // The agent that made the page is messaged from the viewer's own footer, never from the
-// sandboxed page: the open pane its meta.json names (scratch.maker), that incarnation only.
-// A Composer per pane, sent through compose() like the pane's footer and a sidebar Reply.
+// sandboxed page: its open pane as the server finds it (scratch.maker), that incarnation only,
+// or the one the user moved the page to with the To chip. A Composer per pane, sent through
+// compose() like the pane's footer and a sidebar Reply.
 async function findMaker(href) {
-  viewerTo = null; paintViewerForm(); text($("viewer-status"), "");
+  viewerTo = moving = null; paintViewerForm(); text($("viewer-status"), "");
   const url = new URL(href), [, , folder, ...view] = url.pathname.split("/"); // the page and query it opened at
   const to = folder ? { ...await request(`/api/scratch/${folder}/pane`).catch(() => ({})), folder: decodeURIComponent(folder), view: view.join("/") + url.search + url.hash } : {};
   // Another page opened meanwhile, this one navigated, or it names no pane or no sendable folder.
-  if (!viewer.open || $("viewer-out").href !== href || viewer.querySelector("iframe")?.loads > 1 || !to.pane || !to.about) return;
-  const key = viewerKey({ pane_id: to.pane, birth: to.birth });
-  if (!viewerDrafts.has(key)) viewerDrafts.set(key, new Composer(() => { text($("viewer-status"), ""); paintViewerForm(); }, (m) => text($("viewer-status"), m), { id: "viewer-reply" }));
-  viewerTo = to; text($("viewer-prefix"), to.about); shotChip(true); paintViewerForm(); // the line the server opens a send with
+  if (!viewer.open || $("viewer-out").href !== href || viewer.querySelector("iframe")?.loads > 1 || !to.about) return;
+  shotChip(true); useMaker(to);
 }
+function useMaker(to) {
+  const key = viewerKey({ pane_id: to.pane, birth: to.birth });
+  if (to.pane && !viewerDrafts.has(key)) viewerDrafts.set(key, new Composer(() => { text($("viewer-status"), ""); paintViewerForm(); }, (m) => text($("viewer-status"), m), { id: "viewer-reply" }));
+  viewerTo = to; text($("viewer-prefix"), to.about); paintViewerForm(); // the line the server opens a send with
+}
+// The To chip: every open agent pane, named as the gallery's cards name them (scratch.where).
+// Picking one moves the page there, for every device, until that pane closes. Send waits for
+// the move (the chip names the pane it goes to till then), and only the latest pick lands, and
+// only on the visit it was made from.
+let moving = null, moveSave = Promise.resolve(); // saved in the order picked, as pins are
+const paintMove = headerPicker($("viewer-move"));
+$("viewer-move-picker").ontoggle = (e) => e.target.querySelector(":checked")?.scrollIntoView({ block: "nearest" });
+const paneWhere = (p) => { const name = paneName(p); return name.startsWith(`${p.session}:`) ? name : `${p.session}:${name}`; };
+$("viewer-move").onchange = async () => {
+  const p = panes.find((q) => viewerKey(q) === $("viewer-move").value), { folder } = viewerTo || {};
+  if (!p || !folder) return;
+  const frame = viewer.querySelector("iframe"), move = moving = moveSave = moveSave.catch(() => {}).then(() => request(`/api/scratch/${encodeURIComponent(folder)}/pane`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pane: p.pane_id, birth: p.birth }) }));
+  paintViewerForm();
+  let failed; const to = await move.catch((e) => { failed = e; });
+  if (moving !== move || !viewer.open || viewer.querySelector("iframe") !== frame || frame.loads > 1) return; // a later pick, or another visit
+  moving = null;
+  if (to) return useMaker({ ...viewerTo, ...to });
+  text($("viewer-status"), `Could not move the page: ${failed.detail || failed.message}`); paintViewerForm();
+};
 // The page as the user sees it goes with each send unless they take it off: the server draws it
 // (the sandboxed frame can't be read from here) at the frame's size (as last seen without the
 // keyboard, which shrinks it) for its width, whole, at the screen's pixel ratio, and the
@@ -993,16 +1026,19 @@ const viewerShot = () => $("viewer-shot").getAttribute("aria-pressed") === "true
 const viewerKey = (p) => `${p.pane_id}@${p.birth}`; // a pane recycled under its id is another agent, with no draft
 const viewerPane = () => panes.find((p) => p.pane_id === viewerTo?.pane && p.birth === viewerTo.birth);
 // Why Send can't go now ("" when it can): the greyed look and what a tap on it says.
-const viewerWhy = (p) => sending ? "Still sending the last message…" : p.secret ? "This pane is asking for a password: open it to answer." : !viewerDrafts.get(viewerKey(p)).segments().length ? "Nothing to send yet." : "";
+const viewerWhy = (p) => moving ? "Checking where this page goes…" : sending ? "Still sending the last message…" : p.secret ? "This pane is asking for a password: open it to answer." : !viewerDrafts.get(viewerKey(p)).segments().length ? "Nothing to send yet." : "";
 function paintViewerForm() {
   const p = $("scratch-viewer").open && viewerPane(), form = $("viewer-form"); // render() may run before `viewer` is defined
-  form.hidden = !p; // no pane named, or it has closed
-  if (!p) return;
+  form.hidden = !($("scratch-viewer").open && viewerTo); // not a page messages can go from
+  if (form.hidden) return;
+  html($("viewer-move"), (p ? "" : '<option value="">Choose a pane</option>') + panes.filter((q) => AGENT_TOOLS.has(q.tool) || q === p).map((q) => `<option value="${esc(viewerKey(q))}">${esc(paneWhere(q))}</option>`).join(""));
+  $("viewer-move").value = p ? viewerKey(p) : ""; paintMove();
+  $("viewer-to").hidden = !p; $("viewer-send").setAttribute("aria-disabled", String(!p));
+  if (!p) return form.querySelector("#viewer-reply")?.remove(); // no pane found, or it has closed: the chip picks one
   const { editor } = viewerDrafts.get(viewerKey(p)), frame = $("scratch-viewer").querySelector("iframe");
   if (!form.contains(editor)) { form.querySelector("#viewer-reply")?.remove(); $("viewer-send").before(editor); }
-  const to = `Message ${p.session}:${p.window_index} (${paneName(p)})`;
-  editor.dataset.placeholder = "Message…"; editor.setAttribute("aria-label", to); // the link above names it
-  text($("viewer-to"), to); $("viewer-to").href = "#" + formatHash({ pane: p.pane_id }); // the pane it goes to, a tap away
+  editor.dataset.placeholder = "Message…"; editor.setAttribute("aria-label", `Message ${paneWhere(p)}`); // the chip above names it
+  $("viewer-to").href = "#" + formatHash({ pane: p.pane_id }); // the pane it goes to, a tap away
   editor.contentEditable = String(!p.secret); // a password goes in the pane's own field, never here
   $("viewer-send").setAttribute("aria-disabled", String(!!viewerWhy(p)));
   // Last, so the size is the frame's beside the finished box (read now, it lays out).
@@ -1011,9 +1047,16 @@ function paintViewerForm() {
 $("viewer-to").onclick = (event) => { event.preventDefault(); navigate(viewerTo.pane); }; // leaving Scratch closes the viewer (route)
 $("viewer-form").onsubmit = async (event) => {
   event.preventDefault();
-  const p = viewerPane(), why = p ? viewerWhy(p) : "This pane has closed.";
+  const p = viewerPane(), why = p ? viewerWhy(p) : "Choose the pane to send to.";
   if (why) return text($("viewer-status"), why);
-  const value = viewerDrafts.get(viewerKey(p)), href = $("viewer-out").href, sent = await compose(p.pane_id, value, p.birth, { scratch: viewerTo.folder, ...viewerShot() && { shot: viewerShot(), view: viewerTo.view } });
+  // Where the page goes now: another device may have moved it since this visit asked.
+  const href = $("viewer-out").href, to = viewerTo, check = moving = request(`/api/scratch/${encodeURIComponent(to.folder)}/pane`).catch(() => null);
+  const now = await check;
+  if (moving !== check || viewerTo !== to || !viewer.open) return; // a pick since, or another visit (findMaker and a navigation reset viewerTo)
+  moving = null;
+  if (!now) return text($("viewer-status"), "Could not check where this page goes. Your message is kept: send again.");
+  if (viewerKey({ pane_id: now.pane, birth: now.birth }) !== viewerKey(p)) { useMaker({ ...viewerTo, ...now }); return text($("viewer-status"), "This page was moved: check the To chip, then send again."); }
+  const value = viewerDrafts.get(viewerKey(p)), sent = await compose(p.pane_id, value, p.birth, { scratch: viewerTo.folder, ...viewerShot() && { shot: viewerShot(), view: viewerTo.view } });
   // Only on the visit it was sent from, and "Sent" not over a next draft typed meanwhile.
   if (viewer.open && $("viewer-out").href === href) text($("viewer-status"), !sent ? KEPT : value.segments().length ? "" : "Sent");
 };
@@ -1125,6 +1168,8 @@ function render() {
   const account = pane && accounts.badge(pane.pane_id);
   show("move-pane", !!pane && accounts.moveTargets(pane.pane_id, pane.tool).length > 0);
   html($("move-pane"), `${licon("users", 18)}<span>Move to another account…${account ? `<small class="acct-on">Now on ${account}</small>` : ""}</span>`);
+  show("move-agent", !!OTHER_AGENT[pane?.tool] && accounts.moveTargets(pane.pane_id, pane.tool, OTHER_AGENT[pane.tool]).length > 0);
+  html($("move-agent"), `${licon("bot", 18)}<span>Move to another agent…</span>`);
   markEnding($("detail"), pane);
   text($("pane-location"), pane ? [sessionOf(pane), pane.window_name || pane.pane_id].filter(Boolean).join(" / ") : "Waiting for session state");
   if (account) $("pane-location").insertAdjacentHTML(wide ? "beforeend" : "afterbegin", wide ? ` · ${account}` : `${account} `);
@@ -2109,14 +2154,15 @@ $("menu-open").onclick = (e) => {
 };
 $("drawer").onclick = (e) => {
   keyed ||= !e.detail; const row = e.target.closest("button, a");
-  if (row || e.target === drawer) settle(false, () => row?.dataset.via ? $(row.dataset.via).click() : row?.dataset.pane && navigate(row.dataset.pane));
+  const page = scratchLink(row) && plainClick(e); if (page) e.preventDefault(); // the viewer opens it, once the drawer is shut
+  if (row || e.target === drawer) settle(false, () => row?.dataset.via ? $(row.dataset.via).click() : row?.dataset.pane ? navigate(row.dataset.pane) : page && viewLink(row));
 };
 $("drawer").addEventListener("cancel", (e) => { e.preventDefault(); keyed = true; settle(false); });
-// Below the places, what you opened last (GET /api/recent, read only as the drawer opens: a
-// closed drawer costs a poll nothing), each with when it was opened. The panes paint at once, as
+// Below the places, what you opened last (GET /api/recent, read as the drawer opens and as the
+// app or the viewer's page loads: never a poll), each with when it was opened. The panes paint at once, as
 // last read (before any visit, the list's most active, with their age), and again when the read
-// lands; scratch's pages then, beneath them, each opening in a tab of its own as the gallery's
-// cards do.
+// lands; scratch's pages then, beneath them and in the wide sidebar, each opening in the
+// viewer as the gallery's cards do.
 let opened = [];
 const recentList = (label, rows) => rows.length ? `<h2>${label}</h2>${rows.join("")}` : "";
 function paintRecent() {
@@ -2126,11 +2172,12 @@ function paintRecent() {
   html($("drawer-panes"), recentList("Recent", recent.map(([p, when]) => `<button type="button" data-pane="${esc(p.pane_id)}"><span class="pane-icon"><img alt=""></span><span>${esc(paneName(p))}</span><time>${when}</time></button>`)));
   $("drawer-panes").querySelectorAll("img:first-child").forEach((img, i) => markWorking(img, recent[i][0], LOGOS));
 }
-function openRecent() {
-  paintRecent(); loadPins();
+function openRecent() { paintRecent(); loadPins(); loadRecent(); }
+function loadRecent() {
   request("/api/recent").then((recent) => {
     opened = recent.panes; paintRecent();
-    html($("drawer-scratch"), recentList("Recent scratch", recent.scratch.map((s) => `<a href="/scratch/${esc(s.href)}" target="_blank">${s.pending ? '<span class="pane-icon pending"></span>' : licon("images")}<span>${esc(s.title)}</span><time>${since({ state_since: s.at })}</time></a>`)));
+    const rows = recentList("Recent scratch", recent.scratch.map((s) => `<a href="/scratch/${esc(s.href)}" title="${esc(s.title)}">${s.pending ? '<span class="pane-icon pending"></span>' : licon("images")}<span>${esc(s.title)}</span><time>${since({ state_since: s.at })}</time></a>`));
+    for (const id of ["drawer-scratch", "sb-recent"]) html($(id), rows);
   }, () => {});
 }
 // It tracks the finger, as Gmail's does: dragged sideways while open, or in from the list's left
@@ -2590,10 +2637,9 @@ async function openLaunch(fresh, opener, kind) {
       const label = document.createElement("span");
       const name = document.createElement("strong"); name.textContent = launcher.label;
       // What it starts, one muted line: a variant's model (its label's parenthesis), else the
-      // tool; after the account it starts on, where it has several (accounts.picker).
+      // tool. No account here: one with several accounts asks for it in the next step.
       const desc = document.createElement("small");
-      desc.innerHTML = `<span class="acct-on" hidden></span><span class="desc"></span>`;
-      desc.lastChild.textContent = /\((.+)\)/.exec(launcher.label)?.[1] || LAUNCH_DESC[launcher.icon] || LAUNCH_DESC[launcher.provider] || "A configured launcher";
+      desc.textContent = /\((.+)\)/.exec(launcher.label)?.[1] || LAUNCH_DESC[launcher.icon] || LAUNCH_DESC[launcher.provider] || "A configured launcher";
       label.append(name, desc);
       // A launcher whose command the daemon can't find stays VISIBLE — the user
       // configured it, so hiding it would only be a second mystery — but is disabled and
@@ -2601,7 +2647,7 @@ async function openLaunch(fresh, opener, kind) {
       // The marker outlives the disabled flag, which launchWindow's `finally` clears on
       // every button: without it one failed launch would re-arm the entries the daemon
       // has just told us cannot run.
-      if (launcher.unavailable) { button.dataset.unavailable = launcher.unavailable; desc.lastChild.textContent = launcher.unavailable; }
+      if (launcher.unavailable) { button.dataset.unavailable = launcher.unavailable; desc.textContent = launcher.unavailable; }
       button.append(logo, label);
       if (!launcher.unavailable) button.insertAdjacentHTML("beforeend", licon("plus"));
       button.disabled = !!launcher.unavailable;
@@ -2723,7 +2769,7 @@ function placeChrome() {
     if (!homes[id]) $(id).before(homes[id] = document.createComment(id));
     if (WIDE.matches) $(slot).append($(id)); else homes[id].after($(id));
   }
-  $("sb-sticky").before($("sb-nav"));
+  $("sb-sticky").before($("sb-nav"), $("sb-recent"));
   // The account filter (accounts.js) is a group in the filter menu in both layouts (a phone's
   // opens as a bottom sheet); the active filters' chips are placed by placePill().
   renderSidebar.picker.lastChild.append(accounts.filter, ...renderSidebar.views);
@@ -2858,7 +2904,7 @@ $("expunge-pane").onclick = async () => {
   const birth = panes.find((p) => p.pane_id === pane)?.birth; // the incarnation this menu is for
   if (!pane) return;
   let plan;
-  try { plan = await request(`${paneUrl(pane, "expunge")}?birth=${encodeURIComponent(birth ?? "")}`); } catch (error) { return expungeSheet(error.detail || "Could not find this pane's session."); }
+  try { plan = await request(`${paneUrl(pane, "expunge")}?birth=${encodeURIComponent(birth ?? "")}`); } catch (error) { return expungeSheet(`Could not expunge this window: ${error.detail || error.message}`); }
   if (plan.nothing) return expungeSheet("This window has no saved conversation to expunge. Close the window instead?", () => killWindow(pane, birth), true);
   const harness = plan.harness === "codex" ? "Codex" : "Claude Code", n = plan.files.length;
   expungeSheet(`This kills the tmux window of “${title}”, ending everything running in it, and permanently deletes its ${harness} session ${plan.session_id.slice(0, 8)}: ${items(n)}${plan.shared.length ? `, plus its entries in ${plan.shared.join(", ")}` : ""}.${plan.harness === "codex" ? " Codex's own databases keep their copy of the thread." : ""}`, async () => {
@@ -2874,23 +2920,28 @@ $("expunge-pane").onclick = async () => {
   });
 };
 // Move to another account: copy the pane's agent session into another account's dir and
-// resume it there in a new window; this pane and the original are left alone
-// (docs/design/agent-accounts.md).
+// resume it there in a new window; this pane and the original are left alone. Move to another
+// agent is the same sheet, carrying the conversation to the other agent (with its vendor's
+// consent step) rather than copying it (docs/design/agent-accounts.md).
 // Not while a choice runs: the sheet is where its outcome shows.
+const OTHER_AGENT = { claude: "codex", codex: "claude" }, AGENT = { claude: ["Claude Code", "Anthropic"], codex: ["Codex", "OpenAI"] };
 $("close-move").onclick = () => $("move-choices").inert || $("move-dialog").close();
 $("move-dialog").addEventListener("cancel", (e) => { if ($("move-choices").inert) e.preventDefault(); });
-$("move-pane").onclick = async () => {
+const moveSheet = (other) => async () => {
   closePaneMenu();
   const pane = panes.find((p) => p.pane_id === active);
   if (!pane) return;
+  const to = other ? OTHER_AGENT[pane.tool] : pane.tool, [name, vendor] = AGENT[to] || [];
   // Which account each pane runs on, fresh: a stale list offers the pane its own.
   if (!await accounts.refresh()) return notice("Could not load the accounts.", 6000);
-  const targets = accounts.moveTargets(pane.pane_id, pane.tool);
-  if (!targets.length) return notice("No other signed-in account to move it to.", 6000);
+  const targets = accounts.moveTargets(pane.pane_id, pane.tool, to);
+  if (!targets.length) return notice(other ? `No signed-in ${name} account to move it to.` : "No other signed-in account to move it to.", 6000);
+  // No status means no answer at all: the server may have done it, so never just "could not".
+  const failed = (what, maybe, error) => notice(error.status === undefined ? `Connection lost; ${maybe}` : `Could not ${what}: ${error.detail || error.message}`, 6000);
   // The session it runs now, which every request below is bound to (Expunge's preview names it).
-  let session_id;
-  try { ({ session_id } = await request(`${paneUrl(pane.pane_id, "expunge")}?birth=${encodeURIComponent(pane.birth ?? "")}`)); }
-  catch (error) { return notice(error.detail || "Could not find this pane's session.", 6000); }
+  let session_id, size;
+  try { ({ session_id, size } = await request(`${paneUrl(pane.pane_id, "expunge")}?birth=${encodeURIComponent(pane.birth ?? "")}`)); }
+  catch (error) { return failed("move this session", "nothing was moved.", error); }
   if (!session_id) return notice("This window has no saved conversation to move.", 6000);
   const sheet = (what, choices) => {
     text($("move-what"), what);
@@ -2910,12 +2961,10 @@ $("move-pane").onclick = async () => {
     }));
   };
   const go = (id) => { $("move-dialog").close(); openLaunched(id); };
-  // No status means no answer at all: the server may have done it, so never just "could not".
-  const failed = (what, maybe, error) => notice(error.status === undefined ? `Connection lost; ${maybe}` : `Could not ${what}: ${error.detail || error.message}`, 6000);
   const move = async (p, flags = {}) => {
     try {
-      const r = await post(paneUrl(pane.pane_id, "move"), { dir: p.dir, birth: pane.birth, session_id, ...flags }, NO_TIMEOUT);
-      sheet(`It is running on ${p.name} in a new window. This window still runs it on this account until it exits.`, [
+      const r = await post(paneUrl(pane.pane_id, "move"), { dir: p.dir, birth: pane.birth, session_id, ...other && { agent: to }, ...flags }, NO_TIMEOUT);
+      sheet(other ? `${name} is running it on ${p.name} in a new window. This window still runs it here until it exits.` : `It is running on ${p.name} in a new window. This window still runs it on this account until it exits.`, [
         ["Go to the new window", "", () => go(r.pane_id)],
         ["Exit the old pane", "Types /exit here, then goes to the new window", async () => {
           try { await post(paneUrl(pane.pane_id, "exit"), { birth: pane.birth, session_id }); }
@@ -2930,10 +2979,17 @@ $("move-pane").onclick = async () => {
       failed("move the session", "the move may have completed. Look for its new window before trying again.", error);
     }
   };
-  sheet(`Copies this ${pane.tool === "codex" ? "Codex" : "Claude Code"} session to the account you pick and resumes it there, in a new window in ${pane.session}. It is a copy, never a move: the original stays readable on this account, and this window keeps running until you exit it. An account that has never opened this folder asks you to trust it first.`,
-    targets.map((p) => [accounts.chip(p), p.sub, () => move(p)]));
+  // To another agent the conversation leaves its vendor, so the last step says so and what goes.
+  const consent = (p) => sheet(`Sends this conversation, tool output included (a ${bytes(size)} transcript), from ${AGENT[pane.tool][1]} to ${vendor}, and resumes it in ${name}${targets.length > 1 ? ` on ${p.name}` : ""}, in a new window in ${pane.session}. Messages carry over word for word; tool calls and their output as notes, each cut to 4,000 characters; reasoning stays behind.${to === "claude" ? " A long conversation keeps its first request and the newest turns that fit, and a very long turn only its start." : ""} This window keeps running until you exit it.`,
+    [[`Send to ${vendor} and start`, "", () => move(p)]]);
+  text($("move-title"), other ? `Move to ${name}` : "Move to another account");
+  if (other && targets.length === 1) consent(targets[0]);
+  else sheet(other ? `Which ${name} account should it move to?` : `Copies this ${AGENT[pane.tool][0]} session to the account you pick and resumes it there, in a new window in ${pane.session}. It is a copy, never a move: the original stays readable on this account, and this window keeps running until you exit it. An account that has never opened this folder asks you to trust it first.`,
+    targets.map((p) => [accounts.chip(p), p.sub, () => other ? consent(p) : move(p)]));
   $("move-dialog").showModal();
 };
+$("move-pane").onclick = moveSheet(false);
+$("move-agent").onclick = moveSheet(true);
 window.addEventListener("hashchange", route);
 // A push tapped while the app is open: sw.js names the address to show, and it is routed
 // here like any move. pushState, not location.hash, so the bare-list "/m" routes too.

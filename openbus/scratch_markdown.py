@@ -11,7 +11,7 @@ import re
 from functools import lru_cache
 from html import escape, unescape
 from pathlib import Path
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, quote
 
 import anyio
 import markdown
@@ -125,7 +125,8 @@ class Files(StaticFiles):
     folder's index.md as its index when it has no index.html, and, while it has neither,
     what `pending` makes of the folder's name (scratch.placeholder), as 202 Accepted:
     an agent checking for a 200 is not told its page is there; while `updating` says the
-    folder is being revised (scratch.bar), its .md pages wear that bar. Anything hidden (a .git,
+    folder is being revised (scratch.bar), its .md pages wear that bar. `?download=1` saves
+    the page (a .md one rendered) as a file named after its folder. Anything hidden (a .git,
     an .env) is not part of the page, as in the gallery, and is not served. An archived
     folder (in ARCHIVE) is served at ARCHIVE/<name>/, where the Archived gallery links it,
     and at its old link while no folder has taken that name since, so links handed out keep
@@ -150,6 +151,18 @@ class Files(StaticFiles):
         return full, st
 
     async def get_response(self, path, scope):
+        response = await self._response(path, scope)
+        if "download" not in parse_qs(scope["query_string"].decode()):
+            return response
+        if response.status_code == 202:  # nothing to save yet (a placeholder): stay on the app
+            return Response(status_code=204)
+        name = quote(path.removeprefix(ARCHIVE + "/").split("/")[0])  # the page's folder
+        html = response.headers.get("content-type", "").startswith("text/html")  # a .md's too
+        ext = ".html" if html else Path(getattr(response, "path", "")).suffix  # a PDF stays one
+        response.headers["content-disposition"] = f"attachment; filename*=UTF-8''{name}{ext}"
+        return response
+
+    async def _response(self, path, scope):
         seen = parse_qs(scope["query_string"].decode()).get("seen")
         folder = "/" not in path.removeprefix(ARCHIVE + "/")  # a folder's own URL
         if seen and folder:  # a placeholder or bar asking: wide says reload
