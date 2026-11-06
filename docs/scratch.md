@@ -84,8 +84,14 @@ composer as the pane's own. A message opens with `Re scratch <folder>: ` so the 
 which page you mean, and by default carries a screenshot of the page: the daemon draws
 it afresh at your screen's width and theme, the whole page from the top (cut at 6000
 pixels), so "the chart on the right is wrong" needs no further description;
-**Screenshot attached** toggles it off. The box appears only while
-that very pane is still open, never for another pane that later took its id.
+**Screenshot attached** toggles it off. The box sends only while
+that very pane is still open, never to another pane that later took its id.
+
+Its **To** chip names that pane. The maker is the one the gallery's card names: for a Codex
+page, whose meta.json names whichever pane started Codex's shared app-server, the pane
+showing the thread its transcript says wrote the page. When no open pane can be confirmed
+the chip reads **Choose a pane**; picking any agent pane there moves the page to it, for
+every device, until that pane closes.
 
 A page can also offer replies of its own, two ways, and neither sends anything by itself.
 A draft: inside the app's viewer the page posts `{pane, draft}` to its parent, and a page

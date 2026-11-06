@@ -808,3 +808,20 @@ def test_a_codex_thread_moves_with_its_resumed_segments(home):
     session = expunge.Session("codex", SID, home / ".codex", home / "agent-history", 0, "")
     assert len(accounts.copy_session(session, home / ".codex2")) == 2
     assert len(list((home / ".codex2/sessions/2026/10/09").iterdir())) == 2
+
+
+def test_a_session_moves_to_the_other_agent_in_a_new_window(client, home, moving, monkeypatch):
+    carried = []
+    monkeypatch.setattr(S.agent_move, "move", lambda *a: carried.append(a) or "thread-1")
+    r = moving(".codex2", agent="codex")
+    assert r.status_code == 200, r.text
+    assert [(a[1], a[2], a[3]) for a in carried] == [("codex", home / ".codex2", os.getcwd())]
+    argv = next(a for a in client.calls if a[0] == "new-window")
+    assert argv[argv.index("--") + 1:] == [
+        "env", f"CODEX_HOME={home}/.codex2", "codex", "resume", "thread-1"]
+    assert "kill" not in str(client.calls)  # the source pane is never touched
+    assert moving(".claude-personal", agent="codex").status_code == 404  # not a Codex account
+    monkeypatch.setattr(S.agent_move, "move", lambda *_: (_ for _ in ()).throw(
+        LookupError("this session has no transcript to move yet")))
+    r = moving(".codex2", agent="codex")
+    assert r.status_code == 409 and "no transcript" in r.json()["detail"]

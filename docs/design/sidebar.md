@@ -123,9 +123,9 @@ what it does; the accounts are a step after the agent, shown only for one with s
 account that would start anyway, with Back to the agents and Start: a two-column grid of
 small chips, "+ Add account" the next cell, with a hint naming the tool they apply to; the session's default is a sentence with a
 checkbox ("Use Work for every new window in qs") and a muted line on what happens otherwise,
-not a "Default for … Not set" select; and each tool is a 52px row with a muted line, the
-account it starts on where it has several, then its model or what it is. Rows the account
-does not apply to carry no chip. It fits unscrolled at 900px tall; shorter, the body scrolls under
+not a "Default for … Not set" select; and each tool is a 52px row with a muted line, its model
+or what it is. The row names no account, even preset: the account step comes next, and an
+account on the row read as already decided. It fits unscrolled at 900px tall; shorter, the body scrolls under
 the fixed title.
 
 Its top row picks Session, Chat or Voice, so starting something is one place whatever it is.
@@ -135,7 +135,14 @@ tap. A choice that can't start here is greyed, and tapping it puts the reason on
 below; with neither available (Live Mode is off by default) the row is hidden, so a casual
 user's sheet is unchanged. The row goes with the choice: picking Chat or Voice carries it to
 the top of that sheet, pressed on the pick, so Session is one tap back rather than a close
-and a second + (the first version dropped it with the sheet, and there was no way back). It
+and a second + (the first version dropped it with the sheet, and there was no way back).
+A tab is only a tab: on a wide screen the Chat or Voice sheet opens where New session was,
+and nothing has started yet. The first message, starter chip or voice Start begins the
+conversation and docks the sheet on the right. Docking on the tap itself made the target
+jump across the screen. It also opened a chat nobody had asked for, so Voice then said
+"End the chat first." On a wide screen, the top bar's Chat and Voice open this same sheet on
+their tab, for the same reason. The dock slides in from the right edge as it takes the
+conversation, so you can see where it went. It
 returns to New session when the Chat sheet closes, or when New session opens over a docked
 one; Chat opened from its own button never shows it. While a conversation runs, the other
 mode is a reason on the line ("End the chat first"), not a pressed choice that did not take:

@@ -36,7 +36,7 @@ export async function start(page, kind) {
 export function chat(ask, until) {
   return async (page) => {
   await start(page, "chat");
-  await page.waitForFunction(() => document.getElementById("voice-status")?.textContent === "Connected");
+  await page.locator("#chat-input").waitFor(); // the first turn starts the chat
   await page.fill("#chat-input", ask);
   await page.press("#chat-input", "Enter");
   await page.waitForFunction(() => document.querySelectorAll("#voice-log .voice-entry").length >= 2);
