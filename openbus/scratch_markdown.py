@@ -97,16 +97,20 @@ def render(path: Path) -> tuple[str, str, str | None]:
     return _render(str(path), st.st_mtime, st.st_size)
 
 
-def page(path: Path, web: Path, notice: tuple[str, str] | None = None) -> str:
+def page(path: Path, web: Path, notice: tuple[str, str] | None = None, app: str = "/",
+         raw: str = "?raw") -> str:
     """The whole page for `path`: its HTML in a readable column on the app's colours (from
     `web`, the app's static dir), the Markdown kept for copying, mermaid.js loaded only
     when there is a diagram to draw, and `notice` (scratch.bar: its label for the tab, and
-    the bar) while the page is being updated."""
+    the bar) while the page is being updated. Its icon and mermaid.js load from `app`, the
+    app's static files' URL, and its Source link is `raw` (scratch.export: both relative)."""
     source, body, title = render(path)
     label, notice = notice or ("", "")
     title = f"{label} · {title or path.stem}" if label else title or path.stem
-    script = f'<script src="{MERMAID}"></script>' if 'class="mermaid"' in body else ""
+    script = (f'<script src="{app}{MERMAID.removeprefix("/")}"></script>'
+              if 'class="mermaid"' in body else "")
     return (_PAGE.read_text().replace("/*tokens*/", tokens(web / "m" / "style.css"))
+            .replace("<!--app-->", app).replace("<!--raw-->", escape(raw))
             .replace("/*pygments*/", _PYGMENTS).replace("<!--title-->", escape(title))
             .replace("<!--source-->", escape(source))
             .replace("<!--notice-->", notice).replace("<!--mermaid-->", script)
