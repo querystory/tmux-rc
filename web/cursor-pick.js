@@ -56,6 +56,8 @@ export const STALE = "stale";
 const PARSE_WAIT_MS = 15000; // per move: a long list reparses in ~8s; a wedged parse must not strand the walk
 const SETTLE_MS = 4000;     // after the commit, before the lock is handed back
 const POLL_MS = 120;
+// Claude Code drops an Enter that lands within 250ms of an arrow (its picker's misfire guard).
+const ARM_MS = 300;
 
 // One wording for every dead end. They are all the same thing from the user's side —
 // this UI cannot drive that widget — and the alternative to saying it is the silent
@@ -153,13 +155,18 @@ function bindings(q) {
 
 // The one option a highlighted row as drawn names, else null: the option it is exactly,
 // or failing that the one it starts with ahead of a value column, as classify grounds it.
-// Identical duplicates stay unresolved: a label alone can't say which one it is.
+// Identical duplicates stay unresolved: a label alone can't say which one it is. A stepper
+// row's value sits between ‹ › arrows its option leaves out, read so only where the row as
+// drawn names no option (classify's highlighted_row).
 function rowIndex(options, label) {
+  if (typeof label !== "string") return null;
   const at = (named) => options.flatMap((o, i) => (named(o) ? [i] : []));
-  const exact = typeof label === "string" ? at((o) => o === label) : [];
-  if (exact.length) return exact.length === 1 ? exact[0] : null;
-  const prefixed = typeof label === "string" ? at((o) => label.startsWith(`${o}  `)) : [];
-  return prefixed.length === 1 ? prefixed[0] : null;
+  for (const drawn of [label, label.replace(/‹ (.*?) ›/g, "$1")]) {
+    const exact = at((o) => o === drawn);
+    const named = exact.length ? exact : at((o) => drawn.startsWith(`${o}  `));
+    if (named.length) return named.length === 1 ? named[0] : null;
+  }
+  return null;
 }
 
 // The next frame a walk plans off: the screen a delivered key made, as /send read it back,
@@ -195,7 +202,7 @@ async function walk(io, targetText, targetIndex) {
   // only LOOK — see the bail below — or the budget would quietly be one larger than the
   // constant says.
   let read = null; // the screen the last key made, read back by /send
-  let stale = 0;
+  let stale = 0, arrowed = false; // the last delivered key was a move
   for (let moves = 0; moves <= CURSOR_MAX_STEPS; moves++) {
     const live = picker(io);
     if (!live) return false;
@@ -227,6 +234,8 @@ async function walk(io, targetText, targetIndex) {
     if (want < 0) return false; // gone, or two rows wear the title and neither is "the" one
     if (at === null) return false; // no trustworthy anchor — walking blind picks a row
     if (at !== want && moves === CURSOR_MAX_STEPS) return false; // budget spent; only looked
+    // Arrived by moving: let the last arrow age past the widget's misfire guard, then re-read.
+    if (at === want && arrowed) { arrowed = false; await sleep(ARM_MS); moves--; continue; }
     const key = at === want ? km.select : at < want ? km.next : km.prev;
     if (!key) return false; // the widget never advertised this key — don't invent one
     const before = io.parsedAt();
@@ -241,6 +250,7 @@ async function walk(io, targetText, targetIndex) {
     if (!sent) return false; // undelivered: the anchor is now a lie
     if (at === want) return took(sent, q.picker);
     read = after(q, sent);
+    arrowed = true;
     if (read) { if (read.selected === at) return false; continue; } // a key that moved nothing
     // A move that landed MOVED the highlight. A frame still reporting the old anchor is
     // either one that predates the key or a move that did nothing (the end of the list, a
