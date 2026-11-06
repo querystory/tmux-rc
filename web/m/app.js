@@ -8,7 +8,7 @@ import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { linkGroups, askLink } from "/pr-links.js";
 import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, AGENT_TOOLS, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf, tabTitle, tabIconKey, isRunning, sendIntent } from "/m/pane-model.js";
 import { tabIcon } from "/tab-icon.js";
-import { parseHash, formatHash, historyMode, PAGES, scratchUrl } from "/m/url-state.js";
+import { parseHash, formatHash, dropOneShots, historyMode, PAGES, scratchUrl } from "/m/url-state.js";
 import "/long-press.js"; // globalThis.longPress: a classic script, so the scratch gallery shares it
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { dragToDismiss } from "/m/drag-dismiss.js";
@@ -406,7 +406,7 @@ function route() {
   if (page !== "scratch") scratchFrom = null; // and its pane filter
   const opening = page === "scratch" && scratchUrl(state.open, location.href); // a "Ready" push's page, opened once
   if (opening) { history.replaceState(null, "", "#" + formatHash(state)); viewScratch(opening, ""); }
-  if (state.draft || state.compose) writeHash(formatHash(state)); // offered once: a reload or Back offers nothing
+  if (state.draft || state.compose) writeHash(dropOneShots(location.hash)); // offered once: a reload or Back offers nothing
   if (state.compose) startState(); // a poll already out may predate the push's ask, and would spend its focus
   if (changed) {
     if (active) $("reply").replaceWith(draft().editor);
