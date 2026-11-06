@@ -1012,6 +1012,11 @@ def _above_draft(text: str) -> str:
     return _below_turn(_ask_view(text), 0)
 
 
+def _one_line(text: str) -> str:
+    """An offer as it is sent, one line: a row break the model copied from a wrap is a space."""
+    return re.sub(r"[ \t]*\n[ \t]*", " ", text.strip())
+
+
 def _open_message(above: str) -> str:
     """On the screen above the draft, the final assistant message (from its bullet, or the
     top when the view begins inside it); none once the user typed after it."""
@@ -1034,7 +1039,7 @@ def _sends_out_of_options(result: dict, text: str) -> None:
     view, above = _ask_view(text), _above_draft(text)
     # Only the open message hands a command over: an answered turn's is done with.
     sends = [o for o in options if isinstance(o, str)
-             and _quoted(o.removeprefix("!").strip(), _open_message(above))
+             and _quoted(_one_line(o).removeprefix("!").strip(), _open_message(above))
              and any(g.startswith("!") for g in screen_offers([o], text))]
     question["options"] = [o for o in options if o not in sends
                            and not (_quoted(o, view) and not _quoted(o, above))]
@@ -1064,8 +1069,7 @@ def screen_offers(offers: object, text: str, copied: object = ()) -> list[str]:
     # In the final message alone on its rows, and every sighting above the draft has its `! `.
     handed = lambda o: (_quoted(o, turn, rows=True)  # noqa: E731
                         and _quoted(o[2:], above) == _quoted(o, above))
-    flat = lambda texts: (re.sub(r"[ \t]*\n[ \t]*", " ", o.strip())  # noqa: E731
-                          for o in texts if isinstance(o, str))
+    flat = lambda texts: (_one_line(o) for o in texts if isinstance(o, str))  # noqa: E731
     whole = [f"! {o}" if not o.startswith("!") and handed(f"! {o}") else o for o in flat(listed)]
     # A copyable keeps its real newlines (the model joins wraps), so one with rows is no line.
     whole += [o for o in (o if o.startswith("! ") else f"! {o}" for o in flat(

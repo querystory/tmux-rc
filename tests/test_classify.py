@@ -185,6 +185,10 @@ def test_a_command_among_a_questions_replies_is_one_offer():
     answered = waiting.replace("✻ Waiting for 2 background agents to finish… (4m 12s)",
                                "❯ thanks\n\n● All done.\n\n✻ Worked for 3s")
     assert classify(_pane("claude"), answered, read("! make tea")).get("offers") is None
+    # A reply copied with the wrap of an indented row is the same one Send it row.
+    wrapped = waiting.replace("! make tea", "! make tea --cups 2\n  --sugar")
+    r = classify(_pane("claude"), wrapped, read("! make tea --cups 2\n--sugar"))
+    assert (r["offers"], r.get("question")) == (["! make tea --cups 2 --sugar"], None)
 
 
 def _pane(cmd="bash", title="t"):
