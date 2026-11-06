@@ -1012,6 +1012,13 @@ def _above_draft(text: str) -> str:
     return _below_turn(_ask_view(text), 0)
 
 
+def _open_message(above: str) -> str:
+    """On the screen above the draft, the final assistant message (from its bullet, or the
+    top when the view begins inside it); none once the user typed after it."""
+    reply = _last_message(above)
+    return "" if _USER_ROW_RE.search(reply) else reply
+
+
 def _sends_out_of_options(result: dict, text: str) -> None:
     """A command the model put among a question's replies that holds up as a `! command`
     to send (screen_offers) joins the offers instead (one Send it row), and a reply only
@@ -1024,9 +1031,11 @@ def _sends_out_of_options(result: dict, text: str) -> None:
     if (not isinstance(options, list) or question.get("answer_style", "text") != "text"
             or (turn and turn["live"] and "background agent" not in turn[0])):
         return
-    sends = [o for o in options if isinstance(o, str)
-             and any(g.startswith("!") for g in screen_offers([o], text))]
     view, above = _ask_view(text), _above_draft(text)
+    # Only the open message hands a command over: an answered turn's is done with.
+    sends = [o for o in options if isinstance(o, str)
+             and _quoted(o.removeprefix("!").strip(), _open_message(above))
+             and any(g.startswith("!") for g in screen_offers([o], text))]
     question["options"] = [o for o in options if o not in sends
                            and not (_quoted(o, view) and not _quoted(o, above))]
     if sends:
@@ -1050,11 +1059,8 @@ def screen_offers(offers: object, text: str, copied: object = ()) -> list[str]:
     `copied` (its copyables, on one line) that is such a handed-over command is offered too,
     as the model sometimes keeps it a copyable only."""
     listed = offers if isinstance(offers, list) else ()
-    # The screen above any unsent draft, and on it the final assistant message (from its
-    # bullet, or the top when the view begins inside it); none once the user typed after it.
     above = _above_draft(text)
-    reply = _last_message(above)
-    turn = "" if _USER_ROW_RE.search(reply) else reply
+    turn = _open_message(above)
     # In the final message alone on its rows, and every sighting above the draft has its `! `.
     handed = lambda o: (_quoted(o, turn, rows=True)  # noqa: E731
                         and _quoted(o[2:], above) == _quoted(o, above))

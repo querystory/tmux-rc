@@ -181,6 +181,10 @@ def test_a_command_among_a_questions_replies_is_one_offer():
     working = waiting.replace("Waiting for 2 background agents to finish… (4m 12s)",
                               "Pushing… (3s · esc to interrupt)")
     assert classify(_pane("claude"), working, read("! make tea")).get("offers") is None
+    # A command an answered turn handed over is done with: the open message hands none.
+    answered = waiting.replace("✻ Waiting for 2 background agents to finish… (4m 12s)",
+                               "❯ thanks\n\n● All done.\n\n✻ Worked for 3s")
+    assert classify(_pane("claude"), answered, read("! make tea")).get("offers") is None
 
 
 def _pane(cmd="bash", title="t"):
