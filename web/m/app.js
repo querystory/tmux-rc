@@ -8,7 +8,7 @@ import { setupPush } from "/push.js";
 import { linkGroups, askLink } from "/pr-links.js";
 import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, AGENT_TOOLS, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf, tabTitle, tabIconKey, isRunning, sendIntent } from "/m/pane-model.js";
 import { tabIcon } from "/tab-icon.js";
-import { parseHash, formatHash, historyMode, PAGES, scratchUrl } from "/m/url-state.js";
+import { parseHash, formatHash, dropOneShots, historyMode, PAGES, scratchUrl } from "/m/url-state.js";
 import "/long-press.js"; // globalThis.longPress: a classic script, so the scratch gallery shares it
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { dragToDismiss } from "/m/drag-dismiss.js";
@@ -396,7 +396,7 @@ function route() {
   dropGesture();
   if (drawer.open) settle(false); // a move the drawer did not make (the browser's own Back) must not carry it over the next screen
   active = state.pane;
-  focusPushComposer = state.compose;
+  focusPushComposer = state.compose || (!changed && focusPushComposer); // as `linked`: a resize's reroute keeps it
   linked = state.draft || (changed ? null : linked); // a reroute on the same pane (a resize) keeps it
   ({ dashboard, view, filter, page } = state);
   scope.tools = state.agent;
@@ -407,7 +407,8 @@ function route() {
   if (page !== "scratch") scratchFrom = null; // and its pane filter
   const opening = page === "scratch" && scratchUrl(state.open, location.href); // a "Ready" push's page, opened once
   if (opening) { history.replaceState(null, "", "#" + formatHash(state)); viewScratch(opening, ""); }
-  if (state.draft) writeHash(formatHash(state)); // offered once: a reload offers nothing
+  if (state.draft || state.compose) writeHash(dropOneShots(location.hash)); // offered once: a reload or Back offers nothing
+  if (state.compose) startState(); // a poll already out may predate the push's ask, and would spend its focus
   if (changed) {
     if (active) $("reply").replaceWith(draft().editor);
     $("secret").value = ""; // a password is for the pane it was typed at
@@ -1275,10 +1276,6 @@ function render() {
   renderRichContent(pane);
   updateComposer();
   if (pane && linked) { offerDraft(active, linked); linked = null; }
-  if (focusPushComposer && pane?.question && needsYou(pane)) {
-    focusPushComposer = false;
-    requestAnimationFrame(() => $(pane.secret ? "secret" : "reply").focus({ preventScroll: true }));
-  }
   if (pane && overviewVisible()) loadEvents(pane);
 }
 
@@ -1834,6 +1831,12 @@ async function pollState(signal) {
       $("connection").title = (data.stale ? "Watcher stalled; pane summaries may be out of date" : "Connected")
         + (u ? ` | LLM $${u.cost.toFixed(3)}, ${Math.round((u.in_tokens + u.out_tokens + (u.live?.in_tokens || 0) + (u.live?.out_tokens || 0)) / 1000)}k tokens` : "");
       render();
+      // A push's focus is spent on the first fresh, classified state of its pane: its ask, or none.
+      const pushed = panes.find((p) => p.pane_id === active);
+      if (focusPushComposer && booted && !panePending(pushed)) {
+        focusPushComposer = false;
+        if (pushed?.question && needsYou(pushed)) requestAnimationFrame(() => $(pushed.secret ? "secret" : "reply").focus({ preventScroll: true }));
+      }
       await pause(version ? 100 : 1500, signal);
     } catch {
       if (signal.aborted) return;
