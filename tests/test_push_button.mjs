@@ -8,8 +8,9 @@ const source = readFileSync(new URL("../web/push.js", import.meta.url), "utf8").
 // Boots the bell with the browser holding `held` (a subscription or null) under
 // `permission`, the daemon answering subscribe POSTs from `answers` (true: ok), then taps
 // it `taps` times. Returns the label after boot and after each tap, the requests sent and what was announced.
-async function bell({ permission = "granted", held = true, answers = [true], taps = 1, grant = "granted", away, dropOnAsk = false, midSave, midUnsubscribe }) {
+async function bell({ permission = "granted", held = true, answers = [true], taps = 1, grant = "granted", away, dropOnAsk = false, midSave, midUnsubscribe, pendingRead }) {
   const sent = [], said = [], listeners = {};
+  let gate, answerRead;
   let sub = held ? { endpoint: "e1", toJSON: () => ({ endpoint: "e1" }), unsubscribe: async () => { sub = null; return true; } } : null;
   const fresh = { endpoint: "e2", toJSON: () => ({ endpoint: "e2" }) };
   const button = { classList: { toggle() {} }, setAttribute() {} };
@@ -19,11 +20,11 @@ async function bell({ permission = "granted", held = true, answers = [true], tap
     URLSearchParams, Blob, matchMedia: () => ({ matches: true }), atob,
     Uint8Array, document: { hidden: false, addEventListener: (type, fn) => { listeners[type] = fn; } },
     navigator: { userAgent: "test", serviceWorker: { register: async () => {}, ready: Promise.resolve({
-      pushManager: { getSubscription: async () => sub, subscribe: async () => (sub = fresh) } }) } },
+      pushManager: { getSubscription: async () => { const g = gate; gate = null; await g; return sub; }, subscribe: async () => (sub = fresh) } }) } },
     fetch: async (url) => {
       sent.push(url.replace("/api/push/", ""));
       if (url.endsWith("/unsubscribe")) await midUnsubscribe?.(() => { sub = null; }, listeners.visibilitychange);
-      else if (url.endsWith("/subscribe") && sent.length > 1) await midSave?.(() => { sub = fresh; }, listeners.visibilitychange);
+      else if (url.endsWith("/subscribe") && sent.length > 1) await midSave?.(() => { sub = fresh; }, listeners.visibilitychange, answerRead);
       if (url.endsWith("config")) return { ok: true, json: async () => ({ public_key: "AAAA" }) };
       return { ok: url.endsWith("subscribe") && !url.endsWith("unsubscribe") ? answers.shift() ?? true : true };
     },
@@ -35,6 +36,10 @@ async function bell({ permission = "granted", held = true, answers = [true], tap
     away(Notification, () => { sub = null; }, () => { sub = fresh; });
     await listeners.visibilitychange();
     labels.push(button.title);
+  }
+  if (pendingRead) { // a return whose read answers only once the tap is under way
+    gate = new Promise((r) => { answerRead = r; });
+    listeners.visibilitychange();
   }
   for (let i = 0; i < taps; i++) { await button.onclick(); labels.push(button.title); }
   return { labels, sent, said };
@@ -98,4 +103,10 @@ test("a return mid-tap leaves the tap acting on the subscription it started with
   const { labels, said } = await bell({ midUnsubscribe: async (drop, resume) => { drop(); await resume(); } });
   assert.deepEqual(labels, [ON, OFF]);
   assert.equal(said.at(-1), "Notifications turned off");
+});
+
+test("a return read still out when the tap starts cannot change what the tap saves", async () => {
+  const { labels } = await bell({ answers: [false, true], pendingRead: true,
+    midSave: async (replace, _resume, answerRead) => { replace(); answerRead(); await null; } });
+  assert.deepEqual(labels, [REPAIR, REPAIR]); // e1 was saved; the e2 that read returned never was
 });
