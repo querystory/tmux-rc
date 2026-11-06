@@ -407,6 +407,7 @@ function route() {
   const opening = page === "scratch" && scratchUrl(state.open, location.href); // a "Ready" push's page, opened once
   if (opening) { history.replaceState(null, "", "#" + formatHash(state)); viewScratch(opening, ""); }
   if (state.draft || state.compose) writeHash(formatHash(state)); // offered once: a reload or Back offers nothing
+  if (state.compose) startState(); // a poll already out may predate the push's ask, and would spend its focus
   if (changed) {
     if (active) $("reply").replaceWith(draft().editor);
     $("secret").value = ""; // a password is for the pane it was typed at
