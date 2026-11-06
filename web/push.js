@@ -83,6 +83,8 @@ export async function setupPush(button, announce = () => {}, bell = "") {
     announce("Notifications could not reconnect; tap Push notifications in Settings to reconnect");
   }
   await refresh();
+  // Permission is changed in the OS's settings, outside the app: re-read on the way back.
+  document.addEventListener("visibilitychange", () => document.hidden || refresh());
   button.disabled = false;
   button.onclick = async () => {
     button.disabled = true;
@@ -107,6 +109,8 @@ export async function setupPush(button, announce = () => {}, bell = "") {
         const permission = Notification.permission === "granted"
           ? "granted" : await Notification.requestPermission();
         if (permission !== "granted") throw new Error("Notification permission was not granted");
+        // Re-read: a browser may have dropped the held subscription along with the permission.
+        subscription = await registration.pushManager.getSubscription();
         if (!subscription) {
           const configResponse = await fetch("/api/push/config");
           if (!configResponse.ok) throw new Error("Could not load notification settings");
