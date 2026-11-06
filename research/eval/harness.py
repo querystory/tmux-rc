@@ -261,8 +261,8 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
     if "buttons_at_most" in expected:
         listed = lambda v: v if isinstance(v, list) else []  # noqa: E731  untrusted model JSON
         free = got_q.get("free_text") if isinstance(got_q, dict) else None
-        pills = [o for i, o in enumerate(listed(opts))
-                 if isinstance(o, str) and o.strip() and i != free]
+        pills = [o for i, o in enumerate(listed(opts))  # JS's !== never equates a bool
+                 if isinstance(o, str) and o.strip() and (i != free or isinstance(free, bool))]
         said = {o.strip().lower() for o in pills}
         pills += [o for o in listed(candidate.get("offers")) if isinstance(o, str)
                   and not o.startswith("! ") and o.strip().lower() not in said]
