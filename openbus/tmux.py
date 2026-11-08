@@ -979,7 +979,8 @@ _PANE_ID = re.compile(r"%[0-9]+")
 # row numbering's identity (capture_rows), since trimming at the history limit replaces them.
 # tmux keeps no trim count, so this is the best signal there is: it misses a trim only when
 # the 64 rows a trim exposes repeat the 64 it dropped, row for row (the limit's tenth apart).
-_OLDEST = "-S - -E '#{?#{e|<:#{history_size},64},-1,#{e|-|:63,#{history_size}}}'"
+_OLDEST_FMT = "#{?#{e|<:#{history_size},64},-1,#{e|-|:63,#{history_size}}}"
+_OLDEST_ARGS = ("-S", "-", "-E", _OLDEST_FMT)
 
 
 def _check_pane_id(pane_id: str) -> None:
@@ -997,18 +998,36 @@ def capture_rows(pane_id: str, start: str, end: str = "", then: str = "",
     oldest rows (and can refill to the same size between two looks, so a size alone can't
     tell). `then` is more tmux commands, whose output follows the rows.
 
-    run-shell -C expands the formats and runs every command in one queue, so no output can
-    land between working out the range, capturing it and reading the size. That is what
-    lets a client address history by absolute row (see capture_history). The pane id is
-    spliced into a command string tmux parses, so anything but a pane id is refused (as a
-    missing pane: the same 404 the callers already give)."""
+    The commands are joined by CLI ``;`` so tmux's client parses them into a
+    single command list executed atomically on the server — no output can land
+    between working out the range, capturing it and reading the size.  That is
+    what lets a client address history by absolute row (see capture_history).
+    The pane id is spliced into a command string tmux parses, so anything but a
+    pane id is refused (as a missing pane: the same 404 the callers already
+    give).
+
+    This used ``run-shell -C`` until Nov 2026; that route leaks a cmd_list on
+    every call (tmux/tmux#5531), ~1.7 KB each, growing the server by ~17 MiB/h
+    under tmux-rc's polling rate.  CLI ``;`` takes the client-side parse path
+    which does not leak.  ``then`` may be extra tmux arg tokens (a list) or a
+    command string (split with ``shlex``, comments disabled so ``#`` in tmux
+    formats is not eaten)."""
     _check_pane_id(pane_id)
-    meta, nonce = "'#{history_size} #{pane_width} #{alternate_on}'", os.urandom(16).hex()
-    rows = f"-S {start}" + (f" -E {end}" if end else "")
-    cmds = (f"display-message -p -t {pane_id} {meta} ; capture-pane -p -J -t {pane_id} {_OLDEST}"
-            f" ; display-message -p {nonce} ; capture-pane -p -J -e -t {pane_id} {rows}")
-    out = _materialize_links(_run(["run-shell", "-C", "-t", pane_id,
-                                   f"{cmds} ; {then}" if then else cmds]))
+    meta_fmt = "#{history_size} #{pane_width} #{alternate_on}"
+    nonce = os.urandom(16).hex()
+    args: list[str] = [
+        "display-message", "-p", "-t", pane_id, meta_fmt, ";",
+        "capture-pane", "-p", "-J", "-t", pane_id, *_OLDEST_ARGS, ";",
+        "display-message", "-p", nonce, ";",
+        "capture-pane", "-p", "-J", "-e", "-t", pane_id, "-S", start,
+        *(("-E", end) if end else ()),
+    ]
+    if then:
+        if isinstance(then, str):
+            args.extend((";", *shlex.split(then, comments=False)))
+        else:
+            args.extend((";", *then))
+    out = _materialize_links(_run(args))
     meta, _, out = out.partition("\n")  # the size first: rows can't end it early
     oldest, _, text = out.partition(f"{nonce}\n")
     size, width, alt = map(int, meta.split())
@@ -1055,9 +1074,10 @@ def capture_history(pane_id: str, before: int, lines: int) -> tuple[str, int, bo
         _check_pane_id(pane_id)
         return "", start, False, ""  # nothing above the oldest row: tmux isn't asked
     nonce = os.urandom(16).hex()
-    edge = f"capture-pane -p -J -t {pane_id} -S {row(before - 1)} -E {row(before)}"
-    text, _, _, screen = capture_rows(pane_id, row(start), row(before - 1),
-                                      f"display-message -p {nonce} ; {edge}")
+    then = ["display-message", "-p", nonce, ";",
+            "capture-pane", "-p", "-J", "-t", pane_id,
+            "-S", row(before - 1), "-E", row(before)]
+    text, _, _, screen = capture_rows(pane_id, row(start), row(before - 1), then)
     text, _, edge = text.rpartition(f"{nonce}\n")
     return text.removesuffix("\n"), start, edge.count("\n") == 1, screen
 

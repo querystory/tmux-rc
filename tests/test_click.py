@@ -17,12 +17,21 @@ def fake_tmux(monkeypatch, screen, sgr="1", physical=None, history=""):
     sent = []
 
     def run(argv):
+        if ";" in argv:  # capture_rows: batched meta + oldest + nonce + screen
+            # Split on ";" into sub-commands
+            cmds, cur = [], []
+            for a in argv:
+                if a == ";":
+                    cmds.append(cur); cur = []
+                else:
+                    cur.append(a)
+            if cur:
+                cmds.append(cur)
+            assert cmds[-1][-1] == "-200"
+            nonce = cmds[2][2]  # display-message -p NONCE
+            return f"0 80 0\n{nonce}\n{history}{screen}\n"
         if argv[0] == "display-message":
             return f"80 {sgr}\n"
-        if argv[0] == "run-shell":  # live-frame freshness: capture_live's rows + geometry
-            assert argv[-1].endswith(" -S -200")
-            nonce = argv[-1].split("display-message -p ")[-1].split()[0]
-            return f"0 80 0\n{nonce}\n{history}{screen}\n"
         if argv[0] == "capture-pane":
             assert argv[-1] == "-0"  # visible geometry
             assert "-N" in argv and "-T" in argv
