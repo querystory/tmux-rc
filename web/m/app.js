@@ -405,7 +405,7 @@ function route() {
   // The viewer shows the URL's page (a link, a reload, a "Ready" push, Forward), and only on Scratch:
   // Back, a push or Safari's swipe off it closes the viewer.
   const opening = page === "scratch" && scratchUrl(state.open, location.href);
-  if (!opening) viewer.close(); else if (viewer.querySelector("iframe")?.src !== opening) viewScratch(opening, "");
+  if (!opening) viewer.close(); else if (!viewer.open || viewer.querySelector("iframe")?.src !== opening) viewScratch(opening, "");
   if (page !== "scratch") scratchFrom = null; // and its pane filter
   if (state.draft) writeHash(formatHash(state)); // offered once: a reload offers nothing
   if (changed) {
@@ -940,7 +940,7 @@ function viewScratch(href, title) {
   const { pathname, search, hash } = new URL(href), to = formatHash({ ...parseHash(location.hash), open: pathname + search + hash });
   // The URL bar names the page; Back is the gallery. The same page, spelled otherwise (an old push link), is replaced.
   const how = scratchUrl(parseHash(location.hash).open, location.href) === href ? "replace" : historyMode(location.hash, to);
-  if (to !== location.hash.slice(1)) writeHash(to, how, how === "push" ? null : history.state);
+  if (to !== location.hash.slice(1)) writeHash(to, how, how === "push" ? { ...history.state, viewer: true } : history.state); // the gallery's way back (fromCard) too
 }
 // Scratch pages pinned to the menu (GET/PUT /api/pins: the daemon keeps them, so every device
 // shows the same): rows after the sidebar's nav, and a Pinned group in the phone's ☰, whose rows
@@ -1089,8 +1089,13 @@ function askSend(ask) {
   $("send-dialog").showModal();
 }
 $("send-cancel").onclick = () => $("send-dialog").close();
-// The page leaves the URL. Replaced, not a Back: the page's own moves in its frame add history entries a Back would step.
-viewer.addEventListener("close", () => { viewer.querySelector("iframe")?.remove(); if (parseHash(location.hash).open) writeHash(formatHash({ ...parseHash(location.hash), open: null })); });
+// The page leaves the URL: Back to the gallery when the viewer added the entry and the page never
+// left its first document (each move adds an entry a Back would step), else replaced. Not a close queued before a reopen.
+viewer.addEventListener("close", () => {
+  const frame = viewer.querySelector("iframe"), back = history.state?.viewer && frame?.loads < 2;
+  if (viewer.open) return; frame?.remove();
+  if (parseHash(location.hash).open) back ? history.back() : writeHash(formatHash({ ...parseHash(location.hash), open: null }));
+});
 // A card's view: its head over `node`, built once a visit (route() empties #dash-page).
 function cardView(title, node) {
   if (!$("dash-page").contains(node)) $("dash-page").replaceChildren(pageHead(title, licon, closePage), node);
