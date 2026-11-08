@@ -938,7 +938,8 @@ function viewScratch(href, title) {
   $("viewer-form").before(frame);
   viewer.showModal(); viewer.focus(); paintPins(pins); loadPins(); findMaker(href); // cached now, then as stored: a slot freed meanwhile
   const { pathname, search, hash } = new URL(href), to = formatHash({ ...parseHash(location.hash), open: pathname + search + hash });
-  const how = historyMode(location.hash, to); // the URL bar names the page; Back is the gallery
+  // The URL bar names the page; Back is the gallery. The same page, spelled otherwise (an old push link), is replaced.
+  const how = scratchUrl(parseHash(location.hash).open, location.href) === href ? "replace" : historyMode(location.hash, to);
   if (to !== location.hash.slice(1)) writeHash(to, how, how === "push" ? { viewer: true } : history.state);
 }
 // Scratch pages pinned to the menu (GET/PUT /api/pins: the daemon keeps them, so every device
