@@ -940,8 +940,7 @@ function viewScratch(href, title) {
   const { pathname, search, hash } = new URL(href), to = formatHash({ ...parseHash(location.hash), open: pathname + search + hash });
   // The URL bar names the page; Back is the gallery. The same page, spelled otherwise (an old push link), is replaced.
   const how = scratchUrl(parseHash(location.hash).open, location.href) === href ? "replace" : historyMode(location.hash, to);
-  if (to !== location.hash.slice(1)) writeHash(to, how, how === "push" ? { viewer: true } : history.state);
-  viewer.at = history.length; // the page's own moves in its frame add entries, which a Back on close would step through
+  if (to !== location.hash.slice(1)) writeHash(to, how, how === "push" ? null : history.state);
 }
 // Scratch pages pinned to the menu (GET/PUT /api/pins: the daemon keeps them, so every device
 // shows the same): rows after the sidebar's nav, and a Pinned group in the phone's ☰, whose rows
@@ -1090,10 +1089,8 @@ function askSend(ask) {
   $("send-dialog").showModal();
 }
 $("send-cancel").onclick = () => $("send-dialog").close();
-viewer.addEventListener("close", () => { // the page leaves the URL: Back to the gallery when the viewer added the entry
-  viewer.querySelector("iframe")?.remove();
-  if (parseHash(location.hash).open) history.state?.viewer && history.length === viewer.at ? history.back() : writeHash(formatHash({ ...parseHash(location.hash), open: null }));
-});
+// The page leaves the URL. Replaced, not a Back: the page's own moves in its frame add history entries a Back would step.
+viewer.addEventListener("close", () => { viewer.querySelector("iframe")?.remove(); if (parseHash(location.hash).open) writeHash(formatHash({ ...parseHash(location.hash), open: null })); });
 // A card's view: its head over `node`, built once a visit (route() empties #dash-page).
 function cardView(title, node) {
   if (!$("dash-page").contains(node)) $("dash-page").replaceChildren(pageHead(title, licon, closePage), node);
