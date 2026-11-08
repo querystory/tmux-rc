@@ -405,7 +405,7 @@ function route() {
   // The viewer shows the URL's page (a link, a reload, a "Ready" push, Forward), and only on Scratch:
   // Back, a push or Safari's swipe off it closes the viewer.
   const opening = page === "scratch" && scratchUrl(state.open, location.href);
-  if (!opening) viewer.close(); else if (!viewer.open || $("viewer-out").href !== opening) viewScratch(opening, "");
+  if (!opening) viewer.close(); else if (viewer.querySelector("iframe")?.src !== opening) viewScratch(opening, "");
   if (page !== "scratch") scratchFrom = null; // and its pane filter
   if (state.draft) writeHash(formatHash(state)); // offered once: a reload offers nothing
   if (changed) {
