@@ -1089,12 +1089,13 @@ function askSend(ask) {
   $("send-dialog").showModal();
 }
 $("send-cancel").onclick = () => $("send-dialog").close();
-// The page leaves the URL: Back to the gallery when the viewer added the entry and the page never
-// left its first document (each move adds an entry a Back would step), else replaced. Not a close queued before a reopen.
+// The page leaves the URL: Back to the gallery when the viewer added the entry, else replaced. A Back
+// that lands on the page's own moves in its frame (each adds an entry, unseen from here) still names
+// the page, so it is replaced then. Not a close queued before a reopen.
+const unview = () => viewer.open || !parseHash(location.hash).open || writeHash(formatHash({ ...parseHash(location.hash), open: null }));
 viewer.addEventListener("close", () => {
-  const frame = viewer.querySelector("iframe"), back = history.state?.viewer && frame?.loads < 2;
-  if (viewer.open) return; frame?.remove();
-  if (parseHash(location.hash).open) back ? history.back() : writeHash(formatHash({ ...parseHash(location.hash), open: null }));
+  if (viewer.open) return; viewer.querySelector("iframe")?.remove();
+  if (parseHash(location.hash).open && history.state?.viewer) { history.back(); setTimeout(unview, 300); } else unview();
 });
 // A card's view: its head over `node`, built once a visit (route() empties #dash-page).
 function cardView(title, node) {
