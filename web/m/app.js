@@ -402,10 +402,11 @@ function route() {
   if (state.q !== $("search").value.trim()) $("search").value = state.q; // a reload, a link or Back: typing writes the URL, not this
   if (accounts.follow(state.acct)) paintUsage(); // the strip and meters are filtered too
   if (page !== wasPage) { $("dash-page").replaceChildren(); $("dash-page")._signature = null; } // each view builds afresh
-  if (viewer.open && page !== "scratch") viewer.close(); // Back, a push or Safari's swipe left Scratch: its viewer goes too
+  // The viewer shows the URL's page (a link, a reload, a "Ready" push, Forward), and only on Scratch:
+  // Back, a push or Safari's swipe off it closes the viewer.
+  const opening = page === "scratch" && scratchUrl(state.open, location.href);
+  if (!opening) viewer.close(); else if (!viewer.open || $("viewer-out").href !== opening) viewScratch(opening, "");
   if (page !== "scratch") scratchFrom = null; // and its pane filter
-  const opening = page === "scratch" && scratchUrl(state.open, location.href); // a "Ready" push's page, opened once
-  if (opening) { history.replaceState(null, "", "#" + formatHash(state)); viewScratch(opening, ""); }
   if (state.draft) writeHash(formatHash(state)); // offered once: a reload offers nothing
   if (changed) {
     if (active) $("reply").replaceWith(draft().editor);
@@ -936,6 +937,9 @@ function viewScratch(href, title) {
   frame.addEventListener("load", tellScratch); frame.addEventListener("load", loadRecent); // the visit is in by its load
   $("viewer-form").before(frame);
   viewer.showModal(); viewer.focus(); paintPins(pins); loadPins(); findMaker(href); // cached now, then as stored: a slot freed meanwhile
+  const { pathname, search, hash } = new URL(href), to = formatHash({ ...parseHash(location.hash), open: pathname + search + hash });
+  const how = historyMode(location.hash, to); // the URL bar names the page; Back is the gallery
+  if (to !== location.hash.slice(1)) writeHash(to, how, how === "push" ? { viewer: true } : history.state);
 }
 // Scratch pages pinned to the menu (GET/PUT /api/pins: the daemon keeps them, so every device
 // shows the same): rows after the sidebar's nav, and a Pinned group in the phone's ☰, whose rows
@@ -1084,7 +1088,10 @@ function askSend(ask) {
   $("send-dialog").showModal();
 }
 $("send-cancel").onclick = () => $("send-dialog").close();
-viewer.addEventListener("close", () => viewer.querySelector("iframe")?.remove());
+viewer.addEventListener("close", () => { // the page leaves the URL: Back to the gallery when the viewer added the entry
+  viewer.querySelector("iframe")?.remove();
+  if (parseHash(location.hash).open) history.state?.viewer ? history.back() : writeHash(formatHash({ ...parseHash(location.hash), open: null }));
+});
 // A card's view: its head over `node`, built once a visit (route() empties #dash-page).
 function cardView(title, node) {
   if (!$("dash-page").contains(node)) $("dash-page").replaceChildren(pageHead(title, licon, closePage), node);

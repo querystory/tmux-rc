@@ -4,9 +4,9 @@
 // or, with no pane, `#view=dashboard`, or one of PAGES: a dashboard card's own view (`#view=heat`, `#view=loops`). A hash (not a path) because the daemon serves /m and
 // nothing under it, and because the installed PWA's start_url stays the plain list. Unknown
 // fields (push's `from=push`) are ignored on read and dropped on write; `compose=1` is
-// read-only, set by push links to focus the reply box, and so is `open`, a scratch page a
-// "Ready" push opens in the Scratch view's viewer, and so is `draft`, text a link offers for the
-// pane's composer (linkDraft). `filter`, `acct` and `agent` are lists (a
+// read-only, set by push links to focus the reply box. `open` is the page the Scratch view's viewer
+// shows (`#view=scratch&open=/scratch/wip/`), so the URL bar is a link to it. `draft`, text a link offers for the
+// pane's composer (linkDraft), is read-only too. `filter`, `acct` and `agent` are lists (a
 // pane shows if it matches any state, any account and any agent; empty is all), comma-separated, so an old
 // single-value link reads as a list of one. The sort is a per-browser preference, not here.
 //
@@ -50,13 +50,14 @@ export function parseHash(hash, tab = "summary") {
 export const linkDraft = (s) => [...String(s ?? "").replace(/[\p{Cc}\p{Cf}]/gu, " ")].slice(0, 500).join("").trim() || null;
 
 // Defaults are omitted so the bare list is the bare URL.
-export function formatHash({ pane = null, view = "summary", dashboard = false, page = null, filter = [], acct = [], agent = [], q = "" }) {
+export function formatHash({ pane = null, view = "summary", dashboard = false, page = null, filter = [], acct = [], agent = [], q = "", open = null }) {
   const params = new URLSearchParams();
   if (q.trim()) params.set("q", q.trim());
   if (pane) { params.set("pane", pane); if (view === "terminal") params.set("view", "terminal"); }
   else if (dashboard) params.set("view", page || "dashboard");
+  if (page === "scratch" && open) params.set("open", open);
   const lists = Object.entries({ filter, acct, agent }).filter(([, v]) => v.length).map(([k, v]) => `${k}=${v.map(encodeURIComponent).join(",")}`);
-  return [...lists, params.toString()].filter(Boolean).join("&");
+  return [...lists, params.toString().replace(/%2F/g, "/")].filter(Boolean).join("&"); // a slash reads as one
 }
 // A list is read from the raw hash: a literal comma divides it, and each item is encoded on
 // its own, so an account dir with a comma is one item, as is an old single-value link's
@@ -64,12 +65,12 @@ export function formatHash({ pane = null, view = "summary", dashboard = false, p
 const decode = (s) => { try { return decodeURIComponent(s.replace(/\+/g, " ")); } catch { return s; } };
 const list = (raw, name) => [...new Set((new RegExp(`(?:^|&)${name}=([^&]*)`).exec(raw)?.[1] || "").split(",").filter(Boolean).map(decode))];
 
-// Back should undo a move to another screen (list, dashboard, a card's view or a different pane) and
+// Back should undo a move to another screen (list, dashboard, a card's view, a scratch page or a different pane) and
 // nothing smaller: tab and filter (state, account or search) changes replace, or Back would step through every
 // tap instead of leaving the pane.
 export function historyMode(fromHash, toHash) {
   const from = parseHash(fromHash), to = parseHash(toHash);
-  return from.pane !== to.pane || from.dashboard !== to.dashboard || from.page !== to.page ? "push" : "replace";
+  return from.pane !== to.pane || from.dashboard !== to.dashboard || from.page !== to.page || from.open !== to.open ? "push" : "replace";
 }
 
 // The Scratch page the gallery asks the app to show (app.js), as a URL, or null: only a path
