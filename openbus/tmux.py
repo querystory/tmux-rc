@@ -23,7 +23,7 @@ import time
 import unicodedata
 import weakref
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from functools import cached_property
@@ -970,7 +970,7 @@ def _check_pane_id(pane_id: str) -> None:
         raise subprocess.CalledProcessError(1, ["capture-pane", "-t", pane_id])
 
 
-def capture_rows(pane_id: str, start: str, end: str = "", then: str = "",
+def capture_rows(pane_id: str, start: str, end: str = "", then: Sequence[str] = (),
                  ) -> tuple[str, int, bool, str]:
     """Colored rows (raw SGR, OSC 8 links materialized) from tmux row `start` to `end`
     (0 is the screen's first row, negative is history; either may be a tmux format
@@ -991,9 +991,7 @@ def capture_rows(pane_id: str, start: str, end: str = "", then: str = "",
     This used ``run-shell -C`` until Nov 2026; that route leaks a cmd_list on
     every call (tmux/tmux#5531), ~1.7 KB each, growing the server by ~17 MiB/h
     under tmux-rc's polling rate.  CLI ``;`` takes the client-side parse path
-    which does not leak.  ``then`` may be extra tmux arg tokens (a list) or a
-    command string (split with ``shlex``, comments disabled so ``#`` in tmux
-    formats is not eaten)."""
+    which does not leak.  ``then`` is extra tmux arg tokens."""
     _check_pane_id(pane_id)
     meta_fmt = "#{history_size} #{pane_width} #{alternate_on}"
     nonce = os.urandom(16).hex()
@@ -1005,10 +1003,7 @@ def capture_rows(pane_id: str, start: str, end: str = "", then: str = "",
         *(("-E", end) if end else ()),
     ]
     if then:
-        if isinstance(then, str):
-            args.extend((";", *shlex.split(then, comments=False)))
-        else:
-            args.extend((";", *then))
+        args.extend((";", *then))
     out = _materialize_links(_run(args))
     meta, _, out = out.partition("\n")  # the size first: rows can't end it early
     oldest, _, text = out.partition(f"{nonce}\n")
