@@ -701,7 +701,7 @@ def _send_app(monkeypatch, watcher):
         sent.append(keys)
 
     monkeypatch.setattr(server.tmux, "send_keys", send)
-    monkeypatch.setattr(server.app.state, "watcher", watcher, raising=False)
+    monkeypatch.setitem(server.app.state._state, "watcher", watcher)
     client = TestClient(server.app)
     def tap(token):
         body = {"keys": "1", "enter": False, "literal": True, "question": token}
