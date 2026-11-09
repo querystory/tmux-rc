@@ -371,10 +371,12 @@ def _defaults(session: dict, name: str) -> bool:
 
 
 def _size(windows: dict, session: dict) -> tuple[int, int] | None:
-    """The session's size as its current window recorded it (`<csum>,<W>x<H>,...`): with no
-    client attached, tmux would build it 80x24. None, tmux's default, for a layout without one."""
+    """The session's size as its current window recorded it (`<csum>,<W>x<H>,...`, or tmux
+    3.8's `{"V":2,"L":{"t":..,"w":<W>,"h":<H>,...`): with no client attached, tmux would
+    build it 80x24. None, tmux's default, for a layout without one."""
     current = next((w for w in session["windows"] if w["current"]), session["windows"][0])
-    found = re.match(r"[0-9a-f]+,(\d+)x(\d+),", windows[current["id"]].get("layout") or "")
+    found = re.match(r'(?:[0-9a-f]+,|\{"V":\d+,"L":\{"t":"\w+","w":)(\d+)(?:x|,"h":)(\d+)',
+                     windows[current["id"]].get("layout") or "")
     return (int(found[1]), int(found[2])) if found else None
 
 
