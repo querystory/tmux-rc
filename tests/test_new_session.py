@@ -82,7 +82,8 @@ def test_new_server_gets_the_login_shells_path(sock, audits, tmp_path, monkeypat
     shell builds (nvm, ~/bin), even when the profile prints something first."""
     shell = tmp_path / "loginsh"
     shell.write_text('#!/bin/sh\necho "PATH=/printed/by/profile"\n'
-                     'export PATH="/login/bin:$PATH"\nshift\nexec /bin/sh -c "$@"\n')
+                     'export PATH="/login/bin:$PATH"\n'
+                     'case $1 in -lc) shift; set -- -c "$@";; esac\nexec /bin/sh "$@"\n')
     shell.chmod(0o755)
     monkeypatch.setenv("SHELL", str(shell))
     r = TestClient(S.app).post("/api/sessions", json={"name": "login", "cwd": str(tmp_path)})
