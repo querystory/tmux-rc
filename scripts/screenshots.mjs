@@ -46,7 +46,7 @@ const SHOTS = [
   ["wide-open-loops", WIDE, "dark", "#view=loops", showLoops],
   ["wide-sessions", WIDE, "light", "#view=dashboard", reach(".atlas-multiples")],
   ["mobile-open-loops", PHONE, "light", "#view=loops", showLoops],
-  // The Fleet graph (docs/design/fleet-graph.md): the Worktree lens wide, the default on a phone (full screen there).
+  // The Fleet graph (docs/design/fleet-graph.md): the Worktree lens wide, the default on a phone, under its bar.
   ["wide-graph", WIDE, "light", "#view=graph", (page) => page.click('.fg-lenses [data-lens="worktree"]')],
   ["mobile-graph", PHONE, "dark", "#view=graph"],
   ["mobile-loops-card", PHONE, "dark", "#view=dashboard", reach("#loops-card [data-lane]")],

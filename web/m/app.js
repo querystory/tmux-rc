@@ -4,7 +4,7 @@ import { renderCaptureLines, linkifyText, besideHeld, keptRows } from "/terminal
 import { setupLiveMode } from "/m/live.js";
 import { Composer, bindAttach, enterSubmits, sendBlock, block } from "/m/composer.js";
 import { answerBody, pickCursorRow, STALE, UNTAKEN } from "/cursor-pick.js";
-import { sendPresence, setupPush, stateUrl } from "/push.js";
+import { setupPush } from "/push.js";
 import { linkGroups, askLink } from "/pr-links.js";
 import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, AGENT_TOOLS, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf, tabTitle, tabIconKey, isRunning, sendIntent } from "/m/pane-model.js";
 import { tabIcon } from "/tab-icon.js";
@@ -860,7 +860,7 @@ loopsView.ariaLabel = "Open loops";
 detailCard($("loops-card"), "Open loops", "", () => openPage("loops"));
 // The Fleet graph (graph.js): the card's at a glance, the view's to pan, zoom and regroup.
 const graphView = Object.assign(document.createElement("section"), { className: "fg-view", ariaLabel: "Fleet graph" });
-const graphCtx = { icon: licon, logos: LOGOS, open: (id) => navigate(id), close: closePage, owner: accounts.owner, several: accounts.any };
+const graphCtx = { icon: licon, logos: LOGOS, open: (id) => navigate(id), owner: accounts.owner, several: accounts.any };
 detailCard($("graph-card"), "Fleet graph", "", () => openPage("graph"));
 // A lane's count on the card opens the view at that lane, unfolded.
 function openLane(lane) {
@@ -921,9 +921,9 @@ function scratchPage() {
 // A fresh frame each time, so its loads add nothing to the app's history; gone once closed.
 const viewer = $("scratch-viewer");
 function viewScratch(href, title) {
-  title = String(title || "Scratch page"); // a "Ready" push's link names no title
+  $("viewer-out").href = href; // a "Ready" push's link names no title, a pane's link only its URL: the folder, till findMaker
+  title = !title || /^\w+:\/\//.test(title) ? viewedFolder() || "Scratch page" : String(title);
   text($("viewer-title"), title);
-  $("viewer-out").href = href;
   viewer.querySelector("iframe")?.remove();
   // A page that navigates its frame shows something else: the box is for the page opened, so it goes.
   // Nor does what it navigates to (or a reload) run script: from its first load on, the frame is
@@ -953,9 +953,10 @@ function paintPins(list) {
   $("viewer-pin").hidden = !folder || folder.startsWith(".");
   const get = new URL($("viewer-out").href || location.href); get.searchParams.set("download", 1);
   Object.assign($("viewer-get"), { hidden: !folder, href: get.href }); // a navigation, not <a download>: iOS's standalone PWA saves it
-  Object.assign($("viewer-pin"), { disabled: full, title: full ? "Six pins at most: unpin one first" : on ? "Unpin from the menu" : "Pin to the menu" }).setAttribute("aria-pressed", on);
-  html($("viewer-pin"), licon("pin", 16) + (on ? "Pinned" : "Pin"));
-  html($("viewer-get"), licon("download", 16)); // the icon alone: a phone's bar keeps room for the title
+  const pinTitle = full ? "Six pins at most: unpin one first" : on ? "Unpin from the menu" : "Pin to the menu";
+  Object.assign($("viewer-pin"), { disabled: full, title: pinTitle, ariaLabel: pinTitle }).setAttribute("aria-pressed", on);
+  html($("viewer-pin"), licon("pin") + `<span>${on ? "Pinned" : "Pin"}</span>`); // the label only where it fits (style.css)
+  html($("viewer-get"), licon("download"));
 }
 const loadPins = () => request("/api/pins").then(paintPins, () => {});
 // Every scratch page's link in the app (a pin, a recent page, a pane's Links, a card's ask) opens
@@ -984,10 +985,12 @@ for (const load of [loadPins, loadRecent]) { addEventListener("focus", load); lo
 // compose() like the pane's footer and a sidebar Reply.
 async function findMaker(href) {
   viewerTo = moving = null; paintViewerForm(); text($("viewer-status"), "");
-  const url = new URL(href), [, , folder, ...view] = url.pathname.split("/"); // the page and query it opened at
-  const to = folder ? { ...await request(`/api/scratch/${folder}/pane`).catch(() => ({})), folder: decodeURIComponent(folder), view: view.join("/") + url.search + url.hash } : {};
-  // Another page opened meanwhile, this one navigated, or it names no pane or no sendable folder.
-  if (!viewer.open || $("viewer-out").href !== href || viewer.querySelector("iframe")?.loads > 1 || !to.about) return;
+  const url = new URL(href), [, , top, ...rest] = url.pathname.split("/"); // the page and query it opened at
+  const archived = top === ".archive", [folder, ...view] = archived ? rest : [top, ...rest]; // archived: its title, no pane
+  const to = folder ? { ...await request(`/api/scratch/${folder}/pane${archived ? "?archived=1" : ""}`).catch(() => ({})), folder: decodeURIComponent(folder), view: view.join("/") + url.search + url.hash } : {};
+  if (!viewer.open || $("viewer-out").href !== href) return; // another page opened meanwhile
+  if (to.title) text($("viewer-title"), to.title); // the gallery's: meta.json's, or the page's <title>
+  if (viewer.querySelector("iframe")?.loads > 1 || !to.about) return; // it navigated, or names no pane or no sendable folder
   shotChip(true); useMaker(to);
 }
 function useMaker(to) {
@@ -1799,7 +1802,7 @@ async function pollState(signal) {
   let version = null;
   while (!signal.aborted) {
     try {
-      const data = await request(stateUrl(version || null), { signal }, LONG_POLL_TIMEOUT_MS);
+      const data = await request(version ? `/api/state?v=${version}` : "/api/state", { signal }, LONG_POLL_TIMEOUT_MS);
       if (signal.aborted) return;
       version = Number.isFinite(data.version) && data.version > 0 ? data.version : null;
       // A pane opened, closed or started an agent: which account each runs on may have changed
@@ -1843,7 +1846,7 @@ function pruneDrafts() {
   }
   for (const [id, value] of drafts) {
     if (id === active || panes.some((p) => p.pane_id === id)) continue;
-    if (value.segments().length || value.pendingEnter) continue;
+    if (value.segments().length) continue;
     value.files.forEach((_, chip) => URL.revokeObjectURL(chip.src));
     drafts.delete(id);
   }
@@ -1873,7 +1876,7 @@ const online = () => $("connection").classList.contains("online");
 // again rather than trusting the button's last look.
 function sendWhy() {
   const pane = panes.find((p) => p.pane_id === active), value = draft();
-  const secret = !!pane?.secret, empty = secret ? !$("secret").value : !value.segments().length && !value.pendingEnter;
+  const secret = !!pane?.secret, empty = secret ? !$("secret").value : !value.segments().length;
   return sendBlock({ sending, available: !!pane, online: online(), secret, empty });
 }
 // A greyed button (block()) says why when tapped. A submit is left to its form, which asks
@@ -2030,7 +2033,7 @@ async function compose(id, value, birth, fields = {}) {
     else form.append("text", segment.text);
   }
   if (secret) value.value = "";
-  else { value.replace([]); value.pendingEnter = false; }
+  else value.replace([]);
   sending = true;
   try {
     notice(); render(); // inside the try, as sendKeys
@@ -2074,6 +2077,7 @@ enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("attach-file"), () => active && !sending ? draft() : null);
 
 for (const [id, name] of Object.entries({ "menu-open": "menu", collapse: "panel", "dash-nav": "gauge", "graph-nav": "network", "scratch-nav": "images", "close-viewer": "back", "settings-open": "settings", "close-settings": "x", back: "back", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", "viewer-send": "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "close-expunge": "x", "close-export": "x", "close-move": "x", "close-rename": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down", "view-summary": "fileText", "view-terminal": "terminal" })) icon(id, name);
+html($("viewer-out"), licon("external") + "<span>Open in browser</span>");
 // The phone's tab bar: Sessions, home, in the middle, Usage and Scratch either end. The gauge is Dashboard's
 // everywhere; the 2×2 grid is the layout picker's. Only Needs you carries a count. The ☰ drawer
 // lists the same five (below), so one list names them.
@@ -2787,8 +2791,7 @@ function placePill() {
   const phone = !WIDE.matches, bar = phone && $("dash-page").querySelector(":scope > .landing-head"), dash = phone && dashboard;
   const own = page === "usage" && (usageView._filter ||= usageView.querySelector(".uv-filter")), to = own && (bar || usageView.firstChild);
   if (own && own.parentElement !== to) to.append(own); // held by the view: another view drops the head it sat in
-  // The graph's full screen covers its bar (graph.js), so there the scope heads the view instead.
-  const head = !own && CARDS[page] && bar && (page === "graph" ? graphView.querySelector(".fg-scope") : bar);
+  const head = !own && CARDS[page] && bar;
   const picker = renderSidebar.picker, at = head ? picker : bar ? $("find") : dash ? document.querySelector(".app-header") : $("find");
   if (head) { if (picker.parentElement !== head) head.append(picker); }
   else if (dash && picker.nextElementSibling !== $("new-window")) $("new-window").before(picker);
@@ -2998,7 +3001,7 @@ navigator.serviceWorker?.addEventListener("message", ({ data }) => {
 });
 // Only catch up a frame that was held for a selection; composer keystrokes also fire this.
 document.addEventListener("selectionchange", () => { if (terminalVisible() && captureDirty) paintCapture(); });
-document.addEventListener("visibilitychange", () => { if (!document.hidden) awayPane = null; render(); sendPresence(); startState(); restartDetail(); fitViewport(); }); // render: the tab's icon notes or clears "done"
+document.addEventListener("visibilitychange", () => { if (!document.hidden) awayPane = null; render(); startState(); restartDetail(); fitViewport(); }); // render: the tab's icon notes or clears "done"
 window.addEventListener("online", () => { startState(); restartDetail(); });
 window.addEventListener("pageshow", () => { startState(); restartDetail(); fitViewport(); });
 window.addEventListener("pagehide", () => { stateController?.abort(); detailController?.abort(); });
@@ -3025,7 +3028,7 @@ for (const [id, kind] of [["chat", "chat"], ["live-mode", "voice"]]) {
 document.documentElement.classList.add("booted"); // icons in, chrome placed: unveil (style.css)
 let assetVersion = null;
 function hasDrafts() {
-  return !!shared || [...drafts.values(), ...renderSidebar.drafts.values(), ...viewerDrafts.values()].some((value) => value.pendingEnter || value.files.size || value.editor.textContent.length);
+  return !!shared || [...drafts.values(), ...renderSidebar.drafts.values(), ...viewerDrafts.values()].some((value) => value.files.size || value.editor.textContent.length);
 }
 function observeVersion(version) {
   if (typeof version !== "string" || !version) return;

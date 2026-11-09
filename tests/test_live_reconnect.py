@@ -50,3 +50,13 @@ def test_hold_propagates_client_gone():
     except WebSocketDisconnect:
         return
     raise AssertionError("WebSocketDisconnect must propagate so the session ends")
+
+
+def test_hold_refuses_a_typed_turn():
+    """The client already counted the turn and queued its thumbnails: only a refusal hands
+    them back, so a silent drop would pin this turn's images to the next one's echo."""
+    sent = []
+    ws = _WS({"action": "text", "text": "hello"}, {"action": "stop"})
+    ws.send_json = lambda m: sent.append(m) or asyncio.sleep(0)
+    assert asyncio.run(L._hold(ws, 5, None)) is False
+    assert sent == [{"type": "error", "refused": True, "message": "Reconnecting; not sent"}]

@@ -177,7 +177,7 @@ def test_dir_suggestions_open_panes_then_agent_history(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(home))
 
     watcher = type("W", (), {"states": [{"cwd": str(old)}, {"cwd": ""}]})
-    monkeypatch.setattr(S.app.state, "watcher", watcher, raising=False)
+    monkeypatch.setitem(S.app.state._state, "watcher", watcher)
     got = S.session_dirs()["dirs"]
     assert got == [str(old), "~/new"]  # open pane first, deduped; vanished dir dropped
 
