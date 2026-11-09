@@ -70,6 +70,12 @@ def session(events=(), *, closed=True):
     return G.Session(Wire(events), Browser(), Watcher(), meter)
 
 
+async def drain(s):
+    """Read a session to its end: the provider's own session.closed, which nothing asked for."""
+    with pytest.raises(G.ProviderError, match="session_closed_by_provider"):
+        await s.receive()
+
+
 def response(kind, **fields):
     return {
         "type": "response.event",
@@ -208,7 +214,7 @@ def test_completed_calls_survive_empty_response_output_and_all_results_precede_c
                 response("response.completed", response={"id": "r1", "output": []}),
             ]
         )
-        await s.receive()
+        await drain(s)
         worker = asyncio.create_task(s.execute())
         await asyncio.wait_for(s.ws.continued.wait(), 1)
         worker.cancel()
@@ -239,7 +245,7 @@ def test_unsuccessful_responses_never_execute_collected_calls(terminal, monkeypa
             response(terminal, response={"id": "r1", "output": []}),
         ]
     )
-    asyncio.run(s.receive())
+    asyncio.run(drain(s))
     assert s.work.empty()
     assert s.browser.messages[-1]["type"] == "error"
 
@@ -302,7 +308,7 @@ def test_continuous_transcripts_keep_roles_and_gaps_without_triggering_tools():
             {"type": "session.output_audio.delta", "delta": "AAA="},
         ]
     )
-    asyncio.run(s.receive())
+    asyncio.run(drain(s))
     assert [m.get("role") for m in s.browser.messages[:3]] == ["user", "model", "user"]
     assert s.browser.messages[2]["new_segment"]
     assert s.browser.messages[3]["sample_rate"] == 16000
@@ -565,16 +571,19 @@ def test_concurrent_snapshot_dedup_survives_post_action_context():
     asyncio.run(run())
 
 
-@pytest.mark.parametrize("closed", [False, True])
-def test_provider_eof_requires_session_closed(closed):
-    s = session(closed=closed)
-    if closed:
+def test_provider_eof_is_a_drop():
+    s = session(closed=False)
+    with pytest.raises(G.ProviderError, match="connection_closed_without_session_closed"):
         asyncio.run(s.receive())
-        assert s.meter.usage.final
-    else:
-        with pytest.raises(G.ProviderError, match="connection_closed_without_session_closed"):
-            asyncio.run(s.receive())
-        assert not s.meter.usage.final
+    assert not s.meter.usage.final
+
+
+def test_an_unasked_session_closed_is_an_error_not_a_stop():
+    """A provider ending the session must not look like the user's stop, which deletes the
+    parked cards and closes 1000 so the client gives up. Its usage still counts as final."""
+    s = session()
+    asyncio.run(drain(s))
+    assert s.meter.usage.final
 
 
 def test_provider_eof_propagates_from_running_session(monkeypatch):
@@ -600,3 +609,9 @@ def test_provider_eof_propagates_from_running_session(monkeypatch):
         asyncio.run(G.run_session(Client(), Watcher(), meter))
     assert not meter.usage.final
     assert wire.sent[-1]["type"] == "session.close"
+
+
+def test_a_missing_key_is_an_error_not_a_stop(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    with pytest.raises(L.live_providers.Unreachable, match="OPENAI_API_KEY"):
+        asyncio.run(G.run_session(Browser(), Watcher(), L._Meter("test", "test", G.ENTRY)))
