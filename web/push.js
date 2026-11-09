@@ -4,36 +4,6 @@ function decodeKey(value) {
   return Uint8Array.from(raw, (char) => char.charCodeAt(0));
 }
 
-export const pushClientId = (() => {
-  try {
-    let value = sessionStorage.getItem("tmuxrc-client-id");
-    if (!value) {
-      value = crypto.randomUUID();
-      sessionStorage.setItem("tmuxrc-client-id", value);
-    }
-    return value;
-  } catch {
-    try { return crypto.randomUUID(); } catch { return ""; }
-  }
-})();
-
-export function stateUrl(version = null) {
-  const params = new URLSearchParams();
-  if (version !== null) params.set("v", version);
-  if (pushClientId) {
-    params.set("client", pushClientId);
-    params.set("visible", document.hidden ? "false" : "true");
-  }
-  return `/api/state?${params}`;
-}
-
-export function sendPresence() {
-  if (!pushClientId || !navigator.sendBeacon) return;
-  const body = new Blob([JSON.stringify({ client: pushClientId, visible: !document.hidden })],
-    { type: "application/json" });
-  navigator.sendBeacon("/api/push/presence", body);
-}
-
 export async function setupPush(button, announce = () => {}, bell = "") {
   if (!button || !("serviceWorker" in navigator) || !("PushManager" in window)
       || !("Notification" in window)) return;

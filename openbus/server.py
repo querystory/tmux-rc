@@ -226,11 +226,6 @@ class PushUnsubscribeBody(BaseModel):
     endpoint: str = Field(min_length=1, max_length=4096)
 
 
-class PushPresenceBody(BaseModel):
-    client: str = Field(min_length=1, max_length=100)
-    visible: bool
-
-
 class PushAnswerBody(BaseModel):
     nonce: str = Field(min_length=16, max_length=200)
     option_index: int = Field(ge=0)
@@ -861,7 +856,7 @@ def get_open_loops():
 
 
 @app.get("/api/state")
-async def get_state(v: int | None = None, client: str = "", visible: bool = False):
+async def get_state(v: int | None = None):
     """Deck state for the phone. With `?v=<version>` this LONG-POLLS: it holds until the
     watcher's state_version passes `v` (a pane switch, add/remove, label/activity change,
     or new events on any pane) or ~25s elapses, then returns the fresh state plus the new
@@ -869,9 +864,6 @@ async def get_state(v: int | None = None, client: str = "", visible: bool = Fals
     up within the fast-poll cadence instead of a fixed 2s interval. Omitting `v` returns
     immediately (unchanged legacy behavior)."""
     w = app.state.watcher
-    push = getattr(app.state, "push", None)
-    if push is not None and client:
-        push.note_presence(client, visible=visible)
     version = w.state_version()
     # Only long-poll once the watcher has produced an initial state (version > 0).
     # A client that sends ?v=0 before the deck has ever ticked (daemon startup, or the
@@ -946,12 +938,6 @@ def push_revoke_all(request: Request):
     count = app.state.push.store.revoke_all()
     _audit(request, "push_revoke_all", "push", detail=f"removed={count}")
     return {"ok": True, "removed": count}
-
-
-@app.post("/api/push/presence")
-def push_presence(body: PushPresenceBody):
-    app.state.push.note_presence(body.client, visible=body.visible)
-    return {"ok": True}
 
 
 @app.post("/api/push/answer")

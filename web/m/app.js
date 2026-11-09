@@ -4,7 +4,7 @@ import { renderCaptureLines, linkifyText, besideHeld, keptRows } from "/terminal
 import { setupLiveMode } from "/m/live.js";
 import { Composer, bindAttach, enterSubmits, sendBlock, block } from "/m/composer.js";
 import { answerBody, pickCursorRow, STALE, UNTAKEN } from "/cursor-pick.js";
-import { sendPresence, setupPush, stateUrl } from "/push.js";
+import { setupPush } from "/push.js";
 import { linkGroups, askLink } from "/pr-links.js";
 import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, AGENT_TOOLS, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf, tabTitle, tabIconKey, isRunning, sendIntent } from "/m/pane-model.js";
 import { tabIcon } from "/tab-icon.js";
@@ -1802,7 +1802,7 @@ async function pollState(signal) {
   let version = null;
   while (!signal.aborted) {
     try {
-      const data = await request(stateUrl(version || null), { signal }, LONG_POLL_TIMEOUT_MS);
+      const data = await request(version ? `/api/state?v=${version}` : "/api/state", { signal }, LONG_POLL_TIMEOUT_MS);
       if (signal.aborted) return;
       version = Number.isFinite(data.version) && data.version > 0 ? data.version : null;
       // A pane opened, closed or started an agent: which account each runs on may have changed
@@ -1846,7 +1846,7 @@ function pruneDrafts() {
   }
   for (const [id, value] of drafts) {
     if (id === active || panes.some((p) => p.pane_id === id)) continue;
-    if (value.segments().length || value.pendingEnter) continue;
+    if (value.segments().length) continue;
     value.files.forEach((_, chip) => URL.revokeObjectURL(chip.src));
     drafts.delete(id);
   }
@@ -1876,7 +1876,7 @@ const online = () => $("connection").classList.contains("online");
 // again rather than trusting the button's last look.
 function sendWhy() {
   const pane = panes.find((p) => p.pane_id === active), value = draft();
-  const secret = !!pane?.secret, empty = secret ? !$("secret").value : !value.segments().length && !value.pendingEnter;
+  const secret = !!pane?.secret, empty = secret ? !$("secret").value : !value.segments().length;
   return sendBlock({ sending, available: !!pane, online: online(), secret, empty });
 }
 // A greyed button (block()) says why when tapped. A submit is left to its form, which asks
@@ -2033,7 +2033,7 @@ async function compose(id, value, birth, fields = {}) {
     else form.append("text", segment.text);
   }
   if (secret) value.value = "";
-  else { value.replace([]); value.pendingEnter = false; }
+  else value.replace([]);
   sending = true;
   try {
     notice(); render(); // inside the try, as sendKeys
@@ -3001,7 +3001,7 @@ navigator.serviceWorker?.addEventListener("message", ({ data }) => {
 });
 // Only catch up a frame that was held for a selection; composer keystrokes also fire this.
 document.addEventListener("selectionchange", () => { if (terminalVisible() && captureDirty) paintCapture(); });
-document.addEventListener("visibilitychange", () => { if (!document.hidden) awayPane = null; render(); sendPresence(); startState(); restartDetail(); fitViewport(); }); // render: the tab's icon notes or clears "done"
+document.addEventListener("visibilitychange", () => { if (!document.hidden) awayPane = null; render(); startState(); restartDetail(); fitViewport(); }); // render: the tab's icon notes or clears "done"
 window.addEventListener("online", () => { startState(); restartDetail(); });
 window.addEventListener("pageshow", () => { startState(); restartDetail(); fitViewport(); });
 window.addEventListener("pagehide", () => { stateController?.abort(); detailController?.abort(); });
@@ -3028,7 +3028,7 @@ for (const [id, kind] of [["chat", "chat"], ["live-mode", "voice"]]) {
 document.documentElement.classList.add("booted"); // icons in, chrome placed: unveil (style.css)
 let assetVersion = null;
 function hasDrafts() {
-  return !!shared || [...drafts.values(), ...renderSidebar.drafts.values(), ...viewerDrafts.values()].some((value) => value.pendingEnter || value.files.size || value.editor.textContent.length);
+  return !!shared || [...drafts.values(), ...renderSidebar.drafts.values(), ...viewerDrafts.values()].some((value) => value.files.size || value.editor.textContent.length);
 }
 function observeVersion(version) {
   if (typeof version !== "string" || !version) return;
