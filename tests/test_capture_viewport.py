@@ -67,20 +67,26 @@ def test_real_tmux_history_boundary(tmp_path, monkeypatch):
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+def _prints(screen):
+    """A fake tmux for the classifier capture of a pane with no history: `screen` follows
+    the nonce."""
+    return lambda args: f"0\n{args[19]}\n{screen}"
+
+
 def test_classifier_capture_splits_before_wrapping(monkeypatch):
     calls = []
 
     def run(args):
         calls.append(args)
-        return f"old menu\n{args[9]}\n› \x1b[2mAsk a question\x1b[0m\n\n-2 80\n"
+        return f"7\nold menu\n{args[19]}\n› \x1b[2mAsk a question\x1b[0m\n\n-2 80\n"
 
     monkeypatch.setattr(tmux, "_run", run)
     text = tmux.capture_pane("%12", mark_dim=True)
-    assert len(calls[0][9]) == 32 and all(c in "0123456789abcdef" for c in calls[0][9])
+    assert len(calls[0][19]) == 32 and all(c in "0123456789abcdef" for c in calls[0][19])
     assert calls == [[
-        "if-shell", "-F", "-t", "%12", "#{>:#{history_size},0}",
-        "capture-pane -p -J -e -t %12 -S -200 -E -1",
-        ";", "display-message", "-p", calls[0][9],
+        "display-message", "-p", "-t", "%12", "#{history_size}",
+        ";", "capture-pane", "-p", "-J", "-e", "-t", "%12", "-S", "-200", "-E", "-1",
+        ";", "display-message", "-p", calls[0][19],
         ";", "capture-pane", "-p", "-J", "-e", "-t", "%12", "-S", "0",
         ";", "display-message", "-p", "-t", "%12",
         "#{e|-|:#{cursor_y},#{pane_height}} #{pane_width} #{alternate_on}",
@@ -93,14 +99,14 @@ def test_phone_capture_does_not_add_boundary(monkeypatch):
     calls = []
     monkeypatch.setattr(tmux, "_run", lambda args: calls.append(args) or "plain\n")
     assert tmux.capture_pane("%1") == "plain"
-    assert "if-shell" not in calls[0]
+    assert ";" not in calls[0]
 
 
 def test_bootstrap_capture_uses_its_history_budget(monkeypatch):
     calls = []
-    monkeypatch.setattr(tmux, "_run", lambda args: calls.append(args) or args[9] + "\n-1 80\n")
+    monkeypatch.setattr(tmux, "_run", lambda args: calls.append(args) or f"0\n{args[19]}\n-1 80\n")
     tmux.capture_pane("%1", lines=800, mark_dim=True)
-    assert "-S -800 -E -1" in calls[0][5]
+    assert calls[0][12:16] == ["-S", "-800", "-E", "-1"]
 
 
 def test_printed_boundary_label_is_preserved():
@@ -116,7 +122,7 @@ def test_printed_boundary_label_is_preserved():
     ("box\n\n\x1b[2mfooter\x1b[0m\n", -2, "box\n\n⟪dim⟫footer⟪/dim⟫"),  # above a footer
 ])
 def test_classifier_capture_ends_on_a_blank_cursor_row(monkeypatch, screen, cursor, want):
-    monkeypatch.setattr(tmux, "_run", lambda args: f"{args[9]}\n{screen}{cursor} 80\n")
+    monkeypatch.setattr(tmux, "_run", _prints(f"{screen}{cursor} 80\n"))
     assert tmux.capture_pane("%1", mark_dim=True) == f"{tmux.VISIBLE_SCREEN}\n{want}"
 
 
@@ -131,7 +137,7 @@ def _tall_screen() -> list[str]:
 
 def test_tall_screen_keeps_only_its_bottom_rows_visible(monkeypatch):
     rows = _tall_screen()
-    monkeypatch.setattr(tmux, "_run", lambda args: f"{args[9]}\n" + "\n".join(rows) + "\n-188 80\n")
+    monkeypatch.setattr(tmux, "_run", _prints("\n".join(rows) + "\n-188 80\n"))
     history, visible = tmux.capture_pane("%1", mark_dim=True).split(tmux.VISIBLE_SCREEN)
     assert visible.strip("\n").split("\n") == rows[-188 - tmux.VIEWPORT_ROWS:-188]
     assert visible.endswith("\n")  # the cursor row below the prompt still counts
@@ -141,7 +147,7 @@ def test_tall_screen_keeps_only_its_bottom_rows_visible(monkeypatch):
 
 def test_tall_screen_old_question_is_off_the_gated_screen(monkeypatch):
     rows = _tall_screen()
-    monkeypatch.setattr(tmux, "_run", lambda args: f"{args[9]}\n" + "\n".join(rows) + "\n-188 80\n")
+    monkeypatch.setattr(tmux, "_run", _prints("\n".join(rows) + "\n-188 80\n"))
     text = tmux.capture_pane("%1", mark_dim=True)
     assert "Which color should the banner use?" in text  # the model still reads it, as history
     assert "Which color should the banner use?" not in classify._visible(text)
@@ -158,7 +164,7 @@ def test_blank_rows_above_a_pinned_input_box_keep_the_reply_visible(monkeypatch)
             "  \x1b[2m▎ \x1b[0mThanks for spotting the stale cache, Priya! The nightly job",
             "  \x1b[2m▎ \x1b[0mnow clears it first, so tomorrow's report should load in seconds.",
             *[""] * 200, "─" * 80, "❯ ", "─" * 80, "  ⏵⏵ auto mode on"]
-    monkeypatch.setattr(tmux, "_run", lambda args: f"{args[9]}\n" + "\n".join(rows) + "\n-3 80\n")
+    monkeypatch.setattr(tmux, "_run", _prints("\n".join(rows) + "\n-3 80\n"))
     text = tmux.capture_pane("%1", mark_dim=True)
     pane = tmux.Pane("work", "0", "bash", "0", "%1", "claude", "t", "/home/x")
     result = classify.classify(pane, text, lambda system, user: {
@@ -169,15 +175,15 @@ def test_blank_rows_above_a_pinned_input_box_keep_the_reply_visible(monkeypatch)
 def test_wrapped_output_counts_its_physical_rows(monkeypatch):
     # -J joins each 200-cell line from the three 80-cell rows it wrapped across.
     rows = ["Which color?", *[f"{i:03} " + "x" * 196 for i in range(100)], "❯ "]
-    monkeypatch.setattr(tmux, "_run", lambda args: f"{args[9]}\n" + "\n".join(rows) + "\n-1 80\n")
+    monkeypatch.setattr(tmux, "_run", _prints("\n".join(rows) + "\n-1 80\n"))
     history, visible = tmux.capture_pane("%1", mark_dim=True).split(tmux.VISIBLE_SCREEN)
     assert "Which color?" in history
     assert visible.strip("\n").split("\n") == rows[-51:]  # 50 x 3 rows: the top straddles
 
 
 def test_short_screen_is_unchanged(monkeypatch):
-    out = "old\n{}\na\n\n" + "\n" * 300 + "-300 80\n"
-    monkeypatch.setattr(tmux, "_run", lambda args: out.format(args[9]))
+    out = "1\nold\n{}\na\n\n" + "\n" * 300 + "-300 80\n"
+    monkeypatch.setattr(tmux, "_run", lambda args: out.format(args[19]))
     assert tmux.capture_pane("%1", mark_dim=True) == f"old\n{tmux.VISIBLE_SCREEN}\na\n"
 
 

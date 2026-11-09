@@ -929,14 +929,19 @@ def capture_pane(pane_id: str, lines: int = LIVE_ROWS, mark_dim: bool = False) -
     if mark_dim:
         # Split in tmux's physical row coordinates BEFORE -J joins wrapped rows.
         # One command queue captures both regions; no second-process resize race.
-        # -E -1 with no history clamps to row zero, so skip that capture entirely.
-        history = shlex.join([*capture, "-S", f"-{lines}", "-E", "-1"])
-        args = ["if-shell", "-F", "-t", pane_id, "#{>:#{history_size},0}", history,
+        # -E -1 with no history clamps to row zero, so that capture is dropped below.
+        # (Not if-shell: its parsed command string leaks in tmux <3.8, like run-shell -C.)
+        args = ["display-message", "-p", "-t", pane_id, "#{history_size}",
+                ";", *capture, "-S", f"-{lines}", "-E", "-1",
                 ";", "display-message", "-p", nonce,
                 ";", *capture, "-S", "0",
                 ";", "display-message", "-p", "-t", pane_id,
                 "#{e|-|:#{cursor_y},#{pane_height}} #{pane_width} #{alternate_on}"]
-    out = _run(args).replace(nonce, VISIBLE_SCREEN, 1)
+    out = _run(args)
+    if mark_dim:
+        size, _, out = out.partition("\n")
+        out = out if size != "0" else out[out.find(nonce):]
+    out = out.replace(nonce, VISIBLE_SCREEN, 1)
     tail, alt = "", []
     if mark_dim:
         # The cursor on a blank row below all output ends the text in one empty row, so
