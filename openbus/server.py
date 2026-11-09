@@ -878,6 +878,7 @@ async def get_state(v: int | None = None):
     up within the fast-poll cadence instead of a fixed 2s interval. Omitting `v` returns
     immediately (unchanged legacy behavior)."""
     w = app.state.watcher
+    push = getattr(app.state, "push", None)
     version = w.state_version()
     # Only long-poll once the watcher has produced an initial state (version > 0).
     # A client that sends ?v=0 before the deck has ever ticked (daemon startup, or the
