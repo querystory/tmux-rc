@@ -9,7 +9,6 @@ import { linkGroups, askLink } from "/pr-links.js";
 import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, AGENT_TOOLS, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf, tabTitle, tabIconKey, isRunning, sendIntent } from "/m/pane-model.js";
 import { tabIcon } from "/tab-icon.js";
 import { parseHash, formatHash, historyMode, PAGES, scratchUrl } from "/m/url-state.js";
-import "/long-press.js"; // globalThis.longPress: a classic script, so the scratch gallery shares it
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { dragToDismiss } from "/m/drag-dismiss.js";
 import { tmuxKey, inputQueue } from "/m/keys.js";
@@ -1292,14 +1291,12 @@ function copyHere(el, value, icon) {
 }
 
 // One tappable link row: the Links list's, and the one leading a question's card. A tap opens
-// it; a long press copies it instead (to open in another browser), and the click after is not
-// a tap (/long-press.js). The copy runs on release, where iOS grants the gesture a clipboard write needs.
+// it; a long press gives the system's own link menu (Copy Link, Open).
 function renderLinks(el, links) {
   reconcile(el, links, (link) => link.href, () => {
     const anchor = document.createElement("a");
     anchor.target = "_blank"; anchor.rel = "noopener noreferrer";
     anchor.innerHTML = '<span></span><small></small>' + licon("chevron", 16);
-    longPress(anchor, { released: () => copyHere(anchor, anchor.href, "chevron") });
     return anchor;
   }, (anchor, link) => {
     const host = new URL(link.href).host;

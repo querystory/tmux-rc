@@ -264,8 +264,8 @@ a.icon-button, .pane-row, .sb-open, .sb-rail { color: inherit; text-decoration: 
 .link-pair { display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; }
 .link-pair a { min-width: 0; user-select: none; -webkit-user-select: none; }
 .link-copy { color: var(--muted); }
-/* A pane's link rows: a long press copies (app.js renderLinks), so no callout or selection. */
-:is(#links, #pr-links, #ask-link) a, .more-links { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: center; min-height: 52px; padding: 8px 0; text-decoration: none; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+/* A pane's link rows: a long press opens the system's link menu, not a selection of their words. */
+:is(#links, #pr-links, #ask-link) a, .more-links { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: center; min-height: 52px; padding: 8px 0; text-decoration: none; user-select: none; -webkit-user-select: none; }
 :is(#links, #pr-links) a, .more-links { border-top: 1px solid var(--line); }
 #links a:first-child { border-top: 0; }
 :is(#links, #pr-links, #ask-link) a :is(span, small) { overflow-wrap: anywhere; }
