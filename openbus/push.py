@@ -36,11 +36,9 @@ from .classify import arrow_driven, is_approval
 logger = logging.getLogger(__name__)
 
 SETTLE_SECONDS = 5.0
-PRESENCE_SECONDS = 40.0
 RATE_WINDOW_SECONDS = 15 * 60.0
 RATE_MAX = 3
 NONCE_SECONDS = 10 * 60.0
-MAX_PRESENCE_LEASES = 128
 MAX_SUBSCRIPTIONS = 16
 READY_QUIET_SECONDS = 120.0  # after "Ready", a pane's Needs-you without answers says nothing new
 LANDED_FRESH_SECONDS = 60.0  # a promised page that landed between two scans: still news
@@ -484,9 +482,7 @@ class PushManager:
         self.store = store or PushStore()
         self.sender = sender or PushSender(self.store)
         self.clock = clock
-        self._presence: dict[str, float] = {}
         self._stable: dict[str, tuple[str, float, str | None]] = {}  # fp, since, turn
-        self._notified: set[tuple[str, str]] = set()
         self._rates: dict[tuple[str, str | None], deque[float]] = defaultdict(deque)
         self._nonces: dict[str, dict] = {}
         self._lock = threading.Lock()
@@ -514,19 +510,6 @@ class PushManager:
             except asyncio.CancelledError:
                 pass
         self.sender.close()
-
-    def note_presence(self, client: str, *, visible: bool) -> None:
-        if not client:
-            return
-        with self._lock:
-            if visible:
-                client = client[:100]
-                self._presence[client] = self.clock()
-                while len(self._presence) > MAX_PRESENCE_LEASES:
-                    oldest = min(self._presence, key=self._presence.get)
-                    self._presence.pop(oldest, None)
-            else:
-                self._presence.pop(client[:100], None)
 
     def subscribe(self, subscription: dict) -> None:
         if not _valid_subscription(subscription):
@@ -684,8 +667,6 @@ class PushManager:
         if booted:  # the rest are gone
             self.store.keep({_pane_key(p) for p in panes if isinstance(p.get("pane_id"), str)})
         self._ready = {k: at for k, at in self._ready.items() if now - at < READY_QUIET_SECONDS}
-        cleared = set(self._notified) - active
-        self._notified.intersection_update(active)
         self._stable = {pid: value for pid, value in self._stable.items()
                         if (pid, value[0]) in active}
         # Keep only the rolling 15-minute cap. Pane ids are recycled, so the birth token
@@ -696,21 +677,17 @@ class PushManager:
             if not bucket:
                 self._rates.pop(key, None)
         with self._lock:
-            self._presence = {k: ts for k, ts in self._presence.items()
-                              if now - ts < PRESENCE_SECONDS}
             for nonce, issued in list(self._nonces.items()):
-                if issued["expires"] < now or (issued["pane_id"], issued["fingerprint"]) in cleared:
+                if (issued["expires"] < now
+                        or (issued["pane_id"], issued["fingerprint"]) not in active):
                     self._nonces.pop(nonce, None)
 
         for pane, fp, question in candidates:
             pane_id = pane["pane_id"]
-            marker = (pane_id, fp)
             # Evidence, not wording: a turn already told about (before a restart, too) is
             # not news however its card reads now (re-read after a resize, by a new parser),
-            # and a new one is, however alike. The wording decides only for a card with none.
-            turn = pane.get("turn")
-            if self.store.told(_pane_key(pane), turn) if turn else marker in self._notified:
-                self._notified.add(marker)  # told before a restart, too: _ready_push reads it
+            # and a new one is, however alike.
+            if self.store.told(_pane_key(pane), turn := pane.get("turn")):
                 continue
             rate = self._rates[(pane_id, self.watcher.pane_birth(pane_id))]
             if len(rate) >= RATE_MAX:
@@ -741,8 +718,7 @@ class PushManager:
                     or not self.watcher.pane_birth(pane_id)):
                 offered = []
             if not question and (pane_id, pane.get("birth")) in self._ready:
-                self._notified.add(marker)  # a plain turn ended: its "Ready" was the news
-                self.store.tell(_pane_key(pane), turn)
+                self.store.tell(_pane_key(pane), turn)  # a plain turn ended: "Ready" was the news
                 continue
             nonce = secrets.token_urlsafe(24) if offered else None
             if nonce:
@@ -778,6 +754,5 @@ class PushManager:
                     with self._lock:
                         self._nonces.pop(nonce, None)
                 continue
-            self._notified.add(marker)
             self.store.tell(_pane_key(pane), turn)
             rate.append(now)

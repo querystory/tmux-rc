@@ -103,6 +103,7 @@ def waiting(question=None, screen=box("ls")):
         "pane_id": "%1", "label": "Build", "activity": "waiting",
         "waiting_on": "user", "headline": "Approval needed", "birth": "123",
         "frame": Watcher().frame_fp(screen, question),
+        "turn": str(question),  # the watcher always names one; here each ask is its own
     }
     if question is not None:
         state["question"] = question
@@ -301,7 +302,6 @@ def test_body_shows_the_rows_a_question_names(tmp_path, monkeypatch):
                                "options": ["Yes", "No"], "items": ["1. Prune old images."],
                                "subject": "Ways to free disk:"})]
     service, sender = manager(tmp_path, watcher, clock)
-    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
     service.evaluate()
     clock[0] += push.SETTLE_SECONDS
     service.evaluate()
@@ -361,7 +361,6 @@ def test_wait_settles_then_notifies_once_and_can_notify_after_clear(tmp_path, mo
     watcher = Watcher()
     watcher.states = [waiting(held())]
     service, sender = manager(tmp_path, watcher, clock)
-    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
 
     service.evaluate()
     clock[0] += push.SETTLE_SECONDS
@@ -397,32 +396,6 @@ def test_wait_settles_then_notifies_once_and_can_notify_after_clear(tmp_path, mo
         assert [a["title"] for a in sender.payloads[-1]["actions"]] == titles
 
 
-def test_visible_browser_and_active_tmux_do_not_suppress_push(tmp_path, monkeypatch):
-    clock = [100.0]
-    watcher = Watcher()
-    watcher.states = [waiting()]
-    service, sender = manager(tmp_path, watcher, clock)
-    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: True)
-    service.note_presence("phone", visible=True)
-    service.evaluate()
-    clock[0] += push.SETTLE_SECONDS
-    service.evaluate()
-    assert len(sender.payloads) == 1
-    # Activity must not bypass duplicate prevention either.
-    service.evaluate()
-    assert len(sender.payloads) == 1
-
-
-def test_presence_leases_are_bounded(tmp_path):
-    watcher = Watcher()
-    service, _ = manager(tmp_path, watcher, [100.0])
-    for index in range(push.MAX_PRESENCE_LEASES + 20):
-        service.note_presence(f"client-{index}", visible=True)
-    assert len(service._presence) == push.MAX_PRESENCE_LEASES
-    assert "client-0" not in service._presence
-    assert f"client-{push.MAX_PRESENCE_LEASES + 19}" in service._presence
-
-
 def test_input_generation_updates_are_atomic():
     from openbus.watcher import Watcher as RealWatcher
 
@@ -445,7 +418,6 @@ def test_stale_watcher_suppresses_until_live_state_resumes(tmp_path, monkeypatch
     watcher = Watcher()
     watcher.states = [waiting()]
     service, sender = manager(tmp_path, watcher, clock)
-    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
     service.evaluate()
     clock[0] += push.SETTLE_SECONDS
     watcher.stale = True
@@ -462,7 +434,6 @@ def test_failed_pane_parse_suppresses_retained_question(tmp_path, monkeypatch):
     watcher.states = [waiting()]
     watcher.parse_valid = False
     service, sender = manager(tmp_path, watcher, clock)
-    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
     service.evaluate()
     clock[0] += push.SETTLE_SECONDS
     service.evaluate()
@@ -481,7 +452,6 @@ def test_missing_waiting_on_defaults_to_an_actionable_user_wait(tmp_path, monkey
     pane.pop("waiting_on")
     watcher.states = [pane]
     service, sender = manager(tmp_path, watcher, clock)
-    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
     service.evaluate()
     clock[0] += push.SETTLE_SECONDS
     service.evaluate()
@@ -494,7 +464,6 @@ def test_free_text_question_deep_links_to_the_composer(tmp_path, monkeypatch):
     watcher = Watcher()
     watcher.states = [waiting({"prompt": "What should I do?", "answer_style": "text"})]
     service, sender = manager(tmp_path, watcher, clock)
-    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
     service.evaluate()
     clock[0] += push.SETTLE_SECONDS
     service.evaluate()
@@ -507,7 +476,6 @@ def test_cursor_question_never_focuses_the_text_composer(tmp_path, monkeypatch):
     watcher.states = [waiting({"prompt": "Choose a row", "answer_style": "cursor",
                                "options": []})]
     service, sender = manager(tmp_path, watcher, clock)
-    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
     service.evaluate()
     clock[0] += push.SETTLE_SECONDS
     service.evaluate()
@@ -523,7 +491,6 @@ def test_a_wait_is_not_marked_notified_before_any_device_is_subscribed(tmp_path,
         watcher, push.PushStore(tmp_path / "push.json"),
         clock=lambda: clock[0], sender=sender,
     )
-    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
     service.evaluate()
     clock[0] += push.SETTLE_SECONDS
     service.evaluate()
@@ -539,7 +506,6 @@ def test_expired_rate_buckets_are_pruned(tmp_path, monkeypatch):
     watcher = Watcher()
     service, _ = manager(tmp_path, watcher, clock)
     service._rates[("%old", "1")].append(clock[0])
-    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
     clock[0] += push.RATE_WINDOW_SECONDS
     service.evaluate()
     assert service._rates == {}
@@ -550,7 +516,6 @@ def test_action_nonce_is_one_shot_and_bound_to_live_contract(tmp_path, monkeypat
     watcher = Watcher()
     watcher.states = [waiting(held())]
     service, sender = manager(tmp_path, watcher, clock)
-    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
     sent = []
     def send(pane, keys, **kwargs):
         kwargs.pop("guard")()
@@ -579,7 +544,6 @@ def test_action_refuses_a_screen_advanced_from_the_keyboard(tmp_path, monkeypatc
     watcher = Watcher()
     watcher.states = [waiting(held())]
     service, sender = manager(tmp_path, watcher, clock)
-    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
     sent = []
     def send(_pane, keys, **kwargs):
         kwargs["guard"]()
@@ -603,7 +567,6 @@ def test_nonce_takes_its_generation_from_the_question_s_snapshot(tmp_path, monke
     watcher = Watcher()
     watcher.states = [waiting(held())]  # parsed at input generation 0
     service, sender = manager(tmp_path, watcher, clock)
-    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
     monkeypatch.setattr(push.tmux, "send_keys", lambda *_a, **kw: kw["guard"]())
     watcher.invalidate_input_actions("%1")
     service.evaluate()
@@ -618,7 +581,6 @@ def test_action_rejects_stale_watcher_state_and_consumes_nonce(tmp_path, monkeyp
     watcher = Watcher()
     watcher.states = [waiting(held())]
     service, sender = manager(tmp_path, watcher, clock)
-    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
     service.evaluate()
     clock[0] += push.SETTLE_SECONDS
     service.evaluate()
@@ -636,7 +598,6 @@ def test_action_rejects_a_retained_question_after_parse_failure(tmp_path, monkey
     watcher = Watcher()
     watcher.states = [waiting(held())]
     service, sender = manager(tmp_path, watcher, clock)
-    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
     service.evaluate()
     clock[0] += push.SETTLE_SECONDS
     service.evaluate()
@@ -654,7 +615,6 @@ def test_other_pane_input_invalidates_an_outstanding_action(tmp_path, monkeypatc
     watcher = Watcher()
     watcher.states = [waiting(held())]
     service, sender = manager(tmp_path, watcher, clock)
-    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
     service.evaluate()
     clock[0] += push.SETTLE_SECONDS
     service.evaluate()
@@ -672,7 +632,6 @@ def test_concurrent_valid_nonces_cannot_both_submit(tmp_path, monkeypatch):
     watcher = Watcher()
     watcher.states = [waiting(held())]
     service, sender = manager(tmp_path, watcher, clock)
-    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
     service.evaluate()
     clock[0] += push.SETTLE_SECONDS
     service.evaluate()
@@ -713,7 +672,6 @@ def test_action_rejects_a_reordered_question_and_consumes_nonce(tmp_path, monkey
     watcher.states = [waiting({"prompt": "Choose", "answer_style": "text",
                                "options": ["Alpha", "Beta"]})]
     service, sender = manager(tmp_path, watcher, clock)
-    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
     monkeypatch.setattr(push.tmux, "pane_pid", lambda _pane: "123")
     service.evaluate()
     clock[0] += push.SETTLE_SECONDS
@@ -746,7 +704,7 @@ def _send_app(monkeypatch, watcher):
         sent.append(keys)
 
     monkeypatch.setattr(server.tmux, "send_keys", send)
-    monkeypatch.setattr(server.app.state, "watcher", watcher, raising=False)
+    monkeypatch.setitem(server.app.state._state, "watcher", watcher)
     client = TestClient(server.app)
     def tap(token):
         body = {"keys": "1", "enter": False, "literal": True, "question": token}
@@ -940,7 +898,6 @@ def test_a_pane_gone_at_the_claim_refuses_it_as_changed(tmp_path, monkeypatch):
     watcher = Watcher()
     watcher.states = [waiting(held())]
     service, sender = manager(tmp_path, watcher, clock)
-    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
     monkeypatch.setattr(push.tmux, "send_keys", lambda *_a, **kw: kw["guard"]())
     service.evaluate()
     clock[0] += push.SETTLE_SECONDS
@@ -962,7 +919,6 @@ def test_a_page_being_made_notifies_once_as_it_lands(tmp_path, monkeypatch):
     service.scratch, shot = root, []
     service.shoot = shot.append  # its thumbnail, for the gallery's spinner to turn into
     service.store.upsert(subscription())
-    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
     monkeypatch.setattr(push.scratch, "made_in", lambda _pane, _created: True)
     watcher.states = [{**waiting(), "activity": "running", "tool": "claude", "session": "dev",
                        "window_name": "ui"}]
@@ -1089,7 +1045,6 @@ def test_a_page_made_between_two_scans_still_notifies(tmp_path, monkeypatch):
     service.scratch, shot = root, []
     service.shoot = shot.append
     service.store.upsert(subscription())
-    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
     watcher.states = [waiting()]
     for _ in range(2):
         service.evaluate()
@@ -1137,7 +1092,6 @@ def test_a_meta_json_caught_half_written_is_read_again(tmp_path, monkeypatch):
     service, sender = manager(tmp_path, Watcher(), [100.0])
     service.scratch, service.shoot = root, lambda _item: None
     service.store.upsert(subscription())
-    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
     service.landed()
     (root / "wip" / "meta.json").write_text('{"title": "Mock", "pane": "%1"}')
     service.landed()
@@ -1161,7 +1115,6 @@ def test_a_turn_already_told_about_never_buzzes_again(tmp_path, monkeypatch):
     """An ask notifies once per turn of its pane, not once per reading of it: a restart, a
     new parser (CARD_VERSION) or a resize reads the same turn again, often in other words,
     and the phone must not buzz for it. Only the conversation moving on is news."""
-    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
     clock, watcher = [100.0], Watcher()
     service, sender = manager(tmp_path, watcher, clock)
 
@@ -1190,7 +1143,6 @@ def test_a_turn_already_told_about_never_buzzes_again(tmp_path, monkeypatch):
     service, sender = manager(tmp_path, watcher, clock)
     settle(held(), "t3")
     assert sender.payloads == []
-    assert service._notified  # what a "Ready" landing now reads to stay quiet
     # Any number of idle panes keeps it so; a pane gone is forgotten.
     idle = [{**waiting(None), "pane_id": f"%{n}", "activity": "idle", "turn": "i"}
             for n in range(2, 300)]

@@ -339,7 +339,7 @@ def _post(monkeypatch, tmp_path, build, pane=(), **sent):
     found = {"server": "dead", "windows": {"@1": {"panes": [{"index": 0, "blocked": None,
                                                              **dict(pane)}]}}}
     spent = []
-    monkeypatch.setattr(S.app.state, "history", History(tmp_path / "h.db"), raising=False)
+    monkeypatch.setitem(S.app.state._state, "history", History(tmp_path / "h.db"))
     monkeypatch.setattr(R, "offer", lambda _h: found)
     monkeypatch.setattr(R, "consume", lambda _h, _s, how: spent.append(how) or True)
     monkeypatch.setattr(R, "build", build)
@@ -395,7 +395,7 @@ def test_another_account_resumes_only_the_one_the_card_named(server, tmp_path, m
                          resume_from=[["@1", 0, "/x/.claude-b"]])
     assert (reply.status_code, spent) == (409, [])
     import openbus.server as S
-    monkeypatch.setattr(S.app.state, "watcher", None, raising=False)  # nothing to resume
+    monkeypatch.setitem(S.app.state._state, "watcher", None)  # nothing to resume
     # Picked for the other account, but its own has it again: refused too.
     reply, spent = _post(monkeypatch, tmp_path, None, resume_from=[["@1", 0, "/x/.claude"]])
     assert (reply.status_code, spent) == (409, [])

@@ -10,6 +10,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import hashlib
 import io
@@ -224,11 +225,6 @@ class PushSubscriptionBody(BaseModel):
 
 class PushUnsubscribeBody(BaseModel):
     endpoint: str = Field(min_length=1, max_length=4096)
-
-
-class PushPresenceBody(BaseModel):
-    client: str = Field(min_length=1, max_length=100)
-    visible: bool
 
 
 class PushAnswerBody(BaseModel):
@@ -874,7 +870,7 @@ def get_open_loops():
 
 
 @app.get("/api/state")
-async def get_state(v: int | None = None, client: str = "", visible: bool = False):
+async def get_state(v: int | None = None):
     """Deck state for the phone. With `?v=<version>` this LONG-POLLS: it holds until the
     watcher's state_version passes `v` (a pane switch, add/remove, label/activity change,
     or new events on any pane) or ~25s elapses, then returns the fresh state plus the new
@@ -882,9 +878,6 @@ async def get_state(v: int | None = None, client: str = "", visible: bool = Fals
     up within the fast-poll cadence instead of a fixed 2s interval. Omitting `v` returns
     immediately (unchanged legacy behavior)."""
     w = app.state.watcher
-    push = getattr(app.state, "push", None)
-    if push is not None and client:
-        push.note_presence(client, visible=visible)
     version = w.state_version()
     # Only long-poll once the watcher has produced an initial state (version > 0).
     # A client that sends ?v=0 before the deck has ever ticked (daemon startup, or the
@@ -960,12 +953,6 @@ def push_revoke_all(request: Request):
     count = app.state.push.store.revoke_all()
     _audit(request, "push_revoke_all", "push", detail=f"removed={count}")
     return {"ok": True, "removed": count}
-
-
-@app.post("/api/push/presence")
-def push_presence(body: PushPresenceBody):
-    app.state.push.note_presence(body.client, visible=body.visible)
-    return {"ok": True}
 
 
 @app.post("/api/push/answer")
@@ -2426,14 +2413,18 @@ if _scratch_dir:
         return {"done": done}
 
     @app.get("/api/scratch/{name}/pane")
-    def scratch_maker(name: str) -> dict:
+    def scratch_maker(name: str, archived: bool = False) -> dict:
         """The open pane a scratch folder's messages go to (scratch.maker): the viewer's
-        composer."""
+        composer. And its title, for the viewer's bar; an archived folder's is all it has."""
+        root = Path(_scratch_dir)
+        if archived:  # a live folder may have its name since
+            return {"title": (scratch.named(scratch.archive(root), name) or {}).get("title")}
         watcher = app.state.watcher
-        pane = scratch.maker(Path(_scratch_dir), name, list(watcher.states),
+        pane = scratch.maker(root, name, list(watcher.states),
                              lambda entry: live.running_pane(entry, watcher)) or {}
+        page = scratch.named(root, name) or scratch.named(scratch.archive(root), name) or {}
         return {"pane": pane.get("pane_id"), "birth": pane.get("birth"),
-                "about": scratch.about(Path(_scratch_dir), name)}
+                "about": scratch.about(root, name), "title": page.get("title")}
 
     class ScratchPane(BaseModel):
         pane: str
@@ -2574,6 +2565,13 @@ if WEB_DIR.is_dir():
 def main() -> None:
     if sys.argv[1:2] in (["export"], ["import"]):
         export.cli(sys.argv[1:])
+        return
+    if sys.argv[1:3] == ["scratch", "export"]:
+        cli = argparse.ArgumentParser(prog="tmux-rc scratch export", description=(
+            "Write a scratch folder as static HTML any file host can serve."))
+        cli.add_argument("folder", type=Path)
+        cli.add_argument("out", type=Path)
+        scratch.export(**vars(cli.parse_args(sys.argv[3:])), web=WEB_DIR)
         return
     import uvicorn  # noqa: PLC0415 - entrypoint-only; keeps `import openbus.server` cheap
 

@@ -67,7 +67,7 @@ shaped for the phone and carries only the events new since the last parse.
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /scratch/`, `POST /api/scratch`, `GET`/`PUT /api/pins`, `GET /api/panes/{id}/scratch`, `GET /api/scratch/{name}/pane` | The [scratch gallery](scratch.md): listing, archive/delete, pins, and which pane made a page |
-| `GET /api/push/config`, `POST /api/push/subscribe`, `/unsubscribe`, `/revoke-all`, `/presence`, `/answer` | Web push ([design](design/push-notifications.md)) |
+| `GET /api/push/config`, `POST /api/push/subscribe`, `/unsubscribe`, `/revoke-all`, `/answer` | Web push ([design](design/push-notifications.md)) |
 | `WS /api/live-mode` | Live Mode's voice and chat socket ([design](design/live-mode.md)) |
 | `POST /api/client-error` | Browser-side failure reports, forwarded to telemetry |
 

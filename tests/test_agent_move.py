@@ -4,6 +4,7 @@ import json
 import os
 import stat
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -135,6 +136,7 @@ def test_a_claude_session_goes_through_codexs_own_importer(tmp_path, monkeypatch
     (codex / "reply.json").write_text("[]")
     (codex / "external_agent_session_imports.json").write_text(json.dumps(
         {"records": [{"source_path": seen["path"], "imported_thread_id": TID}]}))
+    Path(seen["path"]).write_text("left by a crash")  # under _MOVES, any copy here is stale
     assert agent_move.move(s, "codex", codex, "/srv/garden", str(fake), os.defpath, IDLE) == TID
     seen["path"] = "untouched"  # an append to a running thread is refused before any import
     with pytest.raises(LookupError, match="running"):
