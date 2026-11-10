@@ -128,7 +128,7 @@ OUT = (b'<script>addEventListener("click", (e) => { const a = e.target.closest?.
 
 async def _out(response: Response) -> Response:
     """An HTML page as served, with OUT after it (where a parser takes it into the body, so
-    the page's doctype still leads). A range of a page, or anything else, as it was."""
+    the page's doctype still leads). Anything else as it was."""
     if not (response.status_code in (200, 202)
             and response.headers.get("content-type", "").startswith("text/html")):
         return response
@@ -199,7 +199,8 @@ class Files(StaticFiles):
     async def get_response(self, path, scope):
         response = await self._response(path, scope)
         if "download" not in parse_qs(scope["query_string"].decode()):
-            return await _out(response)
+            ranged = any(k == b"range" for k, _ in scope["headers"])  # a FileResponse's own
+            return response if ranged else await _out(response)
         if response.status_code == 202:  # nothing to save yet (a placeholder): stay on the app
             return Response(status_code=204)
         name = quote(path.removeprefix(ARCHIVE + "/").split("/")[0])  # the page's folder

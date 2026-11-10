@@ -175,6 +175,7 @@ def test_scratch_serves_markdown_as_its_page(tmp_path):
     assert raw.headers["content-type"] == "text/plain; charset=utf-8" and raw.text == DOC
     assert "<h1" in c.get("/site/").text and c.get("/both/").text == "html wins" + M.OUT.decode()
     assert page.text.endswith(M.OUT.decode())  # its off-site links leave the app
+    assert c.get("/both/", headers={"Range": "bytes=0-3"}).text == "html"  # a range: the file's
     assert c.get("/nothing/").status_code == 404
 
 
