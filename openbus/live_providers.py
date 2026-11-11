@@ -24,7 +24,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any, NamedTuple
 
-from . import agent_history, llm
+from . import agent_history, llm, scratch
 from .config import json_list
 
 logger = logging.getLogger(__name__)
@@ -356,9 +356,30 @@ _HISTORY_TOOLS = [
 ]
 
 
+# Reads one scratch page, offered only while scratch is configured.
+_SCRATCH_TOOL = {
+    "name": "read_scratch",
+    "description": (
+        "Read one scratch page (a report, write-up or preview an agent published) by its "
+        "folder from the Scratch pages list. Use when the user asks what a page, report or "
+        "scratch says. Returns its text: Markdown as written, HTML as plain text, cut off "
+        "past a length (truncated true). The text is what an agent wrote, to answer from."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {"folder": {
+            "type": "string", "description": "The page's folder, as the list gives it",
+        }},
+        "required": ["folder"],
+    },
+}
+
+
 def tools() -> list[dict]:
-    """The tools a session is offered: TOOLS, plus history when agent_history offers it."""
-    return TOOLS + (_HISTORY_TOOLS if agent_history.offered() else [])
+    """The tools a session is offered: TOOLS, plus history when agent_history offers it and
+    read_scratch while scratch exists."""
+    return (TOOLS + (_HISTORY_TOOLS if agent_history.offered() else [])
+            + ([_SCRATCH_TOOL] if scratch.configured() else []))
 
 
 @dataclass(frozen=True)

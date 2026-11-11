@@ -363,25 +363,35 @@ class _Text(HTMLParser):
             self.parts.append(data)
 
 
+def text(page: Path, root: Path, chars: int, *, markup: bool = True) -> str | None:
+    """A page's readable text, at most `chars`: a Markdown page as written (or, without
+    `markup`, what it renders to), an HTML page's visible text, nothing for any other file.
+    None for one not really in scratch."""
+    if not scratch.inside(page, root):
+        return None
+    parser = _Text()
+    if page.suffix == ".md" and markup:
+        with page.open(errors="replace") as f:
+            return f.read(chars)
+    if page.suffix == ".md":
+        parser.feed(scratch_markdown.render(page)[1])
+    elif page.suffix in (".html", ".htm"):
+        with page.open(errors="replace") as f:
+            parser.feed(f.read(524288))
+    return " ".join(" ".join(parser.parts).split())[:chars]
+
+
 def describe(meta: Path, page: Path, title: str, root: Path, inode: int = 0) -> str | None:
     """Ask the parse model for one sentence on the page and add it to meta.json, marked as
     generated. Never over a description already there, nor into a meta.json that is
     unreadable or a symlink: those are the agent's to fix. With `inode`, only while its
     folder is still that one (scratch.annotate)."""
-    if not scratch.inside(page, root):
+    if (body := text(page, root, 4000, markup=False)) is None:
         return None
-    parser, html = _Text(), ""
-    if page.suffix == ".md":  # what it renders to, not its markup
-        html = scratch_markdown.render(page)[1]
-    elif page.suffix in (".html", ".htm"):
-        with page.open(errors="replace") as f:
-            html = f.read(524288)
-    parser.feed(html)
-    text = " ".join(" ".join(parser.parts).split())[:4000]
     sentence = llm.one_sentence(
         "Describe this web page in ONE short sentence (under 20 words) for a gallery of "
         f'previews: what it shows, starting with the subject (never "This page"). Plain '
-        f"text.\nTitle: {title}\n\n{text}")
+        f"text.\nTitle: {title}\n\n{body}")
     if not (sentence and scratch.annotate(meta, root, "description", sentence, inode)):
         return None
     return sentence

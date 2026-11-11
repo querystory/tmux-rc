@@ -131,7 +131,7 @@ not parser activity — don't mix them into parse metrics. Each record has a mat
   `live_session` (start/end, with `turns`, `cost_usd`, `duration_s`) and one
   `live_<tool>` per tool call (`live_type_in_pane`, `live_press_key`,
   `live_send_image_to_pane`, `live_open_pane`, `live_find_sessions`,
-  `live_resume_session`).
+  `live_resume_session`, `live_read_scratch`, whose `detail` is the folder read).
 - Live records also carry **`session`** (the voice session id that joins to its
   `live_turn` rows), **`model`**, **`provider`**, and for tool calls **`latency_ms`**.
   `live_find_sessions` adds `results` (count) and `top` (first three session ids);
