@@ -68,7 +68,9 @@ round it are the context it has used, hot past 80%; a badge counts sub-agents, e
 finished or idle, each satellite in its state's colour (the sidebar lists only the busy
 ones, but a pane waiting on six background agents should show six); a needs-you
 pane pulses and says how long it has waited; idle panes fade with age, so stale ones
-recede; a dashed ring marks the account once there are several; running edges carry the
+recede; past fading, **Hide idle panes** in the filter menu drops them, and the hubs left
+empty, per device: a fleet of ninety mostly idle panes otherwise buries the dozen at work,
+and the menu, not a new button on the canvas, is where the view's other scoping already lives; a dashed ring marks the account once there are several; running edges carry the
 current verb and its elapsed time; hubs sum their running, needs-you and cost; the HUD
 counts sessions, running, needs you, sub-agents, tokens in flight, cost and the oldest
 pane; and two callouts, Longest waiting and Most expensive, glide to the pane and open it.

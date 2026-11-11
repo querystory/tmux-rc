@@ -18,7 +18,7 @@ import { renderUsageView, usageDays } from "/m/usage-view.js";
 import { setupAccounts } from "/m/accounts.js";
 import { renderLoops, renderLoopsCard } from "/m/loops.js";
 import { setupRestore } from "/m/restore.js";
-import { renderGraphView, renderGraphCard } from "/m/graph.js";
+import { renderGraphView, renderGraphCard, hideIdle } from "/m/graph.js";
 
 const refreshViewPicker = headerPicker(document.getElementById("review-layout"));
 
@@ -474,6 +474,8 @@ const renderSidebar = setupSidebar({ licon, reconcile, text, html, renderItems, 
   active: () => active, wide: () => WIDE.matches, sending: () => sending, answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, compose, offers: (p) => offersOf(p).filter(isCommand), copy: copyText, linkPair,
   setFilter: (value) => { filter = value; stayPut(); }, setAgents: scope.pick,
   setSession: scope.pickSession, clearAll: clearFilters, outside: (p) => outside.has(p.pane_id), sort: () => sort, setSort, repaint: () => renderList() });
+// The Fleet graph's one option in the filter menu, shown on its page (render()).
+const idleOpt = renderSidebar.group("Fleet graph", { idle: "Hide idle panes" }, () => { hideIdle(!hideIdle()); render(); });
 function emptyMessage(query) {
   if (!loaded) return "Loading sessions...";
   if (!booted) return "Reading terminal sessions...";
@@ -534,6 +536,7 @@ function renderList() {
   // Named for screen readers too: in the rail the chips that say it are hidden.
   Object.assign(renderSidebar.picker.firstChild, { title: on.join(" · ") || "No filters", ariaLabel: on.length ? `Filter panes: ${on.join(" · ")}` : "Filter panes" }).dataset.n = n || "";
   renderSidebar.clearAll.disabled = !n;
+  idleOpt.hidden = page !== "graph"; idleOpt.mark(() => hideIdle()); // a view's preference, uncounted as Group by
   // No panes means no session to open a window in: offer to start one instead — the
   // only way back after a reboot, when no tmux server is running at all.
   // Not before boot: an empty `panes` then would open the dialog in New session mode.
@@ -2773,7 +2776,7 @@ function placeChrome() {
   $("sb-sticky").before($("sb-nav"), $("sb-recent"));
   // The account filter (accounts.js) is a group in the filter menu in both layouts (a phone's
   // opens as a bottom sheet); the active filters' chips are placed by placePill().
-  renderSidebar.picker.lastChild.append(accounts.filter, ...renderSidebar.views);
+  renderSidebar.picker.lastChild.append(accounts.filter, idleOpt, ...renderSidebar.views);
   placePill();
 }
 // The active filters' chips: under search (a phone's list hides them there: its filter button

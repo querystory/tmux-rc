@@ -426,6 +426,7 @@ export function setupSidebar(ctx) {
   }
   render.marks = marks;
   render.picker = picker; // the filter menu: app.js adds the account filter, then these
+  render.group = group; // for app.js's own options, the graph's Hide idle
   render.views = [by, sortBy, document.createElement("hr"), clearAll];
   render.clearAll = clearAll;
   render.drafts = drafts; // for the app's unsent-draft guard on reload
