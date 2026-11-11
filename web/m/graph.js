@@ -645,7 +645,8 @@ export function renderGraphView(root, panes, ctx) {
       list.forEach(p => c[paneState(p)]++);
       const toks = list.reduce((t, p) => t + tokens(p.working?.tokens) + subsList(p).reduce((u, a) => u + tokens(a.tokens), 0), 0);
       const oldest = list.reduce((a, p) => !a || ageOf(p) > ageOf(a) ? p : a, null), need = list.filter(p => paneState(p) === 0).sort((a, b) => ageOf(b) - ageOf(a))[0];
-      const dear = list.reduce((a, p) => costOf(p) > (a ? costOf(a) : 0) ? p : a, null), spend = list.reduce((t, p) => t + costOf(p), 0);
+      // Most expensive among the panes drawn (Hide idle's left out), so its jump lands.
+      const dear = root._shown.reduce((a, p) => costOf(p) > (a ? costOf(a) : 0) ? p : a, null), spend = list.reduce((t, p) => t + costOf(p), 0);
       stats.innerHTML = [['', new Set(list.map(p => p.session)).size, 'Sessions'], ['go', `${c[1] + c[4] + c[5]}<small>/${list.length}</small>`, 'Running'], [c[0] ? 'need' : '', c[0], 'Needs you'],
         ['opt', subs, 'Sub-agents'], ['', toks >= 1000 ? `${(toks / 1000).toFixed(toks >= 1e4 ? 0 : 1)}k` : toks, 'Tokens in flight'], ['', `$${spend.toFixed(spend >= 100 ? 0 : 2)}`, 'Cost'], ['opt', oldest ? since(oldest) || '–' : '–', 'Oldest pane']]
         .map(([cls, v, l]) => `<div class="${cls}"><b>${v}</b><span>${l}</span></div>`).join('');
@@ -668,13 +669,13 @@ export function renderGraphView(root, panes, ctx) {
     try { saved = localStorage.getItem('tmuxrc-graph-lens') || saved; } catch {}
     root._lens = saved;
   }
-  root._panes = panes;
+  root._panes = panes; root._shown = hiding ? panes.filter(p => !idle(paneState(p))) : panes; // hubs are built from panes: an all-idle one goes too
   const g = root._g, want = root._lens;
   // The remembered lens once it can show: Account waits for the accounts, and is gone with one.
   if (want && LENSES.some(l => l[0] === want) && (want !== 'account' || ctx.several())) { root._lens = null; if (g.lens() !== want) g.setLens(want); }
   if (g.lens() === 'account' && !ctx.several()) g.setLens('session');
   root._paint();
-  g.update(hiding ? panes.filter(p => !idle(paneState(p))) : panes); // hubs are built from panes: an all-idle one goes too
+  g.update(root._shown);
   return root;
 }
 
