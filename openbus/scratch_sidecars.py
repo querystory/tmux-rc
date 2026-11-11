@@ -370,15 +370,20 @@ def text(page: Path, root: Path, chars: int, *, markup: bool = True) -> str | No
     if not scratch.inside(page, root):
         return None
     parser = _Text()
+
+    def seen() -> str:
+        return " ".join(" ".join(parser.parts).split())
     if page.suffix == ".md" and markup:
         with page.open(errors="replace") as f:
             return f.read(chars)
     if page.suffix == ".md":
         parser.feed(scratch_markdown.render(page)[1])
-    elif page.suffix in (".html", ".htm"):
+    elif page.suffix in (".html", ".htm"):  # read on past a big inline script to its text
         with page.open(errors="replace") as f:
-            parser.feed(f.read(524288))
-    return " ".join(" ".join(parser.parts).split())[:chars]
+            while len(seen()) < chars and (chunk := f.read(65536)):
+                parser.feed(chunk)
+    parser.close()  # flushes what it held back for a tag that might still be coming
+    return seen()[:chars]
 
 
 def describe(meta: Path, page: Path, title: str, root: Path, inode: int = 0) -> str | None:

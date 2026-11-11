@@ -451,7 +451,7 @@ def _scratch_index(watcher) -> str:
         by = (f" — made in {q(_pane_name(pane, digest))} (id={i['pane']})" if pane
               else f" — made by {q(i['where'])}" if i.get("where") else "")
         about = f" — {q(i['description'])}" if i["description"] else ""
-        return (f"- folder {q(i['name'])}: {q(i['title'])}{about}{by}"
+        return (f"- folder {json.dumps(i['name'], ensure_ascii=False)}: {q(i['title'])}{about}{by}"
                 f" — {_fmt_age(time.time() - i['updated'])} ago")
     return "\n".join(map(line, listed))
 
@@ -1027,8 +1027,11 @@ def _read_scratch(args: dict, rec: dict) -> dict:
     if not (item := scratch.named(Path(root), folder)):
         return {"status": "no_match", "reason": "no scratch folder by that name",
                 "folders": [i["name"] for i in scratch.items(Path(root))[:SCRATCH_INDEX]]}
-    body = item["page"] and scratch_sidecars.text(item["page"], Path(root),
-                                                  SCRATCH_TEXT_CHARS + 1)
+    try:
+        body = item["page"] and scratch_sidecars.text(item["page"], Path(root),
+                                                      SCRATCH_TEXT_CHARS + 1)
+    except OSError:  # archived or deleted since it was found, say
+        return {"status": "error", "reason": "the page could not be read"}
     if not body:
         return {"status": "empty", "title": item["title"],
                 "reason": "the page has no text to read: an image, or still being made"}
