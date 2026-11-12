@@ -710,6 +710,7 @@ def _ground_visible_fields(
     ) if llm_fn and (bad_action or identity_chrome) else None
     retry = dict(retry) if isinstance(retry, dict) else None
     if retry:
+        retry.setdefault("tool", result.get("tool"))  # the promotion below is Claude's alone
         _fold_sends(retry, text)
         _unblocked_ask(retry)  # before its ask is validated: a bad one costs no quota read
     if retry and receipt and kind == "prompt":
@@ -1048,7 +1049,8 @@ def _sends_out_of_options(result: dict, text: str) -> None:
                            and not (_quoted(o, view) and not _quoted(o, above))]
     if sends:
         result["offers"] = [*sends, *result["offers"]]  # first, so the cap of three keeps it
-        if not question["options"]:
+        # A live wait on its agents asks nothing else: the command is all it hands over.
+        if not question["options"] or (turn and turn["live"]):
             del result["question"]
 
 
