@@ -258,8 +258,8 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
     # Opt-in: how many reply pills the card may draw, so a list of points stays one ask's
     # few replies. Counted as app.js answerOptions does: the question's options bar its
     # free-text row, then each reply offer (not a `! command`) not already among them.
+    listed = lambda v: v if isinstance(v, list) else []  # noqa: E731  untrusted model JSON
     if "buttons_at_most" in expected:
-        listed = lambda v: v if isinstance(v, list) else []  # noqa: E731  untrusted model JSON
         free = got_q.get("free_text") if isinstance(got_q, dict) else None
         pills = [o for i, o in enumerate(listed(opts))  # JS's !== never equates a bool
                  if isinstance(o, str) and o.strip() and (i != free or isinstance(free, bool))]
@@ -268,10 +268,15 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
                   and not o.startswith("! ") and o.strip().lower() not in said]
         if len(pills) > expected["buttons_at_most"]:
             diffs.append(f"buttons: {len(pills)} over {expected['buttons_at_most']}: {pills!r}")
-    # Opt-in: text the question's prompt must not quote (a panel drawn beside the message).
+    # Opt-in: text the question's prompt must not quote (a panel drawn beside the message),
+    # and text the card's question must show, in its prompt or its rows (every ask of a list).
     prompt = str(got_q.get("prompt")) if isinstance(got_q, dict) else ""
     if quoted := [t for t in (want_q or {}).get("prompt_excludes", []) if t in prompt]:
         diffs.append(f"question.prompt: quotes {quoted!r}")
+    rows = got_q.get("items") if isinstance(got_q, dict) else None
+    card = "\n".join([prompt, *(r for r in listed(rows) if isinstance(r, str))])
+    if missed := [t for t in (want_q or {}).get("shows", []) if t not in card]:
+        diffs.append(f"question: does not show {missed!r}")
     # Presence-only fields. `copyables` is here rather than compared by content: the
     # LABEL is free prose and the TEXT is a verbatim payload whose exact whitespace we
     # don't want to bless brittlely — what must not regress is "the model noticed there

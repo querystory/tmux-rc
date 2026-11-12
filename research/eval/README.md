@@ -102,6 +102,8 @@ strictness is correct:
   options and the offers, together), so a list put to the user stays one ask's few replies.
 - `question.prompt_excludes` — opt-in list of strings the question's prompt must not
   contain (text drawn beside the message, such as a side panel's rows).
+- `question.shows` — opt-in list of strings the card's question must show, in its prompt or
+  the rows it lists (each ask of a closing list put to the user, not only the last).
 - `links` — opt-in list of URLs, each of which must be offered whole among the candidate's
   link hrefs (extra links are fine): a URL the terminal wrapped must not arrive as a fragment.
 - `rewind`, `tasks`, `copyables` — compared by *presence* only.

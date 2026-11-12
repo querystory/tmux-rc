@@ -895,6 +895,7 @@ def _restate(question: dict, replies_fn) -> str | None:
 
 _CONTEXT_ENTRY_RE = re.compile(r"(?i)\(?\d+%\s*(?:ctx|context)\b.*")
 _LIST_ITEM_RE = re.compile(r"[-*•]\s+|\d+[.)]\s+")
+_BULLET_RE = re.compile(r"^[-*•]\s+")
 # A box's side bars, a block quote's left bar (Claude Code draws "▎"), and the bar Claude
 # Code draws down the right of its transcript.
 _FRAME_BARS_RE = re.compile(r"(?m)^[ \t]*[│┃▎▍▌][ \t]?|[ \t]*[│┃][ \t]*$")
@@ -920,7 +921,13 @@ def _final_paragraph(message: str) -> str:
                 rows.append(row)  # the item itself, or the one the wrapped rows continue
             break
         rows.append(row)
-    return " ".join(r.strip() for r in reversed(rows))
+    return _one_line("\n".join(reversed(rows)))
+
+
+def _one_line(text: str) -> str:
+    """Rows as the card's one-line heading: terminal wraps joined, a list's bullets dropped
+    (its numbers are labels the replies may name, so they stay)."""
+    return " ".join(" ".join(_BULLET_RE.sub("", row.strip()) for row in text.splitlines()).split())
 
 
 def _final_message(visible: str, tool: str) -> str | None:
@@ -1060,7 +1067,7 @@ def _final_ask(visible: str, tool: str, message: str, offers: list[str], waiting
             return {"prompt": closing, "answer_style": "text"}
         # An offer elsewhere (a command, a reply asked for): the paragraph holding it.
         paragraph = next((p for p in reversed(paragraphs)
-                          if offered and re.search(offered, p)), None)
+                          if offered and re.search(offered, p, re.IGNORECASE)), None)
         if paragraph is None:
             # A `! command` row hands over its whole paragraph (a narrow pane wraps the
             # command over several rows) with the one leading into it, each row's own
@@ -1089,13 +1096,20 @@ def _clean_options(raw: object, *prompts: str) -> list[str]:
 
 def _same_question(model_q: object, ask: dict) -> dict:
     """The parser's own question when the deterministic ask that replaces it is the same
-    question (one prompt contains the other), else {}: its suggested replies and the rows
-    it cites are kept."""
+    question (one prompt contains the other, or the ask is a row of the list the model reads
+    as one ask), else {}: its suggested replies and the rows it cites are kept."""
     if not isinstance(model_q, dict) or model_q.get("answer_style", "text") != "text":
         return {}
-    old, new = str(model_q.get("prompt", "")).strip(), ask["prompt"]
-    return model_q if old and (
-        old.casefold() in new.casefold() or new.casefold() in old.casefold()) else {}
+    old, new = _one_line(str(model_q.get("prompt", ""))).casefold(), ask["prompt"].casefold()
+    listed = new in _rows(model_q).casefold()
+    return model_q if old and (old in new or new in old or listed) else {}
+
+
+def _rows(question: dict) -> str:
+    """The list rows a question cites, one per line."""
+    items = question.get("items")
+    rows = items if isinstance(items, list) else ()
+    return "\n".join(_one_line(i) for i in rows if isinstance(i, str))
 
 
 # What kind of question it is, and so what the buttons are, is the model's call: one small
@@ -1103,12 +1117,14 @@ def _same_question(model_q: object, ask: dict) -> dict:
 # parser prompt. Empty means open-ended: no buttons, the free-text box is always there.
 _REPLIES_SYSTEM = (
     "The coding agent just asked the user the question below. Reply as JSON "
-    '{"options": [...]} with reply buttons for it: short (under 8 words), distinct, each a '
-    "complete reply the user could type. Use an EMPTY list when the question is open-ended "
+    '{"options": [...]} with at most three reply buttons for it: short (under 8 words), '
+    "distinct, each a complete reply the user could type. Use an EMPTY list when the "
+    "question is open-ended "
     "(what, which, how, a choice between alternatives, a request for content). For a "
-    "yes/no question give the natural accept and decline. If it bundles several steps, "
-    'add between them one "Yes, but check with me before <step>" per step, naming only '
-    "steps the question names. The first option accepts; the last declines."
+    "yes/no question give the natural accept and decline. If one question bundles several "
+    'steps, add between them a "Yes, but check with me before <step>", naming a step the '
+    'question names. A list of several asks is answered as a whole ("Yes to all"). The '
+    "first option accepts; the last declines."
 )
 _replies: dict[str, list[str]] = {}  # by question text: one call per question, not per tick
 
@@ -1127,7 +1143,7 @@ def _reply_options(prompt: str, replies_fn) -> list[str]:
             if len(got) != 1 and (got or not reply["options"]):  # lone or all-junk: unusable
                 if len(_replies) > 256:
                     _replies.clear()
-                _replies[prompt] = got[:4]
+                _replies[prompt] = got[:3]
     return _replies.get(prompt, [])
 
 
@@ -1531,12 +1547,24 @@ def classify(
         if ask.get("options") == ["try again"]:
             result["headline"] = ask["prompt"]  # A stopped provider error outranks old progress.
         own = _same_question(result.get("question"), ask)
+        # A closing row of a list the model reads as one ask: the list is the question, as
+        # the model quoted it (its rows, or one prompt holding them all), read off the screen.
+        said = str(own.get("prompt", "")).strip()
+        said = _one_line(found[0] if (found := said and _last_occurrence(said, view)) else said)
+        plain = lambda t: " ".join(w for w in t.casefold().split() if w not in "-*•")  # noqa: E731
+        if (((rows := _rows(own)) and ask["prompt"].casefold() in rows.casefold())
+                or (said != ask["prompt"] and plain(ask["prompt"]) in plain(said))):
+            ask["prompt"] = said
         if "options" not in ask and (
             options := _clean_options(own.get("options"), str(own.get("prompt", "")).strip(),
-                                      ask["prompt"])[:4]
-            or _reply_options(ask["prompt"], replies_fn)
+                                      ask["prompt"])[:3]
+            or _reply_options("\n".join(filter(None, (ask["prompt"], rows))), replies_fn)
         ):
             ask["options"] = options
+            # Three reply buttons at most: offered replies fill what the options leave.
+            spare = [o for o in offers or () if not o.startswith("! ")][:3 - len(options)]
+            if offers:
+                result["offers"] = [o for o in offers if o.startswith("! ") or o in spare]
         ask.update({k: own[k] for k in ("items", "subject", "link") if k in own})
         result["question"] = ask
         result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.
@@ -1589,7 +1617,7 @@ def classify(
         items = question.pop("items", None)
         view = _ask_view(text) if result.get("tool") == "claude" else visible
         if isinstance(items, list) and (quoted := [i for i in items if _quoted(i, view)]):
-            question["items"] = quoted
+            question["items"] = [_one_line(i) for i in quoted]
         if not _quoted(question.get("subject"), view):
             question.pop("subject", None)
         # A question with no style is answered as text (models.py).

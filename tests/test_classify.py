@@ -1472,7 +1472,7 @@ def test_users_own_turn_under_a_live_spinner_is_not_a_question():
 def test_finished_turn_blocked_on_the_user_is_a_text_wait():
     cases = {
         "55_claude_turn_ends_with_user_handoff": "The PRD's local fix is committed",
-        "56_claude_turn_ends_with_decision": "- Live text mode prototype: should I start it",
+        "56_claude_turn_ends_with_decision": "Live text mode prototype: should I start it",
         "57_codex_turn_aborted_by_provider_error": "Selected model is at capacity.",
     }
     for name, prompt in cases.items():
@@ -2003,10 +2003,34 @@ def test_model_options_for_the_same_question_skip_the_extra_call(replies):
     assert _ask(make({}), choice, "Which backend?")["options"] == choice["options"]
 
 
+def test_a_closing_list_of_asks_is_one_question_under_its_heading(replies):
+    make, calls = replies
+    message = "Still open:\n  - OK to merge #7?\n  - Turn the flag on after the\n    merge?"
+    rows = ["OK to merge #7?", "Turn the flag on after the merge?"]
+    own = {"prompt": "Still open:", "items": [f"- {row}" for row in rows]}
+    q = _ask(make({"options": ["Yes to all", "No"]}), own, message)
+    assert (q["prompt"], q["items"], q["options"]) == ("Still open:", rows, ["Yes to all", "No"])
+    assert calls == ["Still open:\nOK to merge #7?\nTurn the flag on after the merge?"]
+    # One prompt quoting the whole list reads the same, off the screen's rows.
+    whole = {"prompt": "Still open: - OK to merge #7? - Turn the flag on after the merge?"}
+    assert _ask(make({}), whole, message)["prompt"] == "Still open: " + " ".join(rows)
+    # Without the model's list, the closing row alone is the ask, its bullet dropped.
+    assert _ask(make({}), None, message)["prompt"] == "Turn the flag on after the merge?"
+
+
+def test_offered_replies_fill_only_the_buttons_the_options_leave(replies):
+    make, _ = replies
+    for options, kept in ((["Yes", "Maybe", "No"], []), (["Yes", "No"], ["merge"])):
+        classify_mod._replies.clear()
+        result = classify(_pane("claude"), _auto_screen(ASK), _llm({"offers": ["merge"]}),
+                          replies_fn=make({"options": options}))
+        assert result["offers"] == kept
+
+
 def test_decline_survives_the_cap_and_a_lone_option_is_unusable(replies):
     make, calls = replies
     five = {"options": ["Yes, all", "Check a", "Check b", "Check c", "No"]}
-    assert _ask(make(five))["options"] == ["Yes, all", "No", "Check a", "Check b"]
+    assert _ask(make(five))["options"] == ["Yes, all", "No", "Check a"]
     assert "options" not in _ask(make({"options": ["Yes"]}), message="Should I stop?")
     assert "options" not in _ask(make({"options": ["Yes"]}), message="Should I stop?")
     assert "options" not in _ask(make({"options": ["\x1b", ""]}), message="Should I stop?")
@@ -2016,7 +2040,7 @@ def test_decline_survives_the_cap_and_a_lone_option_is_unusable(replies):
 def test_reply_options_are_sanitized(replies):
     make, _ = replies
     raw = ["Yes", "yes", "ok\x1b[A", "no\n", "x" * 61, 7, ASK, "Maybe", "Later", "Never", "No"]
-    assert _ask(make({"options": raw}))["options"] == ["Yes", "No", "Maybe", "Later"]
+    assert _ask(make({"options": raw}))["options"] == ["Yes", "No", "Maybe"]
 
 
 def test_provider_error_retry_is_deterministic(replies):
