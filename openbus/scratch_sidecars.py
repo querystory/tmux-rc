@@ -353,10 +353,17 @@ class _Text(HTMLParser):
         self.hidden, self.parts = 0, []
 
     def handle_starttag(self, tag, _attrs):
+        self.parts.append(" ")  # an element boundary separates; a chunk boundary does not
         self.hidden += tag in self.HIDDEN
 
     def handle_endtag(self, tag):
+        self.parts.append(" ")
         self.hidden -= tag in self.HIDDEN and self.hidden > 0
+
+    def feed(self, data):
+        super().feed(data)
+        if self.cdata_elem in self.HIDDEN:  # all it holds is script or style: keep only
+            self.rawdata = self.rawdata[-32:]  # enough to find the closing tag across chunks
 
     def handle_data(self, data):
         if not self.hidden:
@@ -372,7 +379,7 @@ def text(page: Path, root: Path, chars: int, *, markup: bool = True) -> str | No
     parser = _Text()
 
     def seen() -> str:
-        return " ".join(" ".join(parser.parts).split())
+        return " ".join("".join(parser.parts).split())
     if page.suffix == ".md" and markup:
         with page.open(errors="replace") as f:
             return f.read(chars)

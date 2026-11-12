@@ -75,12 +75,18 @@ def test_read_scratch_returns_the_page_as_data(root, monkeypatch):
     # Text past a big inline script is still read.
     (root / "site" / "index.html").write_text(f"<script>{'x' * 600_000}</script><p>Late</p>")
     assert _read({"folder": "site"})["text"] == "Late"
+    # A closing tag split across read chunks still ends the script; text split stays whole.
+    (root / "site" / "index.html").write_text(f"<script>{'x' * 65524}</script><p>Late</p>")
+    assert _read({"folder": "site"})["text"] == "Late"
+    (root / "site" / "index.html").write_text(f"<p>{'a' * 65531} 1234 passed</p>")
+    assert L.scratch_sidecars.text(root / "site" / "index.html", root, 10**6).endswith(
+        " 1234 passed")
     monkeypatch.setattr(L, "SCRATCH_TEXT_CHARS", 5)
     assert _read({"folder": "notes"}) | {"note": ""} == {
         "status": "ok", "title": "Plan", "text": "# Pla", "truncated": True, "note": ""}
 
 
-def test_read_scratch_refuses_what_is_not_one_folder(root):
+def test_read_scratch_refuses_what_is_not_one_folder(root, monkeypatch):
     _folder(root, "notes", "index.md", "# Plan")
     assert _read({"folder": "../etc"}) == {
         "status": "no_match", "reason": "no scratch folder by that name", "folders": ["notes"]}
@@ -88,5 +94,7 @@ def test_read_scratch_refuses_what_is_not_one_folder(root):
     assert _read({"folder": "notes", "extra": 1})["status"] == "rejected"
     _folder(root, "pic", "shot.png", "not text")
     assert _read({"folder": "pic"})["status"] == "empty"
-    (root / "notes" / "index.md").chmod(0)
+    def unreadable(*_a, **_k):
+        raise PermissionError
+    monkeypatch.setattr(L.scratch_sidecars, "text", unreadable)
     assert _read({"folder": "notes"}) == {"status": "error", "reason": "the page could not be read"}
