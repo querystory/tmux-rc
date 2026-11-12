@@ -61,7 +61,10 @@ Agents hand out a link before the page exists ("a subagent is building it, it wi
 placeholder with the title, who is making it and what that pane is doing right now, and
 turns into the page the moment `index.html` or `index.md` lands. The card in the gallery
 spins the same way. Once the agent's pane has closed, or sat idle for thirty minutes, the
-card says **Stopped**: the agent gave up without publishing.
+card says **Stopped**: the agent gave up without publishing. So does one still unpublished
+after two hours, however busy its pane is (on other work, say), and an update marked that
+long ago. A stopped page's link says no page was made and links that pane's newer pages in
+place of what it is doing now.
 
 When the page lands, every subscribed device gets one push, `Ready: <title>`, whose tap
 opens the page in the app. It is a notification of its own, never swallowed by the pane's
