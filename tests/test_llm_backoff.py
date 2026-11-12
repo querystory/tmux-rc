@@ -80,6 +80,30 @@ def test_an_armed_backoff_skips_the_call_entirely():
         _clear()
 
 
+def test_a_skipped_call_reports_the_reason_the_brake_was_armed(monkeypatch):
+    """During an expired-credentials outage the skip used to say "rate limited (429)",
+    hiding the one remedy that works: running gcloud."""
+    _clear()
+    _raise("RefreshError", "Reauthentication is needed")
+    monkeypatch.setattr(L, "_client", lambda: pytest.fail("must not call Vertex"))
+    assert L.classify_text("system", "text") is None
+    assert L.last_error["msg"].startswith("Google auth expired")
+    _clear()
+
+
+def test_a_burst_of_parallel_failures_doubles_the_delay_once():
+    """Panes are read in parallel, so one outage fails every call in flight. Each of
+    those started before the first armed the brake, and must not double it again."""
+    _clear()
+    t0 = time.time()
+    for _ in range(8):
+        L._handle_llm_error(Exception("429 RESOURCE_EXHAUSTED"), t0)
+    assert L._backoff["delay"] == 15.0
+    _raise("TimeoutError", "timeout")  # the next attempt, after the window, fails again
+    assert L._backoff["delay"] == 30.0
+    _clear()
+
+
 def test_a_hung_call_fails_at_the_overall_deadline(monkeypatch):
     """The HTTP timeout never covered the token refresh or DNS before it; the overall
     deadline does, and its expiry is handled like any Vertex timeout."""

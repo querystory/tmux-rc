@@ -17,6 +17,7 @@ import anyio
 import markdown
 from markdown.blockprocessors import BlockProcessor
 from markdown.extensions import Extension
+from markdown.preprocessors import Preprocessor
 from pygments.formatters import HtmlFormatter
 from starlette.exceptions import HTTPException
 from starlette.responses import HTMLResponse, Response
@@ -30,6 +31,9 @@ _TOKENS = re.compile(r"^(?::root(?:\.light)? \{.*?^\}|\.acct-(?:badge|dot)\b[^\n
 _CALLOUT = re.compile(r"^ {0,3}> ?\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\] *$",
                       re.IGNORECASE | re.MULTILINE)
 _QUOTED = re.compile(r" {0,3}> ?")
+_ITEM = re.compile(r"(?:[-*+]|\d+\.) ")
+# As on GitHub (CommonMark), only a list numbered from 1 interrupts text: "2026. was" stays.
+_INTERRUPT = re.compile(r"(?:[-*+]|1\.) +\S")
 # GitHub's CAUTION is red, Material's caution orange: it becomes a danger titled Caution.
 _ADMONITION = {"caution": 'danger "Caution"'}
 # Highlighting is done here, so the page carries Pygments' classes for both themes, each
@@ -65,8 +69,25 @@ class _Callouts(BlockProcessor):
                       if b.strip()]
 
 
+class _Lists(Preprocessor):
+    """A list straight under a line of text, as GitHub starts it: Python-Markdown wants a
+    blank line first, so it gets one. Runs once fences and raw HTML are stashed (20)."""
+
+    def run(self, lines):
+        out, listed = [], False  # listed: in a list's lines, its lazy continuations too
+        for line in lines:
+            if not listed and out and out[-1].strip() and _INTERRUPT.match(line):
+                out.append("")
+            starts = not out or not out[-1].strip()  # an item here starts a list
+            listed = (bool(line.strip()) and not line.startswith("#")  # a heading ends one
+                      and (listed or (starts and bool(_ITEM.match(line)))))
+            out.append(line)
+        return out
+
+
 class _GitHub(Extension):
     def extendMarkdown(self, md):  # noqa: N802 - Python-Markdown's name
+        md.preprocessors.register(_Lists(md), "github_lists", 15)
         md.parser.blockprocessors.register(_Callouts(md.parser), "github_callouts", 21)
 
 
@@ -97,16 +118,20 @@ def render(path: Path) -> tuple[str, str, str | None]:
     return _render(str(path), st.st_mtime, st.st_size)
 
 
-def page(path: Path, web: Path, notice: tuple[str, str] | None = None) -> str:
+def page(path: Path, web: Path, notice: tuple[str, str] | None = None, app: str = "/",
+         raw: str = "?raw") -> str:
     """The whole page for `path`: its HTML in a readable column on the app's colours (from
     `web`, the app's static dir), the Markdown kept for copying, mermaid.js loaded only
     when there is a diagram to draw, and `notice` (scratch.bar: its label for the tab, and
-    the bar) while the page is being updated."""
+    the bar) while the page is being updated. Its icon and mermaid.js load from `app`, the
+    app's static files' URL, and its Source link is `raw` (scratch.export: both relative)."""
     source, body, title = render(path)
     label, notice = notice or ("", "")
     title = f"{label} · {title or path.stem}" if label else title or path.stem
-    script = f'<script src="{MERMAID}"></script>' if 'class="mermaid"' in body else ""
+    script = (f'<script src="{app}{MERMAID.removeprefix("/")}"></script>'
+              if 'class="mermaid"' in body else "")
     return (_PAGE.read_text().replace("/*tokens*/", tokens(web / "m" / "style.css"))
+            .replace("<!--app-->", app).replace("<!--raw-->", escape(raw))
             .replace("/*pygments*/", _PYGMENTS).replace("<!--title-->", escape(title))
             .replace("<!--source-->", escape(source))
             .replace("<!--notice-->", notice).replace("<!--mermaid-->", script)

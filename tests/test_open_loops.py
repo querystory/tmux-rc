@@ -372,8 +372,8 @@ def test_endpoint_renders_from_cache(monkeypatch):
         def __init__(self):
             self.states = [pane("%1", prs=[13])]
 
-    monkeypatch.setattr(server.app.state, "loops", loops, raising=False)
-    monkeypatch.setattr(server.app.state, "watcher", Watcher(), raising=False)
+    monkeypatch.setitem(server.app.state._state, "loops", loops)
+    monkeypatch.setitem(server.app.state._state, "watcher", Watcher())
     monkeypatch.setattr(open_loops, "run_gh", lambda *a: (_ for _ in ()).throw(AssertionError))
     monkeypatch.setattr(open_loops.time, "time", lambda: NOW)
     body = TestClient(server.app).get("/api/open-loops").json()

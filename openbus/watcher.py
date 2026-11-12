@@ -132,7 +132,11 @@ _OMP_ROW = rf".*{_OMP_BAR}"  # lookahead body: the rest of this line holds the b
 _VOLATILE_RE = re.compile(
     # durations; fractional seconds only as omp's job timer ("· 3.4s"), so "1.2s" elsewhere
     # stays content rather than leaving a "1." that half-tracks it
-    r"\d+h\d+m|\d+m\s*\d+s|(?<=· )\d+\.\d+s\b|(?<!\.)\d+s\b"
+    # Each match takes the spaces before it: they right-align the value, so they shift
+    # when it changes width (9s→10s, 99.9k→100.0k) and would sign as new content. The run
+    # is taken whole and only from its start, so a wide padded row is scanned once, and
+    # only after text on its row: a line's indentation is its nesting, which is content.
+    r"(?:(?<=[^ \t\n])[ \t]++)?(?:\d+h\s*\d+m|\d+m\s*\d+s|(?<=· )\d+\.\d+s\b|(?<!\.)\d+s\b"
     r"|↓\s*[\d.]+k?|[\d.]+k tokens"  # token counts
     r"|\$[\d.]+"  # cost
     r"|\d+%\s*ctx"  # context percent
@@ -153,7 +157,9 @@ _VOLATILE_RE = re.compile(
     rf"|^ ?\S(?= [\dhms ]+ > {_OMP_ROW})"
     r"|[⏳✳✻✶✷✽❋⣾⣽⣻⢿⡿⣟⣯⣷◐◓◑◒]"  # spinner glyphs
     # (Codex's moving "sparkle" animation needs more than deletion — see _SPARKLE_RE.)
-    r"|[ \t]+$",  # trailing whitespace
+    # trailing whitespace, outside the group so one run has one quantifier, and only from
+    # the run's start: a padded row's every space would otherwise rescan it to the end
+    r")|(?<![ \t])[ \t]+$",
     re.MULTILINE,
 )
 

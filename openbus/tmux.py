@@ -287,26 +287,6 @@ def show_env(session: str | None = None) -> dict[str, str]:
     return {k.lstrip("-"): v for k, _, v in (line.partition("=") for line in out.splitlines())}
 
 
-def client_active_within(seconds: float) -> bool:
-    """Whether any attached tmux client received input recently.
-
-    A failure (including no attached clients) is treated as absence.  Push suppression
-    must fail open: losing tmux presence may cause one useful notification, never hide it.
-    """
-    try:
-        rows = _run(["list-clients", "-F", "#{client_activity}"]).splitlines()
-    except (OSError, subprocess.CalledProcessError):
-        return False
-    now = time.time()
-    for value in rows:
-        try:
-            if now - float(value) < seconds:
-                return True
-        except ValueError:
-            continue
-    return False
-
-
 _server_uid: str | None = None
 
 
