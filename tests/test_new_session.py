@@ -82,7 +82,8 @@ def test_new_server_gets_the_login_shells_path(sock, audits, tmp_path, monkeypat
     shell builds (nvm, ~/bin), even when the profile prints something first."""
     shell = tmp_path / "loginsh"
     shell.write_text('#!/bin/sh\necho "PATH=/printed/by/profile"\n'
-                     'export PATH="/login/bin:$PATH"\nexec /bin/sh "$@"\n')
+                     'export PATH="/login/bin:$PATH"\n'
+                     'case $1 in -lc) shift; set -- -c "$@";; esac\nexec /bin/sh "$@"\n')
     shell.chmod(0o755)
     monkeypatch.setenv("SHELL", str(shell))
     r = TestClient(S.app).post("/api/sessions", json={"name": "login", "cwd": str(tmp_path)})
@@ -177,7 +178,7 @@ def test_dir_suggestions_open_panes_then_agent_history(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(home))
 
     watcher = type("W", (), {"states": [{"cwd": str(old)}, {"cwd": ""}]})
-    monkeypatch.setattr(S.app.state, "watcher", watcher, raising=False)
+    monkeypatch.setitem(S.app.state._state, "watcher", watcher)
     got = S.session_dirs()["dirs"]
     assert got == [str(old), "~/new"]  # open pane first, deduped; vanished dir dropped
 

@@ -2,8 +2,10 @@
 thumbnailer serve it, and what the gallery makes of a .md page."""
 
 import os
+import re
 from urllib.request import urlopen
 
+import pytest
 from fastapi.testclient import TestClient
 from starlette.applications import Starlette
 from starlette.routing import Mount
@@ -86,6 +88,23 @@ def test_the_docs_sites_markdown_and_githubs_callouts_render(tmp_path):
     assert 'class="headerlink"' in html
 
 
+def test_a_list_straight_under_text_starts_as_on_github(tmp_path):
+    text = ("**Where.** the garden shed:\n- rakes\n- spades\n  still a spade\n\n"
+            "Steps:\n1. water\n2. wait\n\n"
+            "- tight\nlazy line\n- still tight\n## Next\nThen:\n- plums\n\n"
+            "The harvest of\n2026. was a good year\n- apples\n\n"
+            "```text\nfenced\n- left alone\n```\n\n"
+            "| Tool | Shelf |\n|------|-------|\n| hoe | top |\n")
+    html = M.render(_doc(tmp_path, text=text))[1]
+    assert "<p><strong>Where.</strong> the garden shed:</p>\n<ul>\n<li>rakes</li>" in html
+    assert "<li>spades\n  still a spade</li>\n</ul>" in html
+    assert "<p>Steps:</p>\n<ol>\n<li>water</li>\n<li>wait</li>\n</ol>" in html
+    assert "<li>tight\nlazy line</li>\n<li>still tight</li>" in html
+    assert "<p>Then:</p>\n<ul>\n<li>plums</li>" in html
+    assert "<p>The harvest of\n2026. was a good year</p>\n<ul>\n<li>apples</li>" in html
+    assert "fenced\n- left alone" in html and "<td>hoe</td>" in html
+
+
 def test_a_page_loads_mermaid_only_for_a_diagram(tmp_path):
     page = M.page(_doc(tmp_path), WEB_DIR)
     assert f'<script src="{M.MERMAID}">' in page and "<title>Launch plan &amp; notes" in page
@@ -102,6 +121,39 @@ def test_the_theme_is_set_before_the_body_and_light_unless_asked_for_dark(tmp_pa
     page = M.page(_doc(tmp_path, text='"Ready: <title>" gets its own slot.'), WEB_DIR)
     assert page.index('!matchMedia("(prefers-color-scheme: dark)")') < page.index("</head>")
     assert "prefers-color-scheme: light" not in page
+
+def test_an_export_is_the_daemons_pages_as_static_files(tmp_path):
+    src, out = tmp_path / "doc", tmp_path / "out"
+    _doc(src, "index.md")
+    _doc(src, "deep/more.md", "Just text.")
+    _doc(src, "both.md", "# Markdown")
+    (src / "both.html").write_text("html wins")
+    (src / "meta.json").write_text('{"title": "Launch plan"}')
+    _doc(src, ".env", "SECRET=1")
+    _doc(src, ".git/index.md", "# Not a page")
+    scratch.export(src, out, WEB_DIR)
+    page = (out / "index.html").read_text()
+    assert page == M.page(src / "index.md", WEB_DIR, app="_app/", raw="index.md")
+    assert '<script src="_app/m/vendor/mermaid.min.js">' in page and 'href="index.md"' in page
+    assert 'href="../_app/scratch.svg"' in (out / "deep/more.html").read_text()
+    assert (out / "index.md").read_text() == DOC and (out / "both.html").read_text() == "html wins"
+    assert sorted(p.relative_to(out).as_posix() for p in out.rglob("*") if p.is_file()) == [
+        "_app/m/vendor/mermaid.min.js", "_app/scratch.svg", "both.html", "both.md",
+        "deep/more.html", "deep/more.md", "index.html", "index.md"]
+    assert not re.search(r"(src|href)=\"/", page)  # nothing at the daemon's own paths
+    with pytest.raises(SystemExit, match="not empty"):  # it would keep what the folder lost
+        scratch.export(src, out, WEB_DIR)
+    with pytest.raises(SystemExit, match="is not a folder"):  # a typo in its name
+        scratch.export(tmp_path / "nowhere", tmp_path / "x", WEB_DIR)
+    (src / "deep/more.html").symlink_to(src / ".env")  # a symlink is never exported
+    (src / "settings.txt").symlink_to(src / ".env")
+    scratch.export(src, tmp_path / "again", WEB_DIR)
+    assert "Just text." in (tmp_path / "again/deep/more.html").read_text()
+    assert not (tmp_path / "again/settings.txt").exists()
+    _doc(src, "_app/logo.svg", "<svg/>")
+    with pytest.raises(SystemExit, match="_app"):
+        scratch.export(src, tmp_path / "third", WEB_DIR)
+
 
 def test_a_rewrite_shows_on_reload(tmp_path):
     path = _doc(tmp_path, text="# One")
