@@ -157,7 +157,9 @@ export function setupSidebar(ctx) {
       const over = side.left + 8 - menu.getBoundingClientRect().left;
       if (over > 0) menu.style.right = `${-over}px`;
     }
-    menu.style.maxHeight = `${innerHeight - menu.getBoundingClientRect().top - 8}px`; // many accounts: it scrolls
+    // Many accounts: it scrolls, within the screen, and within the graph that clips it when seated there (app.js placePill).
+    const floor = Math.min(innerHeight, picker.closest(".fg-box")?.getBoundingClientRect().bottom ?? innerHeight);
+    menu.style.maxHeight = `${floor - menu.getBoundingClientRect().top - 8}px`;
   });
 
   function head(g) {
