@@ -81,6 +81,10 @@ def test_read_scratch_returns_the_page_as_data(root, monkeypatch):
     assert _read({"folder": "site"})["text"] == "Late"
     page.write_text(f"<script>{'x' * 65520}</script{' ' * 70000}><p>Late</p>")
     assert _read({"folder": "site"})["text"] == "Late"
+    page.write_text(f"<p>Early</p><!--{'x' * 3_000_000}-->{'<i> </i>' * 400_000}<p>Late</p>")
+    assert _read({"folder": "site"})["text"] == "Early"  # stops on a comment left open
+    page.write_text(f"{'<i> </i>' * 400_000}<p>Late</p>")
+    assert _read({"folder": "site"})["text"] == "Late"
     page.write_text(f"<p>{'a' * 65531} 1234 passed</p>")
     assert L.scratch_sidecars.text(page, root, 10**6).endswith(
         " 1234 passed")

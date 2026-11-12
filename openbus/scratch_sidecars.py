@@ -362,6 +362,7 @@ class _Text(HTMLParser):
 
     def feed(self, data):
         super().feed(data)
+        self.parts = [re.sub(r"\s+", " ", "".join(self.parts))]  # each chunk scanned once
         if self.cdata_elem in self.HIDDEN:  # all it holds is script or style: keep only a
             tail = re.search(r"<(/[a-zA-Z]*\s*)?\Z", self.rawdata)  # closing tag begun
             self.rawdata = re.sub(r"\s+", " ", tail.group()) if tail else ""
@@ -388,7 +389,8 @@ def text(page: Path, root: Path, chars: int, *, markup: bool = True) -> str | No
         parser.feed(scratch_markdown.render(page)[1])
     elif page.suffix in (".html", ".htm"):  # read on past a big inline script to its text
         with page.open(errors="replace") as f:
-            while len(seen()) < chars and (chunk := f.read(65536)):
+            while (len(seen()) < chars and len(parser.rawdata) < 1 << 20  # not a tag or
+                   and (chunk := f.read(65536))):  # comment left open for megabytes
                 parser.feed(chunk)
     parser.close()  # flushes what it held back for a tag that might still be coming
     return seen()[:chars]
