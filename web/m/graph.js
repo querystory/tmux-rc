@@ -633,7 +633,7 @@ export function renderGraphView(root, panes, ctx) {
       zoomBtn.innerHTML = ctx.icon(on ? 'minimize' : 'fullscreen', 18);
       zoomBtn.title = zoomBtn.ariaLabel = on ? 'Exit full screen' : 'Full screen';
     };
-    document.addEventListener('keydown', e => { if (e.key === 'Escape') full(false); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && !e.defaultPrevented) full(false); }); // an open menu's Esc (the filter's) closes just it
     addEventListener('resize', () => { if (phone()) full(false); }); // a phone has no full screen, nor its toggle (style.css)
     new IntersectionObserver(([e]) => { if (!e.isIntersecting) full(false); }).observe(root);
     call.lastChild.onclick = e => { const b = e.target.closest('button'); if (b) g.focus(b.dataset.id); };

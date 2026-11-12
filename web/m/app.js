@@ -2793,7 +2793,10 @@ function placePill() {
   if (own && own.parentElement !== to) to.append(own); // held by the view: another view drops the head it sat in
   const head = !own && CARDS[page] && bar;
   const picker = renderSidebar.picker, at = head ? picker : bar ? $("find") : dash ? document.querySelector(".app-header") : $("find");
-  if (head) { if (picker.parentElement !== head) head.append(picker); }
+  // A wide graph seats it atop its own buttons, where its full screen, which covers the sidebar, keeps it.
+  const tools = !phone && page === "graph" && dashboardVisible() && graphView.querySelector(".fg-tools");
+  if (tools) { if (picker.parentElement !== tools) tools.prepend(picker); }
+  else if (head) { if (picker.parentElement !== head) head.append(picker); }
   else if (dash && picker.nextElementSibling !== $("new-window")) $("new-window").before(picker);
   else if (!dash && picker.parentElement !== $("find")) $("find").append(picker);
   if (accounts.pill.previousElementSibling !== at) at.after(accounts.pill);
