@@ -2035,6 +2035,11 @@ def test_offered_replies_fill_only_the_buttons_the_options_leave(replies):
         result = classify(_pane("claude"), _auto_screen(ASK), _llm({"offers": ["merge"]}),
                           replies_fn=make({"options": options}))
         assert result["offers"] == kept
+    four = {"prompt": ASK, "options": ["Yes, all", "Check a", "Check b", "No"]}  # the model's own
+    model = _llm({"offers": ["merge"], "question": four})
+    result = classify(_pane("claude"), _auto_screen(ASK), model)
+    assert (result["question"]["options"], result["offers"]) == (four["options"], [])
+    assert classify_mod._card_line("  - swap `a  b`\n    for `a b`?") == "swap `a  b` for `a b`?"
 
 
 def test_decline_survives_the_cap_and_a_lone_option_is_unusable(replies):

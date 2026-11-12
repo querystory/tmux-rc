@@ -927,7 +927,7 @@ def _final_paragraph(message: str) -> str:
 def _card_line(text: str) -> str:
     """Rows as the card's one-line heading: terminal wraps joined, a list's bullets dropped
     (its numbers are labels the replies may name, so they stay)."""
-    return " ".join(" ".join(_BULLET_RE.sub("", row.strip()) for row in text.splitlines()).split())
+    return " ".join(_BULLET_RE.sub("", row.strip()) for row in text.splitlines() if row.strip())
 
 
 def _final_message(visible: str, tool: str) -> str | None:
@@ -1557,7 +1557,7 @@ def classify(
             ask["prompt"] = said
         if "options" not in ask and (
             options := _clean_options(own.get("options"), str(own.get("prompt", "")).strip(),
-                                      ask["prompt"])[:3]
+                                      ask["prompt"])[:4]
             or _reply_options("\n".join(filter(None, (ask["prompt"], rows))), replies_fn)
         ):
             ask["options"] = options
@@ -1565,7 +1565,7 @@ def classify(
             # already among them is drawn once, as answerOptions does).
             drawn = {o.strip().casefold() for o in options}
             spare = [o for o in offers or () if not o.startswith("! ")
-                     and o.strip().casefold() not in drawn][:3 - len(options)]
+                     and o.strip().casefold() not in drawn][:max(0, 3 - len(options))]
             if offers:
                 result["offers"] = [o for o in offers if o.startswith("! ") or o in spare
                                     or o.strip().casefold() in drawn]
