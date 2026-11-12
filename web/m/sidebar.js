@@ -151,7 +151,7 @@ export function setupSidebar(ctx) {
     Object.assign(menu.style, { position: "", left: "", top: "", right: "", maxHeight: "" });
     if (!picker.open || !root.getClientRects().length) return; // a phone's is a bottom sheet (style.css)
     const side = root.getBoundingClientRect(), top = picker.getBoundingClientRect().top;
-    if (root.contains(picker) && innerWidth - side.right >= menu.offsetWidth + 16) Object.assign(menu.style, { position: "fixed", right: "auto",
+    if (picker.closest("#find") && innerWidth - side.right >= menu.offsetWidth + 16) Object.assign(menu.style, { position: "fixed", right: "auto",
       left: `${side.right + 8}px`, top: `${Math.max(8, Math.min(top, innerHeight - menu.offsetHeight - 8))}px` });
     else {
       const over = side.left + 8 - menu.getBoundingClientRect().left;
