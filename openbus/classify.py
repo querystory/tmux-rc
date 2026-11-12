@@ -86,11 +86,12 @@ _OPENCODE_RUNNING_RE = re.compile(
 )
 _CLAUDE_TURN_RE = re.compile(
     # Claude Code's turn status row: a live spinner ("✶ Befuddling… (1m 7s · ↓ 2k tokens)")
-    # or the finished stamp ("✻ Worked for 40s · done 4:47 AM · 1 shell still running").
+    # or the finished stamp ("✻ Worked for 40s · done 4:47 AM · 1 shell still running", a
+    # long turn's "for 3d 13h 15m").
     # A stamp's trailing shell/monitor count is background work, not the agent's turn, and
     # a bar after it is the frame Claude Code draws down the right of its transcript.
     r"^[ \t]*[·✢✳✶✻✽][ \t]+[A-Z][\w' -]*?"
-    r"(?:(?P<live>…[ \t]*\((?:\d+[hms]|esc to interrupt))| for \d+[hms][\dhms ]*(?:[·│]|$))",
+    r"(?:(?P<live>…[ \t]*\((?:\d+[hms]|esc to interrupt))| for \d+[dhms][\dhms ]*(?:[·│]|$))",
     re.MULTILINE,
 )
 # Codex's live status row: "Working (2m 32s • esc to interrupt)", and the same row while its
@@ -546,8 +547,9 @@ def _occurrences(prompt: str, visible: str, *, row: bool = False) -> list[re.Mat
     # A wrapped prompt's rows may each carry a frame or quote bar (│ …), skipped too. Each
     # alternative needs its own bar, so no two ever match one gap: overlapping ones
     # backtrack exponentially on a long wrapped near-miss.
-    words = (r"(?:[ \t]*\n[ \t]*[│┃╎][ \t]*|[ \t]*[│┃╎][ \t]*\n[ \t]*(?:[│┃╎][ \t]*)?|\s+)"
-             .join(map(re.escape, prompt.split())))
+    # A list's bullet starting a row is skipped too: a quote of the list's rows may drop it.
+    words = (r"(?:[ \t]*\n[ \t]*[│┃╎][ \t]*|[ \t]*[│┃╎][ \t]*\n[ \t]*(?:[│┃╎][ \t]*)?"
+             r"|[ \t]*\n[ \t]*[-•][ \t]+|\s+)".join(map(re.escape, prompt.split())))
     if row:
         words = (rf"^[ \t│┃╎]*(?:⌕[ \t]*)?{words}(?:[ \t]*{_LIVE_COUNT})?"
                  r"(?=[ \t│┃╎]*$|(?<=[?.!])[ \t]+\S)")
@@ -895,7 +897,7 @@ def _restate(question: dict, replies_fn) -> str | None:
 
 _CONTEXT_ENTRY_RE = re.compile(r"(?i)\(?\d+%\s*(?:ctx|context)\b.*")
 _LIST_ITEM_RE = re.compile(r"[-*•]\s+|\d+[.)]\s+")
-_BULLET_RE = re.compile(r"^[-*•]\s+")
+_BULLET_RE = re.compile(r"^[-•]\s+")  # not "*": a wrapped row may begin with a glob
 # A box's side bars, a block quote's left bar (Claude Code draws "▎"), and the bar Claude
 # Code draws down the right of its transcript.
 _FRAME_BARS_RE = re.compile(r"(?m)^[ \t]*[│┃▎▍▌][ \t]?|[ \t]*[│┃][ \t]*$")
@@ -906,19 +908,23 @@ _LINK_TARGET_RE = re.compile(
 
 def _final_paragraph(message: str) -> str:
     """The message's last paragraph as one line: terminal wrapping splits a long question
-    across rows. Reading back from the end it stops at a blank row, and at a list item (kept
-    when it is the last row or the rows after it are its indented continuation)."""
+    across rows. Reading back from the end it stops at a blank row, and at a list above the
+    closing rows. A message that closes on a list closes on all of it: its items (each with
+    the rows indented under it) and the row leading into them."""
     rows: list[str] = []
+    item = None  # the closing list's indent, once reading inside it
     for row in reversed(message.splitlines()):
-        text = row.strip()
+        text, indent = row.strip(), len(row) - len(row.lstrip())
         if not text:
             if rows:
                 break
             continue
         if _LIST_ITEM_RE.match(text):
-            indent = len(row) - len(row.lstrip())
-            if not rows or len(rows[-1]) - len(rows[-1].lstrip()) > indent:
-                rows.append(row)  # the item itself, or the one the wrapped rows continue
+            if item is None and rows and len(rows[-1]) - len(rows[-1].lstrip()) <= indent:
+                break  # a list above the closing rows is not theirs
+            item = indent
+        elif item is not None and indent <= item:
+            rows.append(row)  # the row leading into the list
             break
         rows.append(row)
     return _card_line("\n".join(reversed(rows)))
@@ -1057,7 +1063,7 @@ def _final_ask(visible: str, tool: str, message: str, offers: list[str], waiting
     # An offered command ending the message hands it over, its own "?" or wrapped rows and
     # all: read on the whole last paragraph (a wrapped "* glob" row is no list item there).
     blocks = re.split(r"\n\s*\n", message.strip())
-    paragraphs = [" ".join(p.split()) for p in blocks]
+    paragraphs = [" ".join(_card_line(p).split()) for p in blocks]
     # An offer as a whole word or command: "push" is not offered by "unpushed".
     offered = "|".join(rf"(?<!\w){re.escape(' '.join(o.split()))}(?!\w)" for o in offers)
     paragraph = paragraphs[-1]
@@ -1126,6 +1132,16 @@ _REPLIES_SYSTEM = (
     'question names. A list of several asks is answered as a whole ("Yes to all"). The '
     "first option accepts; the last declines."
 )
+def _beside(options: list[str], offers: list[str] | None) -> list[str]:
+    """Reply buttons cut so the card draws three at most beside the replies the agent offered,
+    which come first (one among the options is drawn once); the accept and decline a push
+    shows stay."""
+    said = {o.strip().casefold() for o in options}
+    offered = [o for o in offers or ()
+               if not o.startswith("! ") and o.strip().casefold() not in said]
+    return options[:max(2, 3 - len(offered))]
+
+
 _replies: dict[str, list[str]] = {}  # by question text: one call per question, not per tick
 
 
@@ -1558,17 +1574,13 @@ def classify(
         if "options" not in ask and (
             options := _clean_options(own.get("options"), str(own.get("prompt", "")).strip(),
                                       ask["prompt"])[:4]
-            or _reply_options("\n".join(filter(None, (ask["prompt"], rows))), replies_fn)
+            or _beside(_reply_options("\n".join(filter(None, (ask["prompt"], rows))), replies_fn),
+                       offers)
         ):
             ask["options"] = options
-            # Three reply buttons at most: offered replies fill what the options leave (one
-            # already among them is drawn once, as answerOptions does).
-            drawn = {o.strip().casefold() for o in options}
-            spare = [o for o in offers or () if not o.startswith("! ")
-                     and o.strip().casefold() not in drawn][:max(0, 3 - len(options))]
-            if offers:
-                result["offers"] = [o for o in offers if o.startswith("! ") or o in spare
-                                    or o.strip().casefold() in drawn]
+        # Rows the prompt already holds are not listed again under it.
+        if rows and all(plain(r) in plain(ask["prompt"]) for r in rows.split("\n")):
+            own = {k: v for k, v in own.items() if k not in ("items", "subject")}
         ask.update({k: own[k] for k in ("items", "subject", "link") if k in own})
         result["question"] = ask
         result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.

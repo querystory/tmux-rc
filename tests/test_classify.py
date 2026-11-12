@@ -1472,7 +1472,7 @@ def test_users_own_turn_under_a_live_spinner_is_not_a_question():
 def test_finished_turn_blocked_on_the_user_is_a_text_wait():
     cases = {
         "55_claude_turn_ends_with_user_handoff": "The PRD's local fix is committed",
-        "56_claude_turn_ends_with_decision": "Live text mode prototype: should I start it",
+        "56_claude_turn_ends_with_decision": "Still open: #256 and #260: superseded by #261",
         "57_codex_turn_aborted_by_provider_error": "Selected model is at capacity.",
     }
     for name, prompt in cases.items():
@@ -2014,11 +2014,19 @@ def test_a_closing_list_of_asks_is_one_question_under_its_heading(replies):
     # One prompt quoting the whole list reads the same, off the screen's rows.
     whole = {"prompt": "Still open: - OK to merge #7? - Turn the flag on after the merge?"}
     assert _ask(make({}), whole, message)["prompt"] == "Still open: " + " ".join(rows)
-    # Without the model's list, the closing row alone is the ask, its bullet dropped; so too
-    # where the row it cites is not the screen's.
-    assert _ask(make({}), None, message)["prompt"] == "Turn the flag on after the merge?"
+    # Without the model's list, the message's closing list is the ask, bullets dropped; so
+    # too where the rows it cites are not the screen's.
+    assert _ask(make({}), None, message)["prompt"] == "Still open: " + " ".join(rows)
     unseen = {**own, "items": [row.lower() for row in rows]}
-    assert _ask(make({}), unseen, message)["prompt"] == "Turn the flag on after the merge?"
+    assert _ask(make({}), unseen, message)["prompt"] == "Still open: " + " ".join(rows)
+    # A list above the closing row is not part of it, nor a paragraph above the list's lead-in.
+    above = "Done:\n  - fixed a\n  - fixed b\nShould I push?"
+    assert classify_mod._final_paragraph(above) == "Should I push?"
+    led = "It is green.\nStill open:\n  - OK to merge #7?"
+    assert classify_mod._final_paragraph(led) == "Still open: OK to merge #7?"
+    # A quote of the list that drops its bullets is still on screen; a days-long turn ends.
+    assert classify_mod._last_occurrence("Still open: OK to merge #7?", led)
+    assert classify_mod._CLAUDE_TURN_RE.search("✻ Churned for 3d 13h 15m · done 10:55 PM")
     # A list's whole paragraph, the ask where it holds an offer, is the heading over its rows.
     said = "Still open:\n  - Your word: merge #7 today?\n  - Your OK for the flag."
     result = classify(_pane("claude"), _auto_screen(said), _llm({"offers": ["merge #7 today"],
@@ -2026,19 +2034,20 @@ def test_a_closing_list_of_asks_is_one_question_under_its_heading(replies):
     assert result["question"]["prompt"] == "Still open:"
 
 
-def test_offered_replies_fill_only_the_buttons_the_options_leave(replies):
+def test_reply_buttons_fill_only_what_the_offered_replies_leave(replies):
     make, _ = replies
-    # One among the options is drawn once, so it takes no button of its own.
-    for options, kept in ((["Yes", "Merge", "No"], ["merge"]), (["Yes", "No"], ["merge"]),
-                          (["Yes", "Wait", "No"], [])):
+    # The agent's offered reply stays; the extra call's buttons fill what it leaves, the
+    # accept and decline kept. One among them is drawn once, so it takes no button of its own.
+    for options, shown in ((["Yes", "Wait", "No"], ["Yes", "No"]),
+                           (["Yes", "Merge", "No"], ["Yes", "No", "Merge"])):
         classify_mod._replies.clear()
         result = classify(_pane("claude"), _auto_screen(ASK), _llm({"offers": ["merge"]}),
                           replies_fn=make({"options": options}))
-        assert result["offers"] == kept
+        assert (result["question"]["options"], result["offers"]) == (shown, ["merge"])
     four = {"prompt": ASK, "options": ["Yes, all", "Check a", "Check b", "No"]}  # the model's own
     model = _llm({"offers": ["merge"], "question": four})
     result = classify(_pane("claude"), _auto_screen(ASK), model)
-    assert (result["question"]["options"], result["offers"]) == (four["options"], [])
+    assert (result["question"]["options"], result["offers"]) == (four["options"], ["merge"])
     assert classify_mod._card_line("  - swap `a  b`\n    for `a b`?") == "swap `a  b` for `a b`?"
 
 
