@@ -1094,22 +1094,22 @@ def _clean_options(raw: object, *prompts: str) -> list[str]:
     return list(picks.values())
 
 
-def _same_question(model_q: object, ask: dict) -> dict:
+def _same_question(model_q: object, ask: dict, view: str) -> dict:
     """The parser's own question when the deterministic ask that replaces it is the same
     question (one prompt contains the other, or the ask is a row of the list the model reads
     as one ask), else {}: its suggested replies and the rows it cites are kept."""
     if not isinstance(model_q, dict) or model_q.get("answer_style", "text") != "text":
         return {}
     old, new = _card_line(str(model_q.get("prompt", ""))).casefold(), ask["prompt"].casefold()
-    listed = new in _rows(model_q).casefold()
+    listed = new in _rows(model_q, view).casefold()
     return model_q if old and (old in new or new in old or listed) else {}
 
 
-def _rows(question: dict) -> str:
-    """The list rows a question cites, one per line."""
+def _rows(question: dict, view: str) -> str:
+    """The list rows a question cites that `view` shows, one per line."""
     items = question.get("items")
     rows = items if isinstance(items, list) else ()
-    return "\n".join(_card_line(i) for i in rows if isinstance(i, str))
+    return "\n".join(_card_line(i) for i in rows if _quoted(i, view))
 
 
 # What kind of question it is, and so what the buttons are, is the model's call: one small
@@ -1546,14 +1546,14 @@ def classify(
     if final and (ask := _final_ask(visible, tool, final, offers, waiting)):
         if ask.get("options") == ["try again"]:
             result["headline"] = ask["prompt"]  # A stopped provider error outranks old progress.
-        own = _same_question(result.get("question"), ask)
-        # A closing row of a list the model reads as one ask: the list is the question, as
-        # the model quoted it (its rows, or one prompt holding them all), read off the screen.
+        own = _same_question(result.get("question"), ask, view)
+        # Part of a list the model reads as one ask (a closing row, or the list's paragraph):
+        # the list is the question, as the model quoted it (its heading over its rows, or one
+        # prompt holding them all), read off the screen.
         said = str(own.get("prompt", "")).strip()
         said = _card_line(found[0] if (found := said and _last_occurrence(said, view)) else said)
         plain = lambda t: " ".join(w for w in t.casefold().split() if w not in "-*•")  # noqa: E731
-        if (((rows := _rows(own)) and ask["prompt"].casefold() in rows.casefold())
-                or (said != ask["prompt"] and plain(ask["prompt"]) in plain(said))):
+        if plain(ask["prompt"]) in plain(" ".join([said, *(rows := _rows(own, view)).split("\n")])):
             ask["prompt"] = said
         if "options" not in ask and (
             options := _clean_options(own.get("options"), str(own.get("prompt", "")).strip(),
@@ -1561,10 +1561,14 @@ def classify(
             or _reply_options("\n".join(filter(None, (ask["prompt"], rows))), replies_fn)
         ):
             ask["options"] = options
-            # Three reply buttons at most: offered replies fill what the options leave.
-            spare = [o for o in offers or () if not o.startswith("! ")][:3 - len(options)]
+            # Three reply buttons at most: offered replies fill what the options leave (one
+            # already among them is drawn once, as answerOptions does).
+            drawn = {o.strip().casefold() for o in options}
+            spare = [o for o in offers or () if not o.startswith("! ")
+                     and o.strip().casefold() not in drawn][:3 - len(options)]
             if offers:
-                result["offers"] = [o for o in offers if o.startswith("! ") or o in spare]
+                result["offers"] = [o for o in offers if o.startswith("! ") or o in spare
+                                    or o.strip().casefold() in drawn]
         ask.update({k: own[k] for k in ("items", "subject", "link") if k in own})
         result["question"] = ask
         result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.

@@ -2014,13 +2014,23 @@ def test_a_closing_list_of_asks_is_one_question_under_its_heading(replies):
     # One prompt quoting the whole list reads the same, off the screen's rows.
     whole = {"prompt": "Still open: - OK to merge #7? - Turn the flag on after the merge?"}
     assert _ask(make({}), whole, message)["prompt"] == "Still open: " + " ".join(rows)
-    # Without the model's list, the closing row alone is the ask, its bullet dropped.
+    # Without the model's list, the closing row alone is the ask, its bullet dropped; so too
+    # where the row it cites is not the screen's.
     assert _ask(make({}), None, message)["prompt"] == "Turn the flag on after the merge?"
+    unseen = {**own, "items": [row.lower() for row in rows]}
+    assert _ask(make({}), unseen, message)["prompt"] == "Turn the flag on after the merge?"
+    # A list's whole paragraph, the ask where it holds an offer, is the heading over its rows.
+    said = "Still open:\n  - Your word: merge #7 today?\n  - Your OK for the flag."
+    result = classify(_pane("claude"), _auto_screen(said), _llm({"offers": ["merge #7 today"],
+                      "question": {"prompt": "Still open:", "items": said.split("\n  - ")[1:]}}))
+    assert result["question"]["prompt"] == "Still open:"
 
 
 def test_offered_replies_fill_only_the_buttons_the_options_leave(replies):
     make, _ = replies
-    for options, kept in ((["Yes", "Maybe", "No"], []), (["Yes", "No"], ["merge"])):
+    # One among the options is drawn once, so it takes no button of its own.
+    for options, kept in ((["Yes", "Merge", "No"], ["merge"]), (["Yes", "No"], ["merge"]),
+                          (["Yes", "Wait", "No"], [])):
         classify_mod._replies.clear()
         result = classify(_pane("claude"), _auto_screen(ASK), _llm({"offers": ["merge"]}),
                           replies_fn=make({"options": options}))
