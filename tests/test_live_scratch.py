@@ -82,12 +82,12 @@ def test_read_scratch_returns_the_page_as_data(root, monkeypatch):
     page.write_text(f"<script>{'x' * 65520}</script{' ' * 70000}><p>Late</p>")
     assert _read({"folder": "site"})["text"] == "Late"
     page.write_text(f"<p>Early</p><!--{'x' * 3_000_000}-->{'<i> </i>' * 400_000}<p>Late</p>")
-    assert _read({"folder": "site"})["text"] == "Early"  # stops on a comment left open
+    assert _read({"folder": "site"}) | {"note": ""} == {  # stops on a comment left open
+        "status": "ok", "title": "site", "text": "Early", "truncated": True, "note": ""}
     page.write_text(f"{'<i> </i>' * 400_000}<p>Late</p>")
     assert _read({"folder": "site"})["text"] == "Late"
     page.write_text(f"<p>{'a' * 65531} 1234 passed</p>")
-    assert L.scratch_sidecars.text(page, root, 10**6).endswith(
-        " 1234 passed")
+    assert L.scratch_sidecars.text(page, root, 10**6)[0].endswith(" 1234 passed")
     monkeypatch.setattr(L, "SCRATCH_TEXT_CHARS", 5)
     assert _read({"folder": "notes"}) | {"note": ""} == {
         "status": "ok", "title": "Plan", "text": "# Pla", "truncated": True, "note": ""}
