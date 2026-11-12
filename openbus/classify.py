@@ -1106,9 +1106,14 @@ def _same_question(model_q: object, ask: dict, view: str) -> dict:
     as one ask), else {}: its suggested replies and the rows it cites are kept."""
     if not isinstance(model_q, dict) or model_q.get("answer_style", "text") != "text":
         return {}
-    old, new = _card_line(str(model_q.get("prompt", ""))).casefold(), ask["prompt"].casefold()
-    listed = new in _rows(model_q, view).casefold()
+    old, new = _plain(str(model_q.get("prompt", ""))), _plain(ask["prompt"])
+    listed = new in _plain(_rows(model_q, view))
     return model_q if old and (old in new or new in old or listed) else {}
+
+
+def _plain(text: str) -> str:
+    """Text to compare as words: case, spacing and a list's bullets aside."""
+    return " ".join(w for w in text.casefold().split() if w not in ("-", "*", "•"))
 
 
 def _rows(question: dict, view: str) -> str:
@@ -1132,14 +1137,15 @@ _REPLIES_SYSTEM = (
     'question names. A list of several asks is answered as a whole ("Yes to all"). The '
     "first option accepts; the last declines."
 )
-def _beside(options: list[str], offers: list[str] | None) -> list[str]:
-    """Reply buttons cut so the card draws three at most beside the replies the agent offered,
-    which come first (one among the options is drawn once); the accept and decline a push
-    shows stay."""
+def _beside(options: list[str], offers: list[str]) -> tuple[list[str], list[str]]:
+    """Generated reply buttons and the agent's offers, cut so the card draws three replies at
+    most: the accept and decline a push shows, then the offered replies (one among the
+    options is drawn once), then the rest of the options. Commands are no reply, and stay."""
     said = {o.strip().casefold() for o in options}
-    offered = [o for o in offers or ()
-               if not o.startswith("! ") and o.strip().casefold() not in said]
-    return options[:max(2, 3 - len(offered))]
+    offered = [o for o in offers if not o.startswith("! ") and o.strip().casefold() not in said]
+    options = options[:max(2, 3 - len(offered))]
+    kept = offered[:max(0, 3 - len(options))]
+    return options, [o for o in offers if o not in offered or o in kept]
 
 
 _replies: dict[str, list[str]] = {}  # by question text: one call per question, not per tick
@@ -1568,18 +1574,20 @@ def classify(
         # prompt holding them all), read off the screen.
         said = str(own.get("prompt", "")).strip()
         said = _card_line(found[0] if (found := said and _last_occurrence(said, view)) else said)
-        plain = lambda t: " ".join(w for w in t.casefold().split() if w not in "-*•")  # noqa: E731
-        if plain(ask["prompt"]) in plain(" ".join([said, *(rows := _rows(own, view)).split("\n")])):
+        rows = _rows(own, view)
+        # The model's replies answer its question, so only one covering the whole ask.
+        if covered := bool(said) and _plain(ask["prompt"]) in _plain(f"{said} {rows}"):
             ask["prompt"] = said
-        if "options" not in ask and (
-            options := _clean_options(own.get("options"), str(own.get("prompt", "")).strip(),
-                                      ask["prompt"])[:4]
-            or _beside(_reply_options("\n".join(filter(None, (ask["prompt"], rows))), replies_fn),
-                       offers)
-        ):
+        if "options" not in ask and covered and (options := _clean_options(
+                own.get("options"), str(own.get("prompt", "")).strip(), ask["prompt"])[:4]):
             ask["options"] = options
+        elif "options" not in ask and (options := _reply_options(
+                "\n".join(filter(None, (ask["prompt"], rows))), replies_fn)):
+            ask["options"], kept = _beside(options, offers or [])
+            if offers:
+                result["offers"] = kept
         # Rows the prompt already holds are not listed again under it.
-        if rows and all(plain(r) in plain(ask["prompt"]) for r in rows.split("\n")):
+        if rows and all(_plain(r) in _plain(ask["prompt"]) for r in rows.split("\n")):
             own = {k: v for k, v in own.items() if k not in ("items", "subject")}
         ask.update({k: own[k] for k in ("items", "subject", "link") if k in own})
         result["question"] = ask

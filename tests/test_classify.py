@@ -2012,8 +2012,14 @@ def test_a_closing_list_of_asks_is_one_question_under_its_heading(replies):
     assert (q["prompt"], q["items"], q["options"]) == ("Still open:", rows, ["Yes to all", "No"])
     assert calls == ["Still open:\nOK to merge #7?\nTurn the flag on after the merge?"]
     # One prompt quoting the whole list reads the same, off the screen's rows.
-    whole = {"prompt": "Still open: - OK to merge #7? - Turn the flag on after the merge?"}
-    assert _ask(make({}), whole, message)["prompt"] == "Still open: " + " ".join(rows)
+    whole = {"prompt": "Still open: - OK to merge #7? - Turn the flag on after the merge?",
+             "options": ["Yes to both", "No"]}
+    q = _ask(make({}), whole, message)
+    assert (q["prompt"], q["options"]) == ("Still open: " + " ".join(rows), ["Yes to both", "No"])
+    # Replies to one row of it are no replies to the list: the extra call answers the list.
+    part = {"prompt": rows[1], "options": ["Turn it on", "Leave it off"]}
+    assert _ask(make({"options": ["Yes to all", "No"]}), part, message)["options"] == [
+        "Yes to all", "No"]
     # Without the model's list, the message's closing list is the ask, bullets dropped; so
     # too where the rows it cites are not the screen's.
     assert _ask(make({}), None, message)["prompt"] == "Still open: " + " ".join(rows)
@@ -2044,6 +2050,12 @@ def test_reply_buttons_fill_only_what_the_offered_replies_leave(replies):
         result = classify(_pane("claude"), _auto_screen(ASK), _llm({"offers": ["merge"]}),
                           replies_fn=make({"options": options}))
         assert (result["question"]["options"], result["offers"]) == (shown, ["merge"])
+    # Two offered replies beside an accept and decline: the first fills the third button.
+    classify_mod._replies.clear()
+    screen = _auto_screen("Say merge to merge it, or deploy to ship it. " + ASK)
+    result = classify(_pane("claude"), screen, _llm({"offers": ["merge", "deploy"]}),
+                      replies_fn=make({"options": ["Yes", "No"]}))
+    assert (result["question"]["options"], result["offers"]) == (["Yes", "No"], ["merge"])
     four = {"prompt": ASK, "options": ["Yes, all", "Check a", "Check b", "No"]}  # the model's own
     model = _llm({"offers": ["merge"], "question": four})
     result = classify(_pane("claude"), _auto_screen(ASK), model)
