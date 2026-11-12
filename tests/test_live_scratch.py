@@ -78,6 +78,8 @@ def test_read_scratch_returns_the_page_as_data(root, monkeypatch):
     # A closing tag split across read chunks still ends the script; text split stays whole.
     (root / "site" / "index.html").write_text(f"<script>{'x' * 65524}</script><p>Late</p>")
     assert _read({"folder": "site"})["text"] == "Late"
+    (root / "site" / "index.html").write_text(f"<script>{'x' * 65520}</script{' ' * 70000}><p>Late</p>")
+    assert _read({"folder": "site"})["text"] == "Late"
     (root / "site" / "index.html").write_text(f"<p>{'a' * 65531} 1234 passed</p>")
     assert L.scratch_sidecars.text(root / "site" / "index.html", root, 10**6).endswith(
         " 1234 passed")

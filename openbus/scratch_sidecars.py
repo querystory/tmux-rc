@@ -362,8 +362,9 @@ class _Text(HTMLParser):
 
     def feed(self, data):
         super().feed(data)
-        if self.cdata_elem in self.HIDDEN:  # all it holds is script or style: keep only
-            self.rawdata = self.rawdata[-32:]  # enough to find the closing tag across chunks
+        if self.cdata_elem in self.HIDDEN:  # all it holds is script or style: keep only a
+            tail = re.search(r"<(/[a-z]*\s*)?\Z", self.rawdata, re.I)  # closing tag begun
+            self.rawdata = re.sub(r"\s+", " ", tail.group()) if tail else ""
 
     def handle_data(self, data):
         if not self.hidden:
