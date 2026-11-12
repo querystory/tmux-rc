@@ -925,8 +925,9 @@ def _final_paragraph(message: str) -> str:
 
 # Claude Code's notes on a background agent ("● Agent "x" finished · 3m 2s", "… is waiting
 # on its own background work") print as bullets after the reply, but are no message.
-_AGENT_NOTE_RE = re.compile(r'^[ \t]*● Agent "[^"\n]*" (?:finished|is waiting)\b.*\n?',
-                            re.MULTILINE)
+_AGENT_NOTE_RE = re.compile(  # a narrow pane wraps its name or its "finished" onto a row
+    r'^[ \t]*● Agent "[^"\n]*(?:\n[^"\n]*)?"(?:[ \t]*\n)?[ \t]+(?:finished|is waiting)\b.*\n?',
+    re.MULTILINE)
 
 
 def _last_message(text: str) -> str:
@@ -1033,7 +1034,9 @@ def _sends_out_of_options(result: dict, text: str) -> None:
     options = question.get("options") if isinstance(question, dict) else None
     # A live spinner is the agent at work again, unless all it does is wait on its agents.
     *_, turn = [None, *_CLAUDE_TURN_RE.finditer(_ask_view(text))]
-    if (not isinstance(options, list) or question.get("answer_style", "text") != "text"
+    # Claude's alone: the live check below knows only its spinners.
+    if (result.get("tool") != "claude" or not isinstance(options, list)
+            or question.get("answer_style", "text") != "text"
             or (turn and turn["live"] and "background agent" not in turn[0])):
         return
     view, above = _ask_view(text), _above_draft(text)

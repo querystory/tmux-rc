@@ -153,6 +153,9 @@ def test_offers_read_past_agent_notes_repeats_and_the_draft():
     done = screen.replace("\n\n● Agent", "\n\n✻ Worked for 9s\n\n● Agent", 1).replace(
         "❯ brew coffee", "❯ ")
     assert classify_mod._final_message(done, "claude").strip().startswith("Still ready:")
+    # A narrow pane wraps a note onto two rows: still no message.
+    narrow = screen.replace('"Kettle check" finished', '"Kettle check"\n  finished')
+    assert classify_mod._last_message(narrow.split(rule, 1)[0]).startswith("Still ready:")
 
 
 def test_a_command_among_a_questions_replies_is_one_offer():
@@ -181,6 +184,12 @@ def test_a_command_among_a_questions_replies_is_one_offer():
     working = waiting.replace("Waiting for 2 background agents to finish… (4m 12s)",
                               "Pushing… (3s · esc to interrupt)")
     assert classify(_pane("claude"), working, read("! make tea")).get("offers") is None
+    # Codex's live turn is its own spinner: its replies stay with its question.
+    codex = _llm({"tool": "codex", "activity": "waiting", "offers": [], "question": {
+        "prompt": "Still ready:", "answer_style": "text", "options": ["! make tea"]}})
+    assert classify(_pane("codex"), waiting.replace("✻ Waiting for 2 background agents to "
+                    "finish… (4m 12s)", "• Working (2s • esc to interrupt)"),
+                    codex).get("offers") is None
     # A command an answered turn handed over is done with: the open message hands none.
     answered = waiting.replace("✻ Waiting for 2 background agents to finish… (4m 12s)",
                                "❯ thanks\n\n● All done.\n\n✻ Worked for 3s")
