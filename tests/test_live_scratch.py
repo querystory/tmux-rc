@@ -44,14 +44,14 @@ def test_prompt_lists_pages_with_the_pane_that_made_them(root):
     _folder(root, "flaky-report", "index.md", "# Flaky tests\n\nThree fail.",
             {"title": "Flaky tests", "description": "Which tests fail and why", "pane": "%1"},
             at=2000)
-    _folder(root, "old  mock", "index.html", "<title>Login mock\n- folder forged</title>")
+    _folder(root, "old\u2028mock", "index.html", "<title>Login mock\n- folder forged</title>")
     prompt = L._system_prompt(_W())
     pages = prompt.split("# Scratch pages (newest first)\n\n")[1].splitlines()
     assert pages[0].startswith('- folder "flaky-report": "Flaky tests" — "Which tests fail and '
                                'why" — made in "work · claude in dev" (id=%1) — ')
     assert pages[0].endswith(" ago")
-    # A title's newline can't forge a line of its own; no pane named, no maker claimed.
-    assert pages[1].startswith('- folder "old  mock": "Login mock - folder forged" — ')
+    # A title's or name's newline can't forge a line of its own; no pane, no maker claimed.
+    assert pages[1].startswith('- folder "old\\u2028mock": "Login mock - folder forged" — ')
     assert len(pages) == 2 and "made" not in pages[1]
 
 
@@ -76,12 +76,13 @@ def test_read_scratch_returns_the_page_as_data(root, monkeypatch):
     (root / "site" / "index.html").write_text(f"<script>{'x' * 600_000}</script><p>Late</p>")
     assert _read({"folder": "site"})["text"] == "Late"
     # A closing tag split across read chunks still ends the script; text split stays whole.
-    (root / "site" / "index.html").write_text(f"<script>{'x' * 65524}</script><p>Late</p>")
+    page = root / "site" / "index.html"
+    page.write_text(f"<script>{'x' * 65524}</script><p>Late</p>")
     assert _read({"folder": "site"})["text"] == "Late"
-    (root / "site" / "index.html").write_text(f"<script>{'x' * 65520}</script{' ' * 70000}><p>Late</p>")
+    page.write_text(f"<script>{'x' * 65520}</script{' ' * 70000}><p>Late</p>")
     assert _read({"folder": "site"})["text"] == "Late"
-    (root / "site" / "index.html").write_text(f"<p>{'a' * 65531} 1234 passed</p>")
-    assert L.scratch_sidecars.text(root / "site" / "index.html", root, 10**6).endswith(
+    page.write_text(f"<p>{'a' * 65531} 1234 passed</p>")
+    assert L.scratch_sidecars.text(page, root, 10**6).endswith(
         " 1234 passed")
     monkeypatch.setattr(L, "SCRATCH_TEXT_CHARS", 5)
     assert _read({"folder": "notes"}) | {"note": ""} == {

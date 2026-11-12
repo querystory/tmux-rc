@@ -363,7 +363,7 @@ class _Text(HTMLParser):
     def feed(self, data):
         super().feed(data)
         if self.cdata_elem in self.HIDDEN:  # all it holds is script or style: keep only a
-            tail = re.search(r"<(/[a-z]*\s*)?\Z", self.rawdata, re.I)  # closing tag begun
+            tail = re.search(r"<(/[a-zA-Z]*\s*)?\Z", self.rawdata)  # closing tag begun
             self.rawdata = re.sub(r"\s+", " ", tail.group()) if tail else ""
 
     def handle_data(self, data):

@@ -451,7 +451,7 @@ def _scratch_index(watcher) -> str:
         by = (f" — made in {q(_pane_name(pane, digest))} (id={i['pane']})" if pane
               else f" — made by {q(i['where'])}" if i.get("where") else "")
         about = f" — {q(i['description'])}" if i["description"] else ""
-        return (f"- folder {json.dumps(i['name'], ensure_ascii=False)}: {q(i['title'])}{about}{by}"
+        return (f"- folder {json.dumps(i['name'])}: {q(i['title'])}{about}{by}"
                 f" — {_fmt_age(time.time() - i['updated'])} ago")
     return "\n".join(map(line, listed))
 
