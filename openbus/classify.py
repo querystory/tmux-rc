@@ -921,10 +921,10 @@ def _final_paragraph(message: str) -> str:
                 rows.append(row)  # the item itself, or the one the wrapped rows continue
             break
         rows.append(row)
-    return _one_line("\n".join(reversed(rows)))
+    return _card_line("\n".join(reversed(rows)))
 
 
-def _one_line(text: str) -> str:
+def _card_line(text: str) -> str:
     """Rows as the card's one-line heading: terminal wraps joined, a list's bullets dropped
     (its numbers are labels the replies may name, so they stay)."""
     return " ".join(" ".join(_BULLET_RE.sub("", row.strip()) for row in text.splitlines()).split())
@@ -1100,7 +1100,7 @@ def _same_question(model_q: object, ask: dict) -> dict:
     as one ask), else {}: its suggested replies and the rows it cites are kept."""
     if not isinstance(model_q, dict) or model_q.get("answer_style", "text") != "text":
         return {}
-    old, new = _one_line(str(model_q.get("prompt", ""))).casefold(), ask["prompt"].casefold()
+    old, new = _card_line(str(model_q.get("prompt", ""))).casefold(), ask["prompt"].casefold()
     listed = new in _rows(model_q).casefold()
     return model_q if old and (old in new or new in old or listed) else {}
 
@@ -1109,7 +1109,7 @@ def _rows(question: dict) -> str:
     """The list rows a question cites, one per line."""
     items = question.get("items")
     rows = items if isinstance(items, list) else ()
-    return "\n".join(_one_line(i) for i in rows if isinstance(i, str))
+    return "\n".join(_card_line(i) for i in rows if isinstance(i, str))
 
 
 # What kind of question it is, and so what the buttons are, is the model's call: one small
@@ -1550,7 +1550,7 @@ def classify(
         # A closing row of a list the model reads as one ask: the list is the question, as
         # the model quoted it (its rows, or one prompt holding them all), read off the screen.
         said = str(own.get("prompt", "")).strip()
-        said = _one_line(found[0] if (found := said and _last_occurrence(said, view)) else said)
+        said = _card_line(found[0] if (found := said and _last_occurrence(said, view)) else said)
         plain = lambda t: " ".join(w for w in t.casefold().split() if w not in "-*•")  # noqa: E731
         if (((rows := _rows(own)) and ask["prompt"].casefold() in rows.casefold())
                 or (said != ask["prompt"] and plain(ask["prompt"]) in plain(said))):
@@ -1617,7 +1617,7 @@ def classify(
         items = question.pop("items", None)
         view = _ask_view(text) if result.get("tool") == "claude" else visible
         if isinstance(items, list) and (quoted := [i for i in items if _quoted(i, view)]):
-            question["items"] = [_one_line(i) for i in quoted]
+            question["items"] = [_card_line(i) for i in quoted]
         if not _quoted(question.get("subject"), view):
             question.pop("subject", None)
         # A question with no style is answered as text (models.py).
