@@ -1141,11 +1141,12 @@ def _beside(options: list[str], offers: list[str]) -> tuple[list[str], list[str]
     """Generated reply buttons and the agent's offers, cut so the card draws three replies at
     most: the accept and decline a push shows, then the offered replies (one among the
     options is drawn once), then the rest of the options. Commands are no reply, and stay."""
-    said = {o.strip().casefold() for o in options}
-    offered = [o for o in offers if not o.startswith("! ") and o.strip().casefold() not in said]
-    options = options[:max(2, 3 - len(offered))]
-    kept = offered[:max(0, 3 - len(options))]
-    return options, [o for o in offers if o not in offered or o in kept]
+    def drawn(options: list[str]) -> list[str]:  # the offered replies drawn beside options
+        said = {o.strip().casefold() for o in options}
+        return [o for o in offers if not o.startswith("! ") and o.strip().casefold() not in said]
+    options = options[:max(2, 3 - len(drawn(options)))]
+    beside = drawn(options)
+    return options, [o for o in offers if o not in beside or o in beside[:3 - len(options)]]
 
 
 _replies: dict[str, list[str]] = {}  # by question text: one call per question, not per tick

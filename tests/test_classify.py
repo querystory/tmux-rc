@@ -2056,6 +2056,11 @@ def test_reply_buttons_fill_only_what_the_offered_replies_leave(replies):
     result = classify(_pane("claude"), screen, _llm({"offers": ["merge", "deploy"]}),
                       replies_fn=make({"options": ["Yes", "No"]}))
     assert (result["question"]["options"], result["offers"]) == (["Yes", "No"], ["merge"])
+    # An offer among the options cut away is drawn again, and counts.
+    classify_mod._replies.clear()
+    result = classify(_pane("claude"), screen, _llm({"offers": ["merge", "deploy"]}),
+                      replies_fn=make({"options": ["Yes", "Merge", "No"]}))
+    assert (result["question"]["options"], result["offers"]) == (["Yes", "No"], ["merge"])
     four = {"prompt": ASK, "options": ["Yes, all", "Check a", "Check b", "No"]}  # the model's own
     model = _llm({"offers": ["merge"], "question": four})
     result = classify(_pane("claude"), _auto_screen(ASK), model)
