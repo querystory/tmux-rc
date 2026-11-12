@@ -8,6 +8,7 @@ optional region from the environment; without a project, GEMINI_API_KEY selects 
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -342,6 +343,10 @@ def classify_text(
         # happened). The UI still shows why cards are degrading via last_error.
         last_error["msg"] = f"{_backoff['reason']} — retrying in {wait:.0f}s"
         return None
+    # Which pane, and which exact payload: the tail alone is the same auto-mode trailer on
+    # every call, so it can't tell one call from another or spot a resend.
+    # The uid too: split panes share a window label.
+    who = f"{pane_label} {pane_uid} {hashlib.sha256(text.encode()).hexdigest()[:12]}"
     try:
         types = genai_types()
 
@@ -359,7 +364,7 @@ def classify_text(
         )
         result = _parse_json(resp.text)
         # Trace the tail we sent and what came back — grep /tmp/tmux-rc-llm.log.
-        _trace.info("IN%s: %r", "+img" if image_png else "", text[-500:])
+        _trace.info("IN%s [%s]: %r", "+img" if image_png else "", who, text[-500:])
         _trace.info("OUT: %s", json.dumps(result))
         _record(resp)  # tokens/cost/latency → metrics jsonl + running totals
         _emit(
@@ -375,7 +380,7 @@ def classify_text(
                 last_error["msg"] = None
         return result
     except Exception as e:  # noqa: BLE001 - parse pass must never break the watcher
-        _trace.info("ERROR on IN: %r", text[-500:])
+        _trace.info("ERROR on IN [%s]: %r", who, text[-500:])
         # Remember WHY (last_error → UI shows "LLM unavailable: <reason>" instead of
         # silently degrading to a blank heuristic card). _handle_llm_error picks the log
         # fidelity and arms the shared backoff.
