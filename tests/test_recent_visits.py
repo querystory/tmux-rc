@@ -50,8 +50,8 @@ def test_opening_a_pane_is_a_visit_and_recent_lists_only_live_ones(tmp_path, mon
     watcher = SimpleNamespace(states=[{"pane_id": p} for p in ("%1", "%2")],
                               pane_birth=known.get)
     h = History(tmp_path / "h.db")
-    monkeypatch.setattr(server.app.state, "watcher", watcher, raising=False)
-    monkeypatch.setattr(server.app.state, "history", h, raising=False)
+    monkeypatch.setitem(server.app.state._state, "watcher", watcher)
+    monkeypatch.setitem(server.app.state._state, "history", h)
     monkeypatch.setattr(server.tmux, "server_uid", lambda: "boot:1")
     monkeypatch.setattr(server.tmux, "find_pane", lambda p: SimpleNamespace(id=p, pid=births[p]))
     monkeypatch.setattr(server.tmux, "select_pane", lambda _id: None)
@@ -72,5 +72,5 @@ def test_opening_a_pane_is_a_visit_and_recent_lists_only_live_ones(tmp_path, mon
     assert body["scratch"] == [{"title": "A mock", "href": "mock/", "pending": False, "at": at}]
     assert client.get("/api/recent?n=1").json()["panes"] == body["panes"][:1]
     assert client.get("/api/recent?n=0").status_code == 422
-    monkeypatch.setattr(server.app.state, "history", None)  # no database: nothing opened yet
+    monkeypatch.setitem(server.app.state._state, "history", None)  # no database: nothing opened yet
     assert client.get("/api/recent").json() == {"panes": [], "scratch": []}
