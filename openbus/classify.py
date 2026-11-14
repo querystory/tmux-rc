@@ -1388,23 +1388,37 @@ def _empty_composer(text: str, tool: str) -> bool:
     return False
 
 
+# Startup banners the model misses as a welcome screen (Codex's bare header, Gemini CLI's
+# version line, drawn again after sign-in), and what any turn leaves under them: a reply
+# (Codex's "• ", Gemini's "✦ ") or the user's echoed prompt (Gemini's "> …"; Codex's is a ›
+# row, which _USER_ROW_RE catches). A banner with neither is a session not begun.
+_BANNER_RE = {"codex": re.compile(r"^[ \t]*>_ OpenAI Codex \(v", re.MULTILINE),
+              "gemini": re.compile(r"^[ \t]*Gemini CLI v\d", re.MULTILINE)}
+_TURN_LEFT_RE = {"codex": re.compile(r"^• ", re.MULTILINE),
+                 "gemini": re.compile(r"^[ \t]*(?:✦|> \S)", re.MULTILINE)}
+
+
 def _ground_fresh(result: dict, text: str, visible: str) -> None:
-    """Keep the model's "fresh" (an agent at its welcome screen, no conversation yet) only
-    where nothing on screen contradicts it: an idle agent with nothing asked, no turn
+    """Keep the model's "fresh" (an agent at its welcome screen, no conversation yet), or
+    read it off a startup banner with no turn under it (_BANNER_RE), only where nothing on
+    screen contradicts it: an idle agent with nothing asked, no turn
     stamp, and no prompt row with text (Claude Code's and Codex's, sent or drafted). Its
     recent sessions must each be on screen, as everything else the card shows is.
     "resumable" is the card's Resume and its sessions: only over an empty composer
     (_empty_composer), since Resume types the agent's command into it."""
     fresh, recent = result.pop("fresh", None), result.pop("recent_sessions", None)
     result.pop("resumable", None)  # only the composer check below may say so
-    if not (fresh is True and result.get("tool") in _AGENT_TOOLS
+    tool = result.get("tool")
+    fresh = fresh or bool(tool in _BANNER_RE and _BANNER_RE[tool].search(visible)
+                          and not _TURN_LEFT_RE[tool].search(visible))
+    if not (fresh is True and tool in _AGENT_TOOLS
             and result.get("activity") == "idle"
             and not any(result.get(k) for k in ("question", "rewind", "offers"))
             and not _CLAUDE_TURN_RE.search(visible)
             and not _USER_ROW_RE.search(visible)):
         return
     result["fresh"] = True
-    if not _empty_composer(text, result["tool"]):
+    if not _empty_composer(text, tool):
         return
     result["resumable"] = True
     shown = " ".join(visible.split()).casefold()

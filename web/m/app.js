@@ -1991,8 +1991,11 @@ async function answer(id, option, index, offer = false) {
 const RESUME = { claude: "/resume", codex: "/resume", gemini: "/resume", antigravity: "/resume", opencode: "/sessions", omp: "/resume" };
 function renderFresh(pane) {
   const resume = pane?.fresh === true && RESUME[pane.tool];
-  show("fresh-section", !!resume);
+  // The welcome is the whole panel: a summary or history of a session that has not begun
+  // would only restate "it started"; the model and context stay, small, under the title.
+  show("fresh-section", !!resume); show("pane-summary", !resume); show("event-section", !resume);
   if (!resume) return;
+  text($("fresh-meta"), paneMeta(pane));
   const logo = $("fresh-logo");
   if (logo.getAttribute("src") !== LOGOS[pane.tool]) logo.src = LOGOS[pane.tool];
   const why = sendBlock({ sending }), resumable = pane.resumable === true;

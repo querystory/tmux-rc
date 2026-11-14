@@ -2381,3 +2381,29 @@ def test_a_corrective_read_decides_fresh():
         r = classify(_pane("claude"), f"{VISIBLE_SCREEN}\n{_NEW_SESSION}",
                      lambda *_a, _r=reads, **_k: _r.pop(0))
         assert (r.get("fresh"), reads) == (fresh, [])
+
+
+def test_a_startup_banner_with_no_turn_under_it_is_fresh():
+    # Newer startup screens the model does not read as a welcome, invented: Codex's bare
+    # banner over a › composer holding only its placeholder; Gemini's banner drawn twice
+    # (before and after sign-in) over its box holding only its greyed vim-mode hint. The
+    # banner makes them fresh, with Resume; a typed prompt drops Resume, and a turn under
+    # the banner (a reply, or Codex's sent › row) drops fresh too.
+    codex = ("  >_ OpenAI Codex (v0.169.0)\n     ~/src/tide-charts\n\n  Ask about the tides.\n\n"
+             f"› {tmux.PLACEHOLDER_OPEN}Ask Codex to do anything{tmux.PLACEHOLDER_CLOSE}\n\n"
+             "  gpt-6-codex medium · Context 100% left · Context 0% used")
+    gemini = (" Gemini CLI v0.68.0\n Waiting for authentication...\n Gemini CLI v0.68.0\n"
+              " Signed in with Google /auth\n Plan: Free tier\n╭──────────────╮\n"
+              f"│ > {tmux.DIM_OPEN}Press 'Esc' for NORMAL mode.{tmux.DIM_CLOSE} │\n"
+              "╰──────────────╯\n [INSERT]\n ~/src/recipe-scaler  main  quota 0% used")
+    composer = {"codex": codex.split("\n")[5], "gemini": gemini.split("\n")[6]}
+    typed = {"codex": "› slice it", "gemini": "│ > slice it │"}
+    turn = {"codex": "› chart the tides\n\n• Charted.\n\n", "gemini": " > scale it\n\n ✦ Scaled.\n"}
+    for tool, screen in (("codex", codex), ("gemini", gemini)):
+        draft = screen.replace(composer[tool], typed[tool])
+        ran = screen.replace(composer[tool], turn[tool] + composer[tool])
+        for shown, want in ((screen, (True, True)), (draft, ((tool == "gemini") or None, None)),
+                            (ran, (None, None))):
+            r = classify(_pane(tool), f"{VISIBLE_SCREEN}\n{shown}",
+                         _llm({"tool": tool, "activity": "idle"}))
+            assert (r.get("fresh"), r.get("resumable")) == want, (tool, shown)
