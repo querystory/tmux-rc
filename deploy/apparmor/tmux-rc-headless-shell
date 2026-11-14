@@ -1,0 +1,9 @@
+# Lets Playwright's headless Chromium (scratch thumbnails) create the user namespaces its
+# sandbox needs on hosts that restrict them (Ubuntu 23.10+). Unconfined otherwise: it only
+# names the binary, as Ubuntu's own profile for Google Chrome does. `make install-apparmor`.
+abi <abi/4.0>,
+include <tunables/global>
+
+profile tmux-rc-headless-shell @{HOME}/.cache/ms-playwright/chromium_headless_shell-*/**/chrome-headless-shell flags=(unconfined) {
+  userns,
+}

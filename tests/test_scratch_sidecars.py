@@ -170,7 +170,7 @@ def test_a_shot_runs_the_bundled_shell_in_a_throwaway_profile(tmp_path, monkeypa
     assert out.stat().st_mtime == 1234  # the version it shows, not when it was saved
 
 
-def test_a_browser_that_hangs_or_cannot_start_draws_nothing(tmp_path, monkeypatch):
+def test_a_browser_that_hangs_or_cannot_start_draws_nothing(tmp_path, monkeypatch, caplog):
     monkeypatch.setattr(S, "browser", lambda: "/no/such/shell")
     monkeypatch.setattr(S, "urlopen", lambda url, timeout: open(os.devnull))  # noqa: SIM115
     fail = lambda error: lambda *a, **k: (_ for _ in ()).throw(error)  # noqa: E731
@@ -180,7 +180,7 @@ def test_a_browser_that_hangs_or_cannot_start_draws_nothing(tmp_path, monkeypatc
     monkeypatch.setattr(S.subprocess, "Popen", fail(OSError("cannot start")))
     assert S.whole("http://127.0.0.1:1/scratch/p/", (390, 844), 2, dark=False) is None
     shell = tmp_path / "shell"  # starts, then dies at once (a missing library, say)
-    shell.write_text("#!/bin/sh\nexit 1\n")
+    shell.write_text("#!/bin/sh\necho 'FATAL: No usable sandbox!' >&2\nexit 1\n")
     shell.chmod(0o755)
     monkeypatch.undo()  # the real Popen, with only the shell and the preflight stubbed
     monkeypatch.setattr(S, "browser", lambda: str(shell))
@@ -188,6 +188,8 @@ def test_a_browser_that_hangs_or_cannot_start_draws_nothing(tmp_path, monkeypatc
     started = time.monotonic()
     assert S.whole("http://127.0.0.1:1/scratch/p/", (390, 844), 2, dark=False) is None
     assert time.monotonic() - started < 5  # not the whole 20s
+    assert S.render("http://127.0.0.1:1/scratch/p/") is None
+    assert "No usable sandbox" in caplog.text  # says why, not just "No preview"
 
 
 def test_no_bundled_shell_means_no_shot(tmp_path, monkeypatch):
