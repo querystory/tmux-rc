@@ -2657,6 +2657,7 @@ $("capture").onclick = (event) => {
 const launchMode = () => {
   const fresh = !$("launch-session").value;
   show("launch-new", fresh); text($("launch-title"), "New session");
+  show("launch-teleport", !fresh); // a teleport opens a window in a session that exists
 };
 $("launch-session").onchange = launchMode;
 // The name defaults to the directory's basename, shown as the placeholder so typing a
@@ -2674,6 +2675,7 @@ $("sessions").addEventListener("scroll", () => {
 }, { passive: true });
 const LAST_DIR = "tmuxrc-last-dir";
 let launchPick = null, launchLoad = 0; // the account picker (accounts.js), with several accounts; the newest load
+let launchAccounts = false; // the accounts loaded for this open: a teleport must know which one to ask
 const LAUNCH_DESC = { claude: "Claude Code", codex: "OpenAI Codex CLI", gemini: "Google Gemini CLI", antigravity: "Google Antigravity CLI", opencode: "OpenCode CLI", omp: "omp agent", shell: "A plain shell in the session's folder" };
 async function openLaunch(fresh, opener, kind) {
   launchPick?.remove(); launchPick = null;
@@ -2695,8 +2697,9 @@ async function openLaunch(fresh, opener, kind) {
   request("/api/sessions/dirs").then((d) => $("launch-dirs").replaceChildren(...d.dirs.map((dir) => new Option(dir))), () => {});
   try {
     // The accounts too: the picker below draws from them, and on a first load they may not be in yet.
-    const [data] = await Promise.all([request("/api/launchers"), accounts.refresh()]);
+    const [data, loaded] = await Promise.all([request("/api/launchers"), accounts.refresh()]);
     if (load !== launchLoad || !$("launch-dialog").open) return;
+    launchAccounts = loaded !== false;
     text($("launch-error"), "");
     $("launch-choices").replaceChildren(...data.launchers.map((launcher) => {
       const button = document.createElement("button");
@@ -2792,6 +2795,31 @@ async function launchWindow(launcher, button) {
   }
   finally { launching = false; $("launch-choices").querySelectorAll("button").forEach((button) => { button.disabled = "unavailable" in button.dataset; }); }
 }
+
+// Teleport: a claude.ai/code session continued in a window here, in a fresh worktree of its
+// repository and under its own name; the daemon looks both up (docs/design/teleport.md).
+async function teleport() {
+  const cloud = $("teleport-id").value.trim();
+  if (launching || !cloud) return;
+  launching = true; text($("launch-error"), "Teleporting...");
+  try {
+    // No timeout: the daemon asks claude.ai first, and a request given up on here could
+    // still open its window, which a retry would then open twice.
+    const data = await post("/api/teleport", { cloud, session: $("launch-session").value, account: launchPick.account("claude") }, NO_TIMEOUT);
+    $("teleport-id").value = ""; $("launch-dialog").close(); openLaunched(data.pane_id);
+    if (data.also?.length) notice(`Only ${data.repo} is checked out for this session. It also worked in ${data.also.join(", ")}.`, 10000);
+  } catch (error) { text($("launch-error"), error.detail || "The session could not be teleported. Check sessions before retrying."); }
+  finally { launching = false; }
+}
+// With several Claude accounts the account step comes first, as it does for a launcher.
+// Not before the accounts are in, nor after they failed to load: the session would be asked
+// of the wrong one.
+$("teleport-go").onclick = () => {
+  if (!launchPick || !$("teleport-id").value.trim()) return;
+  if (!launchAccounts) return text($("launch-error"), "The accounts could not be loaded. Close and try again.");
+  launchPick.pick("claude", teleport);
+};
+$("teleport-id").onkeydown = (e) => { if (e.key === "Enter") $("teleport-go").click(); };
 
 const standalone = () => navigator.standalone || matchMedia("(display-mode: standalone)").matches; // installed, not a browser tab
 function fitViewport() {
