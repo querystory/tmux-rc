@@ -209,8 +209,9 @@ human label ("Google OAuth approval", "PR #18"), never the URL itself. At most 3
 "fresh": the agent has JUST STARTED a brand-new session and sits at its startup/welcome
 screen (a logo or banner, a welcome box, "Tips for getting started", a "Recent activity" or
 "resume" hint) with its input box ready and NO conversation yet: nothing sent, no reply, no
-tool output. An unsent draft in the input box still counts as fresh. Once any turn has run,
-or the agent exited to a shell, it is not fresh. Report activity "idle" with it.
+tool output, and an EMPTY input box (a greyed placeholder counts as empty; typed text does
+not, since the screen's resume command would land after it). Once any turn has run, or the
+agent exited to a shell, it is not fresh. Report activity "idle" with it.
 "recent_sessions": only with "fresh", the titles of past sessions that welcome screen
 itself lists as resumable (Claude Code's "Recent activity" rows), each verbatim as shown,
 without its age ("2d ago"), most recent first, at most 5. Omit when it lists none.

@@ -1330,27 +1330,26 @@ def _fold_sends(result: dict) -> None:
 
 
 _AGENT_TOOLS = frozenset(_PROCESS_TOOLS.values())
-_PROMPT_ROW_RE = re.compile(_PROMPT_ROW, re.MULTILINE)
 
 
 def _ground_fresh(result: dict, visible: str) -> None:
     """Keep the model's "fresh" (an agent at its welcome screen, no conversation yet) only
     where nothing on screen contradicts it: an idle agent with nothing asked, no turn
-    stamp, and no sent prompt above its input row (the row's own draft is unsent). Its
+    stamp, no sent prompt above its input row, and nothing typed in that row: the card's
+    Resume types the agent's command, which would land after a draft and send both. Its
     recent sessions must each be on screen, as everything else the card shows is."""
     fresh, recent = result.pop("fresh", None), result.pop("recent_sessions", None)
-    *_, box = [None, *_PROMPT_ROW_RE.finditer(visible)]
     if not (fresh is True and result.get("tool") in _AGENT_TOOLS
             and result.get("activity") == "idle"
             and not any(result.get(k) for k in ("question", "rewind", "offers"))
             and not _CLAUDE_TURN_RE.search(visible)
-            and not _USER_ROW_RE.search(visible, 0, box.start() if box else len(visible))):
+            and not _USER_ROW_RE.search(visible)):
         return
     result["fresh"] = True
     shown = " ".join(visible.split()).casefold()
     titles = [" ".join(t.split()) for t in recent if isinstance(t, str)] if isinstance(
         recent, list) else []
-    if titles := [t for t in titles if t and t.casefold() in shown][:5]:
+    if titles := list(dict.fromkeys(t for t in titles if t and t.casefold() in shown))[:5]:
         result["recent_sessions"] = titles
 
 

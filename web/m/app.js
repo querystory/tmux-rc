@@ -1996,7 +1996,7 @@ function renderFresh(pane) {
   const why = sendBlock({ sending });
   const go = () => sendKeys({ keys: resume, enter: true, literal: true });
   const recent = (Array.isArray(pane.recent_sessions) ? pane.recent_sessions : []).filter((t) => typeof t === "string");
-  reconcile($("fresh-recent"), recent, (t) => `${active}:${t}`, () => {
+  reconcile($("fresh-recent"), recent, (t, i) => `${active}:${i}:${t}`, () => {
     const button = document.createElement("button"); button.type = "button";
     button.onclick = () => go();
     return button;

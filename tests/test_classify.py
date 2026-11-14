@@ -2318,19 +2318,19 @@ _NEW_SESSION = "\n".join([
 
 def test_a_new_session_reads_fresh_with_the_sessions_it_lists():
     read = {"tool": "claude", "activity": "idle", "fresh": True,
-            "recent_sessions": ["Tidy the garden planner", "Invented elsewhere", 7]}
+            "recent_sessions": ["Tidy the garden planner", "Invented elsewhere", 7,
+                                "Tidy  the garden planner"]}
     r = classify(_pane("claude"), _NEW_SESSION, _llm(read))
     assert (r["fresh"], r["recent_sessions"]) == (True, ["Tidy the garden planner"])
-    # An unsent draft is still a new session.
-    r = classify(_pane("claude"), _NEW_SESSION.replace("❯ ", "❯ plan the beds"), _llm(read))
-    assert r["fresh"] is True
 
 
 def test_fresh_is_dropped_once_anything_happened():
     read = {"tool": "claude", "activity": "idle", "fresh": True,
             "recent_sessions": ["Tidy the garden planner"]}
     sent = _NEW_SESSION.replace("\n\n", "\n\n❯ plan the beds\n\n● Done.\n\n✻ Worked for 4s\n\n", 1)
-    for screen, extra in ((sent, {}), (_NEW_SESSION, {"activity": "running"}),
+    # A draft too: Resume's typed command would land after it, and both would be sent.
+    draft = _NEW_SESSION.replace("❯ ", "❯ plan the beds")
+    for screen, extra in ((sent, {}), (draft, {}), (_NEW_SESSION, {"activity": "running"}),
                           (_NEW_SESSION, {"tool": "shell"})):
         r = classify(_pane("claude" if not extra.get("tool") else "bash"), screen,
                      _llm({**read, **extra}))
