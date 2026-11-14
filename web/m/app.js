@@ -401,10 +401,11 @@ function route() {
   if (state.q !== $("search").value.trim()) $("search").value = state.q; // a reload, a link or Back: typing writes the URL, not this
   if (accounts.follow(state.acct)) paintUsage(); // the strip and meters are filtered too
   if (page !== wasPage) { $("dash-page").replaceChildren(); $("dash-page")._signature = null; } // each view builds afresh
-  if (viewer.open && page !== "scratch") viewer.close(); // Back, a push or Safari's swipe left Scratch: its viewer goes too
+  // The viewer shows the URL's page (a link, a reload, a "Ready" push, Forward), and only on Scratch:
+  // Back, a push or Safari's swipe off it closes the viewer.
+  const opening = page === "scratch" && scratchUrl(state.open, location.href);
+  if (!opening) viewer.close(); else if (!viewer.open || viewer.querySelector("iframe")?.src !== opening) viewScratch(opening, "");
   if (page !== "scratch") scratchFrom = null; // and its pane filter
-  const opening = page === "scratch" && scratchUrl(state.open, location.href); // a "Ready" push's page, opened once
-  if (opening) { history.replaceState(null, "", "#" + formatHash(state)); viewScratch(opening, ""); }
   if (state.draft || state.compose) writeHash(dropOneShots(location.hash)); // offered once: a reload or Back offers nothing
   if (state.compose) startState(); // a poll already out may predate the push's ask, and would spend its focus
   if (changed) {
@@ -939,6 +940,11 @@ function viewScratch(href, title) {
   frame.addEventListener("load", tellScratch); frame.addEventListener("load", loadRecent); // the visit is in by its load
   $("viewer-form").before(frame);
   viewer.showModal(); viewer.focus(); paintPins(pins); loadPins(); findMaker(href); // cached now, then as stored: a slot freed meanwhile
+  const { pathname, search, hash } = new URL(href), to = formatHash({ ...parseHash(location.hash), open: pathname + search + hash });
+  // The URL bar names the page; Back is the gallery. The same page, spelled otherwise (an old push link), is replaced.
+  const how = scratchUrl(parseHash(location.hash).open, location.href) === href ? "replace" : historyMode(location.hash, to);
+  // `viewer` keys the gallery's entry (the Navigation API), the way back past any moves in the frame.
+  if (to !== location.hash.slice(1)) writeHash(to, how, how === "push" ? { ...history.state, viewer: globalThis.navigation?.currentEntry?.key || true } : history.state); // the gallery's way back (fromCard) too
 }
 // Scratch pages pinned to the menu (GET/PUT /api/pins: the daemon keeps them, so every device
 // shows the same): rows after the sidebar's nav, and a Pinned group in the phone's ☰, whose rows
@@ -1090,7 +1096,18 @@ function askSend(ask) {
   $("send-dialog").showModal();
 }
 $("send-cancel").onclick = () => $("send-dialog").close();
-viewer.addEventListener("close", () => viewer.querySelector("iframe")?.remove());
+// The page leaves the URL: Back to the gallery when the viewer added the entry, else replaced. Straight
+// to the gallery's entry, over the page's own moves in its frame (each adds an entry, unseen from here);
+// without the Navigation API a Back may land on one, still naming the page, so it is replaced then.
+// Not a close queued before a reopen.
+const unview = () => viewer.open || !parseHash(location.hash).open || writeHash(formatHash({ ...parseHash(location.hash), open: null }));
+viewer.addEventListener("close", () => {
+  if (viewer.open) return; viewer.querySelector("iframe")?.remove();
+  const back = parseHash(location.hash).open && history.state?.viewer;
+  if (!back) return unview();
+  if (globalThis.navigation?.entries().some((e) => e.key === back)) navigation.traverseTo(back); else history.back();
+  setTimeout(unview, 300);
+});
 // A card's view: its head over `node`, built once a visit (route() empties #dash-page).
 function cardView(title, node) {
   if (!$("dash-page").contains(node)) $("dash-page").replaceChildren(pageHead(title, licon, closePage), node);
