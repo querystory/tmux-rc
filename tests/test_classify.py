@@ -2368,8 +2368,8 @@ def test_resume_is_offered_only_over_an_empty_composer():
               False),  # a multi-line draft whose first row is empty
              ("codex", "  Recent: Sort the seed list\n› \n\n  ? for shortcuts", "", True),
              # A draft led by blank rows: its text sits further down than the next row.
-             ("codex", "  Recent: Sort the seed list\n› \n\n  water the beds\n\n"
-              "  ? for shortcuts", "", False)]
+             ("codex", ("  Recent: Sort the seed list\n› \n\n  water the beds\n\n"
+                        "  ? for shortcuts"), "", False)]
     for tool, screen, draft, resumable in cases:
         # The model's own "resumable" is no evidence: only the composer check sets it.
         model = {**read, "tool": tool, "resumable": True}
