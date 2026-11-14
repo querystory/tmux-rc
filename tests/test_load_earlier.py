@@ -171,7 +171,11 @@ OLD = hashlib.md5(b"old\n").hexdigest()[:8]
 def tmux_says(args, meta, rows, edge=""):
     """What tmux prints for capture_rows' command list: its size line, the oldest rows,
     then each part after the nonce that precedes it."""
-    nonces = re.findall(r"display-message -p ([0-9a-f]{32})", args[-1])
+    # Nonces follow "display-message" "-p" in the arg list (CLI ;) or inside a
+    # run-shell -C string (legacy).  Support both so the helper stays useful if
+    # the transport changes again.
+    flat = " ".join(args)
+    nonces = re.findall(r"display-message -p ([0-9a-f]{32})", flat)
     return f"{meta}\nold\n{nonces[0]}\n{rows}" + (f"{nonces[1]}\n{edge}" if edge else "")
 
 
@@ -204,7 +208,8 @@ def test_endpoint_bounds_and_pane_id(monkeypatch):
     url = "/api/panes/{}/history"
     answer = client.get(url.format("%251"), params={"before": 3}).json()
     assert answer == {"text": "row", "start": 0, "wraps": False, "screen": f"80.{OLD}"}
-    assert "-S #{e|-|:0,#{history_size}} -E #{e|-|:2,#{history_size}} ;" in calls[0][-1]
+    flat = " ".join(calls[0])
+    assert "-S #{e|-|:0,#{history_size}} -E #{e|-|:2,#{history_size}}" in flat
     # Capped per request, never negative, and `before` is required.
     for params in ({"before": 9, "lines": 1001}, {"before": 9, "lines": 0}, {"before": -1}, {}):
         assert client.get(url.format("%251"), params=params).status_code == 422
