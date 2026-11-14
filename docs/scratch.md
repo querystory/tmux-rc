@@ -238,7 +238,9 @@ tmux-rc fills in the rest in the background, so the gallery never waits for it:
   (Ubuntu 23.10+, `kernel.apparmor_restrict_unprivileged_userns=1`) kill the shell's
   sandbox at launch, and every card reads "No preview" with a "drew nothing … No usable
   sandbox" warning in the log: `make install-apparmor` (sudo) installs a profile that lets
-  that one binary sandbox itself, as Ubuntu's own does for Google Chrome. Turning the
+  that one binary sandbox itself, as Ubuntu's own does for Google Chrome; then restart
+  the daemon (`systemctl --user restart tmux-rc`), since it does not retry a page whose
+  thumbnail failed until the page changes. Turning the
   sandbox off instead would let an agent's page reach the host if it broke the renderer.
 - **Descriptions.** With the parse model configured, a folder without a description gets
   one sentence, written into its `meta.json` and marked `"generated": ["description"]`. A
