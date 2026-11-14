@@ -61,6 +61,13 @@ PINS = 6  # pages pinned to the app's menu, at most: the sidebar's nav can't ove
 BINDINGS: Path | None = None  # where bind() keeps the panes pages were moved to (server sets it)
 
 
+def configured() -> str | None:
+    """TMUXRC_SCRATCH_DIR, absolute (panes get it as their env, and the gallery's find takes
+    "-draft" for an option), when it names a directory: scratch exists only then."""
+    root = os.environ.get("TMUXRC_SCRATCH_DIR")
+    return os.path.realpath(root) if root and Path(root).is_dir() else None
+
+
 def inside(path: Path, root: Path) -> bool:
     """The file is really in this folder of scratch, not a symlink out of it."""
     try:  # a plain entry of the folder needs no resolving (most calls: hot in the gallery)
