@@ -2404,6 +2404,8 @@ def test_a_startup_banner_with_no_turn_under_it_is_fresh():
         ran = screen.replace(composer[tool], turn[tool] + composer[tool])
         for shown, want in ((screen, (True, True)), (draft, ((tool == "gemini") or None, None)),
                             (ran, (None, None))):
-            r = classify(_pane(tool), f"{VISIBLE_SCREEN}\n{shown}",
-                         _llm({"tool": tool, "activity": "idle"}))
-            assert (r.get("fresh"), r.get("resumable")) == want, (tool, shown)
+            # The model's own "fresh" is held to the same turn evidence as the banner.
+            for said in ({}, {"fresh": True}):
+                r = classify(_pane(tool), f"{VISIBLE_SCREEN}\n{shown}",
+                             _llm({"tool": tool, "activity": "idle", **said}))
+                assert (r.get("fresh"), r.get("resumable")) == want, (tool, said, shown)

@@ -1400,17 +1400,19 @@ _TURN_LEFT_RE = {"codex": re.compile(r"^• ", re.MULTILINE),
 
 def _ground_fresh(result: dict, text: str, visible: str) -> None:
     """Keep the model's "fresh" (an agent at its welcome screen, no conversation yet), or
-    read it off a startup banner with no turn under it (_BANNER_RE), only where nothing on
-    screen contradicts it: an idle agent with nothing asked, no turn
-    stamp, and no prompt row with text (Claude Code's and Codex's, sent or drafted). Its
+    read it off a startup banner (_BANNER_RE), only where nothing on screen contradicts
+    it: an idle agent with nothing asked, no turn left on screen (_TURN_LEFT_RE, Claude's
+    stamp), and no prompt row with text (Claude Code's and Codex's, sent or drafted). Its
     recent sessions must each be on screen, as everything else the card shows is.
     "resumable" is the card's Resume and its sessions: only over an empty composer
     (_empty_composer), since Resume types the agent's command into it."""
     fresh, recent = result.pop("fresh", None), result.pop("recent_sessions", None)
     result.pop("resumable", None)  # only the composer check below may say so
     tool = result.get("tool")
-    fresh = fresh or bool(tool in _BANNER_RE and _BANNER_RE[tool].search(visible)
-                          and not _TURN_LEFT_RE[tool].search(visible))
+    # A turn under the banner rules out the model's "fresh" as much as the banner's.
+    turned = tool in _TURN_LEFT_RE and _TURN_LEFT_RE[tool].search(visible)
+    fresh = not turned and (fresh is True or bool(
+        tool in _BANNER_RE and _BANNER_RE[tool].search(visible)))
     if not (fresh is True and tool in _AGENT_TOOLS
             and result.get("activity") == "idle"
             and not any(result.get(k) for k in ("question", "rewind", "offers"))
