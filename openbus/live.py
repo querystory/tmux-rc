@@ -1116,15 +1116,16 @@ async def _resume_locked(websocket, sid: str, watcher, rec: dict) -> dict:
     title = entry.get("title") or entry["session_id"][:8]
     name = title[:24]
     try:  # tmux can fail here too; report, don't kill the session
-        target = _session_for(await asyncio.to_thread(tmux.list_panes), cwd)
-        if target is None:
-            return {"status": "error", "reason": "no tmux session to open a window in"}
-        pane_id = await asyncio.to_thread(tmux.new_window, target, name, argv, cwd)
+        # After a reboot no server runs: start one with its own session, as Restore does.
+        up = await asyncio.to_thread(tmux.server_running)
+        target = _session_for(await asyncio.to_thread(tmux.list_panes) if up else [], cwd)
+        pane_id = await asyncio.to_thread(tmux.new_window, target, name, argv, cwd) if target \
+            else await asyncio.to_thread(tmux.new_session, name, cwd, argv, name)
     except Exception as e:
         logger.warning("[live] resume_session failed for %s", entry["session_id"], exc_info=True)
-        rec["detail"] = str(e)[:120]
-        return {"status": "error", "reason": "could not open a window"}
-    rec.update(pane_id=pane_id, window=name, tmux_session=target)
+        rec["detail"] = (getattr(e, "stderr", None) or str(e)).strip()[:120]
+        return {"status": "error", "reason": "could not open a window", "detail": rec["detail"]}
+    rec.update(pane_id=pane_id, window=name, tmux_session=target or name)
     pid = await _launched_pid(pane_id)
     if pid is None:  # the window closed at once: the command failed to start
         return {"status": "error", "reason": "the resumed session exited immediately"}
@@ -1378,12 +1379,16 @@ async def _hold(websocket: WebSocket, seconds: float, meter: _Meter) -> bool:
     the loop reconnected to Vertex for a phone that was already gone — the tunnel drops
     both legs at once, and the browser's disconnect is only observed by a receive. A
     WebSocketDisconnect propagates (client gone); a stop returns False; a timeout, True.
-    The view is still heard, so a card parked by the provider drop can push meanwhile."""
+    The view is still heard, so a card parked by the provider drop can push meanwhile, and
+    a typed turn already in flight is refused, the one answer that hands back its thumbnails."""
     try:
         async with asyncio.timeout(seconds):
             while (data := await websocket.receive_json()).get("action") != "stop":
                 if data.get("action") == "viewing":
                     _view(meter, data)
+                elif data.get("action") == "text":
+                    await websocket.send_json(
+                        {"type": "error", "refused": True, "message": "Reconnecting; not sent"})
                 # any other stray frame (audio already in flight) is no reason to reconnect early
     except TimeoutError:
         return True

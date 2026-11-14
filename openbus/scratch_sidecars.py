@@ -106,23 +106,28 @@ def forget(names: list[str]) -> None:
 
 def _work(root: Path, web: Path) -> None:
     global _worker  # noqa: PLW0603
-    with serving(root, web) as base:
-        while True:
-            with _lock:
-                if not _pending:
-                    _worker = None  # under the lock, so queue() starts one for what comes next
-                    return
-                item = _pending.pop(0)
-                moves = _moves[item["name"]]
-            for step in (_thumbnail, _description):
-                try:  # each on its own: one failing must stop neither the other nor the queue
-                    step(root, f"{base}/{item['href']}", item)
-                except Exception:
-                    logger.warning("Scratch %s for %s failed", step.__name__, item["name"],
-                                   exc_info=True)
-            with _lock:  # a folder archived or restored meanwhile was not worked: ask again
-                moved = _moves[item["name"]] != moves
-                (_tried.discard if moved else _done.add)(_version(item))
+    try:
+        with serving(root, web) as base:
+            while True:
+                with _lock:
+                    if not _pending:
+                        _worker = None  # under the lock, so queue() starts one for what comes next
+                        return
+                    item = _pending.pop(0)
+                    moves = _moves[item["name"]]
+                for step in (_thumbnail, _description):
+                    try:  # each on its own: one failing must stop neither the other nor the queue
+                        step(root, f"{base}/{item['href']}", item)
+                    except Exception:
+                        logger.warning("Scratch %s for %s failed", step.__name__, item["name"],
+                                       exc_info=True)
+                with _lock:  # a folder archived or restored meanwhile was not worked: ask again
+                    moved = _moves[item["name"]] != moves
+                    (_tried.discard if moved else _done.add)(_version(item))
+    finally:  # however it ended (serving() could not bind, say), never a dead worker
+        with _lock:  # that would keep queue() from starting the next
+            if _worker is threading.current_thread():
+                _worker = None
 
 
 class _Static(SimpleHTTPRequestHandler):
@@ -233,13 +238,19 @@ def render(url: str) -> bytes | None:
     with tempfile.TemporaryDirectory(prefix="tmux-rc-thumb-") as profile:
         png = Path(profile) / "shot.png"
         try:
-            subprocess.run([*_isolated(exe, profile, url),
-                            "--window-size={},{}".format(*VIEWPORT),
-                            "--virtual-time-budget=3000", f"--screenshot={png}", url],
-                           capture_output=True, timeout=60, check=False)
+            run = subprocess.run([*_isolated(exe, profile, url),
+                                  "--window-size={},{}".format(*VIEWPORT),
+                                  "--virtual-time-budget=3000", f"--screenshot={png}", url],
+                                 capture_output=True, text=True, timeout=60, check=False)
         except (OSError, subprocess.TimeoutExpired):
             return None
-        return png.read_bytes() if png.is_file() else None
+        if png.is_file():
+            return png.read_bytes()
+        # Say why, or every card just reads "No preview" (a sandbox AppArmor forbids, say:
+        # docs/scratch.md, "Thumbnails").
+        logger.warning("Scratch thumbnail browser drew nothing (exit %s): %s", run.returncode,
+                       (run.stderr.strip().splitlines() or ["no output"])[-1][:300])
+        return None
 
 
 def shoot(url: str, out: Path, root: Path, at: float | None = None, inode: int = 0) -> bool:

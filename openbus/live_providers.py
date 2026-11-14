@@ -426,7 +426,10 @@ class _GeminiSession:
         from google.genai import types  # noqa: PLC0415
 
         if model.backend == "gemini-api":
-            client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+            client = genai.Client(
+                api_key=os.environ["GEMINI_API_KEY"],
+                http_options=types.HttpOptions(api_version=llm.AI_STUDIO_API_VERSION),
+            )
         else:
             # A dedicated Vertex client, deliberately NOT llm._client(): that one pins the
             # classifier's per-request timeout (an anti-wedge guard for one-shot parse
