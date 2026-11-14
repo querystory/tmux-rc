@@ -22,7 +22,8 @@ def fake_tmux(monkeypatch, screen, sgr="1", physical=None, history=""):
             cmds, cur = [], []
             for a in argv:
                 if a == ";":
-                    cmds.append(cur); cur = []
+                    cmds.append(cur)
+                    cur = []
                 else:
                     cur.append(a)
             if cur:
