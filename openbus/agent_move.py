@@ -55,7 +55,8 @@ def to_codex(transcript: Path, codex: str, home: Path, cwd: str, path: str | Non
     same every time for one source account (a copied session keeps its id on another), which
     Codex's import ledger keys on: a session moved again appends its new turns to the same
     thread, so that thread must not be running. Its environment is just these three: never
-    the daemon's keys. Only the copy is removed after: nothing else is ever deleted there."""
+    the daemon's keys. Only the copy is removed, before and after: nothing else is ever
+    deleted there."""
     account = hashlib.sha256(str(transcript.parents[2].resolve()).encode()).hexdigest()[:16]
     stage = store_path().parent / "codex-import" / account
     copy = stage / ".claude/projects" / transcript.parent.name / transcript.name
@@ -63,11 +64,9 @@ def to_codex(transcript: Path, codex: str, home: Path, cwd: str, path: str | Non
         raise LookupError("it is running on that account, or may be: go to that window")
     confined([copy], stage)  # no link out of the staging dir, checked before anything is made
     copy.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    try:  # only a file this move made is written, then removed
-        fd = os.open(copy, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-    except FileExistsError as e:
-        raise LookupError("an interrupted move left its copy in tmux-rc's state dir "
-                          "(codex-import): remove it, then try again") from e
+    # Moves run one at a time (server._MOVES), so a copy already here is a crashed move's.
+    copy.unlink(missing_ok=True)
+    fd = os.open(copy, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     env = {"HOME": str(stage), "CODEX_HOME": str(home), "PATH": path or os.defpath}
     items = [{"itemType": "SESSIONS", "description": "tmux-rc move", "cwd": None,
               "details": {"sessions": [{"path": str(copy), "cwd": cwd, "title": None}]}}]

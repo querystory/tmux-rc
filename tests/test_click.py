@@ -121,7 +121,7 @@ def test_click_endpoint_canonicalizes_and_always_reparses(monkeypatch, sent):
     watcher = SimpleNamespace(request_reparse=Mock(), invalidate_input_actions=Mock())
     monkeypatch.setattr(T, "find_pane", lambda _alias: SimpleNamespace(id="%7", pid="42"))
     monkeypatch.setattr(T, "click", click)
-    monkeypatch.setattr(app.state, "watcher", watcher, raising=False)
+    monkeypatch.setitem(app.state._state, "watcher", watcher)
     response = TestClient(app).post("/api/panes/work:0.0/click",
                                     json={"frame": "a" * 32, "from_bottom": 2, "col": 4})
     assert response.status_code == 200

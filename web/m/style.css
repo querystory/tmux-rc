@@ -264,8 +264,8 @@ a.icon-button, .pane-row, .sb-open, .sb-rail { color: inherit; text-decoration: 
 .link-pair { display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; }
 .link-pair a { min-width: 0; user-select: none; -webkit-user-select: none; }
 .link-copy { color: var(--muted); }
-/* A pane's link rows: a long press copies (app.js renderLinks), so no callout or selection. */
-:is(#links, #pr-links, #ask-link) a, .more-links { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: center; min-height: 52px; padding: 8px 0; text-decoration: none; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+/* A pane's link rows: a long press opens the system's link menu, not a selection of their words. */
+:is(#links, #pr-links, #ask-link) a, .more-links { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: center; min-height: 52px; padding: 8px 0; text-decoration: none; user-select: none; -webkit-user-select: none; }
 :is(#links, #pr-links) a, .more-links { border-top: 1px solid var(--line); }
 #links a:first-child { border-top: 0; }
 :is(#links, #pr-links, #ask-link) a :is(span, small) { overflow-wrap: anywhere; }
@@ -696,8 +696,8 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 #app.rail #find .search:hover { background: var(--raised); }
 #app.rail #find .search input { position: absolute; width: 1px; opacity: 0; }
 #app.rail #search-icon svg { width: 18px; height: 18px; }
-#app.rail #side-filter-picker summary { width: 36px; height: 36px; min-height: 36px; border-color: transparent; background: none; color: var(--muted); }
-#app.rail #side-filter-picker summary:not([data-n=""]) { background: var(--accent-bg); color: var(--accent); }
+#app.rail #find > #side-filter-picker summary { width: 36px; height: 36px; min-height: 36px; border-color: transparent; background: none; color: var(--muted); }
+#app.rail #find > #side-filter-picker summary:not([data-n=""]) { background: var(--accent-bg); color: var(--accent); }
 #app.rail #side-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; width: 100%; display: grid; justify-items: center; align-content: start; gap: 2px; margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--line); scrollbar-width: none; }
 .sb-rail { position: relative; width: 36px; height: 36px; min-height: 36px; padding: 0; display: grid; place-items: center; border-radius: 8px; }
 .sb-rail .sb-logo, .sb-rail .sb-logo img:not(.model-badge) { width: 22px; height: 22px; }
@@ -1504,10 +1504,12 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
    A phone keeps the page's left edge for the swipe back (app.js), as the gallery's gutter does. */
 #scratch-viewer { inset: 0; width: 100%; height: 100%; max-height: none; padding: 0; border: 0; border-radius: 0; }
 #scratch-viewer[open] { display: flex; flex-direction: column; }
-#scratch-viewer .dialog-heading { flex: none; gap: 4px; height: calc(48px + env(safe-area-inset-top)); margin: 0; padding: env(safe-area-inset-top) max(12px, env(safe-area-inset-right)) 0 max(4px, env(safe-area-inset-left)); border-bottom: 1px solid var(--line); }
+#scratch-viewer .dialog-heading { flex: none; gap: 4px; height: calc(48px + env(safe-area-inset-top)); margin: 0; padding: env(safe-area-inset-top) max(4px, env(safe-area-inset-right)) 0 max(4px, env(safe-area-inset-left)); border-bottom: 1px solid var(--line); }
 #viewer-title { flex: 1; min-width: 0; margin: 0; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#viewer-out { flex: none; font-size: 14px; color: var(--accent); }
-#viewer-pin, #viewer-get { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 10px; border-radius: 8px; font-size: 14px; }
+/* Icons as the pane's bar draws them; a wide screen adds the labels, a phone keeps the room for the title. */
+:is(#viewer-pin, #viewer-get, #viewer-out) { gap: 6px; border-radius: 8px; font-size: 14px; }
+@media (min-width: 1100px) { :is(#viewer-pin, #viewer-out) { width: auto; padding: 0 10px; } }
+@media (max-width: 1099px) { :is(#viewer-pin, #viewer-out) span { display: none; } }
 #viewer-pin[aria-pressed="true"] { color: var(--accent); }
 /* Message the page's maker: the pane composer's look, above the keyboard while typing (fitViewport). */
 html.editing #scratch-viewer { top: var(--app-top, 0px); height: var(--app-height, 100%); }
@@ -1591,7 +1593,7 @@ html.editing #scratch-viewer { top: var(--app-top, 0px); height: var(--app-heigh
   .fg-hud::before { grid-row: stats / key; margin: -14px -52px -8px -10px; } /* the fade backs the counts too */
   .fg-legend { margin-right: -42px; } .fg-key { font-size: 8.5px; gap: 3px 10px; }
   /* Under the page's bar, as every view, edge to edge: so no full screen. */
-  .fg-view { margin: -12px -16px -20px; } .fg-box { border: 0; border-radius: 0; } .fg-tools > :first-child { display: none; }
+  .fg-view { margin: -12px -16px -20px; } .fg-box { border: 0; border-radius: 0; } .fg-tools > button:first-of-type { display: none; }
 }
 /* Full screen (graph.js): the view over everything, edge to edge inside the safe area. */
 .fg-view.full { position: fixed; inset: 0; z-index: 40; min-height: 0; background: var(--surface); padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
@@ -1602,8 +1604,9 @@ html.editing #scratch-viewer { top: var(--app-top, 0px); height: var(--app-heigh
   --chart-s0: #f1bd53; --chart-s1: #60c992; --chart-s2: #3f4a55; --chart-s3: #4a5261; --chart-s4: #bea5ee; --chart-s5: #8bbdf5; --chart-s6: #ff9696;
   --acct-0: #5eead4; --acct-1: #c4b5fd; --acct-2: #a8b3c4; --acct-3: #fcd34d; --acct-4: #7dd3fc; --acct-5: #fda4af; }
 .fg-tools { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 6px; }
-.fg-tools button { width: 36px; height: 36px; min-height: 36px; padding: 0; display: grid; place-items: center; border-radius: 10px; border: 1px solid var(--line); background: color-mix(in oklab, var(--surface) 85%, transparent); color: var(--fg); }
-.fg-tools [aria-pressed="true"] { color: var(--accent); }
+.fg-tools > button { width: 36px; height: 36px; min-height: 36px; padding: 0; display: grid; place-items: center; border-radius: 10px; border: 1px solid var(--line); background: color-mix(in oklab, var(--surface) 85%, transparent); color: var(--fg); }
+.fg-tools > [aria-pressed="true"] { color: var(--accent); }
+.fg-tools #side-filter-picker summary { width: 36px; height: 36px; min-height: 36px; border-radius: 10px; } /* the filter, seated here wide (app.js placePill) */
 .fg-pop { position: absolute; z-index: 3; width: 280px; padding: 12px 14px 14px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); box-shadow: 0 12px 32px rgb(0 0 0 / .28); font-size: 13px; line-height: 1.4; box-sizing: border-box; max-height: calc(100% - 16px); overflow: auto; }
 .fg-pop.sheet { left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 75%; }
 .fg-pop-head { display: flex; align-items: center; gap: 8px; }
