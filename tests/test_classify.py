@@ -2323,6 +2323,10 @@ def test_a_new_session_reads_fresh_with_the_sessions_it_lists():
     r = classify(_pane("claude"), _NEW_SESSION, _llm(read))
     assert (r["fresh"], r["resumable"], r["recent_sessions"]) == (
         True, True, ["Tidy the garden planner"])
+    # A draft led by blank rows inside the box: still fresh, but Resume would send it.
+    blank_led = _NEW_SESSION.replace("❯ \n", "❯ \n\n  plan the beds\n")
+    r = classify(_pane("claude"), blank_led, _llm(read))
+    assert (r["fresh"], r.get("resumable")) == (True, None)
 
 
 def test_fresh_is_dropped_once_anything_happened():
@@ -2362,7 +2366,10 @@ def test_resume_is_offered_only_over_an_empty_composer():
              ("opencode", opencode.replace("┃", dim("┃")), "water the beds", False),
              ("codex", "  Recent: Sort the seed list\n› \n  second line\n\n  ? for shortcuts", "",
               False),  # a multi-line draft whose first row is empty
-             ("codex", "  Recent: Sort the seed list\n› \n\n  ? for shortcuts", "", True)]
+             ("codex", "  Recent: Sort the seed list\n› \n\n  ? for shortcuts", "", True),
+             # A draft led by blank rows: its text sits further down than the next row.
+             ("codex", "  Recent: Sort the seed list\n› \n\n  water the beds\n\n"
+              "  ? for shortcuts", "", False)]
     for tool, screen, draft, resumable in cases:
         # The model's own "resumable" is no evidence: only the composer check sets it.
         model = {**read, "tool": tool, "resumable": True}

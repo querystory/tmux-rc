@@ -1343,6 +1343,8 @@ _PROMPT_LINE_RE = re.compile(f"^[ \\t│]*[{PROMPT_GLYPHS}]")
 _RULE_LINE_RE = re.compile(r"^[ \t]*(?:[─━]{3,}|╰)")
 _GEMINI_INPUT_RE = re.compile(r"^[ \t]*│[ \t]*>")
 _VIM_NORMAL_RE = re.compile(r"\[NORMAL\]")
+# Codex's footer under its composer: context left/used, the shortcuts hint.
+_CODEX_FOOTER_RE = re.compile(r"(?i)\bcontext\b.*\b(?:left|used)\b|\? for shortcuts")
 # A dim run, which tmux marks across rows as one: a hint goes on greyed on the next row.
 _DIM_SPAN_RE = re.compile(f"{DIM_OPEN}([\\s\\S]*?)(?:{DIM_CLOSE}|\\Z)")
 
@@ -1364,8 +1366,15 @@ def _empty_composer(text: str, tool: str) -> bool:
         row = last(shown, _PROMPT_LINE_RE)
         if row is None or typed[row].strip(" \t\xa0│").lstrip(PROMPT_GLYPHS).strip(" \t\xa0│"):
             return False
-        below = typed[row + 1] if row + 1 < len(typed) else ""
-        return not below.strip(" \t\xa0│") or bool(_RULE_LINE_RE.match(shown[row + 1]))
+        # Every row a draft could reach, blank-led ones included: Claude's down to its box's
+        # bottom rule (none found, not proven), Codex's to the screen's end bar its footer.
+        rows = range(row + 1, len(shown))
+        if tool == "claude":
+            end = next((i for i in rows if _RULE_LINE_RE.match(shown[i])), None)
+            return end is not None and not any(
+                typed[i].strip(" \t\xa0│") for i in range(row + 1, end))
+        return all(_CODEX_FOOTER_RE.search(shown[i]) for i in rows
+                   if typed[i].strip(" \t\xa0│"))
     if tool in ("gemini", "antigravity"):
         row = last(shown, _GEMINI_INPUT_RE)
         # In vim mode's NORMAL a typed "/resume" is keystrokes for the editor, not text.
