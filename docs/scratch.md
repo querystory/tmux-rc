@@ -115,6 +115,11 @@ in a tab for its scripts). Send ignores taps for its first half second, and ther
 "don't ask again", since a silent send is exactly what an injected page would want. A
 page in a tab of its own can't ask at all; its buttons stay draft links.
 
+A link off the site (a PR on github.com) opens in a tab of its own, as the app's own links
+do, so a phone hands it to the app that owns it; a link to another scratch page stays in
+the viewer. The daemon adds a small click handler to every HTML page it serves for this,
+and, like a page's own script, it runs only in the page the viewer opened.
+
 ## Markdown pages
 
 A `.md` file opens as a rendered page, and a folder whose page is `index.md` is served at
