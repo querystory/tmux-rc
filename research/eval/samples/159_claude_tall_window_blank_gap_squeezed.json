@@ -1,0 +1,14 @@
+{
+  "description": "Synthetic: a short finished turn in a 500-row alternate-screen window, as capture_pane now sends it: the ~170 empty rows between the final message and the pinned input box squeezed to one, the rule the phone's keptRows uses. The closing question still stands: waiting on the user, a typed answer.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ rename the config loader and update its callers\n\n● Renamed load_cfg to load_config in src/settings.py and updated all six callers.\n  The test suite passes (212 tests).\n\n  Should I also add a deprecation alias so plugins that import load_cfg keep working?\n\n✻ Cooked for 41s · done 10:04 AM\n\n──────────────────────────────────────────────────\n❯ \n──────────────────────────────────────────────────\n  ~/src/acme/tool on main | Opus 5.5\n  ⏵⏵ accept edits on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "text"
+    },
+    "headline": "Renamed the config loader; asks whether to add a deprecation alias for load_cfg"
+  }
+}
