@@ -1,0 +1,25 @@
+{
+  "description": "Synthetic: a wide pane whose final message closes on 'Still open:' with four semicolon-ended items and no question mark, after 'Merging still needs your OK.', with Claude Code suggesting 'merge it' in the input box. The list is one question carrying all four, with a few short replies.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n  Seed imports will be refused once this deploys to staging, until their gardens have the flag on. Tell me which gardens they run in, and I'll turn\n  the flag on for them on staging after the deploy.\n\n  Merging still needs your OK.\n\n✻ Churned for 1m 33s · done 1:55 AM\n\n● Background command \"Wait for preview build\" completed (exit code 0)\n\n  Ran 2 shell commands\n\n● The preview at https://seed-catalog.preview.example.com is running the new commit (4be1c09) and still uses the copied database. The rebuild kept\n  the database setting, so I didn't need to point it at the copy again.\n\n  To see the gate in the browser:\n  1. Catalog page: the rare-seed shelf should be greyed out for your garden.\n  2. Unlock: run gh-cli garden catalog <your_garden_id> allow against the preview. Within about a minute the shelf should open.\n\n  Still open:\n  - your OK to merge PR #52;\n  - which staging gardens the import and newsletter runs use, so I can turn the flag on for them after the staging deploy;\n  - enabling the catalog in production after the merge, for the gardens you confirm;\n  - removing the preview's copied database, its secret and the tag later.\n\n✻ Worked for 43s · done 2:02 AM\n                                                                                                    new task? /clear to save 98.2k tokens\n──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n❯ ⟪placeholder⟫merge it⟪/placeholder⟫\n──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n  ~/src/greenhouse on seed-catalog | Opus 5.5 | robin@example.com\n  session: +144/-18 lines · 11% ctx · 9h5m · $6.20\n  ⏵⏵ auto mode on (shift+tab to cycle) · PR #52",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "model": "Opus 5.5",
+    "question": {
+      "answer_style": "text",
+      "shows": [
+        "merge PR #52",
+        "which staging gardens",
+        "in production",
+        "removing the preview"
+      ],
+      "prompt_excludes": [
+        "- "
+      ]
+    },
+    "buttons_at_most": 3,
+    "headline": "Preview for PR #52 is up; waiting on the user's OK to merge plus three follow-up decisions"
+  }
+}

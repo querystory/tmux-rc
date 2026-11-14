@@ -1,0 +1,23 @@
+{
+  "description": "Synthetic: a finished auto-mode turn closes on 'What's next:' whose bullets are the user's go-aheads ('Your word: whether to merge…', 'Your OK for…') with no question mark. Those are asks put to the user, so the pane waits on the user with one question carrying both, and a few short replies.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ Status on the pest-report work?\n\n  Ran 2 shell commands\n\n● Both pest-report PRs are ready. #61 adds photo uploads to a report and\n  #63 adds the weekly digest email; CI is green on both and the digest\n  preview renders in the three mail clients I checked.\n\n  What's next:\n  - Your word: whether to merge #61 and #63 today or hold them for the\n    Monday release.\n  - Your OK for sending the first digest to the beta list once they're in.\n\n✻ Cooked for 3m 05s · done 11:48 AM\n────────────────────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────────────────────\n  ~/src/greenhouse | Opus 5.5 | robin@example.com\n  session: +0/-0 lines · 8% ctx · 3m 05s · $0.61\n  ⏵⏵ auto mode on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "model": "Opus 5.5",
+    "question": {
+      "answer_style": "text",
+      "prompt_excludes": [
+        "- "
+      ],
+      "shows": [
+        "merge #61 and #63",
+        "first digest"
+      ]
+    },
+    "buttons_at_most": 3,
+    "headline": "Pest-report PRs #61 and #63 ready; waiting on the user to approve merging and the first digest send"
+  }
+}

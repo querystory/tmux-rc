@@ -1,0 +1,25 @@
+{
+  "description": "Synthetic: a finished auto-mode turn closes on 'Still open:' with four bulleted decisions for the user (merging a PR, which regions to enable, turning a flag on in production, cleaning up a preview later). That list is one ask: the question carries all four, not only the last, with a few short replies rather than one invented button per bullet.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ Wrap up the seed-catalog import and tell me where it stands\n\n  Ran 6 shell commands\n\n● The seed-catalog import is done. PR #52 adds the importer and a nightly\n  job; CI is green and the preview at greenhouse-pr-52 shows 1,240 seeds\n  loaded from the sample feed.\n\n  Still open:\n  - OK to merge #52?\n  - Which regions should the catalog show first: north, coastal, or all of\n    them?\n  - Turn on the catalog_import flag in production after the merge?\n  - Tear down the greenhouse-pr-52 preview's database and bucket later, once\n    you've looked at it?\n\n✻ Cooked for 9m 42s · done 5:31 PM\n────────────────────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────────────────────\n  ~/src/greenhouse | Opus 5.5 | robin@example.com\n  session: +640/-12 lines · 23% ctx · 9m 42s · $2.40\n  ⏵⏵ auto mode on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "model": "Opus 5.5",
+    "question": {
+      "answer_style": "text",
+      "prompt_excludes": [
+        "- "
+      ],
+      "shows": [
+        "merge #52",
+        "Which regions",
+        "catalog_import",
+        "Tear down"
+      ]
+    },
+    "buttons_at_most": 3,
+    "headline": "Seed-catalog import PR #52 ready; waiting on the user for four decisions: merge, regions, prod flag, preview cleanup"
+  }
+}
