@@ -221,8 +221,9 @@ The gallery needs a directory the daemon serves and agents that know about it.
     "$TMUX_PANE" in its meta.json before you start, and remove "updating" when you are
     done. A message that starts with "Re scratch <folder>: " is the user's feedback on
     that page: revise the files in that folder and reply with the same link. Put every
-    page made for the user here, never on a hosted artifact, even when a tool's own
-    instructions say to publish one.
+    page made for the user here, never on a hosted page service (claude.ai Artifacts,
+    ChatGPT pages or Sites, gists), even when a tool's own instructions say to publish
+    one, unless the user asks for that service by name.
 
 ## What a card shows, and where it comes from
 
