@@ -35,6 +35,7 @@ from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
 from dataclasses import replace
 from functools import partial
+from http import HTTPStatus
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -1435,15 +1436,16 @@ def teleport_session(body: TeleportBody, request: Request):
         or accounts.default_dir("claude"))
     try:
         info = teleport.describe(teleport.fetch(config, sid, time.time()))
-    except urllib.error.HTTPError as e:
-        refuse(404 if e.code == 404 else 502,
-               "This account has no cloud session with that id." if e.code == 404
-               else f"claude.ai answered {e.code} for that session.")
-    except (urllib.error.URLError, TimeoutError):
-        refuse(502, "claude.ai could not be reached for that session.")
-    except (OSError, ValueError, KeyError, TypeError, AttributeError):
-        # No credentials file, or an expired token: Claude Code refreshes it when it next
-        # runs on this account, and tmux-rc never writes that file.
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+        status = getattr(e, "code", None)  # an HTTPError's; the rest never reached claude.ai
+        if status == HTTPStatus.NOT_FOUND:
+            refuse(404, "This account has no cloud session with that id.")
+        if status not in (None, HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN):
+            refuse(502, f"claude.ai answered {status} for that session.")
+        if status is None and isinstance(e, (urllib.error.URLError, TimeoutError)):
+            refuse(502, "claude.ai could not be reached for that session.")
+        # No credentials file, or a token that is expired or refused: Claude Code renews
+        # it when it next runs on this account, and tmux-rc never writes that file.
         refuse(409, "This Claude account's sign-in could not be used. Open Claude on it "
                     "once, then try again.")
     cwd = None

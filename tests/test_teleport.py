@@ -122,12 +122,20 @@ def test_teleport_opens_the_window_in_the_sessions_checkout(client, tmp_path, mo
     assert argv[argv.index("--") + 1:] == teleport.command(SID, INFO)
 
 
+def test_a_title_ending_in_a_semicolon_does_not_end_the_tmux_command(monkeypatch):
+    calls = []
+    monkeypatch.setattr(T, "_run", lambda argv: (calls.append(argv), "%1")[1])
+    T.new_window("work", "Sort the seed list;", ["claude"])
+    assert calls[0][calls[0].index("-n") + 1] == "Sort the seed list\\;"
+
+
 @pytest.mark.parametrize(("body", "reply", "status", "says"), [
     ({"cloud": "the one from this morning"}, SESSION, 422, "link"),
     ({"cloud": SID, "session": "nope"}, SESSION, 404, "session not found"),
     ({"cloud": SID, "account": "/no/such/account"}, SESSION, 404, "unknown account"),
     ({"cloud": SID}, urllib.error.HTTPError("u", 404, "", {}, None), 404, "no cloud session"),
     ({"cloud": SID}, urllib.error.HTTPError("u", 500, "", {}, None), 502, "500"),
+    ({"cloud": SID}, urllib.error.HTTPError("u", 401, "", {}, None), 409, "sign-in"),
     ({"cloud": SID}, urllib.error.URLError("down"), 502, "reached"),
     ({"cloud": SID}, PermissionError("token expired"), 409, "sign-in"),
     ({"cloud": SID}, SESSION, 409, "No checkout of example-org/seed-planner"),  # none cloned

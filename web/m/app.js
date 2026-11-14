@@ -2614,6 +2614,7 @@ $("sessions").addEventListener("scroll", () => {
 }, { passive: true });
 const LAST_DIR = "tmuxrc-last-dir";
 let launchPick = null, launchLoad = 0; // the account picker (accounts.js), with several accounts; the newest load
+let launchAccounts = false; // the accounts loaded for this open: a teleport must know which one to ask
 const LAUNCH_DESC = { claude: "Claude Code", codex: "OpenAI Codex CLI", gemini: "Google Gemini CLI", antigravity: "Google Antigravity CLI", opencode: "OpenCode CLI", omp: "omp agent", shell: "A plain shell in the session's folder" };
 async function openLaunch(fresh, opener, kind) {
   launchPick?.remove(); launchPick = null;
@@ -2635,8 +2636,9 @@ async function openLaunch(fresh, opener, kind) {
   request("/api/sessions/dirs").then((d) => $("launch-dirs").replaceChildren(...d.dirs.map((dir) => new Option(dir))), () => {});
   try {
     // The accounts too: the picker below draws from them, and on a first load they may not be in yet.
-    const [data] = await Promise.all([request("/api/launchers"), accounts.refresh()]);
+    const [data, loaded] = await Promise.all([request("/api/launchers"), accounts.refresh()]);
     if (load !== launchLoad || !$("launch-dialog").open) return;
+    launchAccounts = loaded !== false;
     text($("launch-error"), "");
     $("launch-choices").replaceChildren(...data.launchers.map((launcher) => {
       const button = document.createElement("button");
@@ -2749,8 +2751,13 @@ async function teleport() {
   finally { launching = false; }
 }
 // With several Claude accounts the account step comes first, as it does for a launcher.
-// Not before the accounts are in (launchPick): the session would be asked of the wrong one.
-$("teleport-go").onclick = () => { if (launchPick && $("teleport-id").value.trim()) launchPick.pick("claude", teleport); };
+// Not before the accounts are in, nor after they failed to load: the session would be asked
+// of the wrong one.
+$("teleport-go").onclick = () => {
+  if (!launchPick || !$("teleport-id").value.trim()) return;
+  if (!launchAccounts) return text($("launch-error"), "The accounts could not be loaded. Close and try again.");
+  launchPick.pick("claude", teleport);
+};
 $("teleport-id").onkeydown = (e) => { if (e.key === "Enter") $("teleport-go").click(); };
 
 const standalone = () => navigator.standalone || matchMedia("(display-mode: standalone)").matches; // installed, not a browser tab
