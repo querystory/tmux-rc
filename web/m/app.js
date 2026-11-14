@@ -2740,14 +2740,17 @@ async function teleport() {
   if (launching || !cloud) return;
   launching = true; text($("launch-error"), "Teleporting...");
   try {
-    const data = await post("/api/teleport", { cloud, session: $("launch-session").value, account: launchPick?.account("claude") });
+    // No timeout: the daemon asks claude.ai first, and a request given up on here could
+    // still open its window, which a retry would then open twice.
+    const data = await post("/api/teleport", { cloud, session: $("launch-session").value, account: launchPick.account("claude") }, NO_TIMEOUT);
     $("teleport-id").value = ""; $("launch-dialog").close(); openLaunched(data.pane_id);
     if (data.also?.length) notice(`Only ${data.repo} is checked out for this session. It also worked in ${data.also.join(", ")}.`, 10000);
   } catch (error) { text($("launch-error"), error.detail || "The session could not be teleported. Check sessions before retrying."); }
   finally { launching = false; }
 }
 // With several Claude accounts the account step comes first, as it does for a launcher.
-$("teleport-go").onclick = () => { if ($("teleport-id").value.trim()) (launchPick ? launchPick.pick("claude", teleport) : teleport()); };
+// Not before the accounts are in (launchPick): the session would be asked of the wrong one.
+$("teleport-go").onclick = () => { if (launchPick && $("teleport-id").value.trim()) launchPick.pick("claude", teleport); };
 $("teleport-id").onkeydown = (e) => { if (e.key === "Enter") $("teleport-go").click(); };
 
 const standalone = () => navigator.standalone || matchMedia("(display-mode: standalone)").matches; // installed, not a browser tab

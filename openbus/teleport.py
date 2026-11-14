@@ -16,6 +16,7 @@ import urllib.request
 from pathlib import Path
 
 from . import plan_usage
+from .repository import github_repository
 
 API = "https://api.anthropic.com/v1/code/sessions/"
 _ID = re.compile(r"\b(?:session|cse)_[A-Za-z0-9]+")
@@ -69,17 +70,15 @@ def _git(cwd: str, *args: str) -> str:
 
 def checkout(repo: str, dirs: list[str]) -> str | None:
     """The main checkout of `repo` ("owner/name") among the repositories `dirs` sit in:
-    where origin points at it, whatever the URL's scheme. A worktree answers with its main
-    checkout, which is where `claude --worktree` makes the new one."""
+    where origin is that GitHub repository, whatever the URL's scheme. A worktree answers
+    with its main checkout, which is where `claude --worktree` makes the new one."""
     seen = set()
     for d in dirs:
         common = _git(d, "rev-parse", "--path-format=absolute", "--git-common-dir")
         if not common.endswith("/.git") or common in seen:
             continue  # not a repository, a bare one, or one already asked
         seen.add(common)
-        origin = re.search(r"[:/]([^/:]+/[^/]+?)(?:\.git)?/?$",
-                           _git(d, "config", "--get", "remote.origin.url"))
-        if origin and origin[1].lower() == repo.lower():
+        if (github_repository(d) or "").lower() == repo.lower():
             return common[:-len("/.git")]
     return None
 

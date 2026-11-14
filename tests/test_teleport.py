@@ -69,6 +69,9 @@ def test_checkout_matches_origin_whatever_its_scheme(tmp_path):
     assert teleport.checkout("example-org/seed-planner", dirs) == ssh
     assert teleport.checkout("example-org/garden-site", dirs) == web
     assert teleport.checkout("example-org/planner", dirs) is None
+    # The same owner/name on another host is another repository.
+    _repo(tmp_path / "fork", "https://github.com.example.net/example-org/tide-tables.git")
+    assert teleport.checkout("example-org/tide-tables", [str(tmp_path / "fork")]) is None
 
 
 def _signed_in(tmp_path, monkeypatch, reply):
