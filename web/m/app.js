@@ -1141,6 +1141,7 @@ function render() {
   // The main column is never blank on a wide screen: with no pane chosen it answers the
   // question the sidebar cannot, which is what the whole fleet is doing right now.
   show("landing", dashboardVisible()); show("landing-main", !page); show("dash-page", !!page);
+  if (page || !dashboardVisible()) $("session-atlas")._fold?.(true); // a slot hidden past the top sends no callback: come back to the strip
   show("graph-card", panes.length > 0); show("graph-nav", panes.length > 0); // and its ☰ row with it, wherever the app is
   show("divider", wide); show("fleet", wide); show("fleet-handle", wide);
   renderList();

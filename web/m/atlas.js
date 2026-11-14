@@ -622,7 +622,11 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
     on ? Object.assign(strip, { tabIndex: 0, role: 'button', ariaLabel: 'Show the full Activity chart' })
       : ['tabindex', 'role', 'aria-label'].forEach(name => strip.removeAttribute(name));
   };
-  root._slot ||= new IntersectionObserver(([entry]) => compact(!entry.isIntersecting));
+  // A slot above the scroller is already reached. Folding there shrinks the page,
+  // clamps scrolling and brings the slot back into view, expanding it again in a loop.
+  // A slot with no box (a subpage hid the dashboard) folds, so the way back starts at the strip.
+  root._slot ||= new IntersectionObserver(([{ isIntersecting, boundingClientRect: box, rootBounds }]) =>
+    compact(!isIntersecting && (!box.width || box.top >= rootBounds.bottom)), { root: root.closest('#landing') });
   root._slot.observe(sentinel);
   // A tap or Enter opens the full chart in its slot, then scrolls there once it has grown
   // (the scroll aims at its full height, not the strip's), to the section a rebuild left.
