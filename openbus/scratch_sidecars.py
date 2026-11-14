@@ -238,13 +238,19 @@ def render(url: str) -> bytes | None:
     with tempfile.TemporaryDirectory(prefix="tmux-rc-thumb-") as profile:
         png = Path(profile) / "shot.png"
         try:
-            subprocess.run([*_isolated(exe, profile, url),
-                            "--window-size={},{}".format(*VIEWPORT),
-                            "--virtual-time-budget=3000", f"--screenshot={png}", url],
-                           capture_output=True, timeout=60, check=False)
+            run = subprocess.run([*_isolated(exe, profile, url),
+                                  "--window-size={},{}".format(*VIEWPORT),
+                                  "--virtual-time-budget=3000", f"--screenshot={png}", url],
+                                 capture_output=True, text=True, timeout=60, check=False)
         except (OSError, subprocess.TimeoutExpired):
             return None
-        return png.read_bytes() if png.is_file() else None
+        if png.is_file():
+            return png.read_bytes()
+        # Say why, or every card just reads "No preview" (a sandbox AppArmor forbids, say:
+        # docs/scratch.md, "Thumbnails").
+        logger.warning("Scratch thumbnail browser drew nothing (exit %s): %s", run.returncode,
+                       (run.stderr.strip().splitlines() or ["no output"])[-1][:300])
+        return None
 
 
 def shoot(url: str, out: Path, root: Path, at: float | None = None, inode: int = 0) -> bool:
