@@ -8,6 +8,7 @@ optional region from the environment; without a project, GEMINI_API_KEY selects 
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -216,24 +217,37 @@ def _build_client():
 # which is true of an endpoint that is down, rate-limiting or refusing our credentials,
 # and false of a model that returned junk for one particular screen. A per-pane content
 # failure must not pause the other 26; see the JSONDecodeError branch below.
-_backoff = {"delay": 0.0, "until": 0.0, "armed": 0.0}
+_backoff = {"delay": 0.0, "until": 0.0, "armed": 0.0, "reason": ""}
 _backoff_lock = threading.Lock()  # parallel panes: arming and lifting never interleave
 
 
-def _arm_backoff() -> float:
+def _arm_backoff(reason: str, t0: float) -> float:
     """Start (or lengthen) the shared pause after a SERVICE-HEALTH failure, returning the
-    new delay. Doubles 15s → 120s so a long outage settles to one attempt every two
-    minutes; any success resets it (see classify_text). Only for failures that would hit
-    every pane alike — not a per-pane content failure like malformed JSON."""
+    delay. Doubles 15s → 120s so a long outage settles to one attempt every two minutes;
+    any success resets it (see classify_text). Only for failures that would hit every
+    pane alike — not a per-pane content failure like malformed JSON.
+    A call that started (t0) before the brake was last armed is part of the burst that
+    armed it: parallel panes fail together, and each must not double the delay again nor
+    replace the reason the skipped calls report."""
     with _backoff_lock:
-        delay = min(_backoff["delay"] * 2, 120.0) or 15.0
-        _backoff.update(delay=delay, until=time.time() + delay, armed=time.time())
-    return delay
+        if _backoff["armed"] < t0:
+            delay = min(_backoff["delay"] * 2, 120.0) or 15.0
+            _backoff.update(delay=delay, until=time.time() + delay, armed=time.time(),
+                            reason=reason)
+        return _backoff["delay"]
 
 
 def _backoff_remaining() -> float:
     """Seconds until we may call Vertex again (0 = not backing off)."""
     return max(0.0, _backoff["until"] - time.time())
+
+
+def _admit() -> tuple[float, float]:
+    """(seconds still backing off, this call's start stamp), read together under the
+    arming lock: a brake armed in between would otherwise look older than the call, so
+    the call's success would lift it and its failure would double it again."""
+    with _backoff_lock:
+        return _backoff_remaining(), time.time()
 
 
 def backing_off() -> bool:
@@ -243,7 +257,7 @@ def backing_off() -> bool:
     return _backoff_remaining() > 0
 
 
-def _handle_llm_error(e: Exception) -> str:
+def _handle_llm_error(e: Exception, t0: float | None = None) -> str:
     """Log an LLM failure at the right fidelity and return a short user-facing message.
 
     Known OPERATIONAL failures — quota (429), expired auth, timeouts, malformed model
@@ -252,20 +266,20 @@ def _handle_llm_error(e: Exception) -> str:
     dozens of 40-line tracebacks into the daemon output). Unknown failures keep
     exc_info so real bugs stay debuggable.
     An operational failure also arms the shared backoff so the watcher stops hammering
-    Vertex while the condition persists."""
-    msg = str(e)
+    Vertex while the condition persists; `t0` is when the failed call started."""
+    msg, t0 = str(e), time.time() if t0 is None else t0
     if getattr(e, "code", None) == 429 or "RESOURCE_EXHAUSTED" in msg or " 429 " in msg:
-        delay = _arm_backoff()
+        delay = _arm_backoff("rate limited (429)", t0)
         short = f"rate limited (429) — backing off {delay:.0f}s"
         logger.warning("LLM %s", short)
     elif "Reauthentication is needed" in msg or "RefreshError" in type(e).__name__:
         short = "Google auth expired — run: gcloud auth application-default login"
         logger.warning("LLM parse failed: %s", short)
-        _arm_backoff()  # nothing will succeed until a human runs gcloud
+        _arm_backoff(short, t0)  # nothing will succeed until a human runs gcloud
     elif "timeout" in msg.lower() or "Timeout" in type(e).__name__:
         short = "Vertex request timed out"
         logger.warning("LLM parse failed: %s", short)
-        _arm_backoff()
+        _arm_backoff(short, t0)
     elif "JSONDecodeError" in type(e).__name__:
         # A misbehaving model is the same class of event as a 429 — a state of the
         # world, not a bug in this code. One line, no traceback.
@@ -323,15 +337,16 @@ def classify_text(
     back). `image_png` is wired for the future image-input mode; text-only by default.
     `changed` (a real content-change parse vs a heartbeat re-parse) and the pane's stable
     `pane_uid`/`pane_label` are passed straight through to the benchmark telemetry."""
-    # Admitted and stamped under the arming lock: a brake armed in between would otherwise
-    # look older than this call, and this call's success would lift it.
-    with _backoff_lock:
-        wait, t0 = _backoff_remaining(), time.time()
+    wait, t0 = _admit()
     if wait > 0:
         # Rate-limited: skip the call entirely (no tokens burned, no telemetry — nothing
         # happened). The UI still shows why cards are degrading via last_error.
-        last_error["msg"] = f"rate limited (429) — retrying in {wait:.0f}s"
+        last_error["msg"] = f"{_backoff['reason']} — retrying in {wait:.0f}s"
         return None
+    # Which pane, and which exact payload: the tail alone is the same auto-mode trailer on
+    # every call, so it can't tell one call from another or spot a resend.
+    # The uid too: split panes share a window label.
+    who = f"{pane_label} {pane_uid} {hashlib.sha256(text.encode()).hexdigest()[:12]}"
     try:
         types = genai_types()
 
@@ -349,7 +364,7 @@ def classify_text(
         )
         result = _parse_json(resp.text)
         # Trace the tail we sent and what came back — grep /tmp/tmux-rc-llm.log.
-        _trace.info("IN%s: %r", "+img" if image_png else "", text[-500:])
+        _trace.info("IN%s [%s]: %r", "+img" if image_png else "", who, text[-500:])
         _trace.info("OUT: %s", json.dumps(result))
         _record(resp)  # tokens/cost/latency → metrics jsonl + running totals
         _emit(
@@ -365,11 +380,11 @@ def classify_text(
                 last_error["msg"] = None
         return result
     except Exception as e:  # noqa: BLE001 - parse pass must never break the watcher
-        _trace.info("ERROR on IN: %r", text[-500:])
+        _trace.info("ERROR on IN [%s]: %r", who, text[-500:])
         # Remember WHY (last_error → UI shows "LLM unavailable: <reason>" instead of
         # silently degrading to a blank heuristic card). _handle_llm_error picks the log
         # fidelity and arms the shared backoff.
-        msg = _handle_llm_error(e)
+        msg = _handle_llm_error(e, t0)
         last_error["msg"] = msg[:200]
         _totals["errors"] += 1
         _metrics.info(json.dumps({"ts": time.time(), "error": msg[:120]}))
@@ -392,7 +407,8 @@ def summarize_events(event_texts: list[str]) -> str | None:
 def one_sentence(prompt: str) -> str | None:
     """The model's one-line answer to `prompt` as plain text, or None on failure. Cheap: no
     schema, tiny output."""
-    if _backoff_remaining() > 0:
+    wait, t0 = _admit()
+    if wait > 0:
         return None  # skip while rate-limited — same gate as classify_text
     try:
         types = genai_types()
@@ -401,7 +417,7 @@ def one_sentence(prompt: str) -> str | None:
         _record(resp)
         return (resp.text or "").strip()[:200] or None
     except Exception as e:  # noqa: BLE001
-        _handle_llm_error(e)  # was fully silent before; now logs + arms the backoff
+        _handle_llm_error(e, t0)  # was fully silent before; now logs + arms the backoff
         _totals["errors"] += 1
         return None
 

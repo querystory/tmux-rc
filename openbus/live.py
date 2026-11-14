@@ -1379,12 +1379,16 @@ async def _hold(websocket: WebSocket, seconds: float, meter: _Meter) -> bool:
     the loop reconnected to Vertex for a phone that was already gone — the tunnel drops
     both legs at once, and the browser's disconnect is only observed by a receive. A
     WebSocketDisconnect propagates (client gone); a stop returns False; a timeout, True.
-    The view is still heard, so a card parked by the provider drop can push meanwhile."""
+    The view is still heard, so a card parked by the provider drop can push meanwhile, and
+    a typed turn already in flight is refused, the one answer that hands back its thumbnails."""
     try:
         async with asyncio.timeout(seconds):
             while (data := await websocket.receive_json()).get("action") != "stop":
                 if data.get("action") == "viewing":
                     _view(meter, data)
+                elif data.get("action") == "text":
+                    await websocket.send_json(
+                        {"type": "error", "refused": True, "message": "Reconnecting; not sent"})
                 # any other stray frame (audio already in flight) is no reason to reconnect early
     except TimeoutError:
         return True

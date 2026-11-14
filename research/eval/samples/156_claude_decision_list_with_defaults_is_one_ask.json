@@ -1,0 +1,16 @@
+{
+  "description": "Synthetic: a finished auto-mode turn sets out seven numbered decisions, each '**Topic:** proposed default', and asks the user to say the word to change any. That is one ask (accept the defaults, or reply to change some), so the card carries a few short whole-ask replies, never one button per list row quoting its sentence and number.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ Draft the plan for the recipe import feature and tell me what you need from me\n\n  Ran 4 shell commands\n\n● The import plan is in docs/recipe-import.md. It reads a pasted URL or a\n  photo of a card, pulls out ingredients and steps, and saves a draft\n  recipe the user can edit before it joins their book.\n\n  Decisions for you. Each has the default I'd pick; say the word if you\n  want something different:\n  1. **Which parser:** the structured-data reader first, falling back to the\n     model only when a page has no recipe markup.\n  2. **Units:** keep the source's units and show a convert toggle, rather\n     than converting everything to metric on import.\n  3. **Duplicate recipes:** warn and offer to merge; never overwrite\n     silently.\n  4. **Photos of cards:** keep the original photo attached to the draft.\n  5. **Failed imports:** save what was read as a draft marked incomplete.\n  6. **Servings:** take the source's count; default to 4 when it has none.\n  7. **Attribution:** always store the source URL and show it under the\n     title.\n\n  Once you confirm, I'll have an agent build it in its own worktree.\n\n● Agent \"Survey recipe sites\" finished · 6m 12s\n\n✻ Brewed for 14m 3s · done 4:12 PM\n────────────────────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────────────────────\n  ~/src/pantry | Opus 5.5 | robin@example.com\n  session: +212/-0 lines · 7% ctx · 14m · $1.80\n  ⏵⏵ auto mode on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "model": "Opus 5.5",
+    "question": {
+      "answer_style": "text"
+    },
+    "buttons_at_most": 3,
+    "headline": "Recipe import plan drafted; waiting on the user to confirm seven proposed defaults"
+  }
+}

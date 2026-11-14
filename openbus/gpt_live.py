@@ -304,8 +304,8 @@ class Session:
             event = json.loads(raw)
             self.account(event)
             kind = event.get("type")
-            if kind == "session.closed":
-                return
+            if kind == "session.closed":  # unasked: close() reads its own
+                raise ProviderError({"code": "session_closed_by_provider"})
             if kind == "error":
                 # Error messages may quote context; expose codes, not arbitrary content.
                 raise ProviderError(event)
@@ -368,8 +368,7 @@ class Session:
                     # These are backend completions, not spoken turn boundaries.
                     self.meter._emit(final=False)  # noqa: SLF001 - shared Live adapter internals
 
-        # Normal WebSocket EOF still means a dropped Live session unless the
-        # provider confirmed session.closed above. Never silently report a stop.
+        # Normal WebSocket EOF is a dropped Live session too. Never silently report a stop.
         raise ProviderError({"code": "connection_closed_without_session_closed"})
 
     async def execute(self):
@@ -422,14 +421,9 @@ class Session:
 async def run_session(browser, watcher, meter):
     """Stop on connection loss; don't silently replay a terminal action after reconnect."""
     key = os.environ.get("OPENAI_API_KEY")
-    if not key:
-        await browser.send_json(
-            {
-                "type": "error",
-                "message": "Set OPENAI_API_KEY in ~/.config/tmux-rc/openai.env and restart.",
-            }
-        )
-        return
+    if not key:  # an error, not a stop: the user's parked cards outlive it
+        raise live_providers.Unreachable(
+            "Set OPENAI_API_KEY in ~/.config/tmux-rc/openai.env and restart.")
     backend = os.environ.get("TMUXRC_GPT_LIVE_BACKEND", BACKEND)
     # meter.model is already ENTRY (live.live_mode built the meter from it), and the
     # provider it names is what the shared emit path reports — passing "provider" here

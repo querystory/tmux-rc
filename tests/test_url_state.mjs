@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatHash, historyMode, linkDraft, parseHash, scratchUrl } from "../web/m/url-state.js";
+import { dropOneShots, formatHash, historyMode, linkDraft, parseHash, scratchUrl } from "../web/m/url-state.js";
 
 test("every addressable state round-trips", () => {
   for (const state of [
@@ -29,6 +29,8 @@ test("unknown fields and bad values are ignored", () => {
   assert.deepEqual(state, { pane: "%4", view: "summary", dashboard: false, page: null, filter: [], acct: [], agent: [], q: "", compose: false, open: null, draft: null });
   assert.equal(parseHash("#pane=%254&compose=1").compose, true);
   assert.equal(formatHash(parseHash("#pane=%254&from=push&compose=1")), "pane=%254");
+  assert.equal(dropOneShots("#pane=%254&view=summary&compose=1&draft=hi&acct=a,b"), "pane=%254&view=summary&acct=a,b"); // a view stays as written
+  assert.equal(dropOneShots("#pane=%254&%63ompose=1&%64raft=hi"), "pane=%254");
   // The viewer's page (app.js checks it with scratchUrl), a push's encoded link too, kept with
   // its query and fragment so the URL bar links it; Back from it is the gallery.
   assert.equal(parseHash("#view=scratch&open=%2Fscratch%2Fwip%2F").open, "/scratch/wip/");

@@ -59,6 +59,10 @@ export function formatHash({ pane = null, view = "summary", dashboard = false, p
   const lists = Object.entries({ filter, acct, agent }).filter(([, v]) => v.length).map(([k, v]) => `${k}=${v.map(encodeURIComponent).join(",")}`);
   return [...lists, params.toString().replace(/%2F/g, "/")].filter(Boolean).join("&"); // a slash reads as one
 }
+// The hash with a link's one-shots (compose, draft) taken out and every other field as written:
+// formatHash would also make an absent view explicit, or drop an explicit one. Matched by
+// decoded name, as parseHash reads them.
+export const dropOneShots = (hash) => String(hash || "").replace(/^#/, "").split("&").filter((kv) => !["compose", "draft"].includes([...new URLSearchParams(kv).keys()][0])).join("&");
 // A list is read from the raw hash: a literal comma divides it, and each item is encoded on
 // its own, so an account dir with a comma is one item, as is an old single-value link's
 // (URLSearchParams wrote acct=team%2Cwest, and + for a space).

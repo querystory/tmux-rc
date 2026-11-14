@@ -71,7 +71,7 @@ def test_endpoint_canonicalizes_audits_and_never_reparses(monkeypatch, sent):
     monkeypatch.setattr(T, "find_pane", lambda _alias: SimpleNamespace(id="%7", pid="42"))
     monkeypatch.setattr(T, "wheel", wheel)
     monkeypatch.setattr(server, "_audit", audit)
-    monkeypatch.setattr(server.app.state, "watcher", watcher, raising=False)
+    monkeypatch.setitem(server.app.state._state, "watcher", watcher)
     response = TestClient(server.app).post("/api/panes/work:0.0/wheel", json={"lines": 3})
     assert response.status_code == 200
     assert response.json() == {"sent": sent}

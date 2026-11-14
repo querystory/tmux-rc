@@ -30,6 +30,11 @@ const MAX_PARTS = 2400; // particles a frame, at most
 // The dark canvas: the graph on a navy ground whatever the app's theme (style.css), per device.
 const DARK = 'tmuxrc-graph-dark';
 try { document.documentElement.classList.toggle('fg-dark', localStorage.getItem(DARK) === '1'); } catch {}
+// Hide idle, the view's pick in the filter menu (app.js): its idle panes left out, per device too.
+const HIDE = 'tmuxrc-graph-hide-idle';
+let hiding = false;
+try { hiding = localStorage.getItem(HIDE) === '1'; } catch {}
+export const hideIdle = on => { if (on != null) { hiding = on; try { localStorage.setItem(HIDE, on ? '1' : ''); } catch {} } return hiding; };
 const el = (tag, cls = '', html = '') => Object.assign(document.createElement(tag), { className: cls, innerHTML: html });
 const agent = p => p.tool && p.tool !== 'shell';
 // Every sub-agent not finished or idle, waiting ones too (the sidebar lists only the busy):
@@ -39,8 +44,9 @@ const subsList = p => agent(p) ? records(p.subagents).filter(a => !['done', 'idl
 const subCount = p => { const l = subsList(p), busy = l.filter(a => a.state === 'running' || a.state === 'compacting').length; return agent(p) ? l.length + Math.max(0, (Number(p.agents) || 0) - busy) : 0; };
 const subsOf = p => Math.min(MAX_SUBS, subCount(p));
 const ACTIVE = { running: 1, compacting: 1, waiting: 1 };
+const idle = s => s === 2 || s === 3; // drawn as the legend's grey Idle (ring)
 // A pane whose sub-agents are at work is not idle, whatever its own prompt shows: it is waiting on them.
-const paneState = p => { const s = stateOf(p); return (s === 2 || s === 3) && agent(p) && (subsList(p).some(a => ACTIVE[a.state]) || Number(p.agents) > 0) ? 5 : s; };
+const paneState = p => { const s = stateOf(p); return idle(s) && agent(p) && (subsList(p).some(a => ACTIVE[a.state]) || Number(p.agents) > 0) ? 5 : s; };
 const subState = a => a ? { running: 1, compacting: 4, waiting: 5, quota_blocked: 6 }[a.state] ?? 3 : 1; // one counted, not listed, is a busy one
 // A path segment is its label, or [identity, label] where two hubs could share a label: two
 // clones on the same branch, two accounts given one name.
@@ -62,7 +68,7 @@ function colors(box) {
     surface: v('--surface'), amber: v('--amber'), accent: v('--accent'), font: cs.fontFamily, mono: v('--mono'), dark: v('color-scheme') !== 'light' }; // amber, accent: state colours safe for text
 }
 // Idle reads as a quiet grey ring, not the chart's near-invisible idle fill.
-const ring = (C, s) => s === 2 || s === 3 ? C.muted : C.s[s];
+const ring = (C, s) => idle(s) ? C.muted : C.s[s];
 
 // The graph on `box`. `mini` is the Dashboard card's: no labels but the hubs', no input.
 // ctx: { icon, logos, open(paneId), owner(paneId) -> account profile, onChange() }.
@@ -627,7 +633,8 @@ export function renderGraphView(root, panes, ctx) {
       zoomBtn.innerHTML = ctx.icon(on ? 'minimize' : 'fullscreen', 18);
       zoomBtn.title = zoomBtn.ariaLabel = on ? 'Exit full screen' : 'Full screen';
     };
-    document.addEventListener('keydown', e => { if (e.key === 'Escape') full(false); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && !e.defaultPrevented) full(false); }); // an open menu's Esc (the filter's) closes just it
+    addEventListener('resize', () => { if (phone()) full(false); }); // a phone has no full screen, nor its toggle (style.css)
     new IntersectionObserver(([e]) => { if (!e.isIntersecting) full(false); }).observe(root);
     call.lastChild.onclick = e => { const b = e.target.closest('button'); if (b) g.focus(b.dataset.id); };
     hud.append(lenses, call, stats, legend);
@@ -638,7 +645,8 @@ export function renderGraphView(root, panes, ctx) {
       list.forEach(p => c[paneState(p)]++);
       const toks = list.reduce((t, p) => t + tokens(p.working?.tokens) + subsList(p).reduce((u, a) => u + tokens(a.tokens), 0), 0);
       const oldest = list.reduce((a, p) => !a || ageOf(p) > ageOf(a) ? p : a, null), need = list.filter(p => paneState(p) === 0).sort((a, b) => ageOf(b) - ageOf(a))[0];
-      const dear = list.reduce((a, p) => costOf(p) > (a ? costOf(a) : 0) ? p : a, null), spend = list.reduce((t, p) => t + costOf(p), 0);
+      // Most expensive among the panes drawn (Hide idle's left out), so its jump lands.
+      const dear = root._shown.reduce((a, p) => costOf(p) > (a ? costOf(a) : 0) ? p : a, null), spend = list.reduce((t, p) => t + costOf(p), 0);
       stats.innerHTML = [['', new Set(list.map(p => p.session)).size, 'Sessions'], ['go', `${c[1] + c[4] + c[5]}<small>/${list.length}</small>`, 'Running'], [c[0] ? 'need' : '', c[0], 'Needs you'],
         ['opt', subs, 'Sub-agents'], ['', toks >= 1000 ? `${(toks / 1000).toFixed(toks >= 1e4 ? 0 : 1)}k` : toks, 'Tokens in flight'], ['', `$${spend.toFixed(spend >= 100 ? 0 : 2)}`, 'Cost'], ['opt', oldest ? since(oldest) || '–' : '–', 'Oldest pane']]
         .map(([cls, v, l]) => `<div class="${cls}"><b>${v}</b><span>${l}</span></div>`).join('');
@@ -661,13 +669,13 @@ export function renderGraphView(root, panes, ctx) {
     try { saved = localStorage.getItem('tmuxrc-graph-lens') || saved; } catch {}
     root._lens = saved;
   }
-  root._panes = panes;
+  root._panes = panes; root._shown = hiding ? panes.filter(p => !idle(paneState(p))) : panes; // hubs are built from panes: an all-idle one goes too
   const g = root._g, want = root._lens;
   // The remembered lens once it can show: Account waits for the accounts, and is gone with one.
   if (want && LENSES.some(l => l[0] === want) && (want !== 'account' || ctx.several())) { root._lens = null; if (g.lens() !== want) g.setLens(want); }
   if (g.lens() === 'account' && !ctx.several()) g.setLens('session');
   root._paint();
-  g.update(panes);
+  g.update(root._shown);
   return root;
 }
 
