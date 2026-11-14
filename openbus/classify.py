@@ -24,6 +24,8 @@ from itertools import islice
 from pathlib import Path
 
 from .tmux import (
+    DIM_CLOSE,
+    DIM_OPEN,
     INTERPRETERS,
     OMP_TITLE_RE,
     PLACEHOLDER_CLOSE,
@@ -732,7 +734,7 @@ def _ground_visible_fields(
         if retry and isinstance(retry.get("links"), list) and retry["links"]:
             result["links"] = retry["links"]
         state_fields = ("activity", "waiting_on", "resets", "headline", "question", "rewind",
-                        "offers", "copyables")
+                        "offers", "copyables", "fresh", "recent_sessions")
         if bad_question and result.get("tool") == "omp":
             state_fields += ("tables", "tasks")
         for key in state_fields:
@@ -1332,12 +1334,41 @@ def _fold_sends(result: dict) -> None:
 _AGENT_TOOLS = frozenset(_PROCESS_TOOLS.values())
 
 
-def _ground_fresh(result: dict, visible: str) -> None:
+# Each agent's composer rows, where what the user types goes. Gemini CLI and Antigravity
+# box a "> " row; OpenCode draws "┃" rows down the left whose last is its mode and model
+# ("┃  Build · Claude Opus 5.5 · …"), closed by a "╹━━━" rule. Claude Code's and Codex's
+# empty ❯/› row is _EMPTY_INPUT_RE (its greyed suggestion already stripped).
+_GEMINI_COMPOSER_RE = re.compile(r"^[ \t]*│[ \t]*>(?P<draft>.*?)│?[ \t]*$", re.MULTILINE)
+_OPENCODE_COMPOSER_RE = re.compile(r"((?:^[ \t]*┃.*\n)+)[ \t]*╹━", re.MULTILINE)
+_DIM_RUN_RE = re.compile(f"{DIM_OPEN}.*?(?:{DIM_CLOSE}|$)|{DIM_CLOSE}", re.MULTILINE)
+
+
+def _empty_composer(text: str, tool: str) -> bool:
+    """Whether the agent's composer is proven empty, a greyed hint aside: a command typed
+    into it then goes out alone, where after a draft it would send both as one prompt. An
+    agent whose composer this cannot read is never proven empty."""
+    screen = text.rsplit(VISIBLE_SCREEN, 1)[-1]
+    screen = re.sub(f"{PLACEHOLDER_OPEN}.*?{PLACEHOLDER_CLOSE}", "", screen)
+    if tool in ("claude", "codex"):
+        return bool(_EMPTY_INPUT_RE.search(strip_dim(screen)))
+    if tool in ("gemini", "antigravity"):
+        *_, row = [None, *_GEMINI_COMPOSER_RE.finditer(screen)]
+        return bool(row) and not _DIM_RUN_RE.sub("", row["draft"]).strip()
+    if tool == "opencode":
+        *_, box = [None, *_OPENCODE_COMPOSER_RE.finditer(screen)]
+        rows = box[1].rstrip("\n").split("\n")[:-1] if box else None  # its last is the footer
+        return rows is not None and not any(
+            _DIM_RUN_RE.sub("", row).strip(" \t┃") for row in rows)
+    return False
+
+
+def _ground_fresh(result: dict, text: str, visible: str) -> None:
     """Keep the model's "fresh" (an agent at its welcome screen, no conversation yet) only
     where nothing on screen contradicts it: an idle agent with nothing asked, no turn
-    stamp, no sent prompt above its input row, and nothing typed in that row: the card's
-    Resume types the agent's command, which would land after a draft and send both. Its
-    recent sessions must each be on screen, as everything else the card shows is."""
+    stamp, and no prompt row with text (Claude Code's and Codex's, sent or drafted). Its
+    recent sessions must each be on screen, as everything else the card shows is.
+    "resumable" is the card's Resume and its sessions: only over an empty composer
+    (_empty_composer), since Resume types the agent's command into it."""
     fresh, recent = result.pop("fresh", None), result.pop("recent_sessions", None)
     if not (fresh is True and result.get("tool") in _AGENT_TOOLS
             and result.get("activity") == "idle"
@@ -1346,6 +1377,9 @@ def _ground_fresh(result: dict, visible: str) -> None:
             and not _USER_ROW_RE.search(visible)):
         return
     result["fresh"] = True
+    if not _empty_composer(text, result["tool"]):
+        return
+    result["resumable"] = True
     shown = " ".join(visible.split()).casefold()
     titles = [" ".join(t.split()) for t in recent if isinstance(t, str)] if isinstance(
         recent, list) else []
@@ -1819,7 +1853,7 @@ def classify(
         result["working_prs"] = working_prs
     else:
         result.pop("working_prs", None)
-    _ground_fresh(result, visible)
+    _ground_fresh(result, text, visible)
     result["pane_id"] = pane.id
     # Prefer the agent's own session name (read from the pane by the LLM, e.g.
     # "tmux-rc-dev") over the tmux-derived label — it's what the user recognizes.

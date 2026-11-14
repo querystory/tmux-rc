@@ -2321,7 +2321,8 @@ def test_a_new_session_reads_fresh_with_the_sessions_it_lists():
             "recent_sessions": ["Tidy the garden planner", "Invented elsewhere", 7,
                                 "Tidy  the garden planner"]}
     r = classify(_pane("claude"), _NEW_SESSION, _llm(read))
-    assert (r["fresh"], r["recent_sessions"]) == (True, ["Tidy the garden planner"])
+    assert (r["fresh"], r["resumable"], r["recent_sessions"]) == (
+        True, True, ["Tidy the garden planner"])
 
 
 def test_fresh_is_dropped_once_anything_happened():
@@ -2335,3 +2336,36 @@ def test_fresh_is_dropped_once_anything_happened():
         r = classify(_pane("claude" if not extra.get("tool") else "bash"), screen,
                      _llm({**read, **extra}))
         assert "fresh" not in r and "recent_sessions" not in r
+
+
+def test_resume_is_offered_only_over_an_empty_composer():
+    # Resume types the agent's command into its composer: after a draft both would be sent.
+    read = {"activity": "idle", "fresh": True, "recent_sessions": ["Sort the seed list"]}
+    dim = lambda t: f"{tmux.DIM_OPEN}{t}{tmux.DIM_CLOSE}"  # noqa: E731
+    gemini = "  Recent: Sort the seed list\n╭────────╮\n│ > {} │\n╰────────╯\n  ~/src  gemini-pro"
+    opencode = ("  Recent: Sort the seed list\n┃\n┃  {}\n┃\n┃  Build · Model X · Provider\n"
+                "╹━━━━━━━━\n ~/src   ctrl+p commands")
+    cases = [("gemini", gemini, dim("Type your message"), True),
+             ("gemini", gemini, "water the beds", False),
+             ("opencode", opencode, "", True),
+             ("opencode", opencode, dim('Ask anything... "Fix a TODO"'), True),
+             ("opencode", opencode, "water the beds", False),
+             ("omp", "  Recent: Sort the seed list\n > ", "", False)]  # its composer is unread
+    for tool, screen, draft, resumable in cases:
+        r = classify(_pane(tool), screen.format(draft), _llm({**read, "tool": tool}))
+        assert r["fresh"] is True, (tool, draft)
+        assert (r.get("resumable"), r.get("recent_sessions")) == (
+            (True, ["Sort the seed list"]) if resumable else (None, None)), (tool, draft)
+
+
+def test_a_corrective_read_decides_fresh():
+    # The first read's question is not on screen, so the viewport is read again: its read of
+    # the welcome screen is the card's, and the first read's is dropped with its question.
+    bad = {"tool": "claude", "activity": "waiting", "fresh": True,
+           "question": {"prompt": "Which bed first?", "answer_style": "text"}}
+    good = {"tool": "claude", "activity": "idle", "fresh": True}
+    for retry, fresh in ((good, True), ({"tool": "claude", "activity": "idle"}, None)):
+        reads = [{**bad, "fresh": not fresh}, retry]
+        r = classify(_pane("claude"), f"{VISIBLE_SCREEN}\n{_NEW_SESSION}",
+                     lambda *_a, _r=reads, **_k: _r.pop(0))
+        assert (r.get("fresh"), reads) == (fresh, [])

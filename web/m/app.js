@@ -1985,7 +1985,9 @@ async function answer(id, option, index, offer = false) {
 // A brand-new session at its welcome screen (classify._ground_fresh): the agent's logo, the
 // past sessions that screen lists, and the agent's own resume command, which opens its
 // session picker; the picker is then a question card like any other. A listed session is a
-// way in to that picker too, since only the picker knows which row each title is.
+// way in to that picker too, since only the picker knows which row each title is. The
+// sessions and Resume only where the composer is proven empty (`resumable`): typed after a
+// draft, the command would go out with it as one prompt.
 const RESUME = { claude: "/resume", codex: "/resume", gemini: "/resume", antigravity: "/resume", opencode: "/sessions", omp: "/resume" };
 function renderFresh(pane) {
   const resume = pane?.fresh === true && RESUME[pane.tool];
@@ -1993,9 +1995,10 @@ function renderFresh(pane) {
   if (!resume) return;
   const logo = $("fresh-logo");
   if (logo.getAttribute("src") !== LOGOS[pane.tool]) logo.src = LOGOS[pane.tool];
-  const why = sendBlock({ sending });
+  const why = sendBlock({ sending }), resumable = pane.resumable === true;
+  show("fresh-resume", resumable);
   const go = () => sendKeys({ keys: resume, enter: true, literal: true });
-  const recent = (Array.isArray(pane.recent_sessions) ? pane.recent_sessions : []).filter((t) => typeof t === "string");
+  const recent = resumable && Array.isArray(pane.recent_sessions) ? pane.recent_sessions.filter((t) => typeof t === "string") : [];
   reconcile($("fresh-recent"), recent, (t, i) => `${active}:${i}:${t}`, () => {
     const button = document.createElement("button"); button.type = "button";
     button.onclick = () => go();
