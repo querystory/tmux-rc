@@ -36,6 +36,7 @@ from dataclasses import replace
 from functools import partial
 from pathlib import Path
 from typing import Annotated, Literal
+from urllib.parse import parse_qs, quote, urlencode
 
 # Load .env BEFORE importing the watcher/llm/telemetry chain — those read config from
 # os.environ at import time (model, GOOGLE_CLOUD_PROJECT, OTEL endpoint). Without this, a
@@ -589,9 +590,22 @@ async def no_cache(request, call_next):
     re-downloading app code and chart libraries that did not change. The mount answers
     any token with today's files, so a page from before a deploy fetching under its old
     token gets those bytes as before, uncached: an immutable URL never lies."""
-    resp = await call_next(request)
     # Match paths as StaticFiles resolves them, so /docs//mocks/ can't dodge a policy.
     path = posixpath.normpath("/" + request.url.path.lstrip("/")) + "/"
+    # A browser opening a page of a scratch folder in a tab of its own gets it in the app's
+    # viewer, the app around it (its message bar, its notice when a page lands). Not the
+    # viewer's own Open in browser (?bare), a Markdown page's source (?raw), a save
+    # (?download, a file and no page), nor a frame.
+    # Its address takes no #fragment, so the browser keeps the link's for the app to read.
+    query = request.url.query
+    if (_scratch_dir and request.method == "GET" and path.startswith("/scratch/")
+            and request.url.path.count("/") > 2
+            and request.headers.get("sec-fetch-dest") == "document"
+            and not {"bare", "raw", "download"} & set(parse_qs(query, keep_blank_values=True))):
+        page = quote(request.url.path.removeprefix("/scratch/")) + (f"?{query}" if query else "")
+        resp = RedirectResponse("/m?" + urlencode({"scratch": page}), 303)
+    else:
+        resp = await call_next(request)
     # The version (a scan of web/) is computed only for a hit under /v/, never for the API.
     versioned = path.startswith("/v/") and resp.status_code < 400
     if versioned and path.startswith(f"/v/{_web_version()}/"):
@@ -864,6 +878,7 @@ async def get_state(v: int | None = None):
     up within the fast-poll cadence instead of a fixed 2s interval. Omitting `v` returns
     immediately (unchanged legacy behavior)."""
     w = app.state.watcher
+    push = getattr(app.state, "push", None)
     version = w.state_version()
     # Only long-poll once the watcher has produced an initial state (version > 0).
     # A client that sends ?v=0 before the deck has ever ticked (daemon startup, or the
@@ -904,6 +919,7 @@ async def get_state(v: int | None = None):
         "tmux_running": w.tmux_running,  # False = no server at all (e.g. after a reboot)
         # The machine's name for the app's tab titles (docs/design/tab-icons.md): zero setup.
         "host": os.environ.get("TMUXRC_HOST_NAME") or socket.gethostname().split(".")[0],
+        "scratch": list(push.news) if push else [],  # the pages that landed last (push.py)
         "panes": panes,
     }
 

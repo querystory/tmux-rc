@@ -171,7 +171,7 @@ function live(src, built) {
 // The harness as each kind of viewer gets it, served under the policy /scratch/ sends
 // (openbus/server.py), so it runs in the same opaque-origin sandbox as the published page
 // wherever the check runs. A frame that is not the width it claims, or a page error, fails.
-const SANDBOX = "sandbox allow-scripts allow-popups; form-action 'none'; connect-src 'none'";
+const SANDBOX = "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox; form-action 'none'; connect-src 'none'";
 async function check(out) {
   const serve = (route) => route.fulfill({ headers: { "Content-Security-Policy": SANDBOX },
     path: path.join(out, new URL(route.request().url()).pathname.replace(/\/$/, "/index.html")) });

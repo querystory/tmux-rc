@@ -15,3 +15,6 @@ const ask = () => { const img = new Image(); let late; // an ask unanswered in 1
   img.onload = () => end(true); img.onerror = () => end(false);
   img.src = location.pathname.match(/^\/[^/]+\/(\.archive\/)?[^/]+/)[0] + "/?seen=" + SEEN + "&t=" + Date.now(); }; // its folder's
 setTimeout(ask, {every});
+// In the app's viewer, a page that reloads itself says so: its reload gets a fresh frame at the
+// page opened (app.js viewerFrame), whose first load runs this again.
+if (window.top !== window) parent.postMessage({ pending: true }, "*");

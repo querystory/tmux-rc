@@ -49,6 +49,9 @@ class Watcher:
     def booted(self):
         return True
 
+    def nudge(self):  # /api/state's long-poll told of news (a page landed)
+        self.nudged = getattr(self, "nudged", 0) + 1
+
     def pane_birth(self, pane_id):
         return self.births.get(pane_id)
 
@@ -939,6 +942,9 @@ def test_a_page_being_made_notifies_once_as_it_lands(tmp_path, monkeypatch):
         "Ready: Mock", "claude finished it in dev:Build", "scratch:wip",  # its heading, not tmux's
         "/m#view=scratch&open=%2Fscratch%2Fwip%2F")]
     assert [i["name"] for i in shot] == ["wip"]
+    # Every open app is told the same, once, waking its long-poll (/api/state's news)
+    assert [{k: v for k, v in n.items() if k != "at"} for n in service.news] == sender.payloads
+    assert watcher.nudged == 1
     # The turn ends and the pane waits on the user: its plain Needs-you is the same news...
     watcher.states = [waiting()]
     for _ in range(2):

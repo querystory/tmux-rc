@@ -47,11 +47,23 @@ print(int(c.get("/scratch/sub").headers.get("location") == "/scratch/sub/"))
 # 404, nor the plain GETs above, as an agent checks its page is served)
 seen = lambda: [k for k, _ in server.app.state.history.visits("scratch")]
 print(int(seen() == []))
-for path in ("/scratch/", "/scratch/mock.html", "/scratch/sub/", "/scratch/nope/"):
+for path in ("/scratch/", "/scratch/mock.html", "/scratch/nope/"):
     c.get(path, headers={"Sec-Fetch-Dest": "document"})
-c.get("/scratch/viewed/", headers={"Sec-Fetch-Dest": "iframe"})  # the app's viewer
+c.get("/scratch/sub/", headers={"Sec-Fetch-Dest": "document"})  # sent to the viewer, which:
+for path in ("/scratch/sub/", "/scratch/viewed/"):
+    c.get(path, headers={"Sec-Fetch-Dest": "iframe"})
 c.get("/scratch/wip/", headers={"Sec-Fetch-Dest": "iframe"})  # its placeholder
 print(int(sorted(seen()) == ["sub", "viewed", "wip"]))
+# A tab opening a page of a folder gets it in the app's viewer, query and all; the viewer's
+# Open in browser (?bare), a Markdown page's source (?raw), a save (?download), the gallery,
+# a loose file, a frame and an agent's plain GET get the page itself.
+doc = {"Sec-Fetch-Dest": "document"}
+print(int(c.get("/scratch/sub/x%20v2.html?a=1", headers=doc).headers.get("location")
+          == "/m?scratch=sub%2Fx%2520v2.html%3Fa%3D1"
+          and all(c.get(p, headers=doc).status_code == 200 for p in (
+              "/scratch/sub/?bare=", "/scratch/sub/?download=1", "/scratch/",
+              "/scratch/mock.html", "/scratch/notes.md?raw"))
+          and c.get("/scratch/sub/").status_code == 200))
 if not server._scratch_dir:
     sys.exit()
 # Archive: gone from the gallery, still served at its old link and at the archive's; a
@@ -153,7 +165,7 @@ def test_scratch_serves_only_inside_the_configured_dir(tmp_path):
     # The placeholder marks itself apart from the page, and a plain 404 scans no accounts.
     assert _probe({"TMUXRC_SCRATCH_DIR": str(scratch)}, tmp_path) == [
         200, 404, 404, 200, 307, 200, 404, 404, 404, 202, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-        1, 1, 200, 200, 202, 200, 202, 202, 400, 1, 1, 1, 404, 2, 1, 2,
+        1, 1, 1, 200, 200, 202, 200, 202, 202, 400, 1, 1, 1, 404, 2, 1, 2,
         1, 1, 1, 1, 1, 1, 2, 2, 1]
 
 
