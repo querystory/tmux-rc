@@ -36,9 +36,11 @@ test("Activity unfolds at its slot and stays full when a short screen scrolls pa
   assert.deepEqual(folds, [true, false, false, false, false, true, true, false, true]);
 });
 
-test("a subpage folds Activity even when its slot was already above the scroller", () => {
+for (const [name, leave] of [["a subpage", { page: "usage", dashboardVisible: () => true }], ["leaving the dashboard", { page: null, dashboardVisible: () => false }]])
+test(`${name} folds Activity even when its slot was already above the scroller`, () => {
   const app = readFileSync(new URL("../web/m/app.js", import.meta.url), "utf8");
-  const hide = app.slice(app.indexOf("  if (page) $(\"session-atlas\")._fold"), app.indexOf("\n", app.indexOf("  if (page) $(\"session-atlas\")._fold")));
+  const at = app.indexOf("  if (page || !dashboardVisible()) $(\"session-atlas\")._fold");
+  const hide = app.slice(at, app.indexOf("\n", at));
   assert.ok(hide.length > 10, "the subpage fold moved");
   const folds = [], atlas = {};
   let callback;
@@ -49,6 +51,6 @@ test("a subpage folds Activity even when its slot was already above the scroller
   atlas._fold = sandbox.compact;
   callback([{ boundingClientRect: { top: 340, width: 390 }, rootBounds: { top: 60, bottom: 340 }, isIntersecting: true }]);
   callback([{ boundingClientRect: { top: -150, width: 390 }, rootBounds: { top: 60, bottom: 340 }, isIntersecting: false }]);
-  vm.runInNewContext(hide, Object.assign(sandbox, { page: "usage" })); // no callback: still non-intersecting
+  vm.runInNewContext(hide, Object.assign(sandbox, leave)); // no callback: still non-intersecting
   assert.deepEqual(folds, [false, false, true]);
 });
