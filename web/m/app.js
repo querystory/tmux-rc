@@ -2004,9 +2004,9 @@ function renderFresh(pane) {
   const recent = resumable && Array.isArray(pane.recent_sessions) ? pane.recent_sessions.filter((t) => typeof t === "string") : [];
   reconcile($("fresh-recent"), recent, (t, i) => `${active}:${i}:${t}`, () => {
     const button = document.createElement("button"); button.type = "button";
-    button.onclick = () => go();
+    button.onclick = () => button._go(); // this render's command: a reused row must not keep an older agent's
     return button;
-  }, (button, title) => { html(button, `${licon("history", 18)}<span></span>`); text(button.lastChild, title); block(button, why); });
+  }, (button, title) => { button._go = go; html(button, `${licon("history", 18)}<span></span>`); text(button.lastChild, title); block(button, why); });
   const button = $("fresh-resume");
   html(button, `${licon("history", 18)}<span>${recent.length ? "More sessions" : "Resume a session"}…</span>`);
   button.onclick = go; block(button, why);

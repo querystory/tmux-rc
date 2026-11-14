@@ -2345,7 +2345,9 @@ def test_resume_is_offered_only_over_an_empty_composer():
     gemini = "  Recent: Sort the seed list\n╭────────╮\n│ > {} │\n╰────────╯\n  ~/src  gemini-pro"
     opencode = ("  Recent: Sort the seed list\n┃\n┃  {}\n┃\n┃  Build · Model X · Provider\n"
                 "╹━━━━━━━━\n ~/src   ctrl+p commands")
+    normal = gemini.replace("gemini-pro", "[NORMAL] gemini-pro")
     cases = [("gemini", gemini, dim("Type your message"), True),
+             ("gemini", normal, "", False),  # vim NORMAL mode: typed keys are editor commands
              ("gemini", gemini, "water the beds", False),
              ("opencode", opencode, "", True),
              ("opencode", opencode, dim('Ask anything... "Fix a TODO"'), True),
