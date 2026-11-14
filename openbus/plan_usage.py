@@ -243,20 +243,25 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None  # so a 3xx is an HTTPError: "unavailable"
 
 
-_OPENER = urllib.request.build_opener(_NoRedirect)
+OPENER = urllib.request.build_opener(_NoRedirect)
 
 
-def fetch_claude(config: Path, now: float) -> list[dict]:
-    """GET the usage endpoint with this config dir's OAuth token, read in-process only.
-    An expired token raises rather than refreshing: Claude Code owns that file."""
+def token(config: Path, now: float) -> str:
+    """The OAuth token of this config dir, read in-process only. An expired one raises rather
+    than refreshing: Claude Code owns that file."""
     oauth = json.loads((config / ".credentials.json").read_text())["claudeAiOauth"]
     if oauth.get("expiresAt", 0) / 1000 <= now:
         raise PermissionError("token expired")
+    return oauth["accessToken"]
+
+
+def fetch_claude(config: Path, now: float) -> list[dict]:
+    """GET the usage endpoint with this config dir's OAuth token."""
     request = urllib.request.Request(USAGE_URL, headers={
-        "Authorization": f"Bearer {oauth['accessToken']}", "anthropic-beta": "oauth-2025-04-20"})
+        "Authorization": f"Bearer {token(config, now)}", "anthropic-beta": "oauth-2025-04-20"})
 
     def get() -> list[dict]:
-        with _OPENER.open(request, timeout=10) as response:
+        with OPENER.open(request, timeout=10) as response:
             return claude_samples(json.load(response), now)
     try:
         return get()

@@ -30,6 +30,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.error
 from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
 from dataclasses import replace
@@ -95,6 +96,7 @@ from . import (  # noqa: E402
     scratch_markdown,
     scratch_sidecars,
     telemetry,
+    teleport,
     tmux,
 )
 from .browser_security import BrowserOriginMiddleware  # noqa: E402
@@ -272,6 +274,12 @@ class NewWindowBody(BaseModel):
     session: str
     launcher: str  # label of a configured launcher — never a raw command
     account: str | None = None  # a listed profile's config dir (accounts.py); None = inherit
+
+
+class TeleportBody(BaseModel):
+    cloud: str = Field(max_length=400)  # a claude.ai/code session's link, or its id
+    session: str
+    account: str | None = None  # as in NewWindowBody; None = the session's own
 
 
 class RestoreBody(BaseModel):
@@ -1403,6 +1411,59 @@ def _on_account(entry: dict, account: str | None) -> str | list[str] | None:
     provider = entry.get("provider")
     profile = accounts.find(account, provider) if provider in accounts.ENV else None
     return profile and accounts.command(profile["provider"], profile["dir"], entry["command"])
+
+
+@app.post("/api/teleport")
+def teleport_session(body: TeleportBody, request: Request):
+    """Continue a Claude Code cloud session in a new window of `session` (teleport.py).
+    Like a launcher, the request never carries a command: it names a session id, and the
+    argv is built here around the fixed `claude --teleport`."""
+    sid = teleport.session_id(body.cloud)
+    detail = f"session={body.session[:80]!r} cloud={sid or body.cloud[:80]!r}"
+    refuse = partial(_refuse, request, "teleport", detail)
+    if not sid:
+        refuse(422, "Paste a claude.ai/code session link or its id.")
+    if not any(p.session == body.session for p in tmux.list_panes()):
+        refuse(404, "session not found")
+    if why := _unavailable("claude", tmux.server_path()):
+        refuse(400, why)
+    profile = accounts.find(body.account, "claude") if body.account else None
+    if body.account and not profile:
+        refuse(404, "unknown account")
+    config = Path(profile["dir"]) if profile else Path(
+        accounts.session_defaults([body.session])[body.session]["claude"]
+        or accounts.default_dir("claude"))
+    try:
+        info = teleport.describe(teleport.fetch(config, sid, time.time()))
+    except urllib.error.HTTPError as e:
+        refuse(404 if e.code == 404 else 502,
+               "This account has no cloud session with that id." if e.code == 404
+               else f"claude.ai answered {e.code} for that session.")
+    except (urllib.error.URLError, TimeoutError):
+        refuse(502, "claude.ai could not be reached for that session.")
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        # No credentials file, or an expired token: Claude Code refreshes it when it next
+        # runs on this account, and tmux-rc never writes that file.
+        refuse(409, "This Claude account's sign-in could not be used. Open Claude on it "
+                    "once, then try again.")
+    cwd = None
+    if info["repo"]:
+        watcher = getattr(app.state, "watcher", None)
+        open_in = [s.get("cwd") for s in (watcher.states if watcher else [])]
+        cwd = teleport.checkout(
+            info["repo"], [d for d in open_in + agent_history.recent_dirs() if d])
+        if cwd is None:
+            refuse(409, f"No checkout of {info['repo']} was found here. Clone it and open "
+                        "a session in it, then try again.")
+    argv = teleport.command(sid, info)
+    command = accounts.command("claude", profile["dir"], argv) if profile else argv
+    try:
+        pane_id = tmux.new_window(body.session, info["title"][:40] or "teleport", command, cwd)
+    except Exception as e:
+        _audit(request, "teleport", "-", detail, outcome=f"error: {e}"[:80])
+        raise
+    _audit(request, "teleport", pane_id, detail)
+    return {**_opened(pane_id), "repo": info["repo"], "also": info["also"]}
 
 
 def _refuse(request: Request, action: str, detail: str, status: int, why: str, **extra):

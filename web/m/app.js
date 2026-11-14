@@ -2596,6 +2596,7 @@ $("capture").onclick = (event) => {
 const launchMode = () => {
   const fresh = !$("launch-session").value;
   show("launch-new", fresh); text($("launch-title"), "New session");
+  show("launch-teleport", !fresh); // a teleport opens a window in a session that exists
 };
 $("launch-session").onchange = launchMode;
 // The name defaults to the directory's basename, shown as the placeholder so typing a
@@ -2731,6 +2732,23 @@ async function launchWindow(launcher, button) {
   }
   finally { launching = false; $("launch-choices").querySelectorAll("button").forEach((button) => { button.disabled = "unavailable" in button.dataset; }); }
 }
+
+// Teleport: a claude.ai/code session continued in a window here, in a fresh worktree of its
+// repository and under its own name; the daemon looks both up (docs/design/teleport.md).
+async function teleport() {
+  const cloud = $("teleport-id").value.trim();
+  if (launching || !cloud) return;
+  launching = true; text($("launch-error"), "Teleporting...");
+  try {
+    const data = await post("/api/teleport", { cloud, session: $("launch-session").value, account: launchPick?.account("claude") });
+    $("teleport-id").value = ""; $("launch-dialog").close(); openLaunched(data.pane_id);
+    if (data.also?.length) notice(`Only ${data.repo} is checked out for this session. It also worked in ${data.also.join(", ")}.`, 10000);
+  } catch (error) { text($("launch-error"), error.detail || "The session could not be teleported. Check sessions before retrying."); }
+  finally { launching = false; }
+}
+// With several Claude accounts the account step comes first, as it does for a launcher.
+$("teleport-go").onclick = () => { if ($("teleport-id").value.trim()) (launchPick ? launchPick.pick("claude", teleport) : teleport()); };
+$("teleport-id").onkeydown = (e) => { if (e.key === "Enter") $("teleport-go").click(); };
 
 const standalone = () => navigator.standalone || matchMedia("(display-mode: standalone)").matches; // installed, not a browser tab
 function fitViewport() {
