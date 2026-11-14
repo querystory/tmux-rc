@@ -2341,10 +2341,7 @@ if DOCS_MOUNTED:
 # Only an explicitly configured dir is served — there is no default — because whatever
 # lands in it is published to everyone the tunnel admits. Mocks worth keeping belong in
 # docs-site/static/mocks/ instead, which ships with the docs at /docs/mocks/.
-_scratch_dir = os.environ.get("TMUXRC_SCRATCH_DIR")
-# Absolute: panes get it as their env, and the gallery's find takes "-draft" for an option.
-_scratch_dir = os.path.realpath(_scratch_dir) if _scratch_dir and Path(_scratch_dir).is_dir() \
-    else None
+_scratch_dir = scratch.configured()
 if _scratch_dir:
     def _who() -> tuple:
         """What scratch needs to say who made a folder: the panes, their accounts, the app's
