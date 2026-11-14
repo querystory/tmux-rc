@@ -59,6 +59,7 @@ summary { cursor: pointer; }
 const root = document.documentElement;
 root.classList.toggle("light", !matchMedia("(prefers-color-scheme: dark)").matches);
 addEventListener("message", (e) => {
+  if (e.source === parent) root.classList.toggle("claude", e.data?.skin === "claude"); // the app's skin: its tokens are inlined beside the default's
   if (e.source !== parent || typeof e.data?.light !== "boolean" || e.data.light === root.classList.contains("light")) return;
   root.classList.toggle("light", e.data.light);
   window.drawMermaid?.(); // its diagrams are drawn in one theme

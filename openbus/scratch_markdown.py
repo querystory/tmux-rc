@@ -26,7 +26,7 @@ from starlette.staticfiles import StaticFiles
 _PAGE = Path(__file__).resolve().parent / "scratch_markdown.html"
 MERMAID = "/m/vendor/mermaid.min.js"  # the vendored build, under the app's static dir
 # The app's colours, and its account chip so the gallery's cards wear the same one.
-_TOKENS = re.compile(r"^(?::root(?:\.light)? \{.*?^\}|\.acct-(?:badge|dot)\b[^\n]*)",
+_TOKENS = re.compile(r"^(?::root(?:\.claude)?(?:\.light)? \{.*?^\}|\.acct-(?:badge|dot)\b[^\n]*)",
                      re.MULTILINE | re.DOTALL)
 _CALLOUT = re.compile(r"^ {0,3}> ?\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\] *$",
                       re.IGNORECASE | re.MULTILINE)
@@ -45,8 +45,10 @@ _PYGMENTS = (HtmlFormatter(style="github-dark").get_style_defs(":root:not(.light
 
 def tokens(style: Path) -> str:
     """The app's colour tokens from its stylesheet, for a scratch page to inline: sandboxed,
-    it cannot count on a credentialed stylesheet load behind the front door."""
-    return "\n".join(_TOKENS.findall(style.read_text()))
+    it cannot count on a credentialed stylesheet load behind the front door. The Claude
+    skin's follow (the stylesheet beside it), for the app to switch on by message."""
+    skin = style.with_name("skin-claude.css")
+    return "\n".join(_TOKENS.findall(style.read_text() + (skin.read_text() if skin.exists() else "")))
 
 
 class _Callouts(BlockProcessor):

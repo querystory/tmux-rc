@@ -21,6 +21,12 @@ came from, so what is left to learn is only what tmux-rc adds.
 - **New session is the dark pill** floating over the list, and Send is a round clay button:
   the two controls a Remote Control user's thumb already knows.
 
+- **Scratch reads as Artifacts.** The gallery's cards are round, with the thumbnail a
+  rounded tile inset in each, serif titles and a pill filter. The gallery and the Markdown
+  pages it opens are sandboxed frames that cannot read the setting, so the app tells them,
+  as it does the theme; opened in a tab of its own, Scratch has nobody to tell it and stays
+  in the default skin.
+
 ## What it leaves alone, and why
 
 - **Layout and words.** Rows, tabs, the sidebar and every label are the same in both skins,

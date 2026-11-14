@@ -89,6 +89,16 @@ a { color: var(--accent); }
 @media (pointer: coarse) { .framed #select:not(:focus-visible) { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); } }
 /* A long press selects (/long-press.js): no link preview, callout or text selection under the finger. */
 .framed article { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+/* The app's Claude skin (web/m/skin-claude.css, whose tokens are inlined above; the app says
+   when it is on): the gallery as Claude's Artifacts list. Round cards with the thumbnail a
+   rounded tile inset in them, serif titles, pill controls. */
+.claude :is(h1, h2) { font-family: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif; font-weight: 500; }
+.claude article { padding: 12px; border-radius: 24px; }
+.claude .thumb, .claude #cards.list .thumb { margin: 0 0 4px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg); }
+.claude #cards.list .thumb { margin: 0; }
+.claude article > :not(.thumb) { padding-inline: 4px; }
+.claude :is(input, .seg, .seg button, .act, #bar button) { border-radius: 999px; }
+.claude input { padding: 0 18px; }
 </style><script>// In <head>, so the first paint has it: a script ahead of the body's waits on the network.
 // Sandboxed like every /scratch/ page, so no localStorage: the system theme.
 document.documentElement.classList.toggle("light", !matchMedia("(prefers-color-scheme: dark)").matches);</script></head><body><main>
@@ -190,7 +200,8 @@ addEventListener("message", (e) => { if (e.source !== parent) return; // the app
   if (e.data?.reload) location.reload();
   if (e.data?.idle) { busy = false; count(); } // nothing done (Delete not confirmed, or it failed): the bar again
   if (["grid", "list"].includes(e.data?.view)) show(e.data.view);
-  if (typeof e.data?.light === "boolean") document.documentElement.classList.toggle("light", e.data.light); });
+  if (typeof e.data?.light === "boolean") document.documentElement.classList.toggle("light", e.data.light);
+  if (e.data?.skin) document.documentElement.classList.toggle("claude", e.data.skin === "claude"); });
 // Inside the app, the pane that made a page opens there, not as a second app in this frame,
 // and a card's page in the app's full-screen viewer (the app checks it is a /scratch/ page).
 // Every other link opens a tab of its own, so this frame only ever holds the gallery: the app

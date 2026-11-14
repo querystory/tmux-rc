@@ -881,8 +881,8 @@ const scratchFrame = Object.assign(document.createElement("iframe"), { src: "/sc
 // the app's theme, so the app keeps the one and tells the page both (scratch.html listens).
 let scratchView = "grid";
 try { scratchView = localStorage.getItem("tmuxrc-scratch-view") || "grid"; } catch {}
-// The open viewer's page hears the theme too: a Markdown page follows it (scratch_markdown.html).
-const tellScratch = () => [scratchFrame, viewer.querySelector("iframe")].forEach((f) => f?.contentWindow?.postMessage({ view: scratchView, light: document.documentElement.classList.contains("light") }, "*")); // their origin is opaque
+// The open viewer's page hears the theme and skin too: a Markdown page follows it (scratch_markdown.html).
+const tellScratch = () => [scratchFrame, viewer.querySelector("iframe")].forEach((f) => f?.contentWindow?.postMessage({ view: scratchView, light: document.documentElement.classList.contains("light"), skin: document.documentElement.classList.contains("claude") ? "claude" : "default" }, "*")); // their origin is opaque
 scratchFrame.addEventListener("load", tellScratch);
 // Only the gallery is heard: it opens a pane, keeps its view, or opens one of its pages, a path
 // under /scratch/ here and nothing else (url-state.js). A page the viewer shows (a page still
