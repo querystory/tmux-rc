@@ -257,6 +257,44 @@ def test_an_empty_gallery_says_how_agents_publish_there(tmp_path):
     assert '<section id="empty" hidden>' in scratch.page(tmp_path, [], [], STYLE)
 
 
+def test_a_page_has_a_type_as_an_artifact_does(tmp_path, monkeypatch):
+    """meta.json's "type", by key or label; else a Markdown page or a PDF is a doc; else
+    none. The card carries it (a badge, a filter key, a search word) and the gallery offers
+    a menu of the types its cards have, only once some card has one."""
+    monkeypatch.setattr(agent_history, "writers", lambda *_: {})
+    _folder(tmp_path, "deck", 1000, {"type": "Slides"})
+    _folder(tmp_path, "mock", 1000, {"type": "design", "icon": "network"})
+    _folder(tmp_path, "odd", 1000, {"type": "hologram"})  # not a type: none
+    _folder(tmp_path, "plain", 1000)
+    notes = tmp_path / "notes"
+    notes.mkdir()
+    (notes / "index.md").write_text("# Notes")
+    pdf = tmp_path / "pdf"
+    pdf.mkdir()
+    (pdf / "Report.PDF").write_bytes(b"%PDF")
+    items, _ = _resolved(tmp_path)
+    assert {n: i["type"] for n, i in items.items()} == {
+        "deck": "slides", "mock": "design", "odd": None, "plain": None, "notes": "doc",
+        "pdf": "doc"}
+    # a pin's icon: its own, else its type's
+    assert [items[n]["icon"] for n in ("deck", "mock", "plain")] == [
+        "presentation", "network", None]
+    page = scratch.page(tmp_path, [], [], STYLE)
+    assert ('<option value="doc">Docs (2)</option><option value="slides">Slides (1)</option>'
+            '<option value="design">Design (1)</option></select>') in page
+    card = re.search(r'<article [^>]*data-name="deck"[^>]*>.*?</article>', page, re.DOTALL)[0]
+    assert 'data-type="slides"' in card and 'class="type" title="Slides"' in card
+    assert "slides" in re.search(r'data-q="([^"]*)"', card)[1]
+    assert 'data-type=""' in re.search(r'<article [^>]*data-name="plain"[^>]*>', page)[0]
+    for name in ("deck", "mock", "notes", "pdf"):
+        shutil.rmtree(tmp_path / name)
+    assert '<option value="">All types</option></select>' in scratch.page(  # no menu
+        tmp_path, [], [], STYLE)
+    tag = scratch.tag(scratch.items(tmp_path))
+    (tmp_path / "plain" / "meta.json").write_text('{"type": "data"}')
+    assert scratch.tag(scratch.items(tmp_path)) != tag  # a type given reloads the open gallery
+
+
 def test_the_tag_changes_with_what_the_open_gallery_shows(tmp_path):
     """The open gallery reloads when its tag changes: a folder coming, its page or
     thumbnail landing, a folder archived. Nothing else, or it would reload for nothing."""

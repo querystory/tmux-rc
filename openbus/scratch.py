@@ -59,6 +59,38 @@ SIDECARS = ("meta.json", "thumb.webp")  # what tmux-rc and agents add beside a p
 SANDBOX = "sandbox allow-scripts allow-popups; form-action 'none'; connect-src 'none'"
 PINS = 6  # pages pinned to the app's menu, at most: the sidebar's nav can't overflow
 BINDINGS: Path | None = None  # where bind() keeps the panes pages were moved to (server sets it)
+# What kind of page a folder is, as claude.ai's Artifacts sort theirs: meta.json's "type" (its
+# key or its label), else a Markdown page or a PDF is a doc. Each its label and Lucide icon
+# (inline, as the app's: its name for a pin, the paths for the card's badge).
+_FILE_TEXT = ('<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/>'
+              '<path d="M14 2v4a2 2 0 0 0 2 2h4M10 9H8M16 13H8M16 17H8"/>')
+_DOTS = ((13.5, 6.5), (17.5, 10.5), (6.5, 12.5), (8.5, 7.5))
+TYPES = {
+    "doc": ("Docs", "file-text", _FILE_TEXT),
+    "slides": ("Slides", "presentation",
+               '<path d="M2 3h20M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3m4 18 5-5 5 5"/>'),
+    "data": ("Data", "chart-line",
+             '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="m19 9-5 5-4-4-3 3"/>'),
+    "design": ("Design", "palette",
+               ('<path d="M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 '
+                '0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z"/>')
+               + "".join(f'<circle cx="{x}" cy="{y}" r=".5" fill="currentColor"/>'
+                         for x, y in _DOTS)),
+    "sheet": ("Sheets", "table",
+              ('<path d="M12 3v18"/><rect width="18" height="18" x="3" y="3" rx="2"/>'
+               '<path d="M3 9h18M3 15h18"/>')),
+    "site": ("Sites", "globe",
+             ('<circle cx="12" cy="12" r="10"/>'
+              '<path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20"/>')),
+}
+_TYPE_NAMES = {n: k for k, (label, *_) in TYPES.items() for n in (k, label.lower())}
+
+
+def kind(meta: dict, page: Path | None) -> str | None:
+    """A folder's TYPES key: what meta.json says, else a doc for a Markdown page or a PDF,
+    else none (any page at all, as an untyped Artifact is)."""
+    said = _TYPE_NAMES.get(meta.get("type", "").lower())
+    return said or ("doc" if page and page.suffix.lower() in (".md", ".pdf") else None)
 
 
 def inside(path: Path, root: Path) -> bool:
@@ -187,9 +219,12 @@ def _item(root: Path, folder: Path, files: list[tuple[float, str]]) -> dict | No
         title = m and unescape(m.group(1)).strip()
     created = _when(meta.get("created")) or min(files)[0]
     named = (folder / "meta.json").stat().st_mtime if meta else created
+    typed = kind(meta, page)
     return {"name": folder.name, "title": title or folder.name,
             "description": meta.get("description", ""), "pane": meta.get("pane"),
-            "icon": meta.get("icon"),  # a Lucide name, drawn only if the app ships it
+            "type": typed,  # a TYPES key, or None
+            # a Lucide name, drawn only if the app ships it: its own, else its type's
+            "icon": meta.get("icon") or (typed and TYPES[typed][1]),
             # an update's writer is its reviser, searched for from its mark, never the author
             "session_id": None if updating else meta.get("agent_session"), "folder": folder,
             "href": quote(page.relative_to(root).as_posix() if page != index and not pending
@@ -376,7 +411,8 @@ def tag(listed: list[dict]) -> str:
     a page in progress or being updated may have stopped. In no particular order,
     as the gallery sorts after listing."""
     return str(hash((*sorted((i["name"], i["href"], i["updated"], i["pending"], i["thumb"],
-                              i["title"], i["description"], i["updating"]) for i in listed),
+                              i["title"], i["description"], i["updating"], i["type"] or "")
+                             for i in listed),
                      json.dumps(_load(BINDINGS, {}), sort_keys=True),
                      any(i["pending"] or i["updating"] for i in listed)
                      and int(time.time() // 60))))
@@ -645,7 +681,16 @@ def page(root: Path, states: list[dict], profiles: list[dict], style: Path,
         out = out.replace('<section id="empty" hidden>', '<section id="empty">').replace(
             '<input type="search"', '<input hidden type="search"').replace(
             '<span class="seg"', '<span hidden class="seg"')
-    return out.replace("<!--cards-->", "".join(_card(i) for i in listed))
+    return out.replace("<!--types-->", _types(listed)).replace(
+        "<!--cards-->", "".join(_card(i) for i in listed))
+
+
+def _types(listed: list[dict]) -> str:
+    """The type filter's choices: the types these cards have, in TYPES' order, each with
+    its count; none (so no filter) while no card has a type."""
+    have = [i["type"] for i in listed if i["type"]]
+    return "".join(f'<option value="{k}">{label} ({have.count(k)})</option>'
+                   for k, (label, *_) in TYPES.items() if k in have)
 
 
 def _chip(i: dict, e: dict) -> str:
@@ -689,9 +734,16 @@ def _card(i: dict) -> str:
              else f'<span class="{i["state"] if i["pending"] else ""}">{wait}</span>'
              if wait else "No preview") + (  # an update: the page so far, with a badge
         f'<span class="badge {i["state"]}">{label}</span>' if i.get("updating") else "")
-    words = " ".join([i["title"], i["description"], i["who"], i["where"]]).lower()
+    typed = TYPES.get(i["type"])
+    if typed:  # its type's icon in the corner, as an Artifact's card has
+        thumb += (f'<span class="type" title="{typed[0]}"><svg width="16" height="16" '
+                  'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
+                  f'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{typed[2]}'
+                  "</svg></span>")
+    words = " ".join([i["title"], i["description"], i["who"], i["where"],
+                      typed[0] if typed else ""]).lower()
     return (f'<article data-q="{escape(words)}" data-name="{e["name"]}"'
-            f' data-pane="{e.get("pane", "")}">'
+            f' data-pane="{e.get("pane", "")}" data-type="{i["type"] or ""}">'
             f'<a class="thumb" href="{e["href"]}" tabindex="-1" aria-hidden="true">{thumb}</a>'
             f'<h2><a href="{e["href"]}"'
             + (f' aria-label="{e["title"]}: {label}"' if label else "")  # the thumb's

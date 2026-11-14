@@ -41,6 +41,11 @@ shows it as **Scratch**: a tab in the phone's tab bar, a place in the wide sideb
   **Scratch pages** opens the gallery filtered to that pane.
 - **Filter** by typing, or tap an agent's chip; **Grid** and **List** switch between full
   cards and compact rows.
+- **Type**: like an Artifact, a page can say what kind it is (Docs, Slides, Data, Design,
+  Sheets or Sites), and its card carries that type's icon in the thumbnail's corner. Once
+  any card has a type, a menu beside the filter shows one type at a time, and the choice
+  survives the gallery's live reload. A pinned page without an icon of its own shows its
+  type's in the menu.
 - **Select** (on a phone, press and hold a card), then **Archive**. An archived folder
   moves to the **Archived** shelf, where it is restored or deleted for good; its link keeps
   working, because links sit in chats and notes and a 404 there would make archiving feel
@@ -214,8 +219,8 @@ The gallery needs a directory the daemon serves and agents that know about it.
     visible to everyone who can reach tmux-rc: never put secrets or private data there.
     Pages are sandboxed: their scripts cannot fetch, use XHR or WebSockets, or submit
     forms, so inline any data a page needs. Write the folder's meta.json ({"title",
-    "description", "pane": "$TMUX_PANE", "created": ISO 8601 time}) first, before the
-    page: until index.html or index.md lands, the link shows that the page is in
+    "description", "type", "pane": "$TMUX_PANE", "created": ISO 8601 time}, where type
+    is doc, slides, data, design, sheet or site) first, before the page: until index.html or index.md lands, the link shows that the page is in
     progress, so it is safe to hand out early, and the user is notified when it is
     ready. To revise a published page, set "updating": "<what's changing>" and "pane":
     "$TMUX_PANE" in its meta.json before you start, and remove "updating" when you are
@@ -227,10 +232,24 @@ The gallery needs a directory the daemon serves and agents that know about it.
 ## What a card shows, and where it comes from
 
 A folder describes itself in an optional `meta.json` beside its page: `title`,
-`description`, `pane` (the agent's `$TMUX_PANE`), `created` (ISO 8601) and, while it is
-being revised, `updating`. Without one, the title is the page's own `<title>` (a Markdown
-page's first heading), else the folder's name, and the times are its files' oldest and
-newest. A malformed `meta.json` counts as absent.
+`description`, `type`, `pane` (the agent's `$TMUX_PANE`), `created` (ISO 8601) and, while
+it is being revised, `updating`. Without one, the title is the page's own `<title>` (a
+Markdown page's first heading), else the folder's name, and the times are its files' oldest
+and newest. A malformed `meta.json` counts as absent.
+
+`type` is one of these, by key or label, in any case; anything else counts as absent:
+
+| `type` | Shown as | For |
+| --- | --- | --- |
+| `doc` | Docs | Writing to read: a plan, a design note, a report in prose |
+| `slides` | Slides | A deck, one slide to a screen |
+| `data` | Data | A dashboard, charts, a report built on numbers |
+| `design` | Design | A mock, a visual design, a prototype |
+| `sheet` | Sheets | A table to sort or read across |
+| `site` | Sites | A built static site, more than one page |
+
+Without a `type`, a Markdown page or a PDF is a doc and any other page has none: it shows
+under All types only.
 
 tmux-rc fills in the rest in the background, so the gallery never waits for it:
 

@@ -684,6 +684,9 @@ Adding runs 61 to 120
 release-notes-draft|190,190|%19|-|Merged PRs since v0.14, grouped by area.
 cost-breakdown|1500,1380|%77|Monthly cost breakdown|Compute, storage and egress by team.
 latency-heatmap|4400,4300|%18|-|p50 and p99 by endpoint over the long-input bench."""
+# Each page's meta.json "type" (openbus.scratch.TYPES); the Markdown draft is a doc unasked.
+SCRATCH_TYPES = {"checkout-variants": "design", "ab-sweep-interim": "data",
+                 "cost-breakdown": "data", "latency-heatmap": "data"}
 SCRATCH_WRITERS = {"cost-breakdown": {"harness": "claude", "session_id": "demo-cost",
                                       "source": "~/.claude/projects/ops/demo-cost.jsonl",
                                       "title": "Billing export analysis"},
@@ -801,6 +804,7 @@ def seed_scratch(root) -> None:
             (folder / "meta.json").write_text(json.dumps({
                 "title": "" if title == "-" else title, "description": description,
                 "pane": pane, "created": datetime.fromtimestamp(created, UTC).isoformat(),
+                **({"type": SCRATCH_TYPES[name]} if name in SCRATCH_TYPES else {}),
                 **dict(zip(["updating"], updating, strict=False))}))
             scratch_sidecars.shoot(f"{url}/{name}/", folder / "thumb.webp", root)
             for path in folder.iterdir():
