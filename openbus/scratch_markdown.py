@@ -48,7 +48,8 @@ def tokens(style: Path) -> str:
     it cannot count on a credentialed stylesheet load behind the front door. The Claude
     skin's follow (the stylesheet beside it), for the app to switch on by message."""
     skin = style.with_name("skin-claude.css")
-    return "\n".join(_TOKENS.findall(style.read_text() + (skin.read_text() if skin.exists() else "")))
+    css = style.read_text() + (skin.read_text() if skin.exists() else "")
+    return "\n".join(_TOKENS.findall(css))
 
 
 class _Callouts(BlockProcessor):
