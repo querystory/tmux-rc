@@ -201,6 +201,17 @@ CASES = [
         {"sent": ["Down"] * 18 + ["Enter"], "selected": 18, "notes": []},
     ),
     (
+        # A stepper row reads back drawn with its ‹ › arrows, which the option leaves out:
+        # it still names the row, so the walk commits off /send with no parse at all. The
+        # widget also ignores an Enter within 250ms of a move (its misfire guard): a walk
+        # that commits without letting the arrow age gets a dead select and a notice.
+        "a stepper row's read-back names its arrow-less option",
+        {"options": ["Keep (2m)", "Wait 30s"], "drawn": ["Keep (2m)", "Wait ‹ 30s ›"],
+         "selected": 0, "keymap": NO_SEARCH_KM, "reads": True, "guard_ms": 250},
+        "Wait 30s", 1,
+        {"sent": ["Down", "Enter"], "selected": 1, "notes": []},
+    ),
+    (
         # Far, with a search box: filter for the row and commit it off the box's read-back.
         "a far row is filtered for and committed off the read-back",
         {"options": [f"r{i}" for i in range(20)], "selected": 0, "keymap": FULL_KM,
@@ -437,14 +448,18 @@ function fake(spec) {{
       if (step && p.selected !== null) {{
         if (spec.stale_frames) p.lag = {{ step, left: spec.stale_frames }};
         else p.selected += step * (spec.stride || 1);
+        p.moved_at = Date.now();
       }}
       // A committed picker goes away, which is what lets the post-commit hold end. The
       // exception models the real lag the hold exists for: the pane is still publishing
       // the old frame for a beat after Enter lands.
       // A select the widget ignores: the picker reads back exactly as it was sent to.
-      if (k === km.select && spec.dead_select) return {{ picker: q.picker, row: "" }};
+      // So is one inside the widget's misfire guard, too soon after the last move.
+      const early = Date.now() - p.moved_at < spec.guard_ms;
+      if (k === km.select && (spec.dead_select || early)) return {{ picker: q.picker, row: "" }};
       if (k === km.select && !spec.hold_open) p.open = false;
-      return spec.reads ? {{ picker: `f${{p.sends}}`, row: p.options[p.selected] }} : true;
+      const row = (spec.drawn || p.options)[p.selected]; // as drawn: a stepper's ‹ › too
+      return spec.reads ? {{ picker: `f${{p.sends}}`, row }} : true;
     }},
     sendText: async (t) => {{
       if (spec.refuse_text && !p.refused) {{ p.refused = true; p.parsed_at += 1; return STALE; }}
