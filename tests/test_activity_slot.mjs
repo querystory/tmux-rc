@@ -21,14 +21,17 @@ test("Activity unfolds at its slot and stays full when a short screen scrolls pa
   vm.runInNewContext(source.slice(start, end) + "root._slot.observe(sentinel);", sandbox);
   assert.equal(options.root, scroller);
   assert.equal(observed, sentinel);
-  const entry = (top, isIntersecting) => callback([{ boundingClientRect: { top }, rootBounds: { top: 60, bottom: 340 }, isIntersecting }]);
+  const entry = (top, isIntersecting) => callback([{ boundingClientRect: { top, width: 390 }, rootBounds: { top: 60, bottom: 340 }, isIntersecting }]);
   entry(600, false); // Before reaching Activity: the bottom strip.
   entry(340, true); // Its slot arrives: full chart.
   entry(100, true);
   entry(20, false); // Above the scroller, still inside the browser viewport.
   entry(-150, false); // The full chart is taller than the visible dashboard.
   entry(600, false); // Scroll back up: the strip returns.
-  callback([{ boundingClientRect: { top: 0 }, rootBounds: { top: 0, bottom: 0 }, isIntersecting: false }]); // Hidden dashboard: fold before returning to its top.
+  callback([{ boundingClientRect: { top: 0, width: 0 }, rootBounds: { top: 0, bottom: 0 }, isIntersecting: false }]); // Hidden dashboard: fold before returning to its top.
   entry(340, true); // A visible zero-height sentinel touching the edge is reached.
-  assert.deepEqual(folds, [true, false, false, false, false, true, true, false]);
+  // A subpage hides the dashboard's content but not its scroller: fold, so a return with the
+  // slot below the scroller (no further callback) still shows the pinned strip.
+  callback([{ boundingClientRect: { top: 0, width: 0 }, rootBounds: { top: 60, bottom: 340 }, isIntersecting: false }]);
+  assert.deepEqual(folds, [true, false, false, false, false, true, true, false, true]);
 });
