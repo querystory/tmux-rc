@@ -4,6 +4,16 @@ function decodeKey(value) {
   return Uint8Array.from(raw, (char) => char.charCodeAt(0));
 }
 
+// The bell's one state, from the browser's permission and subscription and the endpoint the daemon acked.
+const pushState = (permission, subscription, saved) => !subscription ? "Off"
+  : permission !== "granted" ? "Orphaned" : saved === subscription.endpoint ? "On" : "NeedsRepair";
+const PUSH_LABELS = {
+  Off: "Notify me when a session needs me",
+  On: "Turn off notifications",
+  NeedsRepair: "Reconnect notifications",
+  Orphaned: "Notify me when a session needs me", // permission revoked in the OS: it reads, and acts, as Off
+};
+
 export async function setupPush(button, announce = () => {}, bell = "") {
   if (!button || !("serviceWorker" in navigator) || !("PushManager" in window)
       || !("Notification" in window)) return;
@@ -19,49 +29,49 @@ export async function setupPush(button, announce = () => {}, bell = "") {
     button.disabled = true;
     return;
   }
-  let subscription;
-  let repairNeeded = false;
+  let subscription, saved = null; // saved: the endpoint the daemon last acknowledged
+  const state = () => pushState(Notification.permission, subscription, saved);
+  const save = async (held) => {
+    const response = await fetch("/api/push/subscribe", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(held.toJSON()),
+    }).catch(() => null);
+    saved = response?.ok ? held.endpoint : null;
+    return !!saved;
+  };
   const refresh = async () => {
     subscription = await registration.pushManager.getSubscription();
-    const enabled = Notification.permission === "granted" && !!subscription;
-    button.setAttribute("aria-pressed", String(enabled));
-    button.title = enabled ? "Turn off notifications" : "Notify me when a session needs me";
+    const on = state() === "On";
+    button.setAttribute("aria-pressed", String(on));
+    button.title = PUSH_LABELS[state()];
     button.setAttribute("aria-label", button.title);
-    button.classList.toggle("active", enabled);
+    button.classList.toggle("active", on);
   };
-  await refresh();
+  subscription = await registration.pushManager.getSubscription();
   // The daemon may have restarted or restored an older state file. Re-posting the
   // browser's durable subscription is idempotent and repairs that server-side gap.
-  if (subscription && Notification.permission === "granted") {
-    const repaired = await fetch("/api/push/subscribe", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(subscription.toJSON()),
-    }).catch(() => null);
-    repairNeeded = !repaired?.ok;
-    if (repairNeeded) announce("Notifications could not reconnect; tap Push notifications in Settings to retry");
+  if (state() === "NeedsRepair" && !await save(subscription)) {
+    announce("Notifications could not reconnect; tap Push notifications in Settings to reconnect");
   }
+  await refresh();
+  // Permission is changed in the OS's settings, outside the app: re-read on the way back,
+  // unless a tap is under way (it refreshes after).
+  document.addEventListener("visibilitychange", () => document.hidden || button.disabled || refresh());
   button.disabled = false;
   button.onclick = async () => {
     button.disabled = true;
+    let held = subscription; // the tap acts on its own copy: a refresh may land meanwhile
     try {
-      if (subscription && repairNeeded) {
-        const response = await fetch("/api/push/subscribe", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(subscription.toJSON()),
-        });
-        if (!response.ok) throw new Error("Notifications could not reconnect; tap to retry");
-        repairNeeded = false;
-        announce("Notifications reconnected");
-      } else if (subscription) {
+      if (state() === "On") {
         const response = await fetch("/api/push/unsubscribe", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ endpoint: subscription.endpoint }),
+          body: JSON.stringify({ endpoint: held.endpoint }),
         });
         if (!response.ok) throw new Error("Could not turn off notifications");
-        await subscription.unsubscribe();
-        subscription = null;
+        saved = null; // the daemon has dropped it, even if the browser fails to below
+        await held.unsubscribe();
         announce("Notifications turned off");
-      } else {
+      } else { // Off, NeedsRepair and Orphaned all turn on: get permission, a subscription, the daemon's ack
         const ios = /iPad|iPhone|iPod/.test(navigator.userAgent);
         const standalone = navigator.standalone
           || matchMedia("(display-mode: standalone)").matches;
@@ -73,27 +83,19 @@ export async function setupPush(button, announce = () => {}, bell = "") {
         const permission = Notification.permission === "granted"
           ? "granted" : await Notification.requestPermission();
         if (permission !== "granted") throw new Error("Notification permission was not granted");
-        const configResponse = await fetch("/api/push/config");
-        if (!configResponse.ok) throw new Error("Could not load notification settings");
-        const config = await configResponse.json();
-        subscription = await registration.pushManager.subscribe({
-          userVisibleOnly: true, applicationServerKey: decodeKey(config.public_key),
-        });
-        const response = await fetch("/api/push/subscribe", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(subscription.toJSON()),
-        });
-        if (!response.ok) {
-          repairNeeded = true;
-          try {
-            if (await subscription.unsubscribe()) {
-              subscription = null;
-              repairNeeded = false;
-            }
-          } catch {}
-          throw new Error("Could not save the notification subscription");
+        // Re-read: a browser may have dropped the held subscription along with the permission.
+        held = await registration.pushManager.getSubscription();
+        if (!held) {
+          const configResponse = await fetch("/api/push/config");
+          if (!configResponse.ok) throw new Error("Could not load notification settings");
+          const config = await configResponse.json();
+          held = await registration.pushManager.subscribe({
+            userVisibleOnly: true, applicationServerKey: decodeKey(config.public_key),
+          });
         }
-        announce("Notifications enabled");
+        // A subscription the daemon didn't take stays, as NeedsRepair: the next tap or boot re-posts it.
+        if (!await save(held)) throw new Error("Could not turn on notifications; tap to reconnect");
+        announce("Notifications turned on");
       }
     } catch (error) {
       announce(error.message || "Could not change notifications");
