@@ -465,11 +465,12 @@ function updateRow(button, pane) {
   markLine(button.querySelector(".row-status"), paneActivity(pane), pane);
   const sessionChip = button.querySelector(".session-chip");
   const session = sessionOf(pane);
-  sessionChip.hidden = sort !== "updated" && !shared || !session; // a session label already says it
+  sessionChip.hidden = !claudeSkin() && sort !== "updated" && !shared || !session; // a session label already says it (the Claude skin's line is state and place, always)
   text(sessionChip, session);
   sessionChip.title = session ? `Session: ${session}` : "";
   html(button.querySelector(".row-acct"), accounts.badge(pane.pane_id));
-  text(button.querySelector(".row-details"), [pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
+  text(button.querySelector(".row-details"), claudeSkin() ? pane.tool || "" // its line is state, place and agent, as Claude's is state and repo
+    : [pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
 }
 const renderSidebar = setupSidebar({ licon, reconcile, text, html, renderItems, logos: LOGOS, navigate, paneLink, notice, badge: accounts.badge,
   active: () => active, wide: () => WIDE.matches, sending: () => sending, answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, compose, offers: (p) => offersOf(p).filter(isCommand), copy: copyText, linkPair,
@@ -520,6 +521,7 @@ function renderList() {
   text($("empty-needs"), scopedOn ? `${scoped} ${[...scope.tools, ...accts].map((a) => `${a} `).join("or ")}pane${scoped === 1 ? "" : "s"} of ${panes.length} · Show all`
     : `${hidden} pane${hidden === 1 ? "" : "s"} ${needing.some(accounts.matches) || !accts.length ? "outside the filter" : "on other accounts"} need${hidden === 1 ? "s" : ""} you · Show`);
   text($("attention-count"), (pinNeeds ? panes : mine).filter(asks).length || "");
+  text($("list-title"), String(filter) === "attention" ? "Needs you" : "Sessions"); // the Claude skin's header
   // Sessions is the list under whatever the filter menu says; Needs you, the list of just those.
   const tab = String(filter) === "attention" ? "attention" : "all";
   $("list-nav").querySelectorAll("[data-filter]").forEach((button) => button.setAttribute("aria-pressed", !dashboard && tab === button.dataset.filter));
@@ -2367,6 +2369,7 @@ function setTheme(theme, skin = savedSkin()) {
   document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]').content = light ? "default" : "black";
   paintSettings(); tellScratch();
 }
+const claudeSkin = () => document.documentElement.classList.contains("claude");
 const savedSkin = () => { try { return localStorage.getItem("tmuxrc-skin") || "default"; } catch { return "default"; } };
 matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", () => { if (savedTheme() === "system") setTheme("system"); });
 const savedTheme = () => { try { return localStorage.getItem("tmuxrc-theme") || "system"; } catch { return "system"; } };
@@ -2382,7 +2385,7 @@ function paintSettings() {
   if (!$("settings").open) return;
   html($("settings-accounts"), accounts.rows());
   choices("theme", { system: "System", light: "Light", dark: "Dark" }, savedTheme(), setTheme);
-  choices("skin", { default: "Default", claude: "Claude" }, savedSkin(), (skin) => setTheme(savedTheme(), skin));
+  choices("skin", { default: "Default", claude: "Claude" }, savedSkin(), (skin) => { setTheme(savedTheme(), skin); render(); }); // rows differ by skin
   // Wide, every meter shows, so it is on or off; a phone also has Auto (the urgent ones).
   // Its On is the phone's On when that is the setting, else Auto, so a click on it changes nothing.
   choices("usage-mode", WIDE.matches ? { [usageMode === "on" ? "on" : "auto"]: "On", off: "Off" } : USAGE_MODES, usageMode, setUsageMode);

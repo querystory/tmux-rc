@@ -1,10 +1,12 @@
-/* The Claude skin (Settings › Appearance › Skin; docs/design/claude-skin.md): the app in the
-   look of Claude's own apps, so someone arriving from Claude Code's Remote Control finds the
-   same paper ground, clay accent, serif titles and pill controls, and nothing to relearn.
-   A skin is a second class on <html> beside .light, so it has both themes, and it is only
-   tokens, type and shape: every layout rule stays style.css's. State colours (the chart's,
-   amber for Needs you, red) are the app's own in both skins: they are what the fleet says,
-   not decoration. */
+/* The Claude skin (Settings › Appearance › Skin; docs/design/claude-skin.md): the app laid out
+   and drawn as Claude's own apps are, so someone arriving from Claude Code's Remote Control
+   finds the screen they left. A skin is a second class on <html> beside .light, so it has
+   both themes. Tokens, type and shape first; then a phone's screens rebuilt as Claude's
+   (the session list, its header and floating controls, the drawer, the filter menu, the
+   composer). The markup is the app's own: where the skin needs something the default look
+   hides or lacks (the list's title, a row's session), app.js gives it under the skin only.
+   State colours (the chart's, amber for Needs you, red) are the app's own in both skins:
+   they are what the fleet says, not decoration. */
 :root.claude {
   --serif: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
   --term-bg: #1f1e1d; --term-dim: #b0aea5; --term-accent: #e08a68;
@@ -46,3 +48,80 @@
 .claude #list-nav [aria-pressed="true"]:not(#attention-tab) { background: color-mix(in srgb, var(--fg) 10%, transparent); color: var(--fg); }
 .claude.light #list-nav { --ink: #3d3d3a; }
 .claude :is(.sb-row, .sb-card, .pane-row)[aria-current="true"]:not(:disabled) { box-shadow: inset 0 0 0 1px var(--line); }
+
+/* ---- A phone, as Claude's Code tab -------------------------------------------------------
+   No tab bar: places are the drawer's, as Claude's are. The header is three floating pieces
+   over the paper: a round menu button, the list's name centred, a round filter button. Search
+   is a round button at the bottom left that opens into a pill; New session floats bottom right. */
+#list-title { display: none; }
+@media (max-width: 1099px) {
+  .claude #list-nav { display: none; }
+  .claude #app { --bar-room: max(16px, env(safe-area-inset-bottom)); }
+  .claude .app-header:has(> #find:not([hidden])) { min-height: 64px; margin: 4px 16px 0; padding: 0; border-radius: 0; background: none; box-shadow: none; justify-content: space-between; }
+  .claude :is(#menu-open, #side-filter-picker summary, #back, .landing-head > .icon-button:first-child) { width: 48px; height: 48px; min-height: 48px; border-radius: 50%; background: var(--surface); border: 0; color: var(--fg); box-shadow: 0 1px 3px rgb(0 0 0 / .08), 0 6px 20px rgb(0 0 0 / .08); }
+  .claude .app-header:has(> #find:not([hidden])) #list-title { display: block; position: absolute; left: 80px; right: 80px; text-align: center; font-size: 18px; font-weight: 600; pointer-events: none; }
+  /* The filter, lifted out of the search row to the header's right; its menu a card under it. */
+  .claude .app-header #side-filter-picker { position: fixed; z-index: 6; right: calc(16px + env(safe-area-inset-right)); top: calc(12px + env(safe-area-inset-top)); }
+  .claude :is(.app-header, .landing-head) #side-filter-picker summary { width: 48px; height: 48px; background: var(--surface); }
+  .claude #side-filter-picker[open] .header-picker-menu { inset: calc(12px + env(safe-area-inset-top)) 16px auto auto; width: min(300px, calc(100vw - 32px)); max-height: 80dvh; padding: 8px; border: 0; border-radius: 28px; box-shadow: 0 2px 6px rgb(0 0 0 / .08), 0 16px 48px rgb(0 0 0 / .18); }
+  .claude #side-filter-picker .header-picker-menu::before { content: none; }
+  .claude #side-filter-picker .acct-opt { min-height: 46px; padding: 6px 14px; border-radius: 16px; font-size: 17px; }
+  .claude #side-filter-picker .acct-opt[aria-pressed="true"] { font-weight: 400; }
+  /* Its check leads the row, as in Claude's menus. */
+  .claude .header-picker-menu .acct-opt::after { order: -1; margin: -4px 10px 0 4px; border-color: var(--fg); }
+  /* Search: the round button bottom left; focused or holding a query, a pill across the screen. */
+  .claude .app-header #find { position: absolute; z-index: 5; left: calc(16px + env(safe-area-inset-left)); bottom: var(--bar-room); flex: none; width: 56px; height: 56px; transition: width .2s; }
+  .claude .app-header #find:has(#search:is(:focus, :not(:placeholder-shown))) { width: calc(100% - 32px); z-index: 6; }
+  .claude #find .search { height: 56px; padding: 0 6px 0 0; border-radius: 28px; background: var(--surface); box-shadow: 0 1px 3px rgb(0 0 0 / .1), 0 8px 24px rgb(0 0 0 / .12); }
+  .claude .app-header:has(.search:focus-within) { box-shadow: none; }
+  .claude #find #search-icon { display: grid; place-items: center; flex: none; width: 56px; height: 56px; margin-right: -56px; color: var(--fg); pointer-events: none; }
+  .claude #find #search-icon svg { width: 22px; height: 22px; }
+  .claude #find .search input { height: 56px; padding-left: 56px; font-size: 17px; }
+  .claude #find:not(:has(#search:is(:focus, :not(:placeholder-shown)))) .search input::placeholder { color: transparent; }
+  .claude .app-header #new-window { height: 56px; }
+  .claude .app-header:has(#search:is(:focus, :not(:placeholder-shown))) #new-window { display: none; }
+
+  /* A session's row: a small status ring, the name, one muted line of state and place, and a
+     blue dot where it waits on you. The agent's logo and the summary are a tap away, in the pane. */
+  .claude #pane-list::before { content: "Sessions"; display: block; padding: 20px 24px 6px; color: var(--muted); font-size: 15px; }
+  .claude .pane-row { gap: 14px; padding: 0 24px; background: none; }
+  .claude .pane-row::before { content: none; }
+  .claude .pane-row .pane-icon { width: 20px; height: 20px; }
+  .claude .pane-row .pane-icon > * { display: none; }
+  .claude .pane-row .pane-icon::before { content: ""; width: 14px; height: 14px; box-sizing: border-box; border: 2px solid var(--muted); border-radius: 50%; }
+  .claude .pane-row:has(.badge.running) .pane-icon::before { width: 18px; height: 18px; border-color: var(--muted) transparent transparent var(--muted); animation: claude-spin 1s linear infinite; }
+  .claude .pane-row .row-body { padding: 13px 0; border-bottom: 0; }
+  .claude .pane-row .row-title strong { font-size: 17px; font-weight: 500; }
+  .claude .pane-row .row-title :is(.row-age, svg), .claude .pane-row .row-status { display: none; }
+  .claude .pane-row .row-title::after { content: ""; flex: none; width: 9px; height: 9px; margin-left: auto; border-radius: 50%; }
+  .claude .pane-row.needs-you .row-title::after { background: #3b7bd6; }
+  .claude .pane-row .row-meta { display: flex; flex-wrap: nowrap; align-items: baseline; justify-content: flex-start; gap: 0; margin-top: 1px; overflow: hidden; white-space: nowrap; color: var(--muted); font-size: 15px; }
+  .claude .pane-row .row-meta > * { order: 1; flex: none; margin: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; }
+  .claude .pane-row .row-meta > .badge { order: 0; position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
+  .claude .pane-row .row-meta > .row-details { order: 2; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .claude .pane-row .row-meta > :is(.session-chip, .row-details):not(:empty, [hidden])::before { content: " · "; white-space: pre; }
+  .claude .pane-row.needs-you, .claude .pane-card:has(.needs-you) { background: none; --card: var(--bg); }
+  .claude .pane-card { border-bottom: 0; }
+  .claude .pane-card .sb-replies:not(:empty), .claude .pane-card .sb-compose { padding-left: 58px; }
+  .claude .session-label { padding: 20px 24px 6px; color: var(--muted); font-family: inherit; font-size: 15px; font-weight: 400; }
+
+  /* The drawer: the name in the serif, places as plain rows, the current one a soft tile. */
+  .claude #drawer { width: min(340px, 86vw); padding-inline: 16px; border-radius: 0 32px 32px 0; background: var(--bg); }
+  .claude .drawer-brand { padding: 20px 12px 18px; font-family: var(--serif); font-size: 30px; font-weight: 500; }
+  .claude .drawer-brand img { display: none; }
+  .claude #drawer-nav button { min-height: 52px; padding: 0 14px; border-radius: 14px; font-size: 17px; font-weight: 400; }
+  .claude #drawer-nav [aria-current="page"] { background: var(--raised); color: var(--fg); }
+  .claude .drawer-recent h2 { margin: 22px 12px 6px; font-family: inherit; font-size: 15px; font-weight: 400; }
+  .claude .drawer-recent > :is(button, a) { min-height: 50px; padding: 0 14px; border-radius: 14px; font-size: 17px; }
+
+  /* A pane: Back is the same round button; the message box is Claude's card, the text above
+     and its buttons in a row under it, Send round at the right. */
+  .claude #heading { border-bottom: 0; padding: 8px 8px 8px 16px; }
+  .claude #composer { border-top: 0; padding: 8px 12px max(12px, env(safe-area-inset-bottom)); }
+  .claude #reply-form { flex-wrap: wrap; align-items: center; gap: 4px; padding: 8px; border: 1px solid var(--line); border-radius: 28px; background: var(--surface); box-shadow: 0 4px 20px rgb(0 0 0 / .06); }
+  .claude #reply-form :is(#reply, #secret) { order: -1; flex: 1 0 100%; border: 0; background: none; padding: 8px 12px 4px; font-size: 17px; }
+  .claude #reply-form :is(#reply, #secret):focus-visible { outline: none; }
+  .claude #reply-form .icon-button:not(#send) { width: 40px; height: 40px; min-height: 40px; border-radius: 50%; }
+  .claude #send { width: 40px; height: 40px; min-height: 40px; margin-left: auto; }
+}
+@keyframes claude-spin { to { transform: rotate(1turn); } }
