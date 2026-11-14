@@ -2449,3 +2449,107 @@ def test_a_corrective_read_replaces_the_sends_with_the_offers():
         result = classify(_pane("codex"), screen,
                           lambda _prompt, _text, replies=replies: next(replies))
         assert "question" not in result and result.get("offers") == want
+
+
+# Claude Code's welcome screen, abridged: its box, a recent session, an empty input row.
+_NEW_SESSION = "\n".join([
+    "╭─── Claude Code ─────────────────────────────╮",
+    "│  Welcome back!      Recent activity          │",
+    "│                     2d ago  Tidy the garden planner │",
+    "│                     /resume for more         │",
+    "╰──────────────────────────────────────────────╯",
+    "", "─" * 40, "❯ ", "─" * 40, "  ? for shortcuts",
+])
+
+
+def test_a_new_session_reads_fresh_with_the_sessions_it_lists():
+    read = {"tool": "claude", "activity": "idle", "fresh": True,
+            "recent_sessions": ["Tidy the garden planner", "Invented elsewhere", 7,
+                                "Tidy  the garden planner"]}
+    r = classify(_pane("claude"), _NEW_SESSION, _llm(read))
+    assert (r["fresh"], r["resumable"], r["recent_sessions"]) == (
+        True, True, ["Tidy the garden planner"])
+
+
+def test_fresh_is_dropped_once_anything_happened():
+    read = {"tool": "claude", "activity": "idle", "fresh": True,
+            "recent_sessions": ["Tidy the garden planner"]}
+    sent = _NEW_SESSION.replace("\n\n", "\n\n❯ plan the beds\n\n● Done.\n\n✻ Worked for 4s\n\n", 1)
+    # A draft too: Resume's typed command would land after it, and both would be sent.
+    draft = _NEW_SESSION.replace("❯ ", "❯ plan the beds")
+    for screen, extra in ((sent, {}), (draft, {}), (_NEW_SESSION, {"activity": "running"}),
+                          (_NEW_SESSION, {"tool": "shell"})):
+        r = classify(_pane("claude" if not extra.get("tool") else "bash"), screen,
+                     _llm({**read, **extra}))
+        assert "fresh" not in r and "recent_sessions" not in r
+
+
+def test_resume_is_offered_only_over_an_empty_composer():
+    # Resume types the agent's command into its composer: after a draft both would be sent.
+    read = {"activity": "idle", "fresh": True, "recent_sessions": ["Sort the seed list"]}
+    dim = lambda t: f"{tmux.DIM_OPEN}{t}{tmux.DIM_CLOSE}"  # noqa: E731
+    gemini = "  Recent: Sort the seed list\n╭────────╮\n│ > {} │\n╰────────╯\n  ~/src  gemini-pro"
+    opencode = ("  Recent: Sort the seed list\n┃\n┃  {}\n┃\n┃  Build · Model X · Provider\n"
+                "╹━━━━━━━━\n ~/src   ctrl+p commands")
+    cases = [("gemini", gemini, dim("Type your message"), True),
+             ("gemini", gemini, "water the beds", False),
+             ("opencode", opencode, "", True),
+             ("opencode", opencode, dim('Ask anything... "Fix a TODO"'), True),
+             ("opencode", opencode, "water the beds", False),
+             ("omp", "  Recent: Sort the seed list\n > ", "", False),  # its composer is unread
+             # A Gemini draft on the box's second row, under an empty "> " row.
+             ("gemini", gemini.replace("│ > {} │", "│ > │\n│   water the beds │"), "", False),
+             # A dim box and hint, the hint's dim run carried on from the row above it.
+             ("gemini", gemini.replace("╭────────╮\n│ > {} │", dim("╭────────╮\n│") + " > "
+                                       + tmux.DIM_OPEN + "Type a message\n│"), "", True),
+             ("opencode", opencode.replace("┃", dim("┃")), "", True),
+             ("opencode", opencode.replace("┃", dim("┃")), "water the beds", False),
+             ("codex", "  Recent: Sort the seed list\n› \n  second line\n\n  ? for shortcuts", "",
+              False),  # a multi-line draft whose first row is empty
+             ("codex", "  Recent: Sort the seed list\n› \n\n  ? for shortcuts", "", True)]
+    for tool, screen, draft, resumable in cases:
+        # The model's own "resumable" is no evidence: only the composer check sets it.
+        model = {**read, "tool": tool, "resumable": True}
+        r = classify(_pane(tool), screen.replace("{}", draft), _llm(model))
+        assert r["fresh"] is True, (tool, draft)
+        assert (r.get("resumable"), r.get("recent_sessions")) == (
+            (True, ["Sort the seed list"]) if resumable else (None, None)), (tool, draft)
+
+
+def test_a_corrective_read_decides_fresh():
+    # The first read's question is not on screen, so the viewport is read again: its read of
+    # the welcome screen is the card's, and the first read's is dropped with its question.
+    bad = {"tool": "claude", "activity": "waiting", "fresh": True,
+           "question": {"prompt": "Which bed first?", "answer_style": "text"}}
+    good = {"tool": "claude", "activity": "idle", "fresh": True}
+    for retry, fresh in ((good, True), ({"tool": "claude", "activity": "idle"}, None)):
+        reads = [{**bad, "fresh": not fresh}, retry]
+        r = classify(_pane("claude"), f"{VISIBLE_SCREEN}\n{_NEW_SESSION}",
+                     lambda *_a, _r=reads, **_k: _r.pop(0))
+        assert (r.get("fresh"), reads) == (fresh, [])
+
+
+def test_a_startup_banner_with_no_turn_under_it_is_fresh():
+    # Newer startup screens the model does not read as a welcome, invented: Codex's bare
+    # banner over a › composer holding only its placeholder; Gemini's banner drawn twice
+    # (before and after sign-in) over its box holding only its greyed vim-mode hint. The
+    # banner makes them fresh, with Resume; a typed prompt drops Resume, and a turn under
+    # the banner (a reply, or Codex's sent › row) drops fresh too.
+    codex = ("  >_ OpenAI Codex (v0.169.0)\n     ~/src/tide-charts\n\n  Ask about the tides.\n\n"
+             f"› {tmux.PLACEHOLDER_OPEN}Ask Codex to do anything{tmux.PLACEHOLDER_CLOSE}\n\n"
+             "  gpt-6-codex medium · Context 100% left · Context 0% used")
+    gemini = (" Gemini CLI v0.68.0\n Waiting for authentication...\n Gemini CLI v0.68.0\n"
+              " Signed in with Google /auth\n Plan: Free tier\n╭──────────────╮\n"
+              f"│ > {tmux.DIM_OPEN}Press 'Esc' for NORMAL mode.{tmux.DIM_CLOSE} │\n"
+              "╰──────────────╯\n [INSERT]\n ~/src/recipe-scaler  main  quota 0% used")
+    composer = {"codex": codex.split("\n")[5], "gemini": gemini.split("\n")[6]}
+    typed = {"codex": "› slice it", "gemini": "│ > slice it │"}
+    turn = {"codex": "› chart the tides\n\n• Charted.\n\n", "gemini": " > scale it\n\n ✦ Scaled.\n"}
+    for tool, screen in (("codex", codex), ("gemini", gemini)):
+        draft = screen.replace(composer[tool], typed[tool])
+        ran = screen.replace(composer[tool], turn[tool] + composer[tool])
+        for shown, want in ((screen, (True, True)), (draft, ((tool == "gemini") or None, None)),
+                            (ran, (None, None))):
+            r = classify(_pane(tool), f"{VISIBLE_SCREEN}\n{shown}",
+                         _llm({"tool": tool, "activity": "idle"}))
+            assert (r.get("fresh"), r.get("resumable")) == want, (tool, shown)
