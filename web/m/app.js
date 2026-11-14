@@ -1263,6 +1263,7 @@ function render() {
     const send = node.querySelector(".offer-choices button"); block(send, answered?.note || sendBlock({ sending })); send.classList.toggle("picked", picked(pane, { option: value, index: -1 }));
   });
   for (const fold of $("offers").querySelectorAll('[aria-expanded="false"]')) fold.classList.toggle("fits", fold.firstChild.scrollWidth <= fold.firstChild.clientWidth);
+  renderFresh(pane);
   renderTasks(pane);
   renderRichContent(pane);
   updateComposer();
@@ -1979,6 +1980,30 @@ async function answer(id, option, index, offer = false) {
   // Delivered: a walk says so as its select lands, before it waits on the picker to close.
   settle(!!(cursor ? await pickCursorRow(cursorIO(id, () => settle(true)), option, index)
     : body ? await sendKeys(body, id) : notice("Use the keyboard for this option.")));
+}
+
+// A brand-new session at its welcome screen (classify._ground_fresh): the agent's logo, the
+// past sessions that screen lists, and the agent's own resume command, which opens its
+// session picker; the picker is then a question card like any other. A listed session is a
+// way in to that picker too, since only the picker knows which row each title is.
+const RESUME = { claude: "/resume", codex: "/resume", gemini: "/resume", antigravity: "/resume", opencode: "/sessions", omp: "/resume" };
+function renderFresh(pane) {
+  const resume = pane?.fresh === true && RESUME[pane.tool];
+  show("fresh-section", !!resume);
+  if (!resume) return;
+  const logo = $("fresh-logo");
+  if (logo.getAttribute("src") !== LOGOS[pane.tool]) logo.src = LOGOS[pane.tool];
+  const why = sendBlock({ sending });
+  const go = () => sendKeys({ keys: resume, enter: true, literal: true });
+  const recent = (Array.isArray(pane.recent_sessions) ? pane.recent_sessions : []).filter((t) => typeof t === "string");
+  reconcile($("fresh-recent"), recent, (t) => `${active}:${t}`, () => {
+    const button = document.createElement("button"); button.type = "button";
+    button.onclick = () => go();
+    return button;
+  }, (button, title) => { html(button, `${licon("history", 18)}<span></span>`); text(button.lastChild, title); block(button, why); });
+  const button = $("fresh-resume");
+  html(button, `${licon("history", 18)}<span>${recent.length ? "More sessions" : "Resume a session"}…</span>`);
+  button.onclick = go; block(button, why);
 }
 
 // What the agent hands the user to send back (classify.screen_offers), whatever the pane's

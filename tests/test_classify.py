@@ -2303,3 +2303,35 @@ def test_a_corrective_read_replaces_the_sends_with_the_offers():
         result = classify(_pane("codex"), screen,
                           lambda _prompt, _text, replies=replies: next(replies))
         assert "question" not in result and result.get("offers") == want
+
+
+# Claude Code's welcome screen, abridged: its box, a recent session, an empty input row.
+_NEW_SESSION = "\n".join([
+    "╭─── Claude Code ─────────────────────────────╮",
+    "│  Welcome back!      Recent activity          │",
+    "│                     2d ago  Tidy the garden planner │",
+    "│                     /resume for more         │",
+    "╰──────────────────────────────────────────────╯",
+    "", "─" * 40, "❯ ", "─" * 40, "  ? for shortcuts",
+])
+
+
+def test_a_new_session_reads_fresh_with_the_sessions_it_lists():
+    read = {"tool": "claude", "activity": "idle", "fresh": True,
+            "recent_sessions": ["Tidy the garden planner", "Invented elsewhere", 7]}
+    r = classify(_pane("claude"), _NEW_SESSION, _llm(read))
+    assert (r["fresh"], r["recent_sessions"]) == (True, ["Tidy the garden planner"])
+    # An unsent draft is still a new session.
+    r = classify(_pane("claude"), _NEW_SESSION.replace("❯ ", "❯ plan the beds"), _llm(read))
+    assert r["fresh"] is True
+
+
+def test_fresh_is_dropped_once_anything_happened():
+    read = {"tool": "claude", "activity": "idle", "fresh": True,
+            "recent_sessions": ["Tidy the garden planner"]}
+    sent = _NEW_SESSION.replace("\n\n", "\n\n❯ plan the beds\n\n● Done.\n\n✻ Worked for 4s\n\n", 1)
+    for screen, extra in ((sent, {}), (_NEW_SESSION, {"activity": "running"}),
+                          (_NEW_SESSION, {"tool": "shell"})):
+        r = classify(_pane("claude" if not extra.get("tool") else "bash"), screen,
+                     _llm({**read, **extra}))
+        assert "fresh" not in r and "recent_sessions" not in r

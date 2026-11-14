@@ -208,6 +208,16 @@ a.icon-button, .pane-row, .sb-open, .sb-rail { color: inherit; text-decoration: 
 .offer-text svg { color: var(--muted); margin-top: 1px; }
 .offer-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
 .offer-choices button { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+/* A brand-new session at its welcome screen: the agent's mark, and a way back into old work. */
+#fresh-section { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
+#fresh-logo { width: 48px; height: 48px; object-fit: contain; border-radius: 10px; }
+#fresh-section h2 { font-size: 19px; font-weight: 550; }
+#fresh-recent:empty { display: none; }
+#fresh-recent { display: grid; gap: 8px; width: 100%; }
+#fresh-section button { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); text-align: left; overflow-wrap: anywhere; }
+#fresh-recent button { width: 100%; }
+#fresh-resume { font-weight: 600; }
+#fresh-section button:hover:not(:disabled, [aria-disabled="true"]) { border-color: var(--amber); }
 #answer-status { color: var(--muted); font-size: 12px; padding-top: 10px; }
 #task-count { color: var(--muted); font-size: 12px; margin-left: 6px; }
 /* A title too long to share its line with the meta keeps the line beside its icon (the

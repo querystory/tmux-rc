@@ -160,6 +160,8 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
   "working_prs": [{"repo": "owner/name", "number": <positive int>}],
   "links": [{"href": "https://...", "text": "short meaningful label"}],
   "offers": ["..."],
+  "fresh": true,   // see FRESH SESSION below; omit otherwise
+  "recent_sessions": ["..."],   // with "fresh": past sessions its welcome screen lists to resume
   "copyables": [{"label": "one-line summary of WHAT this text is, e.g. 'Commit message' "
                  "or 'The 3 failing test names'",
                  "text": "the EXACT text to put on the clipboard, verbatim",
@@ -203,6 +205,15 @@ telemetry/config/docs links, often markdown [label](url)) — chrome, not conten
 user is being asked to open. Terminal wrapping splits long URLs across lines —
 REASSEMBLE the full URL (join the wrapped fragments, no spaces). "text" is a short
 human label ("Google OAuth approval", "PR #18"), never the URL itself. At most 3.
+
+"fresh": the agent has JUST STARTED a brand-new session and sits at its startup/welcome
+screen (a logo or banner, a welcome box, "Tips for getting started", a "Recent activity" or
+"resume" hint) with its input box ready and NO conversation yet: nothing sent, no reply, no
+tool output. An unsent draft in the input box still counts as fresh. Once any turn has run,
+or the agent exited to a shell, it is not fresh. Report activity "idle" with it.
+"recent_sessions": only with "fresh", the titles of past sessions that welcome screen
+itself lists as resumable (Claude Code's "Recent activity" rows), each verbatim as shown,
+without its age ("2d ago"), most recent first, at most 5. Omit when it lists none.
 
 "offers": when the agent is blocked on the user or hands them the next step, and that action is text to
 send into this pane (a command it could not run itself, a reply it asks for word for word:
