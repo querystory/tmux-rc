@@ -1,0 +1,22 @@
+{
+  "description": "Synthetic, a narrow pane: the final message's paragraph runs straight into 'Still waiting on you:' and two bulleted asks, with no blank row between. Both asks are the one question (not only the last bullet, and without its '- '), with a few short replies.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n      88 -  const due = plant.lastWatered + plant.every;\n      88 +  const due = addDays(plant.lastWatered,\n      89 +                      plant.every);\n  ⎿  Allowed by auto mode classifier\n\n● #34 is now in the merge queue at position 2.\n  #36 is first and its checks are still running.\n  The queue's \"merge strategy\" note is normal for\n  this repo; it doesn't mean the command failed.\n  Neither has merged yet. Still waiting on you:\n  - #31 rework: push it?\n  - #29: keep this direction?\n\n✻ Cogitated for 8s · done 4:42 AM\n          ✔ Update installed · Restart to update\n──────────────────────────────────────────────────\n❯ \n──────────────────────────────────────────────────\n  ~/src/greenhouse on rework/schedule…\n  session: +310/-0 lines · 9% ctx · 12h4m · …\n  ⏵⏵ auto mode on · PR #34",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "text",
+      "shows": [
+        "push it?",
+        "keep this direction?"
+      ],
+      "prompt_excludes": [
+        "- #"
+      ]
+    },
+    "buttons_at_most": 3,
+    "headline": "PR #34 queued behind #36; waiting on the user to push #31's rework and confirm #29's direction"
+  }
+}

@@ -86,11 +86,12 @@ _OPENCODE_RUNNING_RE = re.compile(
 )
 _CLAUDE_TURN_RE = re.compile(
     # Claude Code's turn status row: a live spinner ("✶ Befuddling… (1m 7s · ↓ 2k tokens)")
-    # or the finished stamp ("✻ Worked for 40s · done 4:47 AM · 1 shell still running").
+    # or the finished stamp ("✻ Worked for 40s · done 4:47 AM · 1 shell still running", a
+    # long turn's "for 3d 13h 15m").
     # A stamp's trailing shell/monitor count is background work, not the agent's turn, and
     # a bar after it is the frame Claude Code draws down the right of its transcript.
     r"^[ \t]*[·✢✳✶✻✽][ \t]+[A-Z][\w' -]*?"
-    r"(?:(?P<live>…[ \t]*\((?:\d+[hms]|esc to interrupt))| for \d+[hms][\dhms ]*(?:[·│]|$))",
+    r"(?:(?P<live>…[ \t]*\((?:\d+[hms]|esc to interrupt))| for \d+[dhms][\dhms ]*(?:[·│]|$))",
     re.MULTILINE,
 )
 # Codex's live status row: "Working (2m 32s • esc to interrupt)", and the same row while its
@@ -556,8 +557,9 @@ def _occurrences(prompt: str, visible: str, *, row: bool = False) -> list[re.Mat
     # A wrapped prompt's rows may each carry a frame or quote bar (│ …), skipped too. Each
     # alternative needs its own bar, so no two ever match one gap: overlapping ones
     # backtrack exponentially on a long wrapped near-miss.
-    words = (r"(?:[ \t]*\n[ \t]*[│┃╎][ \t]*|[ \t]*[│┃╎][ \t]*\n[ \t]*(?:[│┃╎][ \t]*)?|\s+)"
-             .join(map(re.escape, prompt.split())))
+    # A list's bullet starting a row is skipped too: a quote of the list's rows may drop it.
+    words = (r"(?:[ \t]*\n[ \t]*[│┃╎][ \t]*|[ \t]*[│┃╎][ \t]*\n[ \t]*(?:[│┃╎][ \t]*)?"
+             r"|[ \t]*\n[ \t]*[-•][ \t]+|\s+)".join(map(re.escape, prompt.split())))
     if row:
         words = (rf"^[ \t│┃╎]*(?:⌕[ \t]*)?{words}(?:[ \t]*{_LIVE_COUNT})?"
                  r"(?=[ \t│┃╎]*$|(?<=[?.!])[ \t]+\S)")
@@ -905,6 +907,7 @@ def _restate(question: dict, replies_fn) -> str | None:
 
 _CONTEXT_ENTRY_RE = re.compile(r"(?i)\(?\d+%\s*(?:ctx|context)\b.*")
 _LIST_ITEM_RE = re.compile(r"[-*•]\s+|\d+[.)]\s+")
+_BULLET_RE = re.compile(r"^[-•]\s+")  # not "*": a wrapped row may begin with a glob
 # A box's side bars, a block quote's left bar (Claude Code draws "▎"), and the bar Claude
 # Code draws down the right of its transcript.
 _FRAME_BARS_RE = re.compile(r"(?m)^[ \t]*[│┃▎▍▌][ \t]?|[ \t]*[│┃][ \t]*$")
@@ -915,22 +918,32 @@ _LINK_TARGET_RE = re.compile(
 
 def _final_paragraph(message: str) -> str:
     """The message's last paragraph as one line: terminal wrapping splits a long question
-    across rows. Reading back from the end it stops at a blank row, and at a list item (kept
-    when it is the last row or the rows after it are its indented continuation)."""
+    across rows. Reading back from the end it stops at a blank row, and at a list above the
+    closing rows. A message that closes on a list closes on all of it: its items (each with
+    the rows indented under it) and the row leading into them."""
     rows: list[str] = []
+    item = None  # the closing list's indent, once reading inside it
     for row in reversed(message.splitlines()):
-        text = row.strip()
+        text, indent = row.strip(), len(row) - len(row.lstrip())
         if not text:
             if rows:
                 break
             continue
         if _LIST_ITEM_RE.match(text):
-            indent = len(row) - len(row.lstrip())
-            if not rows or len(rows[-1]) - len(rows[-1].lstrip()) > indent:
-                rows.append(row)  # the item itself, or the one the wrapped rows continue
+            if item is None and rows and len(rows[-1]) - len(rows[-1].lstrip()) <= indent:
+                break  # a list above the closing rows is not theirs
+            item = indent
+        elif item is not None and indent <= item:
+            rows.append(row)  # the row leading into the list
             break
         rows.append(row)
-    return " ".join(r.strip() for r in reversed(rows))
+    return _card_line("\n".join(reversed(rows)))
+
+
+def _card_line(text: str) -> str:
+    """Rows as the card's one-line heading: terminal wraps joined, a list's bullets dropped
+    (its numbers are labels the replies may name, so they stay)."""
+    return " ".join(_BULLET_RE.sub("", row.strip()) for row in text.splitlines() if row.strip())
 
 
 def _final_message(visible: str, tool: str) -> str | None:
@@ -1060,7 +1073,7 @@ def _final_ask(visible: str, tool: str, message: str, offers: list[str], waiting
     # An offered command ending the message hands it over, its own "?" or wrapped rows and
     # all: read on the whole last paragraph (a wrapped "* glob" row is no list item there).
     blocks = re.split(r"\n\s*\n", message.strip())
-    paragraphs = [" ".join(p.split()) for p in blocks]
+    paragraphs = [" ".join(_card_line(p).split()) for p in blocks]
     # An offer as a whole word or command: "push" is not offered by "unpushed".
     offered = "|".join(rf"(?<!\w){re.escape(' '.join(o.split()))}(?!\w)" for o in offers)
     paragraph = paragraphs[-1]
@@ -1070,7 +1083,7 @@ def _final_ask(visible: str, tool: str, message: str, offers: list[str], waiting
             return {"prompt": closing, "answer_style": "text"}
         # An offer elsewhere (a command, a reply asked for): the paragraph holding it.
         paragraph = next((p for p in reversed(paragraphs)
-                          if offered and re.search(offered, p)), None)
+                          if offered and re.search(offered, p, re.IGNORECASE)), None)
         if paragraph is None:
             # A `! command` row hands over its whole paragraph (a narrow pane wraps the
             # command over several rows) with the one leading into it, each row's own
@@ -1097,15 +1110,27 @@ def _clean_options(raw: object, *prompts: str) -> list[str]:
     return list(picks.values())
 
 
-def _same_question(model_q: object, ask: dict) -> dict:
+def _same_question(model_q: object, ask: dict, view: str) -> dict:
     """The parser's own question when the deterministic ask that replaces it is the same
-    question (one prompt contains the other), else {}: its suggested replies and the rows
-    it cites are kept."""
+    question (one prompt contains the other, or the ask is a row of the list the model reads
+    as one ask), else {}: its suggested replies and the rows it cites are kept."""
     if not isinstance(model_q, dict) or model_q.get("answer_style", "text") != "text":
         return {}
-    old, new = str(model_q.get("prompt", "")).strip(), ask["prompt"]
-    return model_q if old and (
-        old.casefold() in new.casefold() or new.casefold() in old.casefold()) else {}
+    old, new = _plain(str(model_q.get("prompt", ""))), _plain(ask["prompt"])
+    listed = new in _plain(_rows(model_q, view))
+    return model_q if old and (old in new or new in old or listed) else {}
+
+
+def _plain(text: str) -> str:
+    """Text to compare as words: case, spacing and a list's bullets aside."""
+    return " ".join(w for w in text.casefold().split() if w not in ("-", "*", "•"))
+
+
+def _rows(question: dict, view: str) -> str:
+    """The list rows a question cites that `view` shows, one per line."""
+    items = question.get("items")
+    rows = items if isinstance(items, list) else ()
+    return "\n".join(_card_line(i) for i in rows if _quoted(i, view))
 
 
 # What kind of question it is, and so what the buttons are, is the model's call: one small
@@ -1113,13 +1138,27 @@ def _same_question(model_q: object, ask: dict) -> dict:
 # parser prompt. Empty means open-ended: no buttons, the free-text box is always there.
 _REPLIES_SYSTEM = (
     "The coding agent just asked the user the question below. Reply as JSON "
-    '{"options": [...]} with reply buttons for it: short (under 8 words), distinct, each a '
-    "complete reply the user could type. Use an EMPTY list when the question is open-ended "
+    '{"options": [...]} with at most three reply buttons for it: short (under 8 words), '
+    "distinct, each a complete reply the user could type. Use an EMPTY list when the "
+    "question is open-ended "
     "(what, which, how, a choice between alternatives, a request for content). For a "
-    "yes/no question give the natural accept and decline. If it bundles several steps, "
-    'add between them one "Yes, but check with me before <step>" per step, naming only '
-    "steps the question names. The first option accepts; the last declines."
+    "yes/no question give the natural accept and decline. If one question bundles several "
+    'steps, add between them a "Yes, but check with me before <step>", naming a step the '
+    'question names. A list of several asks is answered as a whole ("Yes to all"). The '
+    "first option accepts; the last declines."
 )
+def _beside(options: list[str], offers: list[str]) -> tuple[list[str], list[str]]:
+    """Generated reply buttons and the agent's offers, cut so the card draws three replies at
+    most: the accept and decline a push shows, then the offered replies (one among the
+    options is drawn once), then the rest of the options. Commands are no reply, and stay."""
+    def drawn(options: list[str]) -> list[str]:  # the offered replies drawn beside options
+        said = {o.strip().casefold() for o in options}
+        return [o for o in offers if not o.startswith("! ") and o.strip().casefold() not in said]
+    options = options[:max(2, 3 - len(drawn(options)))]
+    beside = drawn(options)
+    return options, [o for o in offers if o not in beside or o in beside[:3 - len(options)]]
+
+
 _replies: dict[str, list[str]] = {}  # by question text: one call per question, not per tick
 
 
@@ -1137,7 +1176,7 @@ def _reply_options(prompt: str, replies_fn) -> list[str]:
             if len(got) != 1 and (got or not reply["options"]):  # lone or all-junk: unusable
                 if len(_replies) > 256:
                     _replies.clear()
-                _replies[prompt] = got[:4]
+                _replies[prompt] = got[:3]
     return _replies.get(prompt, [])
 
 
@@ -1540,13 +1579,27 @@ def classify(
     if final and (ask := _final_ask(visible, tool, final, offers, waiting)):
         if ask.get("options") == ["try again"]:
             result["headline"] = ask["prompt"]  # A stopped provider error outranks old progress.
-        own = _same_question(result.get("question"), ask)
-        if "options" not in ask and (
-            options := _clean_options(own.get("options"), str(own.get("prompt", "")).strip(),
-                                      ask["prompt"])[:4]
-            or _reply_options(ask["prompt"], replies_fn)
-        ):
+        own = _same_question(result.get("question"), ask, view)
+        # Part of a list the model reads as one ask (a closing row, or the list's paragraph):
+        # the list is the question, as the model quoted it (its heading over its rows, or one
+        # prompt holding them all), read off the screen.
+        said = str(own.get("prompt", "")).strip()
+        said = _card_line(found[0] if (found := said and _last_occurrence(said, view)) else said)
+        rows = _rows(own, view)
+        # The model's replies answer its question, so only one covering the whole ask.
+        if covered := bool(said) and _plain(ask["prompt"]) in _plain(f"{said} {rows}"):
+            ask["prompt"] = said
+        if "options" not in ask and covered and (options := _clean_options(
+                own.get("options"), str(own.get("prompt", "")).strip(), ask["prompt"])[:4]):
             ask["options"] = options
+        elif "options" not in ask and (options := _reply_options(
+                "\n".join(filter(None, (ask["prompt"], rows))), replies_fn)):
+            ask["options"], kept = _beside(options, offers or [])
+            if offers:
+                result["offers"] = kept
+        # Rows the prompt already holds are not listed again under it.
+        if rows and all(_plain(r) in _plain(ask["prompt"]) for r in rows.split("\n")):
+            own = {k: v for k, v in own.items() if k not in ("items", "subject")}
         ask.update({k: own[k] for k in ("items", "subject", "link") if k in own})
         result["question"] = ask
         result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.
@@ -1599,7 +1652,7 @@ def classify(
         items = question.pop("items", None)
         view = _ask_view(text) if result.get("tool") == "claude" else visible
         if isinstance(items, list) and (quoted := [i for i in items if _quoted(i, view)]):
-            question["items"] = quoted
+            question["items"] = [_card_line(i) for i in quoted]
         if not _quoted(question.get("subject"), view):
             question.pop("subject", None)
         # A question with no style is answered as text (models.py).

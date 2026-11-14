@@ -307,6 +307,10 @@ def test_reply_buttons_expectation_wants_accept_then_decline():
     for flag in (None, False, True):  # a bool is no index, as answerOptions reads it
         assert not score_structured({"question": {**free, "free_text": flag}}, few)[0]
     assert score_structured({"question": {**free, "options": 7}, "offers": "x"}, few)[0]
+    shows = {"question": {"answer_style": "text", "shows": ["merge?", "flag?"]}}
+    listed = {"answer_style": "text", "prompt": "Still open:", "items": ["merge?", "flag?"]}
+    assert score_structured({"question": listed}, shows)[0]
+    assert not score_structured({"question": {**listed, "items": ["flag?", 7]}}, shows)[0]
     chips = {"status_entries_exclude": ["16% ctx"]}
     assert score_structured({"status_entries": ["4h49m"]}, chips)[0]
     assert not score_structured({"status_entries": ["16% ctx", "4h49m"]}, chips)[0]

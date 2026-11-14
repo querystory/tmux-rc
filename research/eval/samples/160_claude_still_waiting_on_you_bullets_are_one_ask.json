@@ -1,0 +1,23 @@
+{
+  "description": "Synthetic: a finished auto-mode turn closes on 'Still waiting on you:' with two bulleted asks, each its own question. Both are one ask: the card's question carries both bullets (not just the last, and without its '- '), with a few short replies.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ How are the watering-schedule PRs doing?\n\n  Ran 3 shell commands\n\n● Both PRs are green.\n\n  - #31 (schedule rework) rebased onto main; the flaky timezone test now\n    pins its clock, so CI passed twice in a row.\n  - #34 (frost alerts) has the new threshold slider. I kept it behind the\n    settings page for now rather than on the dashboard.\n\n  Still waiting on you:\n  - #31 rework: push it?\n  - #34: keep the slider on the settings page, or move it to the dashboard?\n\n✻ Cooked for 4m 10s · done 2:05 PM\n────────────────────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────────────────────\n  ~/src/greenhouse | Opus 5.5 | robin@example.com\n  session: +88/-19 lines · 11% ctx · 4m 10s · $0.92\n  ⏵⏵ auto mode on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "model": "Opus 5.5",
+    "question": {
+      "answer_style": "text",
+      "prompt_excludes": [
+        "- #"
+      ],
+      "shows": [
+        "push it?",
+        "keep the slider"
+      ]
+    },
+    "buttons_at_most": 3,
+    "headline": "Watering-schedule PRs green; waiting on the user to approve pushing #31 and to place #34's slider"
+  }
+}

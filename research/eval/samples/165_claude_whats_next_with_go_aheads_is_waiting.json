@@ -1,0 +1,24 @@
+{
+  "description": "Synthetic, a narrow pane: 'What's next:' lists a try-it step and three 'Your word…' / 'Your OK for…' go-aheads with no question mark. Those go-aheads wait on the user: the pane is Needs you with one question showing them, not idle.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n    clean now and CI is green.\n  - One catch: on a plain file host, link to\n    notes.html, not notes.md, or readers see the\n    raw Markdown.\n\n  Two tests fail locally on this machine because\n  of how the login shell's PATH is set up. They\n  fail the same way on unchanged main and pass in\n  CI.\n\n  What's next:\n  - Try it now: export a folder, then run\n    make publish DIR=<out>. It will be at\n    notes.example.com/<folder>/.\n  - Your word: whether to merge #61 to main, and\n    #14 in the infra repo.\n  - Your OK for #14: the open-embed exemption\n    on the help pages, and whether to protect\n    the archive and drafts folders.\n  - Your OK for step 0: the deploy key with\n    write access only under your own folder.\n    Step 0 is the automatic publish sync, and it\n    needs that key.\n\n✻ Churned for 2d 4h 15m · done 10:55 PM\n          ✔ Update installed · Restart to update\n───────────────────────────────── hosted notes ─\n❯ \n──────────────────────────────────────────────────\n  ~/src/notebook on main | Opus 5.5 | robin@…\n  session: +643/-0 lines · 9% ctx · 52h22m · $…\n  ⏵⏵ auto mode on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "model": "Opus 5.5",
+    "question": {
+      "answer_style": "text",
+      "shows": [
+        "merge #61",
+        "Your OK for #14",
+        "step 0"
+      ],
+      "prompt_excludes": [
+        "- "
+      ]
+    },
+    "buttons_at_most": 3,
+    "headline": "Publishing work is ready; waiting on the user's word on merging #61 and #14 and two approvals"
+  }
+}
