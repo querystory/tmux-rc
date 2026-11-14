@@ -1,0 +1,14 @@
+{
+  "description": "Gemini CLI just launched in a new session: its banner (drawn twice, once while it waited for sign-in and again after), the signed-in and plan lines, an edits hint, the input box holding only its greyed vim-mode hint with [INSERT], and a footer at 0% quota used. No conversation yet, so fresh=true. Invented: a recipe-scaler project.",
+  "current_command": "node",
+  "processes": [
+    "node /usr/local/bin/gemini"
+  ],
+  "capture": " Gemini CLI v0.68.0\n\n ⟪dim⟫Waiting for authentication...⟪/dim⟫\n\n Gemini CLI v0.68.0\n\n Signed in with Google /auth\n Plan: Gemini Code Assist for individuals\n\n ⟪dim⟫Shift+Tab to accept edits⟪/dim⟫\n╭──────────────────────────────────────────────────────────────────────────────╮\n│ > ⟪dim⟫Press 'Esc' for NORMAL mode.⟪/dim⟫                                        │\n╰──────────────────────────────────────────────────────────────────────────────╯\n [INSERT]\n workspace (/directory)    branch    sandbox       /model             quota\n ~/src/recipe-scaler       main      no sandbox    gemini-3-pro       0% used",
+  "expected": {
+    "tool": "gemini",
+    "activity": "idle",
+    "fresh": true,
+    "headline": "New Gemini CLI session, ready for input"
+  }
+}

@@ -1,10 +1,11 @@
 {
-  "description": "Genuine Gemini CLI idle — its OWN chrome (GEMINI banner, [NORMAL] status bar with gemini model + context-left, INSERT/NORMAL hint). Tests tool=gemini identification by chrome, and context_pct conversion (Gemini reports context LEFT; 88% left → 12 used). Expected tool=gemini, activity=idle. Synthetic (faithful to Gemini CLI UI).",
+  "description": "Genuine Gemini CLI idle — its OWN chrome (GEMINI banner, [NORMAL] status bar with gemini model + context-left, INSERT/NORMAL hint). Tests tool=gemini identification by chrome, and context_pct conversion (Gemini reports context LEFT; 88% left → 12 used). Expected tool=gemini, activity=idle. Synthetic (faithful to Gemini CLI UI). Its banner and tips over an empty prompt with no conversation is a brand-new session: fresh=true.",
   "current_command": "gemini",
   "capture": "  ██████  ███████ ███    ███ ██ ███    ██ ██\n  ██       ██      ████  ████ ██ ████   ██ ██\n  ██  ███  █████   ██ ████ ██ ██ ██ ██  ██ ██\n  ██   ██  ██      ██  ██  ██ ██ ██  ██ ██ ██\n  ██████  ███████ ██      ██ ██ ██   ████ ██\n\n  Tips for getting started with GEMINI.md are in the docs.\n\n╭──────────────────────────────────────────────────────────────────────────────╮\n│ > Press 'i' for INSERT mode and 'Esc' for NORMAL mode                          │\n╰──────────────────────────────────────────────────────────────────────────────╯\n  [NORMAL] ~/src/example-app    gemini-2.5-pro (88% context left)",
   "expected": {
     "tool": "gemini",
     "activity": "idle",
-    "headline": "Gemini CLI idle at the prompt"
+    "headline": "Gemini CLI idle at the prompt",
+    "fresh": true
   }
 }
