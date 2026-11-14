@@ -7,14 +7,16 @@ export function scopeHistory(scope, samples) {
   return samples.map(s => {
     if (s.n === null) return s;
     const matches = (session, tool) => (!scope.tools?.length || scope.tools.includes(tool)) && (!scope.session || session === scope.session);
-    const groups = (s.groups || []).filter(g => matches(g.session, g.tool));
+    // A pane-bound worker contributes under its harness when its pane is filtered out, in its
+    // group too, so a per-tool breakdown (the heatmap's) sums to the sample.
+    const bound = g => (g.bound_workers || []).filter(w => !matches(w.pane_session, w.pane_tool));
+    const groups = (s.groups || []).filter(g => matches(g.session, g.tool)).map(g => bound(g).length
+      ? { ...g, background: sum([g.background, STATES.map((_, i) => bound(g).filter(w => w.state === i).length)]) } : g);
     // A partial log reconstruction cannot prove a filtered fleet was empty. Keep
     // its timestamp as a gap, including at either end of the selected range.
     if (!s.groups || (s.source === 'logs' && !groups.length)) return { ...s, n: null, groups: [], source: 'gap' };
     const missing = Object.hasOwn(s, 'worker_gap_sessions') && (!scope.session || s.worker_gap_sessions?.includes(scope.session) || (s.worker_gap_sessions === null && !groups.length));
-    // A pane-bound worker contributes under its harness when its pane is filtered out.
-    const bound = groups.flatMap(g => g.bound_workers || []).filter(w => !matches(w.pane_session, w.pane_tool));
-    const background = sum([...groups.map(g => g.background), STATES.map((_, i) => bound.filter(w => w.state === i).length)]);
+    const background = sum(groups.map(g => g.background));
     return { ...s, groups, n: groups.reduce((counts, g) => counts.map((n, i) => n + (g.n[i] || 0)), STATES.map(() => 0)),
       foreground: s.foreground == null && !groups.length ? null : sum(groups.map(g => g.foreground)),
       background: missing ? null : Object.hasOwn(s, 'worker_gap_sessions')

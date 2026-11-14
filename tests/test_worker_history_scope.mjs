@@ -54,6 +54,7 @@ test('pane-bound history counts under its harness only when its pane is excluded
   const [custom] = scopeHistory({tools: ['garden-runner']}, [boundSample]);
   assert.deepEqual(custom.n, zero);
   assert.deepEqual(custom.background, busy);
+  assert.deepEqual(custom.groups.map(g => g.background), [busy]); // the per-tool breakdown has it too
   for (const scope of [{}, {tools: ['shell']}, {tools: ['shell', 'garden-runner']}, {session: 'garden'}]) {
     const [included] = scopeHistory(scope, [boundSample]);
     assert.deepEqual(included.n, busy);
