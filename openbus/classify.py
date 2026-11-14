@@ -1334,31 +1334,57 @@ def _fold_sends(result: dict) -> None:
 _AGENT_TOOLS = frozenset(_PROCESS_TOOLS.values())
 
 
-# Each agent's composer rows, where what the user types goes. Gemini CLI and Antigravity
-# box a "> " row; OpenCode draws "┃" rows down the left whose last is its mode and model
-# ("┃  Build · Claude Opus 5.5 · …"), closed by a "╹━━━" rule. Claude Code's and Codex's
-# empty ❯/› row is _EMPTY_INPUT_RE (its greyed suggestion already stripped).
-_GEMINI_COMPOSER_RE = re.compile(r"^[ \t]*│[ \t]*>(?P<draft>.*?)│?[ \t]*$", re.MULTILINE)
-_OPENCODE_COMPOSER_RE = re.compile(r"((?:^[ \t]*┃.*\n)+)[ \t]*╹━", re.MULTILINE)
-_DIM_RUN_RE = re.compile(f"{DIM_OPEN}.*?(?:{DIM_CLOSE}|$)|{DIM_CLOSE}", re.MULTILINE)
+# Each agent's composer, where what the user types goes, found by its geometry on the
+# marker-free screen. Claude Code and Codex: the last ❯/› row, with no draft row under it
+# (a blank row or a rule comes next). Gemini CLI and Antigravity: the ╭…╰ box holding a
+# "> " row. OpenCode: the "┃" rows above its "╹━━━" rule, the last its mode and model
+# ("┃  Build · Claude Opus 5.5 · …").
+_PROMPT_LINE_RE = re.compile(f"^[ \\t│]*[{PROMPT_GLYPHS}]")
+_RULE_LINE_RE = re.compile(r"^[ \t]*(?:[─━]{3,}|╰)")
+_GEMINI_INPUT_RE = re.compile(r"^[ \t]*│[ \t]*>")
+# A dim run, which tmux marks across rows as one: a hint goes on greyed on the next row.
+_DIM_SPAN_RE = re.compile(f"{DIM_OPEN}([\\s\\S]*?)(?:{DIM_CLOSE}|\\Z)")
 
 
 def _empty_composer(text: str, tool: str) -> bool:
     """Whether the agent's composer is proven empty, a greyed hint aside: a command typed
-    into it then goes out alone, where after a draft it would send both as one prompt. An
-    agent whose composer this cannot read is never proven empty."""
+    into it then goes out alone, where after a draft it would send both as one prompt.
+    Rows are found on the screen without its markers and read on one whose dim text (a
+    hint, a dim border) is blanked in place, so both keep the same rows and columns. An
+    agent whose composer this cannot find whole is never proven empty."""
     screen = text.rsplit(VISIBLE_SCREEN, 1)[-1]
     screen = re.sub(f"{PLACEHOLDER_OPEN}.*?{PLACEHOLDER_CLOSE}", "", screen)
+    shown = strip_dim(screen).split("\n")
+    typed = _DIM_SPAN_RE.sub(lambda m: re.sub(r"[^\n]", " ", m[1]), screen)
+    typed = typed.replace(DIM_CLOSE, "").split("\n")
+    last = lambda rows, pattern: next(  # noqa: E731
+        (i for i in reversed(range(len(rows))) if pattern.match(rows[i])), None)
     if tool in ("claude", "codex"):
-        return bool(_EMPTY_INPUT_RE.search(strip_dim(screen)))
+        row = last(shown, _PROMPT_LINE_RE)
+        if row is None or typed[row].strip(" \t\xa0│").lstrip(PROMPT_GLYPHS).strip(" \t\xa0│"):
+            return False
+        below = typed[row + 1] if row + 1 < len(typed) else ""
+        return not below.strip(" \t\xa0│") or bool(_RULE_LINE_RE.match(shown[row + 1]))
     if tool in ("gemini", "antigravity"):
-        *_, row = [None, *_GEMINI_COMPOSER_RE.finditer(screen)]
-        return bool(row) and not _DIM_RUN_RE.sub("", row["draft"]).strip()
+        row = last(shown, _GEMINI_INPUT_RE)
+        if row is None:
+            return False
+        top = next((i for i in range(row - 1, -1, -1) if shown[i].lstrip().startswith("╭")), None)
+        bottom = next((i for i in range(row + 1, len(shown)) if shown[i].lstrip().startswith("╰")),
+                      None)
+        if top is None or bottom is None:
+            return False
+        rows = [typed[i].strip(" \t│") for i in range(top + 1, bottom)]
+        rows[row - top - 1] = rows[row - top - 1].removeprefix(">")
+        return not any(r.strip(" \t│") for r in rows)
     if tool == "opencode":
-        *_, box = [None, *_OPENCODE_COMPOSER_RE.finditer(screen)]
-        rows = box[1].rstrip("\n").split("\n")[:-1] if box else None  # its last is the footer
-        return rows is not None and not any(
-            _DIM_RUN_RE.sub("", row).strip(" \t┃") for row in rows)
+        end = last(shown, re.compile(r"^[ \t]*╹━"))
+        start = end
+        while start and shown[start - 1].lstrip().startswith("┃"):
+            start -= 1
+        if end is None or end - start < 1:
+            return False
+        return not any(typed[i].strip(" \t┃") for i in range(start, end - 1))  # last: footer
     return False
 
 
@@ -1370,6 +1396,7 @@ def _ground_fresh(result: dict, text: str, visible: str) -> None:
     "resumable" is the card's Resume and its sessions: only over an empty composer
     (_empty_composer), since Resume types the agent's command into it."""
     fresh, recent = result.pop("fresh", None), result.pop("recent_sessions", None)
+    result.pop("resumable", None)  # only the composer check below may say so
     if not (fresh is True and result.get("tool") in _AGENT_TOOLS
             and result.get("activity") == "idle"
             and not any(result.get(k) for k in ("question", "rewind", "offers"))

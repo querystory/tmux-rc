@@ -2350,9 +2350,21 @@ def test_resume_is_offered_only_over_an_empty_composer():
              ("opencode", opencode, "", True),
              ("opencode", opencode, dim('Ask anything... "Fix a TODO"'), True),
              ("opencode", opencode, "water the beds", False),
-             ("omp", "  Recent: Sort the seed list\n > ", "", False)]  # its composer is unread
+             ("omp", "  Recent: Sort the seed list\n > ", "", False),  # its composer is unread
+             # A Gemini draft on the box's second row, under an empty "> " row.
+             ("gemini", gemini.replace("│ > {} │", "│ > │\n│   water the beds │"), "", False),
+             # A dim box and hint, the hint's dim run carried on from the row above it.
+             ("gemini", gemini.replace("╭────────╮\n│ > {} │", dim("╭────────╮\n│") + " > "
+                                       + tmux.DIM_OPEN + "Type a message\n│"), "", True),
+             ("opencode", opencode.replace("┃", dim("┃")), "", True),
+             ("opencode", opencode.replace("┃", dim("┃")), "water the beds", False),
+             ("codex", "  Recent: Sort the seed list\n› \n  second line\n\n  ? for shortcuts", "",
+              False),  # a multi-line draft whose first row is empty
+             ("codex", "  Recent: Sort the seed list\n› \n\n  ? for shortcuts", "", True)]
     for tool, screen, draft, resumable in cases:
-        r = classify(_pane(tool), screen.format(draft), _llm({**read, "tool": tool}))
+        # The model's own "resumable" is no evidence: only the composer check sets it.
+        model = {**read, "tool": tool, "resumable": True}
+        r = classify(_pane(tool), screen.replace("{}", draft), _llm(model))
         assert r["fresh"] is True, (tool, draft)
         assert (r.get("resumable"), r.get("recent_sessions")) == (
             (True, ["Sort the seed list"]) if resumable else (None, None)), (tool, draft)
