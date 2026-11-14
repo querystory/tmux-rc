@@ -3,6 +3,7 @@ wait_for_state_change holds until it does. This is what makes /api/state return 
 instant a pane switch / add / activity change happens instead of on a fixed interval."""
 
 import asyncio
+import json
 
 from openbus.watcher import Watcher
 
@@ -220,3 +221,71 @@ def test_booted_flips_after_inventory_publication():
     assert w.booted() is False
     w._publish_states([])
     assert w.booted() is True
+
+
+def test_empty_worker_roster_ownership_wakes_clients_but_heartbeat_does_not(tmp_path, monkeypatch):
+    path = tmp_path / "workers.json"
+    monkeypatch.setenv("TMUXRC_WORKER_SNAPSHOT", str(path))
+    monkeypatch.setattr("openbus.watcher.time.time", lambda: 100)
+    monkeypatch.setattr("openbus.watcher.tmux.server_uid", lambda **_: "s")
+    snapshot = {"version": 1, "source_id": "garden", "run_id": "run-1", "sequence": 1,
+                "observed_at": 100, "controllers": [], "workers": []}
+    path.write_text(json.dumps(snapshot))
+    watcher = Watcher(None)
+    panes = [{**A, "birth": "b", "session": "garden", "tool": "codex",
+              "subagents": [{"state": "running"}], "agents": 1}]
+    watcher._publish_states(panes, record_history=False)
+    version = watcher.state_version()
+    assert watcher.states[0]["agents"] == 1
+
+    owned = {**snapshot, "sequence": 2,
+             "controllers": [{"pane_id": "%1", "birth": "b", "server": "s"}]}
+    path.write_text(json.dumps(owned))
+    watcher._publish_states(panes, record_history=False)
+    assert watcher.state_version() == version + 1
+    assert watcher.states[0]["agents"] == 0
+    assert watcher.states[0]["subagents"] == []
+    assert watcher.workers == []
+    assert watcher.worker_source == {"status": "fresh"}
+
+    path.write_text(json.dumps({**owned, "sequence": 3, "observed_at": 101}))
+    watcher._publish_states(panes, record_history=False)
+    assert watcher.state_version() == version + 1
+
+    path.write_text(json.dumps({**snapshot, "sequence": 4, "observed_at": 102}))
+    watcher._publish_states(panes, record_history=False)
+    assert watcher.state_version() == version + 2
+    assert watcher.states[0]["agents"] == 1
+    assert watcher.states[0]["subagents"] == [{"state": "running"}]
+    assert watcher.workers == []
+    assert watcher.worker_source == {"status": "fresh"}
+
+
+def test_state_response_keeps_worker_inventory_with_its_pane_snapshot(monkeypatch):
+    from openbus import server
+
+    watcher = Watcher(None)
+    watcher.states = [dict(A)]
+    watcher.workers = [{"id": "first", "activity": "running"}]
+    watcher.worker_source = {"status": "fresh"}
+    watcher._bump_state_if_changed(watcher.states)
+    version = watcher.state_version()
+
+    class DuringEnrichment:
+        def where(self, _cwd):
+            # A publication after snapshot capture must not mix two inventories.
+            with watcher._publish_lock:
+                watcher.states = [dict(B)]
+                watcher.workers = [{"id": "second", "activity": "idle"}]
+                watcher.worker_source = {"status": "stale"}
+                watcher._bump_state_if_changed(watcher.states)
+
+    monkeypatch.setattr(server.app.state, "watcher", watcher, raising=False)
+    monkeypatch.setattr(server.app.state, "loops", DuringEnrichment(), raising=False)
+    monkeypatch.setattr(server.tmux, "prefix_key", lambda: "C-b")
+    result = _run(server.get_state())
+    assert result["version"] == version
+    assert result["panes"][0]["pane_id"] == A["pane_id"]
+    assert result["workers"] == [{"id": "first", "activity": "running"}]
+    assert result["worker_source"] == {"status": "fresh"}
+    assert watcher.workers[0]["id"] == "second"
