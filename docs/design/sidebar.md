@@ -19,7 +19,8 @@ The sidebar holds three kinds of thing, and each now has one home.
   big green rectangle in the list of places. That left two places, which need no folding, so
   the "··· More" row that once gave way to the rest is gone; it, and a chevron on the Dashboard
   row before it, were ways to hide rows that no longer need hiding.
-- **Settings** are things you set once: Accounts, Notifications, Theme, Plan usage, the
+- **Settings** are things you set once: Accounts, Notifications, Theme and Skin
+  ([the Claude skin](claude-skin.md)), Plan usage, the
   phone's sort order, and Docs. They left the ☰ dropdown and the foot for one Settings, the
   same content on a phone (the header's gear, a sheet) and on desktop.
 - **The list** has its own block: a "Sessions" title with its pane count beside it, then at the

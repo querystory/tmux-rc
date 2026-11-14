@@ -56,6 +56,11 @@ const SHOTS = [
   ["mobile-list", PHONE, "light", ""],
   ["mobile-list-dark", PHONE, "dark", ""],
   ["mobile-settings", PHONE, "light", "", phoneSettings],
+  // The Claude skin (web/m/skin-claude.css), set as Settings would: a shot named for it boots in it.
+  ["mobile-list-claude", PHONE, "light", ""],
+  ["mobile-pane-claude-dark", PHONE, "dark", "#pane=%259"],
+  ["wide-pane-claude", WIDE, "light", "#pane=%259"],
+  ["wide-dashboard-claude-dark", WIDE, "dark", "#view=dashboard"],
   ["mobile-usage", PHONE, "light", "", (page) => page.click("#usage")],
   ["mobile-usage-detail", PHONE, "dark", "#view=usage"],
   ["mobile-usage-30d", PHONE, "light", "#view=usage", pickRange("30d")],
@@ -407,6 +412,7 @@ try {
   for (const [shots, demo] of demos) for (const [name, viewport, colorScheme, hash, step, crop] of shots) {
     const speaking = name === "website-voice" || name === "website-voice-phone";
     const page = await demo.open(viewport, colorScheme, hash, speaking ? stubVoice : undefined, async (page) => {
+      if (name.includes("-claude")) await page.addInitScript(() => localStorage.setItem("tmuxrc-skin", "claude"));
       if (speaking) await page.route("**/api/version", async (route) => {
         const response = await route.fetch(), data = await response.json();
         data.live_models.push({ label: "Demo voice", hint: "Fictional conversation", text: false });

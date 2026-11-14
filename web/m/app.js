@@ -2355,15 +2355,19 @@ $("usage").onclick = openUsage;
 $("usage").onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openUsage(); } };
 // Needs you is a one-of filter; Sessions leaves it for the list, keeping any the menu set.
 $("list-nav").querySelectorAll("[data-filter]").forEach((button) => { button.onclick = () => { filter = button.dataset.filter === "attention" ? ["attention"] : String(filter) === "attention" ? [] : filter; navigate(); }; }); // a tab is a request for the list
-// System follows the device, as index.html's boot script does with nothing stored.
-function setTheme(theme) {
-  try { if (theme === "system") localStorage.removeItem("tmuxrc-theme"); else localStorage.setItem("tmuxrc-theme", theme); } catch {}
+// System follows the device, as index.html's boot script does with nothing stored. The skin
+// (skin-claude.css) is a second class beside the theme's, so each skin has both themes.
+const keep = (key, value, unset) => { try { if (value === unset) localStorage.removeItem(key); else localStorage.setItem(key, value); } catch {} };
+function setTheme(theme, skin = savedSkin()) {
+  keep("tmuxrc-theme", theme, "system"); keep("tmuxrc-skin", skin, "default");
   const light = theme === "light" || (theme === "system" && matchMedia("(prefers-color-scheme: light)").matches);
   document.documentElement.classList.toggle("light", light);
-  document.querySelector('meta[name="theme-color"]').content = light ? "#f5f7f6" : "#101312";
+  document.documentElement.classList.toggle("claude", skin === "claude");
+  document.querySelector('meta[name="theme-color"]').content = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim(); // the skin's ground, whichever it is
   document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]').content = light ? "default" : "black";
   paintSettings(); tellScratch();
 }
+const savedSkin = () => { try { return localStorage.getItem("tmuxrc-skin") || "default"; } catch { return "default"; } };
 matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", () => { if (savedTheme() === "system") setTheme("system"); });
 const savedTheme = () => { try { return localStorage.getItem("tmuxrc-theme") || "system"; } catch { return "system"; } };
 
@@ -2378,6 +2382,7 @@ function paintSettings() {
   if (!$("settings").open) return;
   html($("settings-accounts"), accounts.rows());
   choices("theme", { system: "System", light: "Light", dark: "Dark" }, savedTheme(), setTheme);
+  choices("skin", { default: "Default", claude: "Claude" }, savedSkin(), (skin) => setTheme(savedTheme(), skin));
   // Wide, every meter shows, so it is on or off; a phone also has Auto (the urgent ones).
   // Its On is the phone's On when that is the setting, else Auto, so a click on it changes nothing.
   choices("usage-mode", WIDE.matches ? { [usageMode === "on" ? "on" : "auto"]: "On", off: "Off" } : USAGE_MODES, usageMode, setUsageMode);

@@ -14,11 +14,13 @@
   <title>tmux-rc</title>
   <script>
     (() => {
-      let theme;
-      try { theme = localStorage.getItem("tmuxrc-theme"); } catch {}
+      let theme, skin;
+      try { theme = localStorage.getItem("tmuxrc-theme"); skin = localStorage.getItem("tmuxrc-skin"); } catch {}
       const light = theme === "light" || (theme !== "dark" && matchMedia("(prefers-color-scheme: light)").matches);
       document.documentElement.classList.toggle("light", light);
-      document.querySelector('meta[name="theme-color"]').content = light ? "#f5f7f6" : "#101312";
+      document.documentElement.classList.toggle("claude", skin === "claude"); // skin-claude.css
+      // The page's --bg, before any stylesheet has loaded to say it (app.js reads it from there on).
+      document.querySelector('meta[name="theme-color"]').content = (skin === "claude" ? ["#262624", "#faf9f5"] : ["#101312", "#f5f7f6"])[+light];
       document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]').content = light ? "default" : "black";
     })();
     // Boot watchdog. app.js adds .booted once the chrome is built; until then the markup is
@@ -90,6 +92,7 @@
     .boot-failed #booting > :not(:first-child) { display: revert; }
   </style>
   <link rel="stylesheet" href="/v/0/m/style.css">
+  <link rel="stylesheet" href="/v/0/m/skin-claude.css">
   <link rel="stylesheet" href="/v/0/live-chat.css">
   <!-- /v/0/ is the server's asset version: see mobile_ui in openbus/server.py -->
   <script type="importmap">{ "imports": { "/": "/v/0/", "/v/": "/v/" } }</script>
@@ -216,7 +219,7 @@
     <dialog id="settings" aria-labelledby="settings-title" tabindex="-1"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="settings-title">Settings</h2><button type="button" id="close-settings" class="icon-button" aria-label="Close" title="Close"></button></div><div class="panel-body">
       <h3>Accounts</h3><div class="set-card"><div id="settings-accounts"></div><button type="button" id="accounts-open" class="set-row set-link">Manage accounts…</button></div>
       <section><h3>Notifications</h3><div class="set-card"><div class="set-row"><span><b>Push notifications</b><small>Alert this device when a pane needs you.</small></span><button type="button" id="push" class="switch" aria-pressed="false" hidden></button></div></div></section>
-      <h3>Appearance</h3><div class="set-card"><div class="set-row"><b>Theme</b><span id="theme" class="seg" role="group" aria-label="Theme"></span></div><div class="set-row"><b>Plan usage</b><span id="usage-mode" class="seg" role="group" aria-label="Plan usage"></span></div><div class="set-row"><span><b>Always show panes that need you</b><small>Even when a filter leaves them out (they are marked so).</small></span><span id="pin-needs" class="seg" role="group" aria-label="Always show panes that need you"></span></div><div id="sort-row" class="set-row"><b>Sort by</b><span id="sort" class="seg" role="group" aria-label="Sort by"></span></div></div>
+      <h3>Appearance</h3><div class="set-card"><div class="set-row"><b>Theme</b><span id="theme" class="seg" role="group" aria-label="Theme"></span></div><div class="set-row"><span><b>Skin</b><small>Claude: the look of Claude's own apps.</small></span><span id="skin" class="seg" role="group" aria-label="Skin"></span></div><div class="set-row"><b>Plan usage</b><span id="usage-mode" class="seg" role="group" aria-label="Plan usage"></span></div><div class="set-row"><span><b>Always show panes that need you</b><small>Even when a filter leaves them out (they are marked so).</small></span><span id="pin-needs" class="seg" role="group" aria-label="Always show panes that need you"></span></div><div id="sort-row" class="set-row"><b>Sort by</b><span id="sort" class="seg" role="group" aria-label="Sort by"></span></div></div>
       <h3>Terminal</h3><div class="set-card"><div class="set-row"><span><b>Fit to my screen</b><small>Size the pane you view to this screen. Auto makes full-screen apps tall too, so their output scrolls. With a terminal attached, only the pane menu's choice applies.</small></span><span id="fit-default" class="seg" role="group" aria-label="Fit to my screen"></span></div><label class="set-row"><b>Tall height</b><input id="tall-rows" type="number" min="100" max="2000" step="50" inputmode="numeric"></label></div>
       <h3>More</h3><div class="set-card"><a id="docs" class="set-row set-link" href="/docs/" hidden>Documentation</a><button type="button" id="export-open" class="set-row set-link">Export all…</button></div>
     </div></dialog>

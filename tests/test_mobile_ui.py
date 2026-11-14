@@ -1,6 +1,7 @@
 """Mobile URLs work behind a TLS-terminating tunnel, with either slash form."""
 
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -243,7 +244,7 @@ def test_settings_holds_what_the_old_menus_did():
     html = (root / "index.html").read_text()
     start = html.index('<dialog id="settings"')
     settings = html[start:html.index("</dialog>", start)]
-    for control in ("accounts-open", "push", "theme", "usage-mode", "sort", "docs"):
+    for control in ("accounts-open", "push", "theme", "skin", "usage-mode", "sort", "docs"):
         assert f'id="{control}"' in settings, control
     for gone in ("more-menu", "sb-foot"):
         assert f'id="{gone}"' not in html
@@ -384,3 +385,18 @@ def test_tab_title_keeps_its_count_while_the_tab_is_hidden():
     assert "if (!document.hidden) { refreshHistory(); refreshCached(); }" in body
     assert "\n  pollState(stateController.signal);" in body, "the poll must not wait to be seen"
     assert "document.title = tabTitle(" in app
+
+
+def test_the_claude_skin_only_restates_tokens_the_app_has():
+    """A skin is tokens, type and shape over style.css (docs/design/claude-skin.md): a token it
+    sets that the app never defined is one that was renamed under it, and the skin went stale.
+    The boot script picks it before first paint, as it does the theme."""
+    root = Path(__file__).resolve().parents[1] / "web/m"
+    tokens = lambda css: set(re.findall(r"(--[\w-]+):", css))  # noqa: E731
+    app = tokens((root / "style.css").read_text())
+    skin = (root / "skin-claude.css").read_text()
+    assert tokens(skin) - {"--serif"} <= app
+    html = (root / "index.html").read_text()
+    assert 'classList.toggle("claude", skin === "claude")' in html.split("</script>")[0]
+    assert html.index("/m/style.css") < html.index("/m/skin-claude.css")
+
