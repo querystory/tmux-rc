@@ -931,8 +931,8 @@ const viewer = $("scratch-viewer");
 // Not sooner: WebKit (Safari) applies the attribute to the navigation under way, the page's own.
 // So a reload for an update (checkUpdate) is a fresh frame at the page opened, scrolled as it was.
 function viewerFrame(href, title) {
-  const scrolled = viewer.querySelector("iframe")?.scrolled;
-  viewer.querySelector("iframe")?.remove();
+  const old = viewer.querySelector("iframe"), scrolled = old?.src === new URL(href, location.href).href && old.scrolled; // the same page only
+  old?.remove();
   const frame = Object.assign(document.createElement("iframe"), { src: href, title, onload() {
     if (++this.loads > 1) { viewerTo = null; paintViewerForm(); return; }
     this.sandbox = "allow-popups allow-popups-to-escape-sandbox"; checkUpdate();
@@ -955,7 +955,7 @@ function paintUpdate(available) {
 }
 async function checkUpdate() {
   const frame = viewer.querySelector("iframe"), [, , top, name] = new URL($("viewer-out").href || location.href).pathname.split("/");
-  if (!viewer.open || document.hidden || !frame || !$("viewer-reload").hidden) return;
+  if (!viewer.open || (document.hidden && viewerVersion !== null) || !frame || !$("viewer-reload").hidden) return; // hidden: its first version only
   const archived = top === ".archive", { version } = await request(`/api/scratch/${archived ? name : top}/version${archived ? "?archived=1" : ""}`).catch(() => ({}));
   if (!version || frame !== viewer.querySelector("iframe")) return; // no answer, or another page meanwhile
   if (viewerVersion !== null && version !== viewerVersion) paintUpdate(true); else viewerVersion = version;
