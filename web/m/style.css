@@ -1511,6 +1511,10 @@ dialog .acct-check.locked { opacity: .6; cursor: default; }
 @media (min-width: 1100px) { :is(#viewer-pin, #viewer-out) { width: auto; padding: 0 10px; } }
 @media (max-width: 1099px) { :is(#viewer-pin, #viewer-out) span { display: none; } }
 #viewer-pin[aria-pressed="true"] { color: var(--accent); }
+/* An update to the page open (app.js checkUpdate): on a phone, its words wrap before the bar overflows. */
+#viewer-reload { flex: 0 1 auto; min-height: 32px; padding: 2px 10px; border-radius: 16px; background: var(--amber-bg); color: var(--amber); font-size: 13px; font-weight: 600; line-height: 1.15; }
+#viewer-auto-box { flex: 0 1 auto; display: flex; align-items: center; gap: 4px; margin: 0 4px; color: var(--muted); font-size: 13px; line-height: 1.15; }
+#viewer-auto { flex: none; margin: 0; }
 /* Message the page's maker: the pane composer's look, above the keyboard while typing (fitViewport). */
 html.editing #scratch-viewer { top: var(--app-top, 0px); height: var(--app-height, 100%); }
 #viewer-form { flex: none; display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-end; padding: 8px max(12px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); border-top: 1px solid var(--line); }

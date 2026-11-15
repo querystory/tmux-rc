@@ -893,6 +893,7 @@ addEventListener("message", (e) => {
   // The page the viewer opened (a pinned one included) may ask to send a line, and only ask
   // (askSend). Only that document runs script in its frame (viewScratch), so an ask from the frame
   // is the page the sheet names. Its origin is opaque, so "null".
+  if (typeof e.data?.scrolled === "number" && e.source === viewer.querySelector("iframe")?.contentWindow) viewer.querySelector("iframe").scrolled = e.data.scrolled; // where a reload puts it
   if (intent) return e.source === viewer.querySelector("iframe")?.contentWindow && e.origin === "null" && !$("send-dialog").open && askSend(sendIntent(e.data, panes));
   if (/^%\d+$/.test(pane) && [scratchFrame, viewer.querySelector("iframe")].some((f) => f?.contentWindow === e.source)) navigate(pane, "summary", { draft: offered });
   if (e.source !== scratchFrame.contentWindow) return;
@@ -923,21 +924,53 @@ function scratchPage() {
 // like every /scratch/ page), under a bar: Back, its title, and a real link out to a tab.
 // A fresh frame each time, so its loads add nothing to the app's history; gone once closed.
 const viewer = $("scratch-viewer");
+// A page that navigates its frame shows something else: the box is for the page opened, so it goes.
+// Nor does what it navigates to (or a reload) run script: from its first load on, the frame is
+// sandboxed for every later document, so only the page opened can ask to send (askSend) or post
+// at all. A token for the page could be handed on, and the next page can post before its load.
+// Not sooner: WebKit (Safari) applies the attribute to the navigation under way, the page's own.
+// So a reload for an update (checkUpdate) is a fresh frame at the page opened, scrolled as it was.
+function viewerFrame(href, title) {
+  const scrolled = viewer.querySelector("iframe")?.scrolled;
+  viewer.querySelector("iframe")?.remove();
+  const frame = Object.assign(document.createElement("iframe"), { src: href, title, onload() {
+    if (++this.loads > 1) { viewerTo = null; paintViewerForm(); return; }
+    this.sandbox = "allow-popups allow-popups-to-escape-sandbox"; checkUpdate();
+    if (scrolled) this.contentWindow.postMessage({ scroll: scrolled }, "*"); // scratch_markdown.OUT
+  }, loads: 0, scrolled });
+  frame.addEventListener("load", tellScratch); frame.addEventListener("load", loadRecent); // the visit is in by its load
+  $("viewer-form").before(frame);
+  paintUpdate(false);
+}
+const reloadViewer = () => { const { src, title } = viewer.querySelector("iframe"); viewerFrame(src, title); };
+// The page open changed on disk (its folder's version, GET /api/scratch/{name}/version, asked
+// every 5s while it is seen): the bar says "Update available", a tap on it reloads the page,
+// and with Auto-reload checked (remembered on this device) the page reloads at once.
+let viewerVersion = null;
+try { $("viewer-auto").checked = localStorage.getItem("tmuxrc-scratch-auto-reload") === "1"; } catch {}
+function paintUpdate(available) {
+  if (available && $("viewer-auto").checked) return reloadViewer();
+  if (!available) viewerVersion = null; // a fresh frame: its own version, asked at its load
+  $("viewer-reload").hidden = !available; $("viewer-auto-box").hidden = !available && !$("viewer-auto").checked;
+}
+async function checkUpdate() {
+  const frame = viewer.querySelector("iframe"), [, , top, name] = new URL($("viewer-out").href || location.href).pathname.split("/");
+  if (!viewer.open || document.hidden || !frame || frame.pending || !$("viewer-reload").hidden) return; // pending: it reloads itself
+  const archived = top === ".archive", { version } = await request(`/api/scratch/${archived ? name : top}/version${archived ? "?archived=1" : ""}`).catch(() => ({}));
+  if (!version || frame !== viewer.querySelector("iframe")) return; // no answer, or another page meanwhile
+  if (viewerVersion !== null && version !== viewerVersion) paintUpdate(true); else viewerVersion = version;
+}
+setInterval(checkUpdate, 5000);
+$("viewer-reload").onclick = reloadViewer;
+$("viewer-auto").onchange = () => {
+  try { localStorage.setItem("tmuxrc-scratch-auto-reload", $("viewer-auto").checked ? "1" : ""); } catch {}
+  paintUpdate(!$("viewer-reload").hidden);
+};
 function viewScratch(href, title) {
   $("viewer-out").href = href; // a "Ready" push's link names no title, a pane's link only its URL: the folder, till findMaker
   title = !title || /^\w+:\/\//.test(title) ? viewedFolder() || "Scratch page" : String(title);
   text($("viewer-title"), title);
-  viewer.querySelector("iframe")?.remove();
-  // A page that navigates its frame shows something else: the box is for the page opened, so it goes.
-  // Nor does what it navigates to (or a reload) run script: from its first load on, the frame is
-  // sandboxed for every later document, so only the page opened can ask to send (askSend) or post
-  // at all. A token for the page could be handed on, and the next page can post before its load.
-  // Not sooner: WebKit (Safari) applies the attribute to the navigation under way, the page's own.
-  const frame = Object.assign(document.createElement("iframe"), { src: href, title, onload() {
-    if (++this.loads > 1) { viewerTo = null; paintViewerForm(); } else this.sandbox = "allow-popups allow-popups-to-escape-sandbox";
-  }, loads: 0 });
-  frame.addEventListener("load", tellScratch); frame.addEventListener("load", loadRecent); // the visit is in by its load
-  $("viewer-form").before(frame);
+  viewerFrame(href, title);
   viewer.showModal(); viewer.focus(); paintPins(pins); loadPins(); findMaker(href); // cached now, then as stored: a slot freed meanwhile
 }
 // Scratch pages pinned to the menu (GET/PUT /api/pins: the daemon keeps them, so every device
