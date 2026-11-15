@@ -940,9 +940,10 @@ function viewerFrame(href, title) {
   }, loads: 0, scrolled });
   frame.addEventListener("load", tellScratch); frame.addEventListener("load", loadRecent); // the visit is in by its load
   $("viewer-form").before(frame);
-  paintUpdate(false);
+  viewerVersion = null; paintUpdate(false); // its own version, asked at its load
 }
-const reloadViewer = () => { const { src, title } = viewer.querySelector("iframe"); viewerFrame(src, title); };
+// Back at the page opened, whose composer a page navigated to had put away.
+const reloadViewer = () => { const { src, title } = viewer.querySelector("iframe"); viewerFrame(src, title); if (!viewerTo) findMaker(src); };
 // The page open changed on disk (its folder's version, GET /api/scratch/{name}/version, asked
 // every 5s while it is seen): the bar says "Update available", a tap on it reloads the page,
 // and with Auto-reload checked (remembered on this device) the page reloads at once.
@@ -950,12 +951,11 @@ let viewerVersion = null;
 try { $("viewer-auto").checked = localStorage.getItem("tmuxrc-scratch-auto-reload") === "1"; } catch {}
 function paintUpdate(available) {
   if (available && $("viewer-auto").checked) return reloadViewer();
-  if (!available) viewerVersion = null; // a fresh frame: its own version, asked at its load
   $("viewer-reload").hidden = !available; $("viewer-auto-box").hidden = !available && !$("viewer-auto").checked;
 }
 async function checkUpdate() {
   const frame = viewer.querySelector("iframe"), [, , top, name] = new URL($("viewer-out").href || location.href).pathname.split("/");
-  if (!viewer.open || document.hidden || !frame || frame.pending || !$("viewer-reload").hidden) return; // pending: it reloads itself
+  if (!viewer.open || document.hidden || !frame || !$("viewer-reload").hidden) return;
   const archived = top === ".archive", { version } = await request(`/api/scratch/${archived ? name : top}/version${archived ? "?archived=1" : ""}`).catch(() => ({}));
   if (!version || frame !== viewer.querySelector("iframe")) return; // no answer, or another page meanwhile
   if (viewerVersion !== null && version !== viewerVersion) paintUpdate(true); else viewerVersion = version;

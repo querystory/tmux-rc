@@ -2413,12 +2413,11 @@ if _scratch_dir:
 
     @app.get("/api/scratch/{name}/version")
     def scratch_version(name: str, archived: bool = False) -> dict:
-        """What the scratch viewer compares, every few seconds, to see its page changed on
-        disk: the folder (a replacement is new) and its newest file, never a sidecar."""
-        root = Path(_scratch_dir)
-        if not (i := scratch.named(scratch.archive(root) if archived else root, name)):
-            raise HTTPException(404)  # mid-rewrite, or gone: no answer, not a change
-        return {"version": f'{i["inode"]}:{i["updated"]}'}
+        """The folder's version (scratch.version), for the scratch viewer."""
+        at = f"{scratch_markdown.ARCHIVE}/{name}" if archived else name
+        if (v := scratch.version(Path(_scratch_dir), at)) is None:
+            raise HTTPException(404)  # mid-rewrite, gone or in progress: no answer, not a change
+        return {"version": v}
 
     class ScratchPane(BaseModel):
         pane: str
