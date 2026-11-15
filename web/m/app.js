@@ -935,12 +935,12 @@ function viewerFrame(href, title) {
   old?.remove();
   const frame = Object.assign(document.createElement("iframe"), { src: href, title, onload() {
     if (++this.loads > 1) { viewerTo = null; paintViewerForm(); return; }
-    this.sandbox = "allow-popups allow-popups-to-escape-sandbox"; checkUpdate();
-    if (scrolled) this.contentWindow.postMessage({ scroll: scrolled }, "*"); // scratch_markdown.OUT
+    this.sandbox = "allow-popups allow-popups-to-escape-sandbox";
+    if (typeof scrolled === "number") this.contentWindow.postMessage({ scroll: scrolled }, "*"); // scratch_markdown.OUT
   }, loads: 0, scrolled });
   frame.addEventListener("load", tellScratch); frame.addEventListener("load", loadRecent); // the visit is in by its load
   $("viewer-form").before(frame);
-  viewerVersion = null; paintUpdate(false); // its own version, asked at its load
+  viewerVersion = null; paintUpdate(false); checkUpdate(); // its own version, asked as it loads: an edit meanwhile is an update
 }
 // Back at the page opened, whose composer a page navigated to had put away.
 const reloadViewer = () => { const { src, title } = viewer.querySelector("iframe"); viewerFrame(src, title); if (!viewerTo) findMaker(src); };
@@ -955,7 +955,7 @@ function paintUpdate(available) {
 }
 async function checkUpdate() {
   const frame = viewer.querySelector("iframe"), [, , top, name] = new URL($("viewer-out").href || location.href).pathname.split("/");
-  if (!viewer.open || (document.hidden && viewerVersion !== null) || !frame || !$("viewer-reload").hidden) return; // hidden: its first version only
+  if ((document.hidden && viewerVersion !== null) || !frame || !$("viewer-reload").hidden) return; // hidden: its first version only
   const archived = top === ".archive", { version } = await request(`/api/scratch/${archived ? name : top}/version${archived ? "?archived=1" : ""}`).catch(() => ({}));
   if (!version || frame !== viewer.querySelector("iframe")) return; // no answer, or another page meanwhile
   if (viewerVersion !== null && version !== viewerVersion) paintUpdate(true); else viewerVersion = version;
