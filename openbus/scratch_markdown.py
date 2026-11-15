@@ -123,7 +123,11 @@ def render(path: Path) -> tuple[str, str, str | None]:
 # sandbox lets it open tabs that escape it). A link within the site stays in the frame.
 OUT = (b'<script>addEventListener("click", (e) => { const a = e.target.closest?.("a[href]");'
        b' if (a && !a.target && /^https?:$/.test(a.protocol) && a.host !== location.host)'
-       b' a.target = "_blank"; }, true);</script>')
+       b' a.target = "_blank"; }, true);'
+       # In the app's viewer, where the page is: a reload for its update keeps it (app.js).
+       b' addEventListener("scroll", () => parent.postMessage({ scrolled: scrollY }, "*"));'
+       b' addEventListener("message", (e) => e.source === parent'
+       b' && typeof e.data?.scroll === "number" && scrollTo(0, e.data.scroll));</script>')
 
 
 async def _out(response: Response) -> Response:

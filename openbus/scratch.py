@@ -199,7 +199,7 @@ def _item(root: Path, folder: Path, files: list[tuple[float, str]]) -> dict | No
             # when meta.json last named its pane (a reviser's, too), and what an update dates from
             "named": named, "since": named if updating else created,
             "inode": folder.stat().st_ino,  # the folder until replaced, however rewritten
-            "page": page, "pending": pending,
+            "page": page, "pending": pending, "files": len(files),
             "revising": bool(meta.get("updating")),  # its mark, pending a moment or not
             "read": read,  # meta.json read whole, or none: one half-written says nothing yet
             "thumb": inside(thumb, folder) and thumb.is_file() and thumb.stat().st_mtime}
@@ -764,6 +764,17 @@ def _at(root: Path, name: str) -> dict | None:
     except PermissionError:
         return None
     return read(base, base / name)
+
+
+def version(root: Path, name: str) -> str | None:
+    """What the scratch viewer compares, every few seconds, to see the page open changed on
+    disk: its folder (a replacement is new), its page, how many files and the newest, never
+    a sidecar. Archived, as placeholder's. None for no folder, or one in progress, whose
+    placeholder reloads itself."""
+    i = folder_name(name.removeprefix(scratch_markdown.ARCHIVE + "/")) and _at(root, name)
+    if not i or i["pending"]:
+        return None
+    return f'{i["inode"]}:{i["page"].name}:{i["files"]}:{i["updated"]}'
 
 
 def bar(root: Path, name: str, states: list[dict],
