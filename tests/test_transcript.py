@@ -84,7 +84,13 @@ def test_claude_reply_from_the_session_running_under_the_pane(homes):
     # Two under the pane (one suspended behind the other): which is on screen is unknown.
     _write(homes / "claude/sessions/1.json", [_registration()])
     _write(homes / "claude/sessions/2.json", [_registration()])
-    assert transcript.last_reply(_pane(str(os.getppid())), "") is None
+    assert transcript._claude_file(_pane(str(os.getppid()))) is None
+    # Once one of them has exited, the other is the pane's again.
+    real = transcript._started
+    with pytest.MonkeyPatch.context() as mp:
+        calls = iter([real(os.getpid()), None])
+        mp.setattr(transcript, "_started", lambda pid: next(calls, real(pid)))
+        assert transcript._claude_file(_pane(str(os.getppid()))) is not None
 
 
 def test_claude_new_user_message_clears_the_reply(homes):

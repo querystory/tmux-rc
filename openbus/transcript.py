@@ -69,10 +69,9 @@ def _started(pid: int) -> str | None:
 
 
 @lru_cache(maxsize=256)
-def _claude_session(home: Path, pane_pid: str | None, _registry: tuple) -> tuple | None:
-    """Claude registers each running process in sessions/<pid>.json; the one running
-    under this pane names the session. Answers (pid, start, session id), or None when
-    several run under it (one suspended behind another): which one is on screen is unknown."""
+def _claude_sessions(home: Path, pane_pid: str | None, _registry: tuple) -> tuple:
+    """Claude registers each running process in sessions/<pid>.json; those running under
+    this pane name its sessions. Answers (pid, start, session id) for each."""
     found = []
     for reg in (home / "sessions").glob("*.json"):
         try:
@@ -86,7 +85,7 @@ def _claude_session(home: Path, pane_pid: str | None, _registry: tuple) -> tuple
         if (started and pane_pid and int(pane_pid) in tmux.ancestors(pid)
                 and _UUID_RE.fullmatch(sid) and str(data.get("procStart")) == started):
             found.append((pid, started, sid))
-    return found[0] if len(found) == 1 else None
+    return tuple(found)
 
 
 @lru_cache(maxsize=256)
@@ -117,11 +116,13 @@ def _text(blocks) -> str | None:
 def _claude_file(pane: Pane) -> Path | None:
     claude = _home(pane, "claude")
     registry = tuple((p.name, _stamp(p)) for p in sorted((claude / "sessions").glob("*.json")))
-    # Checked afresh: the process can exit (and its pid be reused) and the transcript
-    # appear after its registration, all with the registry unchanged.
-    pid, started, sid = _claude_session(claude, pane.pid, registry) or (0, None, None)
-    return (sid and _started(pid) == started
-            and next((claude / "projects").glob(f"*/{sid}.jsonl"), None)) or None
+    # Checked afresh: a process can exit (and its pid be reused) and the transcript
+    # appear after its registration, all with the registry unchanged. With several still
+    # running under the pane (one suspended behind another), which is on screen is unknown.
+    live = [sid for pid, started, sid in _claude_sessions(claude, pane.pid, registry)
+            if _started(pid) == started]
+    return (len(live) == 1
+            and next((claude / "projects").glob(f"*/{live[0]}.jsonl"), None)) or None
 
 
 def _path(pane: Pane, text: str) -> Path | None:
