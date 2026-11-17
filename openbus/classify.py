@@ -1723,7 +1723,8 @@ def classify(
         # A task the model read only off the menu it asks through (a picker's header tabs
         # under its top edge, which question_rows starts on) is that widget's row, not the
         # agent's own checklist. Rows are compared as checklist labels, spacing and case aside.
-        widget = question_rows(question, text)
+        # Claude frames each menu, so its nearest edge is the menu's own; Codex's are unframed.
+        widget = question_rows(question, text) if result.get("tool") == "claude" else ""
         if widget[:1] in ("─", "━", "▔", "╭") and isinstance(tasks := result.get("tasks"), list):
             def seen(task, view):
                 label = task.get("text")

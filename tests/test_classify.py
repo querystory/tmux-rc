@@ -526,6 +526,8 @@ def test_claude_picker_header_tabs_are_not_tasks(tabs, label, rule, bar):
     for row in [f"  ⎿  {box} {label}" for box in ("☐", "☒", "☑", "✓", "•", "[x]", "[X]", "[ ]")] + [
             f"│ ⎿  ☐ {label}      │", f"  ⎿  ☐ {label.replace(' ', '  ')}"]:
         assert classify(_pane("claude"), f"{row}\n" + screen, read(tasks[1:]))["tasks"] == tasks[1:]
+    # Codex draws no frame, so a rule above its menu may be output's: every task stays.
+    assert classify(_pane("codex"), screen, read(tasks[1:], "codex"))["tasks"] == tasks[1:]
     top = screen.split("\n", 1)[1]  # the widget's edge opens the capture
     assert classify(_pane("claude"), top, read(tasks[1:])).get("tasks") is None
     # Claude's own plan under a rule, no picker: a checklist, every row kept.
