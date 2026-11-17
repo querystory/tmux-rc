@@ -1055,9 +1055,11 @@ def _sends_out_of_options(result: dict, text: str) -> None:
             or (turn and turn["live"] and "background agent" not in turn[0])):
         return
     view, above = _ask_view(text), _above_draft(text)
-    # Only the open message hands a command over: an answered turn's is done with.
+    # Only the open message hands a command over, whole on its own rows: an answered turn's
+    # is done with, and a shorter copy ("! make tea" of "! make tea --cups 2") is not it.
     sends = [o for o in options if isinstance(o, str)
-             and _quoted(_one_line(o).removeprefix("!").strip(), _open_message(above))
+             and _quoted(f'! {_one_line(o).removeprefix("!").strip()}', _open_message(above),
+                         rows=True)
              and any(g.startswith("!") for g in screen_offers([o], text))]
     question["options"] = [o for o in options if o not in sends
                            and not (_quoted(o, view) and not _quoted(o, above))]

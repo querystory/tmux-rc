@@ -174,6 +174,10 @@ def test_a_command_among_a_questions_replies_is_one_offer():
     # Copied without its "!", the command is the same Send it row; a reply of its own stays.
     r = classify(_pane("claude"), _TEA, read("make tea", "pour it"))
     assert (r["offers"], r["question"]["options"]) == (["! make tea"], ["pour it"])
+    # A shorter copy of the handed-over command is no offer: the question keeps it.
+    longer = _TEA.replace("ready:\n\n  ! make tea", "ready:\n\n  ! make tea --cups 2")
+    r = classify(_pane("claude"), longer, read("! make tea"))
+    assert (r.get("offers"), r["question"]["options"]) == (None, ["! make tea"])
     # A command only the draft shows (typed in bash mode) is no offer, and the question stays.
     r = classify(_pane("claude"), _TEA.replace("❯ brew coffee", "! brew coffee"),
                  read("! brew coffee"))
