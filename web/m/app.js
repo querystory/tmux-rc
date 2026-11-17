@@ -889,9 +889,9 @@ scratchFrame.addEventListener("load", tellScratch);
 // in progress links the pane making it) may open a pane, with a draft for its composer, and nothing else: its origin is opaque,
 // so the placeholder can't be told from another page, and a pane opened is only navigation.
 addEventListener("message", (e) => {
-  const { pane, view, open, title, scratch, names, draft: offered, intent, pending } = e.data || {}, href = scratchUrl(open, location.href);
+  const { pane, view, open, title, scratch, names, draft: offered, intent, reload } = e.data || {}, href = scratchUrl(open, location.href);
   const shown = viewer.querySelector("iframe");
-  if (pending && e.source === shown?.contentWindow) shown.pending = true; // a placeholder (viewerFrame)
+  if (reload && e.source === shown?.contentWindow) return reloadViewer(); // a placeholder or an updating page (viewerFrame)
   // The page the viewer opened (a pinned one included) may ask to send a line, and only ask
   // (askSend). Only that document runs script in its frame (viewScratch), so an ask from the frame
   // is the page the sheet names. Its origin is opaque, so "null".
@@ -931,15 +931,14 @@ const viewer = $("scratch-viewer");
 // sandboxed for every later document, so only the page opened can ask to send (askSend) or post
 // at all. A token for the page could be handed on, and the next page can post before its load.
 // Not sooner: WebKit (Safari) applies the attribute to the navigation under way, the page's own.
-// A page that reloads itself (a placeholder, an updating page: scratch_ask.js says so) gets a
-// fresh frame at the page opened for each reload, whose first load runs its script again.
-// So does a reload for an update (checkUpdate), scrolled as it was.
+// A page that reloads itself (a placeholder, an updating page: scratch_ask.js says so as it does)
+// gets a fresh frame at the page opened, whose first load runs its script again. So does a reload
+// for an update (checkUpdate), scrolled as it was.
 function viewerFrame(href, title) {
   const old = viewer.querySelector("iframe"), scrolled = old?.src === new URL(href, location.href).href && old.scrolled; // the same page only
   old?.remove();
   const frame = Object.assign(document.createElement("iframe"), { src: href, title, onload() {
-    if (++this.loads > 1 && this.pending) return viewerFrame(href, title);
-    if (this.loads > 1) { viewerTo = null; paintViewerForm(); return; }
+    if (++this.loads > 1) { viewerTo = null; paintViewerForm(); return; }
     this.sandbox = "allow-popups allow-popups-to-escape-sandbox";
     if (typeof scrolled === "number") this.contentWindow.postMessage({ scroll: scrolled }, "*"); // scratch_markdown.OUT
   }, loads: 0, scrolled });
