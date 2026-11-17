@@ -232,6 +232,12 @@ actually hit:
 | `221_claude_report_closing_line_quotes_a_question` | synthetic: an auto-mode report whose last line ends in a quoted "…?" (a FAQ title it added) → idle, nothing asked |
 | `222_claude_report_ready_to_merge_heading_answered` | synthetic: an auto-mode status report whose last row, "Blocked? No. Ready to merge?", is checklist labels the report answers above → idle, nothing asked |
 | `223_claude_closing_question_outside_auto_mode` | synthetic: a finished turn in accept-edits mode ends "Should I also bump the version?" → a text user-wait with reply buttons |
+| `224_claude_go_ahead_above_agent_note_in_a_tall_window` | synthetic: "still waiting for your go-ahead" on a PR, a background agent's finished note below, a tall window's blank rows → text user-wait (fails today on flash-lite and 3.5-flash) |
+| `225_claude_tell_me_who_mid_paragraph` | synthetic: "Tell me who should review it and I'll add them" mid-paragraph → text user-wait |
+| `226_claude_tell_me_who_with_a_draft_in_the_box` | synthetic: "Tell me who and I'll add them" with an unsent answer in the box → text user-wait, the draft no offer |
+| `227_claude_merge_first_when_ready_under_a_draft` | synthetic: "Merge #88 first when you're ready" after an agent note, an unrelated draft in the box → user-wait (fails today on flash-lite and 3.5-flash) |
+| `228_claude_your_call_above_an_idle_compaction` | synthetic: "Merging any of the PRs remains your call" above re-read rows and an idle-compaction note → user-wait (fails today on flash-lite and 3.5-flash) |
+| `229_claude_say_go_in_a_list_of_open_items` | synthetic: 'Say "go" and I'll start a fresh sign-in' in a list of open items → user-wait offering "go" |
 
 Sample 16 originally exposed a table-extraction failure: the prompt said to carry a
 question's supporting list but also to omit tables unless an actual table was shown.
