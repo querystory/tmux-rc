@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import re
 import subprocess
 import textwrap
@@ -1143,6 +1144,44 @@ def _reply_options(prompt: str, replies_fn) -> list[str]:
     return _replies.get(prompt, [])
 
 
+# A finished turn the parse read as idle gets a second, closer look by the model named in
+# TMUXRC_SECOND_LOOK_MODEL (off when unset): one question, whether the final message leaves
+# the user something to do, asked on the screen's last inked rows and cached per screen.
+_LOOK_ROWS = 40
+_looks: dict[str, dict] = {}
+
+
+def _second_look(result: dict, text: str, pane: Pane, llm_fn) -> None:
+    """The look's ask, as the parse's own question and offers would be, and held to the
+    same screen: its question only where _supported_question finds it, its offers through
+    screen_offers later."""
+    model = os.environ.get("TMUXRC_SECOND_LOOK_MODEL", "").strip()
+    tool = result.get("tool")
+    if not (model and llm_fn and tool in ("claude", "codex") and "parse_ok" not in result
+            and result.get("activity") == "idle"
+            and not any(result.get(k) for k in ("question", "rewind", "fresh"))
+            and not screen_offers(result.get("offers"), text)):  # none the screen backs
+        return
+    view = _ask_view(text) if tool == "claude" else _visible(text)
+    tail = "\n".join([row for row in view.splitlines() if row.strip()][-_LOOK_ROWS:])
+    key = hashlib.sha256(f"{model}\n{tail}".encode()).hexdigest()
+    if key not in _looks:
+        look = llm_fn(_load_prompt("second_look_prompt.txt"), tail, model=model)
+        if not isinstance(look, dict):
+            return  # not cached: retried when the screen next changes
+        if len(_looks) > 256:
+            _looks.clear()
+        _looks[key] = look
+    look = _looks[key]
+    if look.get("asks") is not True:
+        return
+    question = {"prompt": look.get("question"), "answer_style": "text"}
+    if _supported_question(question, text, tool, pane):
+        result["question"] = question
+    if isinstance(look.get("offers"), list):
+        result["offers"] = look["offers"]
+
+
 def _obvious_idle(text: str) -> bool:
     for ln in reversed(text.splitlines()):
         if ln.strip():
@@ -1538,6 +1577,7 @@ def classify(
     # cut above the quota notice (the re-read's own ask is dropped inside it).
     _unblocked_ask(result)
     _ground_visible_fields(result, text, pane, llm_fn, prompt, process_tool)
+    _second_look(result, text, pane, llm_fn)
     # OpenCode answer bullets and omp Ask radios are not tasks. Match genuine visible
     # checkbox rows after a bounded re-read, whose replacement fields need grounding too.
     if result.get("tool") in ("opencode", "omp") and "tasks" in result:

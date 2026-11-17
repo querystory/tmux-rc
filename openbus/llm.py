@@ -339,6 +339,7 @@ def classify_text(
     pane_uid: str = "",
     pane_label: str = "",
     kind: str = "parse",
+    model: str = _MODEL,
 ) -> dict | None:
     """Send pane text (and optionally a rendered screenshot) to Flash Lite and get
     structured JSON back. Returns the parsed dict, or None on any failure (caller falls
@@ -362,7 +363,7 @@ def classify_text(
         if image_png is not None:
             parts.append(types.Part.from_bytes(data=image_png, mime_type="image/png"))
         resp = _generate(
-            model=_MODEL,
+            model=model,
             contents=parts,
             config=types.GenerateContentConfig(
                 system_instruction=system,

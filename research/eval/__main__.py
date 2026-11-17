@@ -31,7 +31,7 @@ def _vertex_caller(model: str):
     harness.py) so the harness core stays import-light and stub-testable."""
     from google.genai import types
 
-    def call(system: str, text: str) -> dict | None:
+    def call(system: str, text: str, model: str = model) -> dict | None:
         resp = llm._client().models.generate_content(
             model=model,
             contents=[text],
