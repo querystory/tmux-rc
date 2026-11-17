@@ -109,7 +109,8 @@ def _run_one(s: Sample, model: str, replies: bool, takes_replies_fn: bool) -> di
     pane = Pane(session="eval", window_index="0", window_name="eval", pane_index="0",
                 id="%0", current_command=s.current_command, title=s.name)
     kw = {"replies_fn": (lambda sy, t: _call(model, sy, t, "replies")) if replies else None}
-    result = classify_fn(pane, s.capture, llm_fn=lambda sy, t, model=model, **_: _call(model, sy, t, "parse"),
+    parse = lambda sy, t, model=model, **_: _call(model, sy, t, "parse")  # noqa: E731
+    result = classify_fn(pane, s.capture, llm_fn=parse,
                          prior=list(s.prior), repository=s.repository,
                          **(kw if takes_replies_fn else {}))
     parses = [c["json"] for c in _tl.calls if c["kind"] == "parse" and isinstance(c["json"], dict)]
