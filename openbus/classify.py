@@ -184,21 +184,6 @@ _HIGHLIGHT_RE = re.compile(
 _LIVE_COUNT = r"\(\d+ of \d+\)"
 _LIVE_COUNT_RE = re.compile(rf"\s*{_LIVE_COUNT}\s*$")
 _WIDGET_END_RE = re.compile(r"^\s*(?:(?P<rule>[─━]{3,})|╰)", re.MULTILINE)
-# A picker footer advertising its search box, where a typed key filters.
-_SEARCH_FOOTER_RE = re.compile(r"(?:^|[·│])\s*Type to search(?:\s*[·│]|$)", re.IGNORECASE)
-# Codex's compact key-hint footer, led by its commit key: "enter continue · esc back".
-_ENTER_FOOTER_RE = re.compile(r"\s*(?:enter \w+ · |↑/↓ Navigate · enter (?:Select|Confirm))")
-
-
-def arrow_driven(question: dict, text: str) -> bool:
-    """Whether numbered `question` is a picker to walk, not answer with a digit: the
-    screen ends in Codex's compact key-hint footer, where a digit need not commit (its
-    trust dialog takes "1" as a move to row 1), and shows the highlighted row a walk
-    needs. Its approval box ("Press enter to confirm …") takes digits."""
-    visible, rows = _visible(text), question.get("options")
-    return (any(map(_ENTER_FOOTER_RE.match, visible.rstrip().splitlines()[-3:]))
-            and isinstance(rows, list)
-            and highlighted_row(visible, _question_prompt(question) or "", rows) is not None)
 
 
 def _widget_end(visible: str, start: int) -> int:
@@ -1675,29 +1660,7 @@ def classify(
         if result.pop("parse_ok", True) is False or result.get("activity") != "running":
             result["activity"] = "idle"
     question = result.get("question")
-    footer = visible.rstrip().splitlines()[-3:]
-    search = any(map(_SEARCH_FOOTER_RE.search, footer))
-    # Digits win (the parser prompt): a highlighted row drawn behind its digit ("❯ 1. Yes")
-    # is a menu, whose digit commits any row in one key, however the model styled it. A
-    # walk needs its prompt found as a row, which a question wrapped into a paragraph is not.
-    # Not where the footer sends a digit elsewhere: into a search box, or (Codex's
-    # arrow-only footer) to a mere move.
-    if (isinstance(question, dict) and question.get("answer_style") == "cursor"
-            and not search and not any(map(_ENTER_FOOTER_RE.match, footer))
-            and (row := next(reversed(list(_HIGHLIGHT_RE.finditer(visible))), None))
-            and row["digit"]):
-        question["answer_style"] = "menu"
-    # A numbered picker driven by arrows is walked, not answered with a digit, where the
-    # screen shows its highlighted row, which a walk needs.
-    if (isinstance(question, dict) and question.get("answer_style") == "menu"
-            and arrow_driven(question, text)):
-        question.update(answer_style="cursor", keymap={
-            "next": "Down", "prev": "Up", "select": "Enter", "search": False})
-    # A cursor picker's advertised search binding is evidence, not a model guess.
     if isinstance(question, dict) and question.get("answer_style") == "cursor":
-        keymap = question.get("keymap")
-        if isinstance(keymap, dict) and search:
-            keymap["search"] = True
         rows, asked = question.get("options"), _question_prompt(question)
         if asked:  # the walk and /send hold the prompt across moves, which redraw the count
             question["prompt"] = asked = _LIVE_COUNT_RE.sub("", asked)
