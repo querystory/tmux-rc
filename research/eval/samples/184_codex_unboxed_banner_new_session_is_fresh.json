@@ -1,0 +1,15 @@
+{
+  "description": "A newer Codex just launched: its unboxed '>_ OpenAI Codex (v…)' banner with the directory, a one-line greeting and a tip, then the › composer holding only its greyed placeholder, and a status line at 100% context left. No conversation yet, and Codex lists no past sessions on screen, so fresh=true with no recent_sessions. Invented: a tide-chart project.",
+  "current_command": "node",
+  "processes": [
+    "node /usr/local/bin/codex"
+  ],
+  "capture": "\n  >_ OpenAI Codex⟪dim⟫ (v0.169.0)\n     ~/src/tide-charts\n\n  ⟪/dim⟫Ask about anything, even the tides.\n\n  Tip: Use /model to pick a different model.\n\n\n› ⟪placeholder⟫Ask Codex to do anything⟪/placeholder⟫⟪dim⟫\n\n  ⟪/dim⟫gpt-6-codex medium · Context 100% left · Context 0% used · main · ~/src/tide-charts",
+  "expected": {
+    "tool": "codex",
+    "activity": "idle",
+    "fresh": true,
+    "recent_sessions": null,
+    "headline": "New Codex session, ready for a task"
+  }
+}

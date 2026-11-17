@@ -64,7 +64,7 @@ CHECKPOINT_EVENTS = 100
 DEAD_SERVER_RETENTION = 30 * 86400
 # Bump when classification or the fingerprint changes meaning: stored cards then miss
 # their hash once and every pane is re-read, instead of restoring an older parser's card.
-CARD_VERSION = 59
+CARD_VERSION = 61
 # LLM parse cadence. We capture every tick (cheap, for the snapshot buffer) but only
 # PARSE when the content fingerprint CHANGED vs. the last parse (or on a forced reparse).
 # `changed` compares against _prev_fp, which is written only on a SUCCESSFUL parse — so a
@@ -997,8 +997,13 @@ class Watcher:
         if fp == self._state_fp:
             return
         self._state_fp = fp
+        self.nudge()
+
+    def nudge(self) -> None:
+        """Pass the version on: every /api/state long-poll answers now, for a deck change or
+        news that is not the deck's (a scratch page landed, PushManager.news)."""
         self._state_version += 1
-        # Runs in the watcher worker thread; the Event lives on the loop. Only SET it —
+        # Runs in a worker thread; the Event lives on the loop. Only SET it —
         # waiters clear it themselves before re-checking the version, so a set that lands
         # between a waiter's check and its wait() is not lost (no clear races the waiter).
         # No loop yet (very first tick before start finished) ⇒ nothing is waiting, skip.
