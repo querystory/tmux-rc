@@ -472,6 +472,11 @@ def _codex_model_segments(line: str) -> list[int]:
             if segment and _CODEX_MODEL_TOKEN_RE.fullmatch(segment.split(maxsplit=1)[0])]
 
 
+def _title_row(line: str):
+    """Claude Code's session title on a border rule ("──── fix login ─"), or None."""
+    return re.match(r"^\s*[─━]+\s+(\S.*?)[\s─━]*$", line)
+
+
 def _session_chrome(text: str) -> list[str]:
     lines = strip_dim(text.rsplit(VISIBLE_SCREEN, 1)[-1]).splitlines()
     # The input row separates conversation output from the bottom status chrome.
@@ -479,14 +484,14 @@ def _session_chrome(text: str) -> list[str]:
     input_row = max((i for i, line in enumerate(lines)
                      if re.match(r"^\s*[›❯](?:\s|$)", line)), default=-1)
     candidates = lines[max(input_row + 1, len(lines) - 4):]
-    chrome = []
+    # Claude Code prints the title on the input box's top border, just above the input row.
+    chrome = [lines[input_row - 1]] if input_row > 0 and _title_row(lines[input_row - 1]) else []
     status_rows = [(i, line, re.match(r"^\s*(?:~/|/)", line))
                    for i, line in enumerate(candidates)
                    if re.match(r"^\s*(?:~/|/)", line) or _codex_model_segments(line)]
     if status_rows:
         i, line, path_status = status_rows[-1]  # The bottommost recognized row is live chrome.
-        if (path_status and i
-                and re.match(r"^\s*[─━]+\s+\S", candidates[i - 1])):
+        if path_status and i and _title_row(candidates[i - 1]):
             chrome.append(candidates[i - 1])  # Claude title immediately above status.
         chrome.append(line)
     renames = [line for line in strip_dim(text).splitlines()
@@ -499,8 +504,7 @@ def _session_chrome(text: str) -> list[str]:
 def _session_evidence(text: str) -> str:
     titles = []
     for line in _session_chrome(text):
-        match = re.match(r"^\s*[─━]+\s+(\S.*?)\s*$", line)
-        if match:
+        if match := _title_row(line):
             titles.append(match.group(1))
             continue
         if models := _codex_model_segments(line):
