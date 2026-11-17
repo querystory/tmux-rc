@@ -1170,14 +1170,13 @@ def _second_look(result: dict, text: str, pane: Pane, llm_fn) -> None:
     view = _ask_view(text) if tool == "claude" else _visible(text)
     tail = "\n".join([row for row in view.splitlines() if row.strip()][-_LOOK_ROWS:])
     key = hashlib.sha256(f"{model}\n{tail}".encode()).hexdigest()
-    if key not in _looks:
+    if (look := _looks.get(key)) is None:  # held here: another pane's read may clear the cache
         look = llm_fn(_load_prompt("second_look_prompt.txt"), tail, model=model)
         if not isinstance(look, dict):
             return  # not cached: retried when the screen next changes
         if len(_looks) > 256:
             _looks.clear()
         _looks[key] = look
-    look = _looks[key]
     if look.get("asks") is not True:
         return
     question = {"prompt": look.get("question"), "answer_style": "text"}

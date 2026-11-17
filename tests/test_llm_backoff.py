@@ -220,3 +220,13 @@ def test_a_named_model_is_priced_at_its_own_rates_with_its_thinking():
     assert L._tokens_cost(resp, "another-model") == (
         1_000_000, 0, 1_000_000, L._OTHER_PER_M[0] + L._OTHER_PER_M[1])
     assert L._tokens_cost(resp)[3] == L._IN_PER_M + L._OUT_PER_M
+
+
+def test_a_second_models_429_leaves_the_parse_running():
+    exc = type("ClientError", (Exception,), {"code": 429})("429 RESOURCE_EXHAUSTED")
+    L._backoff.update(delay=0.0, until=0.0)
+    L._handle_llm_error(exc, own_quota=True)
+    assert L._admit()[0] == 0  # still admitted
+    L._handle_llm_error(exc)
+    assert L._admit()[0] > 0
+    L._backoff.update(delay=0.0, until=0.0)
