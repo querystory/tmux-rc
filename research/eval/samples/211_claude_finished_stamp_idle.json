@@ -1,0 +1,11 @@
+{
+  "description": "Synthetic: Claude Code's turn is over. Its finished stamp ('✻ Brewed for 2m 4s · 1 shell still running') sits under a closing summary that asks nothing; the shell it mentions is background work, not the agent's turn. Empty input box below: idle, no question.",
+  "current_command": "node",
+  "capture": "● Bash(npm run dev -- --port 4173)\n  ⎿  Running in the background (↓ to manage)\n\n● The recipe cards now scale their photos to the card width, and the dev server is up on port 4173 so you can look at the grid. The layout test passes on all three breakpoints.\n\n✻ Brewed for 2m 4s · 1 shell still running\n\n──────────────────────────────────────────────────────────────────── recipes ──\n❯\n────────────────────────────────────────────────────────────────────────────────────\n  ~/src/recipe-box on feat/card-photos | Opus 5.5\n  session: +41/-12 lines · 22% ctx · 18m · $2.10\n  ⏵⏵ accept edits on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "idle",
+    "question": null,
+    "headline": "Recipe card photos now scale to card width"
+  }
+}

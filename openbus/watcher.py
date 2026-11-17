@@ -23,7 +23,6 @@ from functools import partial
 from . import fit, tmux, transcript
 from .classify import (
     _OMP_CTX_RE,
-    _OPENCODE_RUNNING_RE,
     bootstrap,
     classify,
     prompt_gone,
@@ -64,7 +63,7 @@ CHECKPOINT_EVENTS = 100
 DEAD_SERVER_RETENTION = 30 * 86400
 # Bump when classification or the fingerprint changes meaning: stored cards then miss
 # their hash once and every pane is re-read, instead of restoring an older parser's card.
-CARD_VERSION = 61
+CARD_VERSION = 68
 # LLM parse cadence. We capture every tick (cheap, for the snapshot buffer) but only
 # PARSE when the content fingerprint CHANGED vs. the last parse (or on a forced reparse).
 # `changed` compares against _prev_fp, which is written only on a SUCCESSFUL parse — so a
@@ -129,6 +128,12 @@ RECENT_EVENT_TTL = 15 * 60
 # structured fields — we only ignore them for the change check.)
 _OMP_BAR = _OMP_CTX_RE.pattern  # omp's context bar: the mark of its status row
 _OMP_ROW = rf".*{_OMP_BAR}"  # lookahead body: the rest of this line holds the bar
+# OpenCode 1.18's spinner row: ■/⬝ blocks, or "[⋯]" with animations off; a first Esc press
+# turns the label into "esc again to interrupt". Its animation is not a change.
+_OPENCODE_SPINNER_RE = re.compile(
+    r"^[ \t]*(?:[▰▱▮▯■⬝□▪▫█▓▒░]+|\[⋯\])[ \t]+esc[ \t]+(?:again[ \t]+to[ \t]+)?interrupt[ \t]*$",
+    re.IGNORECASE | re.MULTILINE,
+)
 _VOLATILE_RE = re.compile(
     # durations; fractional seconds only as omp's job timer ("· 3.4s"), so "1.2s" elsewhere
     # stays content rather than leaving a "1." that half-tracks it
@@ -209,9 +214,7 @@ def _fingerprint(text: str) -> str:
     collapsing spacing globally would erase the indentation that distinguishes one
     screen from another (a diff, a tree, nested output)."""
     text = text.rsplit(tmux.VISIBLE_SCREEN, 1)[-1]
-    # Share the exact line matcher with classify(): anything decisive enough to force
-    # running is normalized here, and nothing else can accidentally become invisible.
-    text = _OPENCODE_RUNNING_RE.sub("[opencode-active]", text)
+    text = _OPENCODE_SPINNER_RE.sub("[opencode-active]", text)
     text = _VOLATILE_RE.sub("", text)
     lines = text.split("\n")
     anchors = [i for i, ln in enumerate(lines) if _CODEX_INPUT_RE.match(ln)]
