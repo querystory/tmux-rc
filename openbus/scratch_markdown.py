@@ -17,6 +17,7 @@ import anyio
 import markdown
 from markdown.blockprocessors import BlockProcessor
 from markdown.extensions import Extension
+from markdown.preprocessors import Preprocessor
 from pygments.formatters import HtmlFormatter
 from starlette.exceptions import HTTPException
 from starlette.responses import HTMLResponse, Response
@@ -30,6 +31,9 @@ _TOKENS = re.compile(r"^(?::root(?:\.light)? \{.*?^\}|\.acct-(?:badge|dot)\b[^\n
 _CALLOUT = re.compile(r"^ {0,3}> ?\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\] *$",
                       re.IGNORECASE | re.MULTILINE)
 _QUOTED = re.compile(r" {0,3}> ?")
+_ITEM = re.compile(r"(?:[-*+]|\d+\.) ")
+# As on GitHub (CommonMark), only a list numbered from 1 interrupts text: "2026. was" stays.
+_INTERRUPT = re.compile(r"(?:[-*+]|1\.) +\S")
 # GitHub's CAUTION is red, Material's caution orange: it becomes a danger titled Caution.
 _ADMONITION = {"caution": 'danger "Caution"'}
 # Highlighting is done here, so the page carries Pygments' classes for both themes, each
@@ -65,8 +69,25 @@ class _Callouts(BlockProcessor):
                       if b.strip()]
 
 
+class _Lists(Preprocessor):
+    """A list straight under a line of text, as GitHub starts it: Python-Markdown wants a
+    blank line first, so it gets one. Runs once fences and raw HTML are stashed (20)."""
+
+    def run(self, lines):
+        out, listed = [], False  # listed: in a list's lines, its lazy continuations too
+        for line in lines:
+            if not listed and out and out[-1].strip() and _INTERRUPT.match(line):
+                out.append("")
+            starts = not out or not out[-1].strip()  # an item here starts a list
+            listed = (bool(line.strip()) and not line.startswith("#")  # a heading ends one
+                      and (listed or (starts and bool(_ITEM.match(line)))))
+            out.append(line)
+        return out
+
+
 class _GitHub(Extension):
     def extendMarkdown(self, md):  # noqa: N802 - Python-Markdown's name
+        md.preprocessors.register(_Lists(md), "github_lists", 15)
         md.parser.blockprocessors.register(_Callouts(md.parser), "github_callouts", 21)
 
 
@@ -95,6 +116,31 @@ def render(path: Path) -> tuple[str, str, str | None]:
     the file changes."""
     st = path.stat()
     return _render(str(path), st.st_mtime, st.st_size)
+
+
+# A link off the site leaves the app as the app's own do (a tab: iOS hands a github.com one
+# to the GitHub app) instead of loading in the viewer's frame, where it can't run (its
+# sandbox lets it open tabs that escape it). A link within the site stays in the frame.
+OUT = (b'<script>addEventListener("click", (e) => { const a = e.target.closest?.("a[href]");'
+       b' if (a && !a.target && /^https?:$/.test(a.protocol) && a.host !== location.host)'
+       b' a.target = "_blank"; }, true);'
+       # In the app's viewer, where the page is: a reload for its update keeps it (app.js).
+       b' addEventListener("scroll", () => parent.postMessage({ scrolled: scrollY }, "*"));'
+       b' addEventListener("message", (e) => e.source === parent'
+       b' && typeof e.data?.scroll === "number" && scrollTo(0, e.data.scroll));</script>')
+
+
+async def _out(response: Response) -> Response:
+    """An HTML page as served, with OUT after it (where a parser takes it into the body, so
+    the page's doctype still leads). Anything else as it was."""
+    if not (response.status_code in (200, 202)
+            and response.headers.get("content-type", "").startswith("text/html")):
+        return response
+    body = getattr(response, "body", None)
+    if body is None:  # a file on disk
+        body = await anyio.to_thread.run_sync(Path(response.path).read_bytes)
+    headers = {k: v for k, v in response.headers.items() if k != "content-length"}
+    return Response(body + OUT, response.status_code, headers)
 
 
 def page(path: Path, web: Path, notice: tuple[str, str] | None = None, app: str = "/",
@@ -157,7 +203,8 @@ class Files(StaticFiles):
     async def get_response(self, path, scope):
         response = await self._response(path, scope)
         if "download" not in parse_qs(scope["query_string"].decode()):
-            return response
+            ranged = any(k == b"range" for k, _ in scope["headers"])  # a FileResponse's own
+            return response if ranged else await _out(response)
         if response.status_code == 202:  # nothing to save yet (a placeholder): stay on the app
             return Response(status_code=204)
         name = quote(path.removeprefix(ARCHIVE + "/").split("/")[0])  # the page's folder

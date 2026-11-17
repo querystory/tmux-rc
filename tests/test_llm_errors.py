@@ -36,7 +36,7 @@ def test_backoff_doubles_then_caps():
 
 def test_gate_skips_vertex_call_while_backing_off(monkeypatch):
     _reset()
-    llm._backoff.update(delay=15.0, until=time.time() + 30)
+    llm._backoff.update(delay=15.0, until=time.time() + 30, reason="rate limited (429)")
     called = []
     monkeypatch.setattr(llm, "_client", lambda: called.append(1))
     assert llm.classify_text("system", "pane text") is None

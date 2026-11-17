@@ -122,7 +122,7 @@ def test_a_codex_panes_meta_json_is_checked_against_the_transcript(tmp_path, mon
                "t3": {"session_id": "t3", "harness": "codex", "title": "Billing"}}
     monkeypatch.setattr(agent_history, "get_many", lambda _ids: running)
     for name in ("moved", "unfound"):  # unfound: nothing in the transcripts yet
-        _folder(tmp_path, name, 1000, {"pane": "%6"})
+        _folder(tmp_path, name, time.time() - scratch.STALL - 60, {"pane": "%6"})
     _folder(tmp_path, "gone", time.time() - 60, {"pane": "%6"})  # made just now
     states = [{"pane_id": "%6", "tool": "codex", "session": "s", "window_name": "first"},
               {"pane_id": "%44", "tool": "codex", "session": "s", "window_name": "Codex",
@@ -334,6 +334,26 @@ def test_a_folder_with_only_its_meta_json_is_a_page_being_made(tmp_path, monkeyp
     assert scratch.placeholder(tmp_path, "wip", who) is None
 
 
+def test_a_page_never_made_stops_however_busy_its_pane(tmp_path, monkeypatch):
+    # The pane named a page hours ago, then went on to publish others while it ran on.
+    monkeypatch.setattr(agent_history, "writers", lambda *_: {})
+    now = scratch.time.time()
+    old = scratch.datetime.fromtimestamp(now - scratch.STUCK - 60).isoformat()
+    _folder(tmp_path, "story", now, {"title": "Story", "pane": "%5", "created": old,
+                                     "updating": "being built"}).joinpath("index.html").unlink()
+    _folder(tmp_path, "overview", now, {"title": "Overview", "pane": "%5", "created": old})
+    _folder(tmp_path, "rev", now, {"pane": "%5", "updating": "the intro"})
+    _folder(tmp_path, "other", now, {"title": "Other", "pane": "%8"})
+    os.utime(tmp_path / "rev" / "meta.json", (now - scratch.STUCK - 60,) * 2)  # marked long ago
+    states = [{"pane_id": "%5", "activity": "running", "headline": "reshooting a screenshot"}]
+    items, _ = _resolved(tmp_path, states)
+    assert (items["story"]["state"], scratch.status(items["rev"])) == ("stopped", "Update stopped")
+    page = scratch.placeholder(tmp_path, "story", lambda: (states, [], STYLE))
+    assert 'class="stopped"' in page and "Now:" not in page and "No page was made." in page
+    assert "<p>Its newer pages: " in page and '<a href="/scratch/overview/">Overview</a>' in page
+    assert "Other" not in page  # another pane's
+
+
 def test_an_updating_page_keeps_its_thumbnail_and_says_so(tmp_path, monkeypatch):
     monkeypatch.setattr(agent_history, "writers", lambda *_: {})
     now = scratch.time.time()
@@ -506,9 +526,10 @@ def test_a_pane_keeps_its_sessions_pages_after_a_restore(tmp_path, monkeypatch):
     monkeypatch.setattr(agent_history, "writers", lambda *_: {})
     monkeypatch.setattr(agent_history, "get_many", lambda ids: {
         "s1": {"session_id": "s1", "running": {"tmux_pane": "%9"}}})
-    _folder(tmp_path, "status", 2000, {"pane": "%9"})
-    _folder(tmp_path, "older", 1000, {"pane": "%3", "agent_session": "s1"})  # restored
-    _folder(tmp_path, "theirs", 3000, {"pane": "%4"})
+    now = time.time()
+    _folder(tmp_path, "status", now - 60, {"pane": "%9"})
+    _folder(tmp_path, "older", now - 120, {"pane": "%3", "agent_session": "s1"})  # restored
+    _folder(tmp_path, "theirs", now, {"pane": "%4"})
     states = [{"pane_id": p, "session": "s", "window_name": "w"} for p in ("%9", "%4")]
     made = scratch.made_by(tmp_path, "%9", states, [], lambda e: e["running"]["tmux_pane"])
     assert [(m["href"], m["pending"]) for m in made] == [("status/", False), ("older/", False)]

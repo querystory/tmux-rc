@@ -8,8 +8,7 @@ import { setupPush } from "/push.js";
 import { linkGroups, askLink } from "/pr-links.js";
 import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, AGENT_TOOLS, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf, tabTitle, tabIconKey, isRunning, sendIntent } from "/m/pane-model.js";
 import { tabIcon } from "/tab-icon.js";
-import { parseHash, formatHash, historyMode, PAGES, scratchUrl } from "/m/url-state.js";
-import "/long-press.js"; // globalThis.longPress: a classic script, so the scratch gallery shares it
+import { parseHash, formatHash, dropOneShots, historyMode, PAGES, scratchUrl } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { dragToDismiss } from "/m/drag-dismiss.js";
 import { tmuxKey, inputQueue } from "/m/keys.js";
@@ -19,7 +18,7 @@ import { renderUsageView, usageDays } from "/m/usage-view.js";
 import { setupAccounts } from "/m/accounts.js";
 import { renderLoops, renderLoopsCard } from "/m/loops.js";
 import { setupRestore } from "/m/restore.js";
-import { renderGraphView, renderGraphCard } from "/m/graph.js";
+import { renderGraphView, renderGraphCard, hideIdle } from "/m/graph.js";
 
 const refreshViewPicker = headerPicker(document.getElementById("review-layout"));
 
@@ -395,7 +394,7 @@ function route() {
   dropGesture();
   if (drawer.open) settle(false); // a move the drawer did not make (the browser's own Back) must not carry it over the next screen
   active = state.pane;
-  focusPushComposer = state.compose;
+  focusPushComposer = state.compose || (!changed && focusPushComposer); // as `linked`: a resize's reroute keeps it
   linked = state.draft || (changed ? null : linked); // a reroute on the same pane (a resize) keeps it
   ({ dashboard, view, filter, page } = state);
   scope.tools = state.agent;
@@ -406,7 +405,8 @@ function route() {
   if (page !== "scratch") scratchFrom = null; // and its pane filter
   const opening = page === "scratch" && scratchUrl(state.open, location.href); // a "Ready" push's page, opened once
   if (opening) { history.replaceState(null, "", "#" + formatHash(state)); viewScratch(opening, ""); }
-  if (state.draft) writeHash(formatHash(state)); // offered once: a reload offers nothing
+  if (state.draft || state.compose) writeHash(dropOneShots(location.hash)); // offered once: a reload or Back offers nothing
+  if (state.compose) startState(); // a poll already out may predate the push's ask, and would spend its focus
   if (changed) {
     if (active) $("reply").replaceWith(draft().editor);
     $("secret").value = ""; // a password is for the pane it was typed at
@@ -475,6 +475,8 @@ const renderSidebar = setupSidebar({ licon, reconcile, text, html, renderItems, 
   active: () => active, wide: () => WIDE.matches, sending: () => sending, answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, compose, offers: (p) => offersOf(p).filter(isCommand), copy: copyText, linkPair,
   setFilter: (value) => { filter = value; stayPut(); }, setAgents: scope.pick,
   setSession: scope.pickSession, clearAll: clearFilters, outside: (p) => outside.has(p.pane_id), sort: () => sort, setSort, repaint: () => renderList() });
+// The Fleet graph's one option in the filter menu, shown on its page (render()).
+const idleOpt = renderSidebar.group("Fleet graph", { idle: "Hide idle panes" }, () => { hideIdle(!hideIdle()); render(); });
 function emptyMessage(query) {
   if (!loaded) return "Loading sessions...";
   if (!booted) return "Reading terminal sessions...";
@@ -503,7 +505,7 @@ function renderList() {
   const inline = renderSidebar.drafts.get(active);
   if (inline) { draft().append(inline); inline.editor.remove(); renderSidebar.drafts.delete(active); }
   renderSidebar.answers.prune(subset);
-  if (WIDE.matches) { renderSidebar(subset, query, filter, more); placeRail(); } else { $("app").classList.remove("rail"); placePill(); renderSidebar.marks(filter, more); renderPhoneList(subset, query); } // a folded sidebar's class would hide the chips
+  if (WIDE.matches) { renderSidebar(subset, query, filter, more); placeRail(); placePill(); } else { $("app").classList.remove("rail"); placePill(); renderSidebar.marks(filter, more); renderPhoneList(subset, query); } // a folded sidebar's class would hide the chips
   show("empty", !subset.length);
   text($("empty"), emptyMessage(query));
   // Empty, while panes the filter hides need you: say so, a click from them.
@@ -535,6 +537,7 @@ function renderList() {
   // Named for screen readers too: in the rail the chips that say it are hidden.
   Object.assign(renderSidebar.picker.firstChild, { title: on.join(" · ") || "No filters", ariaLabel: on.length ? `Filter panes: ${on.join(" · ")}` : "Filter panes" }).dataset.n = n || "";
   renderSidebar.clearAll.disabled = !n;
+  idleOpt.hidden = page !== "graph"; idleOpt.mark(() => hideIdle()); // a view's preference, uncounted as Group by
   // No panes means no session to open a window in: offer to start one instead — the
   // only way back after a reboot, when no tmux server is running at all.
   // Not before boot: an empty `panes` then would open the dialog in New session mode.
@@ -892,6 +895,7 @@ addEventListener("message", (e) => {
   // The page the viewer opened (a pinned one included) may ask to send a line, and only ask
   // (askSend). Only that document runs script in its frame (viewScratch), so an ask from the frame
   // is the page the sheet names. Its origin is opaque, so "null".
+  if (typeof e.data?.scrolled === "number" && e.source === viewer.querySelector("iframe")?.contentWindow) viewer.querySelector("iframe").scrolled = e.data.scrolled; // where a reload puts it
   if (intent) return e.source === viewer.querySelector("iframe")?.contentWindow && e.origin === "null" && !$("send-dialog").open && askSend(sendIntent(e.data, panes));
   if (/^%\d+$/.test(pane) && [scratchFrame, viewer.querySelector("iframe")].some((f) => f?.contentWindow === e.source)) navigate(pane, "summary", { draft: offered });
   if (e.source !== scratchFrame.contentWindow) return;
@@ -929,15 +933,44 @@ const viewer = $("scratch-viewer");
 // Not sooner: WebKit (Safari) applies the attribute to the navigation under way, the page's own.
 // A page that reloads itself (a placeholder, an updating page: scratch_ask.js says so) gets a
 // fresh frame at the page opened for each reload, whose first load runs its script again.
+// So does a reload for an update (checkUpdate), scrolled as it was.
 function viewerFrame(href, title) {
-  viewer.querySelector("iframe")?.remove();
+  const old = viewer.querySelector("iframe"), scrolled = old?.src === new URL(href, location.href).href && old.scrolled; // the same page only
+  old?.remove();
   const frame = Object.assign(document.createElement("iframe"), { src: href, title, onload() {
     if (++this.loads > 1 && this.pending) return viewerFrame(href, title);
-    if (this.loads > 1) { viewerTo = null; paintViewerForm(); } else this.sandbox = "allow-popups allow-popups-to-escape-sandbox";
-  }, loads: 0 });
+    if (this.loads > 1) { viewerTo = null; paintViewerForm(); return; }
+    this.sandbox = "allow-popups allow-popups-to-escape-sandbox";
+    if (typeof scrolled === "number") this.contentWindow.postMessage({ scroll: scrolled }, "*"); // scratch_markdown.OUT
+  }, loads: 0, scrolled });
   frame.addEventListener("load", tellScratch); frame.addEventListener("load", loadRecent); // the visit is in by its load
   $("viewer-form").before(frame);
+  viewerVersion = null; paintUpdate(false); checkUpdate(); // its own version, asked as it loads: an edit meanwhile is an update
 }
+// Back at the page opened, whose composer a page navigated to had put away.
+const reloadViewer = () => { const { src, title } = viewer.querySelector("iframe"); viewerFrame(src, title); if (!viewerTo) findMaker(src); };
+// The page open changed on disk (its folder's version, GET /api/scratch/{name}/version, asked
+// every 5s while it is seen): the bar says "Update available", a tap on it reloads the page,
+// and with Auto-reload checked (remembered on this device) the page reloads at once.
+let viewerVersion = null;
+try { $("viewer-auto").checked = localStorage.getItem("tmuxrc-scratch-auto-reload") === "1"; } catch {}
+function paintUpdate(available) {
+  if (available && $("viewer-auto").checked) return reloadViewer();
+  $("viewer-reload").hidden = !available; $("viewer-auto-box").hidden = !available && !$("viewer-auto").checked;
+}
+async function checkUpdate() {
+  const frame = viewer.querySelector("iframe"), [, , top, name] = new URL($("viewer-out").href || location.href).pathname.split("/");
+  if ((document.hidden && viewerVersion !== null) || !frame || !$("viewer-reload").hidden) return; // hidden: its first version only
+  const archived = top === ".archive", { version } = await request(`/api/scratch/${archived ? name : top}/version${archived ? "?archived=1" : ""}`).catch(() => ({}));
+  if (!version || frame !== viewer.querySelector("iframe")) return; // no answer, or another page meanwhile
+  if (viewerVersion !== null && version !== viewerVersion) paintUpdate(true); else viewerVersion = version;
+}
+setInterval(checkUpdate, 5000);
+$("viewer-reload").onclick = reloadViewer;
+$("viewer-auto").onchange = () => {
+  try { localStorage.setItem("tmuxrc-scratch-auto-reload", $("viewer-auto").checked ? "1" : ""); } catch {}
+  paintUpdate(!$("viewer-reload").hidden);
+};
 function viewScratch(href, title) {
   const out = new URL(href, location.href); out.searchParams.set("bare", ""); // a tab, not the viewer again (server.py)
   $("viewer-out").href = out; // a "Ready" push's link names no title, a pane's link only its URL: the folder, till findMaker
@@ -1274,10 +1307,6 @@ function render() {
   renderRichContent(pane);
   updateComposer();
   if (pane && linked) { offerDraft(active, linked); linked = null; }
-  if (focusPushComposer && pane?.question && needsYou(pane)) {
-    focusPushComposer = false;
-    requestAnimationFrame(() => $(pane.secret ? "secret" : "reply").focus({ preventScroll: true }));
-  }
   if (pane && overviewVisible()) loadEvents(pane);
 }
 
@@ -1302,14 +1331,12 @@ function copyHere(el, value, icon) {
 }
 
 // One tappable link row: the Links list's, and the one leading a question's card. A tap opens
-// it; a long press copies it instead (to open in another browser), and the click after is not
-// a tap (/long-press.js). The copy runs on release, where iOS grants the gesture a clipboard write needs.
+// it; a long press gives the system's own link menu (Copy Link, Open).
 function renderLinks(el, links) {
   reconcile(el, links, (link) => link.href, () => {
     const anchor = document.createElement("a");
     anchor.target = "_blank"; anchor.rel = "noopener noreferrer";
     anchor.innerHTML = '<span></span><small></small>' + licon("chevron", 16);
-    longPress(anchor, { released: () => copyHere(anchor, anchor.href, "chevron") });
     return anchor;
   }, (anchor, link) => {
     const host = new URL(link.href).host;
@@ -1832,6 +1859,12 @@ async function pollState(signal) {
       $("connection").title = (data.stale ? "Watcher stalled; pane summaries may be out of date" : "Connected")
         + (u ? ` | LLM $${u.cost.toFixed(3)}, ${Math.round((u.in_tokens + u.out_tokens + (u.live?.in_tokens || 0) + (u.live?.out_tokens || 0)) / 1000)}k tokens` : "");
       render();
+      // A push's focus is spent on the first fresh, classified state of its pane: its ask, or none.
+      const pushed = panes.find((p) => p.pane_id === active);
+      if (focusPushComposer && booted && !panePending(pushed)) {
+        focusPushComposer = false;
+        if (pushed?.question && needsYou(pushed)) requestAnimationFrame(() => $(pushed.secret ? "secret" : "reply").focus({ preventScroll: true }));
+      }
       await pause(version ? 100 : 1500, signal);
     } catch {
       if (signal.aborted) return;
@@ -2786,7 +2819,7 @@ function placeChrome() {
   $("sb-sticky").before($("sb-nav"), $("sb-recent"));
   // The account filter (accounts.js) is a group in the filter menu in both layouts (a phone's
   // opens as a bottom sheet); the active filters' chips are placed by placePill().
-  renderSidebar.picker.lastChild.append(accounts.filter, ...renderSidebar.views);
+  renderSidebar.picker.lastChild.append(accounts.filter, idleOpt, ...renderSidebar.views);
   placePill();
 }
 // The active filters' chips: under search (a phone's list hides them there: its filter button
@@ -2803,7 +2836,10 @@ function placePill() {
   if (own && own.parentElement !== to) to.append(own); // held by the view: another view drops the head it sat in
   const head = !own && CARDS[page] && bar;
   const picker = renderSidebar.picker, at = head ? picker : bar ? $("find") : dash ? document.querySelector(".app-header") : $("find");
-  if (head) { if (picker.parentElement !== head) head.append(picker); }
+  // A wide graph seats it atop its own buttons, where its full screen, which covers the sidebar, keeps it.
+  const tools = !phone && page === "graph" && dashboardVisible() && graphView.querySelector(".fg-tools");
+  if (tools) { if (picker.parentElement !== tools) tools.prepend(picker); }
+  else if (head) { if (picker.parentElement !== head) head.append(picker); }
   else if (dash && picker.nextElementSibling !== $("new-window")) $("new-window").before(picker);
   else if (!dash && picker.parentElement !== $("find")) $("find").append(picker);
   if (accounts.pill.previousElementSibling !== at) at.after(accounts.pill);

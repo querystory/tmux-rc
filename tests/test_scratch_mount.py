@@ -124,6 +124,19 @@ if server._scratch_dir:
     print(width(mine))
     (rev / "meta.json").write_text('{"title": "Rev"}')
     print(before, landed, width(mine), int("Updating" not in c.get("/scratch/rev/").text))
+    # The viewer's check: its folder's version, new once a file changes, not its thumbnail;
+    # archived, at the archive's and its old link; one in progress or not a folder, no answer
+    v = lambda q="": c.get(f"/api/scratch/rev/version{q}").json()["version"]
+    was = v()
+    (rev / "thumb.webp").write_bytes(b"")
+    same = v() == was
+    os.utime(rev / "index.md", (2.1e9, 2.1e9))
+    act("archive", "rev")
+    (rev.parent / "next").mkdir()
+    (rev.parent / "next" / "meta.json").write_text('{"title": "Next"}')
+    print(int(same and v("?archived=1") not in (was, None) and v() == v("?archived=1")
+              and c.get("/api/scratch/next/version").status_code
+              == c.get("/api/scratch/..%2F/version").status_code == 404))
 """
 
 
@@ -166,7 +179,7 @@ def test_scratch_serves_only_inside_the_configured_dir(tmp_path):
     assert _probe({"TMUXRC_SCRATCH_DIR": str(scratch)}, tmp_path) == [
         200, 404, 404, 200, 307, 200, 404, 404, 404, 202, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
         1, 1, 1, 200, 200, 202, 200, 202, 202, 400, 1, 1, 1, 404, 2, 1, 2,
-        1, 1, 1, 1, 1, 1, 2, 2, 1]
+        1, 1, 1, 1, 1, 1, 2, 2, 1, 1]
 
 
 def test_scratch_is_off_unless_configured(tmp_path):

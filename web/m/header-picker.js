@@ -59,7 +59,7 @@ export function headerPicker(select) {
 export function dismissable(details) {
   const summary = details.querySelector('summary');
   details.addEventListener('keydown', event => {
-    if (event.key === 'Escape') { details.open = false; summary.focus(); event.preventDefault(); }
+    if (event.key === 'Escape' && details.open) { details.open = false; summary.focus(); event.preventDefault(); }
   });
   // The path as dispatched: a click that redraws its own button (a multi-select's) is still inside.
   // Captured, so on a phone the tap that closes a shown menu is swallowed, as an iOS sheet's
