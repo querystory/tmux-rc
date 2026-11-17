@@ -210,6 +210,8 @@ def test_an_unmatched_placeholder_marker_keeps_the_rest_of_the_capture():
     # A literal opener printed by a program is no suggestion: the frames after it stay.
     text = f'PLACEHOLDER_OPEN = "⟪placeholder⟫"\n{VISIBLE_SCREEN}\n● Ship it?'
     assert _unsuggested(text) == text
+    # An opener among a suggestion's words is one of them: none of the words survive.
+    assert _unsuggested("❯ ⟪placeholder⟫explain the ⟪placeholder⟫ mark⟪/placeholder⟫") == "❯ "
 
 
 def test_no_llm_skips_prompt_composition(monkeypatch):

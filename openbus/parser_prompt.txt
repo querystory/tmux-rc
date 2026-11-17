@@ -314,7 +314,8 @@ earlier frame just for continuity. Position alone, selected checkboxes in an ACT
 picker, or unrelated background completion notices do not prove an answer. A current
 input dialog/approval prompt still needs input even when other work is visible.
 
-"question.prompt" quotes the current visible question verbatim. Put the list rows it names
+"question.prompt" quotes the current visible question verbatim, one passage as it stands
+on screen: when the message asks in several places, the last of them. Put the list rows it names
 in "question.items" and other supporting context in "tables", so the question stands alone
 on a phone.
 Include "question" only when waiting on the user (a widget awaiting input, or a finished

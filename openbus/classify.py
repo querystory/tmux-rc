@@ -540,11 +540,18 @@ def _unsuggested(text: str, mark: str = "") -> str:
     input box: a prompt the tool offers, that nobody typed, so no read of the screen can
     quote it. The model's payload keeps an empty `mark` where it was, since a suggestion
     in the box is itself a sign of a welcome screen."""
-    head, *runs = text.split(PLACEHOLDER_OPEN)
-    for run in runs:  # only a pair on one row, as _mark_placeholder writes it, is a suggestion
-        words, close, rest = run.partition(PLACEHOLDER_CLOSE)
-        head += mark + rest if close and "\n" not in words else PLACEHOLDER_OPEN + run
-    return head
+    kept, i = [], 0
+    while (start := text.find(PLACEHOLDER_OPEN, i)) >= 0:
+        # Only a pair on one row, as _mark_placeholder writes it, is a suggestion, and its
+        # words run to the first closer: an opener among them is one of its words.
+        end = text.find(PLACEHOLDER_CLOSE, start)
+        if end < 0 or "\n" in text[start:end]:
+            kept.append(text[i:start + len(PLACEHOLDER_OPEN)])
+            i = start + len(PLACEHOLDER_OPEN)
+        else:
+            kept.append(text[i:start] + mark)
+            i = end + len(PLACEHOLDER_CLOSE)
+    return "".join(kept) + text[i:]
 
 
 def _visible(text: str) -> str:
