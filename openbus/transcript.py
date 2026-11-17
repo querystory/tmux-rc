@@ -71,7 +71,9 @@ def _started(pid: int) -> str | None:
 @lru_cache(maxsize=256)
 def _claude_session(home: Path, pane_pid: str | None, _registry: tuple) -> tuple | None:
     """Claude registers each running process in sessions/<pid>.json; the one running
-    under this pane names the session. Answers (pid, start, session id)."""
+    under this pane names the session. Answers (pid, start, session id), or None when
+    several run under it (one suspended behind another): which one is on screen is unknown."""
+    found = []
     for reg in (home / "sessions").glob("*.json"):
         try:
             data = json.loads(reg.read_text(encoding="utf-8"))
@@ -83,8 +85,8 @@ def _claude_session(home: Path, pane_pid: str | None, _registry: tuple) -> tuple
         started = _started(pid)
         if (started and pane_pid and int(pane_pid) in tmux.ancestors(pid)
                 and _UUID_RE.fullmatch(sid) and str(data.get("procStart")) == started):
-            return pid, started, sid
-    return None
+            found.append((pid, started, sid))
+    return found[0] if len(found) == 1 else None
 
 
 @lru_cache(maxsize=256)

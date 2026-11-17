@@ -81,6 +81,10 @@ def test_claude_reply_from_the_session_running_under_the_pane(homes):
     assert transcript.last_reply(_pane(str(os.getppid())), "") is None
     # A process under some other pane is not this pane's agent.
     assert transcript.last_reply(_pane("999999999"), "") is None
+    # Two under the pane (one suspended behind the other): which is on screen is unknown.
+    _write(homes / "claude/sessions/1.json", [_registration()])
+    _write(homes / "claude/sessions/2.json", [_registration()])
+    assert transcript.last_reply(_pane(str(os.getppid())), "") is None
 
 
 def test_claude_new_user_message_clears_the_reply(homes):
