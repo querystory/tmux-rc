@@ -506,7 +506,8 @@ def test_omp_ask_radios_do_not_become_tasks(checked, unchecked):
 @pytest.mark.parametrize("rule", ["─", "▔"])
 @pytest.mark.parametrize(("tabs", "label"), [
     (" ☐ Fruit ", "Fruit"), ("←  ☒ Beds  ☐ Fruit  ✔ Submit  →", "Fruit"),
-    (" ☐ API → UI", "API → UI"), (" ☐ Fruit →", "Fruit →"),
+    (" ☐ API → UI", "API → UI"), (" ☐ API  →  UI", "API → UI"),
+    (" ☐ Fruit →", "Fruit →"),  # a lone tab keeps its trailing arrow
 ])
 def test_claude_picker_header_tabs_are_not_tasks(tabs, label, rule, bar):
     screen = (
@@ -523,8 +524,10 @@ def test_claude_picker_header_tabs_are_not_tasks(tabs, label, rule, bar):
     assert "tasks" not in classify(_pane("claude"), screen, read(tasks[1:]))
     # A real task with the tab's label stays, barred (│ … │) or not.
     for row in [f"  ⎿  {box} {label}" for box in ("☐", "☒", "☑", "✓", "•", "[x]", "[X]", "[ ]")] + [
-            f"│ ⎿  ☐ {label}      │"]:
+            f"│ ⎿  ☐ {label}      │", f"  ⎿  ☐ {label.replace(' ', '  ')}"]:
         assert classify(_pane("claude"), f"{row}\n" + screen, read(tasks[1:]))["tasks"] == tasks[1:]
+    top = screen.split("\n", 1)[1]  # the widget's edge opens the capture
+    assert classify(_pane("claude"), top, read(tasks[1:])).get("tasks") is None
     # Claude's own plan under a rule, no picker: a checklist, every row kept.
     plan = rule * 40 + f"\n☐ Water the beds\n☐ {label}"
     assert classify(_pane("claude"), plan, _llm({

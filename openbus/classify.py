@@ -1721,14 +1721,16 @@ def classify(
             if is_approval(question) and (ask := _restate(question, replies_fn)):
                 question["ask"] = ask
         # A task the model read only off the menu it asks through (a picker's header tabs
-        # under its top edge) is that widget's row, not the agent's own checklist. With no
-        # edge, the menu's rows run from the screen's start, so they vouch for nothing.
+        # under its top edge, which question_rows starts on) is that widget's row, not the
+        # agent's own checklist. Rows are compared as checklist labels, spacing and case aside.
         widget = question_rows(question, text)
-        if widget and not visible.startswith(widget) and isinstance(
-                tasks := result.get("tasks"), list):
+        if widget[:1] in ("─", "━", "▔", "╭") and isinstance(tasks := result.get("tasks"), list):
+            def seen(task, view):
+                label = task.get("text")
+                return isinstance(label, str) and _quoted(_checklist_text(label), "\n".join(
+                    map(_checklist_text, view.splitlines())))
             result["tasks"] = [t for t in tasks if not isinstance(t, dict)
-                               or not 0 < _quoted(t.get("text"), visible) <= _quoted(
-                                   t.get("text"), widget)]
+                               or not 0 < seen(t, visible) <= seen(t, widget)]
             if not result["tasks"]:
                 result.pop("tasks")
     # Codex reads typed text only in its › composer (a menu the screen can't back is text
