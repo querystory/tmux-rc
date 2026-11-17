@@ -430,7 +430,7 @@ export function fleetGraph(box, mini, ctx) {
   }
   const fitView = () => frame(model.nodes, PAD, 3);
   // The camera flies to `v1`, panning and zooming together (a jump without motion); nodes mid-glide keep gliding.
-  function fly(v1) { anim = { t0: performance.now(), dur: motion() ? 500 : 1, v0: { ...view }, v1 }; model.nodes.forEach(n => { n.fx = n.x; n.fy = n.y; }); animate(); }
+  function fly(v1) { anim = { t0: performance.now(), dur: motion() ? 500 : 1, v0: { ...view }, v1 }; model.nodes.forEach(n => { if (!Number.isNaN(n.x)) { n.fx = n.x; n.fy = n.y; } }); animate(); } // one not yet drawn keeps its start
   // Rebuild and glide to it. A structure unchanged since the last poll only redraws; `refit`
   // re-frames the view too (a lens change), where a poll or a fold keeps the user's pan and zoom.
   function relayout(refit) {

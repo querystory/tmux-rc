@@ -155,6 +155,7 @@ function closeUp(session) {
     await jump.click();
     await page.locator(".fg-pop .fg-x").click(); // focus() opens the pane's popover
     for (let i = 0; i < 2; i++) await tool("Zoom in");
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))); // the zoom lands on a frame
     const plan = await page.evaluate(([session, id]) => {
       const nodes = [...document.querySelectorAll(".fg-nodes button")].map((b) => b._n), fb = document.querySelector(".fg-box"), at = nodes.find((n) => n.p?.pane_id === id);
       // A base from before view() had focus() centre the pane at zoom 1.4.
