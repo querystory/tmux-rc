@@ -9,6 +9,7 @@
     "waiting_on": "user",
     "model": "Opus 5.5",
     "question": {
+      "optional": true,
       "answer_style": "text",
       "reply_buttons": false
     },

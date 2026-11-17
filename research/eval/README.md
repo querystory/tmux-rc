@@ -98,6 +98,8 @@ strictness is correct:
 - `question.reply_buttons` — opt-in: the model-written reply buttons must be an accept
   ("Yes…") then a decline ("No…"); their wording is not pinned. Pinned `false`, there
   must be none (a handed-over `! command` is not a question to reply to).
+- `question.optional` — opt-in: an absent question passes too. A handed-over `! command`
+  is the ask through its Send it (the offer), so the model may also quote it as a question.
 - `buttons_at_most` — opt-in: how many reply buttons the card may draw (the question's
   options and the offers, together), so a list put to the user stays one ask's few replies.
 - `question.prompt_excludes` — opt-in list of strings the question's prompt must not
@@ -226,6 +228,10 @@ actually hit:
 | `137_claude_working_on_usage_limit_handling` | synthetic: a live spinner while editing code that handles "usage limit reached" → running, no reset time |
 | `138_claude_quota_blocked_after_a_closing_question` | synthetic: an auto-mode turn ending "Want me to merge…?", then the limit hit → `quota_blocked`, no question, not Needs you |
 | `156_claude_decision_list_with_defaults_is_one_ask` | synthetic: a finished auto-mode turn sets out seven decisions with proposed defaults → one text user-wait, at most three reply buttons, none a list row |
+| `220_claude_api_error_stops_the_turn` | synthetic: Claude Code's "⎿ API Error: 529" ends an auto-mode turn mid-task → a text user-wait to retry, the error as headline |
+| `221_claude_report_closing_line_quotes_a_question` | synthetic: an auto-mode report whose last line ends in a quoted "…?" (a FAQ title it added) → idle, nothing asked |
+| `222_claude_report_ready_to_merge_heading_answered` | synthetic: an auto-mode status report whose last row, "Blocked? No. Ready to merge?", is checklist labels the report answers above → idle, nothing asked |
+| `223_claude_closing_question_outside_auto_mode` | synthetic: a finished turn in accept-edits mode ends "Should I also bump the version?" → a text user-wait with reply buttons |
 
 Sample 16 originally exposed a table-extraction failure: the prompt said to carry a
 question's supporting list but also to omit tables unless an actual table was shown.

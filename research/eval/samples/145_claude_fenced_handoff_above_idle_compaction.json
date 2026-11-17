@@ -7,6 +7,7 @@
     "activity": "waiting",
     "waiting_on": "user",
     "question": {
+      "optional": true,
       "answer_style": "text"
     },
     "headline": "User must run the script that approves #212's test runs",
