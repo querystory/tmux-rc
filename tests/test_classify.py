@@ -2038,6 +2038,16 @@ def test_a_closing_list_of_asks_is_one_question_under_its_heading(replies):
     result = classify(_pane("claude"), _auto_screen(said), _llm({"offers": ["merge #7 today"],
                       "question": {"prompt": "Still open:", "items": said.split("\n  - ")[1:]}}))
     assert result["question"]["prompt"] == "Still open:"
+    # A heading wrapped above its list is still the model's question, all of it.
+    wrapped = "In staging only, should I use the\nfollowing defaults:\n  - 4 workers?\n  - 30s?"
+    heading = {"prompt": "In staging only, should I use the following defaults:",
+               "items": ["4 workers?", "30s?"], "options": ["Use them", "No"]}
+    q = _ask(make({}), heading, wrapped)
+    assert (q["prompt"], q["options"]) == (heading["prompt"], ["Use them", "No"])
+    # A question wrapped across the frame's bars reads as the model quoted it.
+    framed = {"prompt": "Should I push the branch now?", "options": ["Push it", "Wait"]}
+    q = _ask(make({}), framed, "Ready.\n│\n│ Should I push the\n│ branch now?")
+    assert (q["prompt"], q["options"]) == (framed["prompt"], ["Push it", "Wait"])
 
 
 def test_reply_buttons_fill_only_what_the_offered_replies_leave(replies):

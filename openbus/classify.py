@@ -1114,13 +1114,13 @@ def _clean_options(raw: object, *prompts: str) -> list[str]:
 
 def _same_question(model_q: object, ask: dict, view: str) -> dict:
     """The parser's own question when the deterministic ask that replaces it is the same
-    question (one prompt contains the other, or the ask is a row of the list the model reads
-    as one ask), else {}: its suggested replies and the rows it cites are kept."""
+    question (the model's prompt holds the ask's, or with the list rows it cites holds it, as
+    a heading wrapped above its list leaves only its last row in the ask), else {}: its
+    suggested replies and the rows it cites are kept."""
     if not isinstance(model_q, dict) or model_q.get("answer_style", "text") != "text":
         return {}
     old, new = _plain(str(model_q.get("prompt", ""))), _plain(ask["prompt"])
-    listed = new in _plain(_rows(model_q, view))
-    return model_q if old and (old in new or new in old or listed) else {}
+    return model_q if old and (old in new or new in f"{old} {_plain(_rows(model_q, view))}") else {}
 
 
 def _plain(text: str) -> str:
@@ -1701,7 +1701,8 @@ def classify(
         # the list is the question, as the model quoted it (its heading over its rows, or one
         # prompt holding them all), read off the screen.
         said = str(own.get("prompt", "")).strip()
-        said = _card_line(found[0] if (found := said and _last_occurrence(said, view)) else said)
+        found = said and _last_occurrence(said, view)  # wrapped across bars, the bars dropped
+        said = _card_line(_FRAME_BARS_RE.sub("", found[0]) if found else said)
         rows = _rows(own, view)
         # The model's replies answer its question, so only one covering the whole ask.
         if covered := bool(said) and _plain(ask["prompt"]) in _plain(f"{said} {rows}"):
