@@ -49,6 +49,9 @@ class Watcher:
     def booted(self):
         return True
 
+    def snapshot(self):
+        return self.state_version(), [dict(s) for s in self.states], [], None
+
     def pane_birth(self, pane_id):
         return self.births.get(pane_id)
 

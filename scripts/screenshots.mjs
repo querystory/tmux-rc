@@ -180,6 +180,14 @@ function closeUp(session) {
   };
 }
 
+// The same fleet with a configured worker source (TMUXRC_DEMO_WORKERS=1, demo_server.py):
+// three reported background workers under e2e triage's pane, in the combined totals, the
+// session card and the source-status line. A base without the source shoots the plain fleet.
+const WORKERS = [
+  ["workers-wide-dashboard", WIDE, "light", "#view=dashboard"],
+  ["workers-wide-pane", WIDE, "dark", "#pane=%259"],
+];
+
 // The same fleet with a second Claude account (TMUXRC_DEMO_ACCOUNTS=2, demo_fleet.PERSONAL):
 // badges, the strip by urgency, grouped Plan usage, the picker, the filter and Accounts….
 // Everything above is the one-account state, which must look as it did before accounts.
@@ -404,6 +412,7 @@ try {
   demos.push([SHOTS, await startDemo(tree)]); // each pushed as it starts, so a later failure closes it
   demos.push([TWO_ACCOUNTS, await startDemo(tree, { TMUXRC_DEMO_ACCOUNTS: "2" })]);
   demos.push([GRAPH, await startDemo(tree, { TMUXRC_DEMO_GRAPH: "1" })]);
+  demos.push([WORKERS, await startDemo(tree, { TMUXRC_DEMO_WORKERS: "1" })]);
   for (const [shots, demo] of demos) for (const [name, viewport, colorScheme, hash, step, crop] of shots) {
     const speaking = name === "website-voice" || name === "website-voice-phone";
     const page = await demo.open(viewport, colorScheme, hash, speaking ? stubVoice : undefined, async (page) => {
