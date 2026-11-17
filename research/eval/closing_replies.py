@@ -135,6 +135,7 @@ def run(args: argparse.Namespace) -> None:
         for i in range(args.runs):
             if hasattr(C, "_replies"):
                 C._replies.clear()  # one call per question per RUN, not per process
+                C._looks.clear()  # and one second look per screen per run
             jobs = [(s, "closing") for s in samples] + [(s, "existing") for s in existing]
             outs = pool.map(lambda j: _run_one(j[0], args.model, not args.no_replies, takes), jobs)
             for (s, corpus), o in zip(jobs, outs, strict=True):
