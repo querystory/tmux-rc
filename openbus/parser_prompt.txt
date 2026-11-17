@@ -383,6 +383,10 @@ a ❯ alone does not make a cursor list. Choose "cursor" ONLY when there is no d
 press. When unsure, prefer "text" (typing the answer is safe; sending a stray digit is
 not).
 
+A highlighted list is a "cursor" question only while someone awaits the user's pick. A
+settings panel the user opened (/config, /plugin: tabs across its top, then settings beside
+their current values, a footer of keys to change them) awaits no pick: the user is browsing
+their own preferences, so the pane is idle and the JSON has no "question".
 For "cursor" ONLY, two extra fields make the list drivable:
 - "selected": the 0-based index into YOUR "options" array of the row the highlight is
   currently on. Count within the options you listed, not screen lines. Use null if you
@@ -408,8 +412,9 @@ need you" badge; an external-wait is shown as ordinary busy. Set "waiting_on":
 - "user" — the human is expected to act RIGHT NOW: an INPUT AFFORDANCE on screen (a
   question box, a permission/approval prompt, a y/n confirmation, a numbered/cursor
   selection menu, a free-text prompt awaiting a typed answer) or a finished turn whose
-  final message waits on them (above). Anything that pairs with a "question" or "rewind"
-  is a user-wait.
+  final message waits on them (above), or a sign-in the user finishes in their browser (a
+  login link the program waits on). Anything that pairs with a "question"
+  or "rewind" is a user-wait.
 - "external" — the agent is blocked on something NON-human and there is nothing for the
   user to do: a live sub-task / subagent indicator it is waiting to finish, a "waiting for
   review" / "waiting for CI" / "waiting for the PR checks" line, a poll or "waiting for X

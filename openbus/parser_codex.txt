@@ -24,5 +24,5 @@
   it too. If every segment is an identifiable kind, there is no title: OMIT "session"
   rather than promoting a mode word, cwd, branch, or usage readout.
   Its device sign-in (`codex login --device-auth`) shows a one-time code to enter on a web
-  page: the pane is waiting on that browser sign-in (waiting_on "external"), with the code
-  as a copyable; nothing is typed into this pane, so there is no "question".
+  page: like any browser sign-in it waits on the user, with the code as a copyable, and
+  nothing is typed into this pane, so the JSON has no "question".
