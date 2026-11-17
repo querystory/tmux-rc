@@ -540,7 +540,8 @@ def _unsuggested(text: str, mark: str = "") -> str:
     input box: a prompt the tool offers, that nobody typed, so no read of the screen can
     quote it. The model's payload keeps an empty `mark` where it was, since a suggestion
     in the box is itself a sign of a welcome screen."""
-    return re.sub(f"{PLACEHOLDER_OPEN}.*?{PLACEHOLDER_CLOSE}", mark, text)
+    head, *runs = text.split(PLACEHOLDER_OPEN)
+    return head + "".join(mark + run.partition(PLACEHOLDER_CLOSE)[2] for run in runs)
 
 
 def _visible(text: str) -> str:
