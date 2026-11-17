@@ -106,9 +106,18 @@ def test_claude_turn_is_closed_by_its_turn_duration(homes):
                   _say("assistant", [{"type": "text", "text": "x"}], isSidechain=True)):
             f.write(json.dumps(e) + "\n")
     assert transcript.turn_live(pane, "") is False
-    with path.open("a") as f:
-        f.write(json.dumps(_say("user", "<task-notification>x")) + "\n")
+    with path.open("a") as f:  # a new turn's first record, still being written
+        f.write('{"type": "user", "mess')
     assert transcript.turn_live(pane, "") is None
+    with path.open("a") as f:
+        f.write('age": {"role": "user", "content": "<task-notification>x"}}\n')
+    assert transcript.turn_live(pane, "") is None
+    # A Claude run under Codex is not the pane's turn: the thread Codex names is.
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(transcript, "_codex_file", lambda _p, _t: path.with_name("rollout.jsonl"))
+        path.with_name("rollout.jsonl").write_text(
+            json.dumps({"type": "event_msg", "payload": {"type": "task_started"}}) + "\n")
+        assert transcript.turn_live(pane, "") is True
 
 
 def test_codex_reply_from_the_thread_named_in_the_status_bar(homes, monkeypatch):
