@@ -118,6 +118,9 @@ def test_claude_turn_is_closed_by_its_turn_duration(homes):
         path.with_name("rollout.jsonl").write_text(
             json.dumps({"type": "event_msg", "payload": {"type": "task_started"}}) + "\n")
         assert transcript.turn_live(pane, "") is True
+        mp.setattr(transcript, "_codex_file", lambda _p, _t: None)  # no thread on screen
+        mp.setattr(transcript, "_programs", lambda _pid: {"codex", "claude"})
+        assert transcript.turn_live(pane, "") is None
 
 
 def test_codex_reply_from_the_thread_named_in_the_status_bar(homes, monkeypatch):

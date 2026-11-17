@@ -160,12 +160,12 @@ def turn_live(pane: Pane, text: str) -> bool | None:
     None, never True. Codex's is open from task_started to task_complete or turn_aborted:
     Codex hides its "Working" row while a message prints mid-turn, so the screen alone can
     show a live turn as over. Its rollout is read incrementally, since one long turn writes
-    megabytes, far past `_TAIL`. The thread Codex's status bar names comes first: a Claude
-    run under Codex is not the pane's turn."""
+    megabytes, far past `_TAIL`. A Claude run under Codex is not the pane's turn, so in a
+    Codex pane only its rollout answers."""
     path = _codex_file(pane, text)
     if not path:
-        claude = _claude_file(pane)
-        return claude and _claude_turn_live(claude, _stamp(claude))
+        claude = pane.pid and "codex" not in _programs(pane.pid) and _claude_file(pane)
+        return _claude_turn_live(claude, _stamp(claude)) if claude else None
     try:
         with path.open("rb") as f:
             ino, size = (st := os.fstat(f.fileno())).st_ino, st.st_size
