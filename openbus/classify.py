@@ -420,7 +420,12 @@ def _codex_model_segments(line: str) -> list[int]:
             if segment and _CODEX_MODEL_TOKEN_RE.fullmatch(segment.split(maxsplit=1)[0])]
 
 
-_OMP_LABEL_RE = re.compile(r"^ {8,}(\S.*?)\s*$")
+def _omp_label_row(lines: list[str]) -> str | None:
+    """omp's session label: right-aligned on the row just above its status row (the one
+    carrying its context bar)."""
+    *_, bar = [None, *(i for i, line in enumerate(lines) if _OMP_CTX_RE.search(line))]
+    row = lines[bar - 1] if bar else ""
+    return row if re.match(r"^ {8,}\S", row) else None
 
 
 def _session_chrome(text: str) -> list[str]:
@@ -440,10 +445,8 @@ def _session_chrome(text: str) -> list[str]:
                 and re.match(r"^\s*[─━]+\s+\S", candidates[i - 1])):
             chrome.append(candidates[i - 1])  # Claude title immediately above status.
         chrome.append(line)
-    # omp right-aligns its session label on the row above its status row (the context bar).
-    *_, bar = [None, *(i for i, line in enumerate(lines) if _OMP_CTX_RE.search(line))]
-    if bar and _OMP_LABEL_RE.match(lines[bar - 1]):
-        chrome.append(lines[bar - 1])
+    if label := _omp_label_row(lines):
+        chrome.append(label)
     renames = [line for line in strip_dim(text).splitlines()
                if re.match(r"^\s*[•●]\s+Thread renamed to \S", line)]
     if renames:
@@ -453,7 +456,11 @@ def _session_chrome(text: str) -> list[str]:
 
 def _session_evidence(text: str) -> str:
     titles = []
+    label = _omp_label_row(strip_dim(text.rsplit(VISIBLE_SCREEN, 1)[-1]).splitlines())
     for line in _session_chrome(text):
+        if line == label:
+            titles.append(line.strip())
+            continue
         match = re.match(r"^\s*[─━]+\s+(\S.*?)\s*$", line)
         if match:
             titles.append(match.group(1))
@@ -463,8 +470,7 @@ def _session_evidence(text: str) -> str:
             model = models[-1]
             if model:
                 titles.append(" · ".join(segments[:model]))
-        match = (re.match(r"^\s*[•●]\s+Thread renamed to (\S.*?)\s*$", line)
-                 or _OMP_LABEL_RE.match(line))
+        match = re.match(r"^\s*[•●]\s+Thread renamed to (\S.*?)\s*$", line)
         if match:
             titles.append(match.group(1))
     return "\n".join(titles)

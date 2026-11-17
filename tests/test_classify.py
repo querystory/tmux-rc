@@ -412,6 +412,10 @@ def test_omp_session_label_above_its_status_row_is_title_evidence():
         "No direct subdirectories", "Ask Preferred Color Choice. No direct subdirectories")
     assert "session" not in classify(_pane("bun", "π > omp-play"), moved, _llm({
         "tool": "omp", "activity": "idle", "session": "Ask Preferred Color Choice"}))
+    # Codex's footer indented like a label, with no omp context bar, names no session.
+    codex = "\x1e[visible screen]\x1f\n• Done.\n\n›\n\n        gpt-5.5 xhigh fast · ~/src/app"
+    assert "session" not in classify(_pane("codex"), codex, _llm(
+        {"tool": "codex", "activity": "idle", "session": "fast"}))
 
 
 def test_screen_inferred_omp_drops_a_rejected_questions_tables():
