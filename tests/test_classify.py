@@ -195,6 +195,16 @@ def test_payload_leads_with_foreground_process():
     assert "foreground process" in first_line and "python3" in first_line
 
 
+def test_payload_leaves_out_the_input_box_suggestion():
+    # The greyed suggestion is nobody's words: the model reads an empty box, as the
+    # corrective re-read does, in the current frame and the earlier ones alike.
+    seen = {}
+    box = f"● Done.\n{VISIBLE_SCREEN}\n❯ ⟪placeholder⟫restart the jobs⟪/placeholder⟫"
+    classify(_pane("claude"), box, lambda _s, text: seen.update(text=text) or {},
+             prior=[box])
+    assert "restart the jobs" not in seen["text"] and seen["text"].count("● Done.") == 2
+
+
 def test_no_llm_skips_prompt_composition(monkeypatch):
     def fail():
         raise AssertionError("no-LLM mode must not compose the parser prompt")

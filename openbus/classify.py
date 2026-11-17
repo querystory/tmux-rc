@@ -535,10 +535,15 @@ def _canonical_session(name, visible: str) -> str | None:
     return matches[0] if len(matches) == 1 else None
 
 
+def _unsuggested(text: str) -> str:
+    """The capture minus the greyed suggestion an agent shows in its empty input box: a
+    prompt the tool offers, that nobody typed, so every read of the screen leaves it out."""
+    return re.sub(f"{PLACEHOLDER_OPEN}.*?{PLACEHOLDER_CLOSE}", "", text)
+
+
 def _visible(text: str) -> str:
     """The live viewport as the phone renders it, minus greyed input placeholders."""
-    screen = text.rsplit(VISIBLE_SCREEN, 1)[-1]
-    return strip_dim(re.sub(f"{PLACEHOLDER_OPEN}.*?{PLACEHOLDER_CLOSE}", "", screen))
+    return strip_dim(_unsuggested(text.rsplit(VISIBLE_SCREEN, 1)[-1]))
 
 
 def _question_prompt(question) -> str | None:
@@ -1358,7 +1363,7 @@ def _empty_composer(text: str, tool: str) -> bool:
     hint, a dim border) is blanked in place, so both keep the same rows and columns. An
     agent whose composer this cannot find whole is never proven empty."""
     screen = text.rsplit(VISIBLE_SCREEN, 1)[-1]
-    screen = re.sub(f"{PLACEHOLDER_OPEN}.*?{PLACEHOLDER_CLOSE}", "", screen)
+    screen = _unsuggested(screen)
     shown = strip_dim(screen).split("\n")
     typed = _DIM_SPAN_RE.sub(lambda m: re.sub(r"[^\n]", " ", m[1]), screen)
     typed = typed.replace(DIM_CLOSE, "").split("\n")
@@ -1468,7 +1473,7 @@ def classify(
     heuristic dict."""
     visible = _visible(text)
     process_tool = _host_tool(pane)
-    payload = _with_recent_events(_with_prior(text, prior or []), recent_events or [])
+    payload = _with_recent_events(_unsuggested(_with_prior(text, prior or [])), recent_events or [])
     # Ground truth the model can't hallucinate past: tmux's foreground process for the
     # pane. Anchors tool identity when screen CONTENT mentions agents/models (a server
     # log printing gemini-… lines is not the Gemini CLI).
