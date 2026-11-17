@@ -163,11 +163,18 @@ def provider() -> str:
     return "vertex" if os.environ.get("GOOGLE_CLOUD_PROJECT") else "gemini-api"
 
 
+# google-genai 3 moved AI Studio's default API version to v1, which lacks some of v1beta's
+# surface (the -latest model aliases; Live is documented on v1beta). Every AI Studio client
+# here (the parse client below, Gemini Live in live_providers) pins what 2.x spoke.
+AI_STUDIO_API_VERSION = "v1beta"
+
+
 @cache
 def _build_client():
     from google import genai  # noqa: PLC0415 - same ~0.9s import as genai_types
 
     types = genai_types()
+    http = {"timeout": _TIMEOUT_MS}
 
     # The same model and request config on either backend (see provider()).
     if provider() == "vertex":
@@ -178,6 +185,7 @@ def _build_client():
         }
     elif key := os.environ.get("GEMINI_API_KEY"):
         where = {"vertexai": False, "api_key": key}  # beats GOOGLE_GENAI_USE_* env
+        http["api_version"] = AI_STUDIO_API_VERSION
     else:
         raise RuntimeError(
             "Neither GOOGLE_CLOUD_PROJECT (Vertex) nor GEMINI_API_KEY (AI Studio) is set; "
@@ -199,7 +207,7 @@ def _build_client():
             f"google-genai HttpOptions.timeout unit changed ({_desc!r}); "
             "re-check TMUXRC_LLM_TIMEOUT_MS is still milliseconds"
         )
-    return genai.Client(**where, http_options=types.HttpOptions(timeout=_TIMEOUT_MS))
+    return genai.Client(**where, http_options=types.HttpOptions(**http))
 
 
 # Shared backoff for OPERATIONAL failures. Vertex quota errors come in bursts; without a

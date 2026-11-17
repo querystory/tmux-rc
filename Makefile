@@ -1,4 +1,4 @@
-.PHONY: dev run test lint fmt docs docs-dev docs-check docs-clean install-units demo screenshots screenshots-diff mock mock-check mock-live
+.PHONY: dev run test lint fmt docs docs-dev docs-check docs-clean install-units install-apparmor demo screenshots screenshots-diff mock mock-check mock-live
 
 # Dev server with auto-reload on source changes. Reload restarts the process (the
 # watcher's in-memory cache resets and rebuilds from tmux within a couple ticks — safe,
@@ -32,6 +32,15 @@ install-units:
 	[ "$(LINGER)" = "1" ] && loginctl enable-linger $(USER) || \
 		echo "LINGER=0: skipping enable-linger (units start at first login)"
 	systemctl --user --no-pager status tmux-rc.service tmux-rc-tunnel.service | head -20
+	@[ "$$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null)" != 1 ] || \
+		[ -e /etc/apparmor.d/tmux-rc-headless-shell ] || \
+		echo "Scratch thumbnails need 'make install-apparmor' on this host (docs/scratch.md)"
+
+# Hosts that restrict unprivileged user namespaces (Ubuntu 23.10+) kill the thumbnail
+# browser's sandbox at launch; this profile lets that one binary have it back (needs sudo).
+install-apparmor:
+	sudo install -m644 deploy/apparmor/tmux-rc-headless-shell /etc/apparmor.d/
+	sudo apparmor_parser -r /etc/apparmor.d/tmux-rc-headless-shell
 
 test:
 	uv run pytest -q tests/

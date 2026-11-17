@@ -1,0 +1,12 @@
+{
+  "description": "The same Claude Code welcome box, but a turn has run under it: the user asked a question, the agent answered and stamped the turn, and the input box is empty again. The welcome box is scrollback now, so the pane is a finished turn, not a new session: no fresh, no recent_sessions. Synthetic: invented garden-planner project.",
+  "current_command": "claude",
+  "capture": "╭─── Claude Code v2.9.4 ─────────────────────────────────────────────────────────────╮\n│                                │ Tips for getting started                          │\n│        Welcome back!           │ Run /init to create a CLAUDE.md file with instruc… │\n│                                │ ───────────────────────────────────────────────── │\n│           ▐▛███▜▌              │ Recent activity                                   │\n│          ▝▜█████▛▘             │ 2h ago   Add a frost-date lookup to the planner   │\n│            ▘▘ ▝▝               │ 1d ago   Fix the seed inventory CSV import         │\n│   Opus 5 · Claude Max          │ 3d ago   Sketch the watering schedule view         │\n│   ~/src/garden-planner         │ /resume for more                                  │\n╰────────────────────────────────────────────────────────────────────────────────────╯\n\n❯ how many seed packets are in the inventory?\n\n● 42 packets across 17 varieties, per data/seeds.csv.\n\n✻ Worked for 6s\n\n────────────────────────────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────────────────────────────\n  ? for shortcuts",
+  "expected": {
+    "tool": "claude",
+    "activity": "idle",
+    "fresh": null,
+    "recent_sessions": null,
+    "headline": "Counted 42 seed packets across 17 varieties"
+  }
+}

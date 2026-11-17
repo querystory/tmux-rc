@@ -1,0 +1,16 @@
+{
+  "description": "Claude Code just launched in a new session: its welcome box (tips, a 'Recent activity' list of three past sessions, '/resume for more') above an empty input box, and no conversation yet. Expected fresh=true with the three listed titles, verbatim and without their ages, so the card offers to resume them. Synthetic: an invented garden-planner project.",
+  "current_command": "claude",
+  "capture": "╭─── Claude Code v2.9.4 ─────────────────────────────────────────────────────────────╮\n│                                │ Tips for getting started                          │\n│        Welcome back!           │ Run /init to create a CLAUDE.md file with instruc… │\n│                                │ ───────────────────────────────────────────────── │\n│           ▐▛███▜▌              │ Recent activity                                   │\n│          ▝▜█████▛▘             │ 2h ago   Add a frost-date lookup to the planner   │\n│            ▘▘ ▝▝               │ 1d ago   Fix the seed inventory CSV import         │\n│   Opus 5 · Claude Max          │ 3d ago   Sketch the watering schedule view         │\n│   ~/src/garden-planner         │ /resume for more                                  │\n╰────────────────────────────────────────────────────────────────────────────────────╯\n\n────────────────────────────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────────────────────────────\n  ? for shortcuts",
+  "expected": {
+    "tool": "claude",
+    "activity": "idle",
+    "fresh": true,
+    "recent_sessions": [
+      "Add a frost-date lookup to the planner",
+      "Fix the seed inventory CSV import",
+      "Sketch the watering schedule view"
+    ],
+    "headline": "New Claude Code session, ready for a task"
+  }
+}
