@@ -359,14 +359,49 @@ class _Text(HTMLParser):
         self.hidden, self.parts = 0, []
 
     def handle_starttag(self, tag, _attrs):
+        self.parts.append(" ")  # an element boundary separates; a chunk boundary does not
         self.hidden += tag in self.HIDDEN
 
     def handle_endtag(self, tag):
+        self.parts.append(" ")
         self.hidden -= tag in self.HIDDEN and self.hidden > 0
+
+    def feed(self, data):
+        super().feed(data)
+        self.parts = [re.sub(r"\s+", " ", "".join(self.parts))]  # each chunk scanned once
+        if self.cdata_elem in self.HIDDEN:  # all it holds is script or style: keep only a
+            tail = re.search(r"<(/[a-zA-Z]*\s*)?\Z", self.rawdata)  # closing tag begun
+            self.rawdata = re.sub(r"\s+", " ", tail.group()) if tail else ""
 
     def handle_data(self, data):
         if not self.hidden:
             self.parts.append(data)
+
+
+def text(page: Path, root: Path, chars: int, *, markup: bool = True) -> tuple[str, bool] | None:
+    """A page's readable text, at most `chars`, and whether there was more it left out: a
+    Markdown page as written (or, without `markup`, what it renders to), an HTML page's
+    visible text, nothing for any other file. None for one not really in scratch."""
+    if not scratch.inside(page, root):
+        return None
+    parser, more = _Text(), False
+
+    def seen() -> str:
+        return " ".join("".join(parser.parts).split())
+    if page.suffix == ".md" and markup:
+        with page.open(errors="replace") as f:
+            return f.read(chars), bool(f.read(1))
+    if page.suffix == ".md":
+        parser.feed(scratch_markdown.render(page)[1])
+    elif page.suffix in (".html", ".htm"):  # read on past a big inline script to its text,
+        with page.open(errors="replace") as f:  # not past a tag or comment open for megabytes
+            while (len(seen()) <= chars and len(parser.rawdata) < 1 << 20
+                   and (chunk := f.read(65536))):
+                parser.feed(chunk)
+            more = bool(f.read(1))
+    if not more:
+        parser.close()  # flushes what it held back for a tag that might still be coming
+    return seen()[:chars], more or len(seen()) > chars
 
 
 def describe(meta: Path, page: Path, title: str, root: Path, inode: int = 0) -> str | None:
@@ -374,20 +409,13 @@ def describe(meta: Path, page: Path, title: str, root: Path, inode: int = 0) -> 
     generated. Never over a description already there, nor into a meta.json that is
     unreadable or a symlink: those are the agent's to fix. With `inode`, only while its
     folder is still that one (scratch.annotate)."""
-    if not scratch.inside(page, root):
+    if (found := text(page, root, 4000, markup=False)) is None:
         return None
-    parser, html = _Text(), ""
-    if page.suffix == ".md":  # what it renders to, not its markup
-        html = scratch_markdown.render(page)[1]
-    elif page.suffix in (".html", ".htm"):
-        with page.open(errors="replace") as f:
-            html = f.read(524288)
-    parser.feed(html)
-    text = " ".join(" ".join(parser.parts).split())[:4000]
+    body = found[0]
     sentence = llm.one_sentence(
         "Describe this web page in ONE short sentence (under 20 words) for a gallery of "
         f'previews: what it shows, starting with the subject (never "This page"). Plain '
-        f"text.\nTitle: {title}\n\n{text}")
+        f"text.\nTitle: {title}\n\n{body}")
     if not (sentence and scratch.annotate(meta, root, "description", sentence, inode)):
         return None
     return sentence

@@ -25,8 +25,10 @@ from starlette.staticfiles import StaticFiles
 
 _PAGE = Path(__file__).resolve().parent / "scratch_markdown.html"
 MERMAID = "/m/vendor/mermaid.min.js"  # the vendored build, under the app's static dir
-# The app's colours, and its account chip so the gallery's cards wear the same one.
-_TOKENS = re.compile(r"^(?::root(?:\.light)? \{.*?^\}|\.acct-(?:badge|dot)\b[^\n]*)",
+# The app's colours, its account chip so the gallery's cards wear the same one, and its
+# rule against iOS text autosizing (which boosts text after a rotation and keeps it).
+_TOKENS = re.compile(r"^(?::root(?:\.light)? \{.*?^\}|\.acct-(?:badge|dot)\b[^\n]*"
+                     r"|html \{[^\n]*text-size-adjust[^\n]*)",
                      re.MULTILINE | re.DOTALL)
 _CALLOUT = re.compile(r"^ {0,3}> ?\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\] *$",
                       re.IGNORECASE | re.MULTILINE)
@@ -44,8 +46,9 @@ _PYGMENTS = (HtmlFormatter(style="github-dark").get_style_defs(":root:not(.light
 
 
 def tokens(style: Path) -> str:
-    """The app's colour tokens from its stylesheet, for a scratch page to inline: sandboxed,
-    it cannot count on a credentialed stylesheet load behind the front door."""
+    """The app's colour tokens (and its no-text-autosizing rule) from its stylesheet, for a
+    scratch page to inline: sandboxed, it cannot count on a credentialed stylesheet load
+    behind the front door."""
     return "\n".join(_TOKENS.findall(style.read_text()))
 
 
@@ -121,7 +124,10 @@ def render(path: Path) -> tuple[str, str, str | None]:
 # A link off the site leaves the app as the app's own do (a tab: iOS hands a github.com one
 # to the GitHub app) instead of loading in the viewer's frame, where it can't run (its
 # sandbox lets it open tabs that escape it). A link within the site stays in the frame.
-OUT = (b'<script>addEventListener("click", (e) => { const a = e.target.closest?.("a[href]");'
+# iOS text autosizing, which boosts text after a rotation to landscape and keeps it on the
+# way back, stays off in an agent's page too (the app's own rule, as tokens inlines it).
+OUT = (b'<style>html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }</style>'
+       b'<script>addEventListener("click", (e) => { const a = e.target.closest?.("a[href]");'
        b' if (a && !a.target && /^https?:$/.test(a.protocol) && a.host !== location.host)'
        b' a.target = "_blank"; }, true);'
        # In the app's viewer, where the page is: a reload for its update keeps it (app.js).

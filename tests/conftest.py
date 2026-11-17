@@ -15,6 +15,7 @@ def _vertex_project(monkeypatch):
     not depend on the checkout's .env (a worktree has none) for what it offers."""
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "test-project")
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)  # likewise: never the dev's key
+    monkeypatch.delenv("TMUXRC_SCRATCH_DIR", raising=False)  # nor the scratch agent shells export
 
 
 @pytest.fixture(autouse=True)

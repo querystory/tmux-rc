@@ -890,7 +890,9 @@ scratchFrame.addEventListener("load", tellScratch);
 // in progress links the pane making it) may open a pane, with a draft for its composer, and nothing else: its origin is opaque,
 // so the placeholder can't be told from another page, and a pane opened is only navigation.
 addEventListener("message", (e) => {
-  const { pane, view, open, title, scratch, names, draft: offered, intent } = e.data || {}, href = scratchUrl(open, location.href);
+  const { pane, view, open, title, scratch, names, draft: offered, intent, reload } = e.data || {}, href = scratchUrl(open, location.href);
+  const shown = viewer.querySelector("iframe");
+  if (reload && e.source === shown?.contentWindow) return reloadViewer(); // a placeholder or an updating page (viewerFrame)
   // The page the viewer opened (a pinned one included) may ask to send a line, and only ask
   // (askSend). Only that document runs script in its frame (viewScratch), so an ask from the frame
   // is the page the sheet names. Its origin is opaque, so "null".
@@ -930,7 +932,9 @@ const viewer = $("scratch-viewer");
 // sandboxed for every later document, so only the page opened can ask to send (askSend) or post
 // at all. A token for the page could be handed on, and the next page can post before its load.
 // Not sooner: WebKit (Safari) applies the attribute to the navigation under way, the page's own.
-// So a reload for an update (checkUpdate) is a fresh frame at the page opened, scrolled as it was.
+// A page that reloads itself (a placeholder, an updating page: scratch_ask.js says so as it does)
+// gets a fresh frame at the page opened, whose first load runs its script again. So does a reload
+// for an update (checkUpdate), scrolled as it was.
 function viewerFrame(href, title) {
   const old = viewer.querySelector("iframe"), scrolled = old?.src === new URL(href, location.href).href && old.scrolled; // the same page only
   old?.remove();
@@ -968,7 +972,8 @@ $("viewer-auto").onchange = () => {
   paintUpdate(!$("viewer-reload").hidden);
 };
 function viewScratch(href, title) {
-  $("viewer-out").href = href; // a "Ready" push's link names no title, a pane's link only its URL: the folder, till findMaker
+  const out = new URL(href, location.href); out.searchParams.set("bare", ""); // a tab, not the viewer again (server.py)
+  $("viewer-out").href = out; // a "Ready" push's link names no title, a pane's link only its URL: the folder, till findMaker
   title = !title || /^\w+:\/\//.test(title) ? viewedFolder() || "Scratch page" : String(title);
   text($("viewer-title"), title);
   viewerFrame(href, title);
@@ -1026,11 +1031,11 @@ for (const load of [loadPins, loadRecent]) { addEventListener("focus", load); lo
 // or the one the user moved the page to with the To chip. A Composer per pane, sent through
 // compose() like the pane's footer and a sidebar Reply.
 async function findMaker(href) {
-  viewerTo = moving = null; paintViewerForm(); text($("viewer-status"), "");
+  viewerTo = moving = null; paintViewerForm(); text($("viewer-status"), ""); const out = $("viewer-out").href;
   const url = new URL(href), [, , top, ...rest] = url.pathname.split("/"); // the page and query it opened at
   const archived = top === ".archive", [folder, ...view] = archived ? rest : [top, ...rest]; // archived: its title, no pane
   const to = folder ? { ...await request(`/api/scratch/${folder}/pane${archived ? "?archived=1" : ""}`).catch(() => ({})), folder: decodeURIComponent(folder), view: view.join("/") + url.search + url.hash } : {};
-  if (!viewer.open || $("viewer-out").href !== href) return; // another page opened meanwhile
+  if (!viewer.open || $("viewer-out").href !== out) return; // another page opened meanwhile
   if (to.title) text($("viewer-title"), to.title); // the gallery's: meta.json's, or the page's <title>
   if (viewer.querySelector("iframe")?.loads > 1 || !to.about) return; // it navigated, or names no pane or no sendable folder
   shotChip(true); useMaker(to);
@@ -1051,10 +1056,11 @@ const paneWhere = (p) => { const name = paneName(p); return name.startsWith(`${p
 $("viewer-move").onchange = async () => {
   const p = panes.find((q) => viewerKey(q) === $("viewer-move").value), { folder } = viewerTo || {};
   if (!p || !folder) return;
-  const frame = viewer.querySelector("iframe"), move = moving = moveSave = moveSave.catch(() => {}).then(() => request(`/api/scratch/${encodeURIComponent(folder)}/pane`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pane: p.pane_id, birth: p.birth }) }));
+  const out = $("viewer-out").href, move = moving = moveSave = moveSave.catch(() => {}).then(() => request(`/api/scratch/${encodeURIComponent(folder)}/pane`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pane: p.pane_id, birth: p.birth }) }));
   paintViewerForm();
   let failed; const to = await move.catch((e) => { failed = e; });
-  if (moving !== move || !viewer.open || viewer.querySelector("iframe") !== frame || frame.loads > 1) return; // a later pick, or another visit
+  // A later pick, another visit, or the page navigated (a page in progress reloading is the same visit: viewerFrame).
+  if (moving !== move || !viewer.open || $("viewer-out").href !== out || viewer.querySelector("iframe")?.loads > 1) return;
   moving = null;
   if (to) return useMaker({ ...viewerTo, ...to });
   text($("viewer-status"), `Could not move the page: ${failed.detail || failed.message}`); paintViewerForm();
@@ -1859,7 +1865,7 @@ async function pollState(signal) {
       const ids = (data.panes || []).map((p) => `${p.pane_id}:${p.birth}:${p.tool}`).join(); // birth: a recycled id is a new pane
       if (ids !== paneIds || Date.now() - accountsAt > 20000) { paneIds = ids; accountsAt = Date.now(); accounts.refresh(); }
       const wasRunning = loaded ? tmuxRunning : null; // null: the first answer always asks
-      statePanes = data.panes || []; showPanes(); loaded = true; booted = data.booted !== false; tmuxRunning = data.tmux_running !== false; prefix = data.prefix || "C-b"; host = data.host || "";
+      scratchNews(data.scratch); statePanes = data.panes || []; showPanes(); loaded = true; booted = data.booted !== false; tmuxRunning = data.tmux_running !== false; prefix = data.prefix || "C-b"; host = data.host || "";
       if (wasRunning !== tmuxRunning || restore.due()) restore.refresh(); // a server came or went: the offer changes
       $("ctrl-b").hidden = data.prefix === "C-b"; // absent prefix: can't know it's C-b, so show it
       if (!document.hidden) { refreshHistory(); refreshCached(); }
@@ -2677,6 +2683,7 @@ $("capture").onclick = (event) => {
 const launchMode = () => {
   const fresh = !$("launch-session").value;
   show("launch-new", fresh); text($("launch-title"), "New session");
+  show("launch-teleport", !fresh); // a teleport opens a window in a session that exists
 };
 $("launch-session").onchange = launchMode;
 // The name defaults to the directory's basename, shown as the placeholder so typing a
@@ -2694,6 +2701,7 @@ $("sessions").addEventListener("scroll", () => {
 }, { passive: true });
 const LAST_DIR = "tmuxrc-last-dir";
 let launchPick = null, launchLoad = 0; // the account picker (accounts.js), with several accounts; the newest load
+let launchAccounts = false; // the accounts loaded for this open: a teleport must know which one to ask
 const LAUNCH_DESC = { claude: "Claude Code", codex: "OpenAI Codex CLI", gemini: "Google Gemini CLI", antigravity: "Google Antigravity CLI", opencode: "OpenCode CLI", omp: "omp agent", shell: "A plain shell in the session's folder" };
 async function openLaunch(fresh, opener, kind) {
   launchPick?.remove(); launchPick = null;
@@ -2715,8 +2723,9 @@ async function openLaunch(fresh, opener, kind) {
   request("/api/sessions/dirs").then((d) => $("launch-dirs").replaceChildren(...d.dirs.map((dir) => new Option(dir))), () => {});
   try {
     // The accounts too: the picker below draws from them, and on a first load they may not be in yet.
-    const [data] = await Promise.all([request("/api/launchers"), accounts.refresh()]);
+    const [data, loaded] = await Promise.all([request("/api/launchers"), accounts.refresh()]);
     if (load !== launchLoad || !$("launch-dialog").open) return;
+    launchAccounts = loaded !== false;
     text($("launch-error"), "");
     $("launch-choices").replaceChildren(...data.launchers.map((launcher) => {
       const button = document.createElement("button");
@@ -2812,6 +2821,31 @@ async function launchWindow(launcher, button) {
   }
   finally { launching = false; $("launch-choices").querySelectorAll("button").forEach((button) => { button.disabled = "unavailable" in button.dataset; }); }
 }
+
+// Teleport: a claude.ai/code session continued in a window here, in a fresh worktree of its
+// repository and under its own name; the daemon looks both up (docs/design/teleport.md).
+async function teleport() {
+  const cloud = $("teleport-id").value.trim();
+  if (launching || !cloud) return;
+  launching = true; text($("launch-error"), "Teleporting...");
+  try {
+    // No timeout: the daemon asks claude.ai first, and a request given up on here could
+    // still open its window, which a retry would then open twice.
+    const data = await post("/api/teleport", { cloud, session: $("launch-session").value, account: launchPick.account("claude") }, NO_TIMEOUT);
+    $("teleport-id").value = ""; $("launch-dialog").close(); openLaunched(data.pane_id);
+    if (data.also?.length) notice(`Only ${data.repo} is checked out for this session. It also worked in ${data.also.join(", ")}.`, 10000);
+  } catch (error) { text($("launch-error"), error.detail || "The session could not be teleported. Check sessions before retrying."); }
+  finally { launching = false; }
+}
+// With several Claude accounts the account step comes first, as it does for a launcher.
+// Not before the accounts are in, nor after they failed to load: the session would be asked
+// of the wrong one.
+$("teleport-go").onclick = () => {
+  if (!launchPick || !$("teleport-id").value.trim()) return;
+  if (!launchAccounts) return text($("launch-error"), "The accounts could not be loaded. Close and try again.");
+  launchPick.pick("claude", teleport);
+};
+$("teleport-id").onkeydown = (e) => { if (e.key === "Enter") $("teleport-go").click(); };
 
 const standalone = () => navigator.standalone || matchMedia("(display-mode: standalone)").matches; // installed, not a browser tab
 function fitViewport() {
@@ -3083,9 +3117,19 @@ $("move-agent").onclick = moveSheet(true);
 window.addEventListener("hashchange", route);
 // A push tapped while the app is open: sw.js names the address to show, and it is routed
 // here like any move. pushState, not location.hash, so the bare-list "/m" routes too.
-navigator.serviceWorker?.addEventListener("message", ({ data }) => {
-  if (data?.open) { history.pushState(null, "", data.open); route(); }
-});
+const openLink = (url) => { history.pushState(null, "", url); route(); };
+navigator.serviceWorker?.addEventListener("message", ({ data }) => { if (data?.open) openLink(data.open); });
+// Pages that landed (push.py's news in /api/state), each told once: a notice with Open and the
+// Recent pages read again. A notification is the push's alone, so a device that turned them
+// off gets none, and two tabs never show one twice. A first state's news is old.
+let newsAt = null;
+function scratchNews(news = []) {
+  const fresh = newsAt === null ? [] : news.filter((n) => n.at > newsAt);
+  newsAt = Math.max(newsAt ?? 0, ...news.map((n) => n.at));
+  const one = fresh.length === 1 && fresh[0]; // several at once: one notice, the gallery to open
+  const gallery = () => { viewer.close(); scratchFrom = null; openLink("#view=scratch"); }; // all of it, out of any page
+  if (fresh.length) { notice(one ? one.title : `Ready: ${fresh.length} pages`, 10000, ["Open", one ? () => openLink(one.url) : gallery]); openRecent(); }
+}
 // Only catch up a frame that was held for a selection; composer keystrokes also fire this.
 document.addEventListener("selectionchange", () => { if (terminalVisible() && captureDirty) paintCapture(); });
 document.addEventListener("visibilitychange", () => { if (!document.hidden) awayPane = null; render(); startState(); restartDetail(); fitViewport(); }); // render: the tab's icon notes or clears "done"
@@ -3095,8 +3139,11 @@ window.addEventListener("pagehide", () => { stateController?.abort(); detailCont
 // A link shared to the app, by Android's share sheet (the manifest's share_target) or an iOS
 // Shortcut opening /m?url=…: the list is the picker, and route() hands it to the pane picked.
 // A draft link holds 500 characters (url-state.js linkDraft): a longer one is refused, not cut.
+// A scratch page's link opened in a tab of its own comes as /m?scratch=… (server.py), its
+// #fragment still on: the viewer opens the page at that fragment.
 const sharing = new URLSearchParams(location.search), link = sharing.get("url") || sharing.get("text") || sharing.get("title");
-if (link) history.replaceState(null, "", location.pathname + location.hash);
+const tabbed = sharing.get("scratch"), at = tabbed === null ? location.hash : `#${new URLSearchParams({ view: "scratch", open: `/scratch/${tabbed}${location.hash}` })}`;
+if (link || tabbed !== null) history.replaceState(null, "", location.pathname + at);
 fitViewport(); route(); startState();
 if (link?.length > 500) notice("That link is too long for a draft (over 500 characters). Copy and paste it instead.");
 else if (link) { notice(`Pick a pane for ${link.length > 80 ? `${link.slice(0, 80)}…` : link}`, 0, ["Cancel", renderList]); shared = link; }

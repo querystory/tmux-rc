@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 const demo = await import("../scripts/demo_browser.mjs").catch(() => null);
-const SANDBOX = "sandbox allow-scripts allow-popups; form-action 'none'; connect-src 'none'"; // openbus/scratch.py
+const SANDBOX = "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox; form-action 'none'; connect-src 'none'"; // openbus/scratch.py
 
 const engines = { chromium: undefined, webkit: () => process.env.PLAYWRIGHT_WEBKIT_WS ? demo.webkit.connect(process.env.PLAYWRIGHT_WEBKIT_WS) : demo.webkit.launch() };
 for (const [engine, browse] of Object.entries(engines))
