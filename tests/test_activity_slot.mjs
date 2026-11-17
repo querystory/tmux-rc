@@ -1,56 +1,34 @@
-// Exercise the real Activity observer: leaving through the top must not fold a tall
-// chart and clamp the dashboard's scroll position back to its slot.
+// Activity on a phone's dashboard: full once its slot is reached and still full at the bottom
+// (folding there shrank the page and looped), back to the strip after a jump to the top or a
+// subpage. Needs the Makefile's Playwright (make screenshots installs it); skipped without it.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import vm from "node:vm";
 
-const source = readFileSync(new URL("../web/m/atlas.js", import.meta.url), "utf8");
-const start = source.indexOf("  root._slot ||= ");
-const end = source.indexOf("  root._slot.observe(sentinel);", start);
-assert.ok(start >= 0 && end > start, "Activity observer moved");
+const demo = await import("../scripts/demo_browser.mjs").catch(() => null);
 
-test("Activity unfolds at its slot and stays full when a short screen scrolls past it", () => {
-  const scroller = {}, sentinel = {}, folds = [];
-  let callback, options, observed;
-  const root = { closest: selector => { assert.equal(selector, "#landing"); return scroller; } };
-  const sandbox = { root, sentinel, compact: on => folds.push(on), IntersectionObserver: class {
-    constructor(fn, opts) { callback = fn; options = opts; }
-    observe(node) { observed = node; }
-  } };
-  vm.runInNewContext(source.slice(start, end) + "root._slot.observe(sentinel);", sandbox);
-  assert.equal(options.root, scroller);
-  assert.equal(observed, sentinel);
-  const entry = (top, isIntersecting) => callback([{ boundingClientRect: { top, width: 390 }, rootBounds: { top: 60, bottom: 340 }, isIntersecting }]);
-  entry(600, false); // Before reaching Activity: the bottom strip.
-  entry(340, true); // Its slot arrives: full chart.
-  entry(100, true);
-  entry(20, false); // Above the scroller, still inside the browser viewport.
-  entry(-150, false); // The full chart is taller than the visible dashboard.
-  entry(600, false); // Scroll back up: the strip returns.
-  callback([{ boundingClientRect: { top: 0, width: 0 }, rootBounds: { top: 0, bottom: 0 }, isIntersecting: false }]); // Hidden dashboard: fold before returning to its top.
-  entry(340, true); // A visible zero-height sentinel touching the edge is reached.
-  // A subpage hides the dashboard's content but not its scroller: fold, so a return with the
-  // slot below the scroller (no further callback) still shows the pinned strip.
-  callback([{ boundingClientRect: { top: 0, width: 0 }, rootBounds: { top: 60, bottom: 340 }, isIntersecting: false }]);
-  assert.deepEqual(folds, [true, false, false, false, false, true, true, false, true]);
-});
-
-for (const [name, leave] of [["a subpage", { page: "usage", dashboardVisible: () => true }], ["leaving the dashboard", { page: null, dashboardVisible: () => false }]])
-test(`${name} folds Activity even when its slot was already above the scroller`, () => {
-  const app = readFileSync(new URL("../web/m/app.js", import.meta.url), "utf8");
-  const at = app.indexOf("  if (page || !dashboardVisible()) $(\"session-atlas\")._fold");
-  const hide = app.slice(at, app.indexOf("\n", at));
-  assert.ok(hide.length > 10, "the subpage fold moved");
-  const folds = [], atlas = {};
-  let callback;
-  const root = { closest: () => ({}) };
-  const sandbox = { root, sentinel: {}, page: null, $: id => (assert.equal(id, "session-atlas"), atlas),
-    compact: on => folds.push(on), IntersectionObserver: class { constructor(fn) { callback = fn; } observe() {} } };
-  vm.runInNewContext(source.slice(start, end), sandbox);
-  atlas._fold = sandbox.compact;
-  callback([{ boundingClientRect: { top: 340, width: 390 }, rootBounds: { top: 60, bottom: 340 }, isIntersecting: true }]);
-  callback([{ boundingClientRect: { top: -150, width: 390 }, rootBounds: { top: 60, bottom: 340 }, isIntersecting: false }]);
-  vm.runInNewContext(hide, Object.assign(sandbox, leave)); // no callback: still non-intersecting
-  assert.deepEqual(folds, [false, false, true]);
+test("Activity folds only while its slot is below the dashboard", { skip: !demo && "no Playwright" }, async () => {
+  const api = await demo.startDemo();
+  try {
+    const page = await api.open({ width: 375, height: 700 }, "dark", "#view=dashboard");
+    await page.waitForSelector(".atlas-pulse.compact");
+    const folded = (on) => page.waitForFunction((on) => document.querySelector(".atlas-pulse").classList.contains("compact") === on, on);
+    const scroll = (to) => page.evaluate((to) => { const l = document.getElementById("landing"); l.scrollTop = to ?? l.scrollHeight; }, to);
+    const flips = await page.evaluateHandle(() => { const n = { count: 0 };
+      new MutationObserver(() => n.count++).observe(document.querySelector(".atlas-pulse"), { attributeFilter: ["class"] }); return n; });
+    for (let i = 0; i < 10; i++) { await scroll(); await page.waitForTimeout(100); }
+    await folded(false);
+    await page.waitForTimeout(1000);
+    await scroll(); // the grown page's bottom, with the slot above the dashboard
+    await page.waitForTimeout(500);
+    assert.ok(await page.evaluate(() => document.querySelector(".atlas-pulse").getBoundingClientRect().top < document.getElementById("landing").getBoundingClientRect().top));
+    assert.equal(await flips.evaluate((n) => n.count), 1); // unfolded once, then stayed
+    await scroll(0); // a jump over the whole page, crossing the slot between two frames
+    await folded(true);
+    await scroll();
+    await folded(false);
+    await page.waitForTimeout(1000);
+    await scroll(); // the slot above the dashboard again, so hiding it changes nothing else
+    await page.evaluate(() => { location.hash = "#view=usage"; });
+    await folded(true); // a subpage hides the slot
+  } finally { await api.close(); }
 });
