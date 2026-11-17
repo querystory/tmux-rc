@@ -2474,6 +2474,14 @@ if _scratch_dir:
         return {"pane": pane.get("pane_id"), "birth": pane.get("birth"),
                 "about": scratch.about(root, name), "title": page.get("title")}
 
+    @app.get("/api/scratch/{name}/version")
+    def scratch_version(name: str, archived: bool = False) -> dict:
+        """The folder's version (scratch.version), for the scratch viewer."""
+        at = f"{scratch_markdown.ARCHIVE}/{name}" if archived else name
+        if (v := scratch.version(Path(_scratch_dir), at)) is None:
+            raise HTTPException(404)  # mid-rewrite, gone or in progress: no answer, not a change
+        return {"version": v}
+
     class ScratchPane(BaseModel):
         pane: str
         birth: str
