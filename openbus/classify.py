@@ -297,7 +297,8 @@ _OMP_AGENTS_RE = re.compile(r"◀ 👥 (\d+)")  # its count of subagents still r
 def _read_omp_row(result: dict, visible: str) -> None:
     """cost, context, working time and running subagents off omp's status row (the one
     with its context bar)."""
-    *_, row = ["", *(line for line in visible.splitlines() if _OMP_CTX_RE.search(line))]
+    lines = visible.splitlines()
+    row = lines[bar] if (bar := _omp_bar(lines)) is not None else ""
     if m := _OMP_COST_RE.search(row):
         unit, spend, sub = m.groups()
         result["cost"] = f"${spend}" + (f" (+${sub})" if sub else "") + (" (sub)" * (unit == "S"))
@@ -420,12 +421,16 @@ def _codex_model_segments(line: str) -> list[int]:
             if segment and _CODEX_MODEL_TOKEN_RE.fullmatch(segment.split(maxsplit=1)[0])]
 
 
-def _omp_label_row(lines: list[str]) -> str | None:
-    """omp's session label: right-aligned on the row just above its status row (the one
-    carrying its context bar)."""
+def _omp_bar(lines: list[str]) -> int | None:
+    """The index of omp's status row: the last one carrying its context bar."""
     *_, bar = [None, *(i for i, line in enumerate(lines) if _OMP_CTX_RE.search(line))]
-    row = lines[bar - 1] if bar else ""
-    return row if re.match(r"^ {8,}\S", row) else None
+    return bar
+
+
+def _omp_label_row(lines: list[str]) -> str | None:
+    """omp's session label: right-aligned on the row just above its status row."""
+    row = lines[bar - 1] if (bar := _omp_bar(lines)) else ""
+    return row if row.strip() and _indent(row) >= 8 else None
 
 
 def _session_chrome(text: str) -> list[str]:
@@ -721,14 +726,6 @@ _RULE_ROW_RE = re.compile(r"^\s*[─━╌┄]{3,}\s*$")  # a separator inside t
 
 def _indent(row: str) -> int:
     return len(row) - len(row.lstrip(" \t│┃╎"))
-
-
-def _widget_head(prompt: str, visible: str) -> str:
-    """The rows of the widget the prompt is asked in, from its top edge down to the prompt."""
-    found = _last_occurrence(prompt, visible)
-    above = visible[:found.start()].splitlines()[-16:] if found else []
-    top = next((i for i in reversed(range(len(above))) if _WIDGET_TOP_RE.match(above[i])), None)
-    return "\n".join(above[top + 1:]) if top is not None else ""
 
 
 def _widget_text(prompt: str, visible: str) -> str:
@@ -1671,7 +1668,8 @@ def classify(
             style = question["answer_style"] = "text"
             question.pop("options", None)
         # Numbered menus only: a cursor picker is a plain choice, never an approval.
-        if context := style == "menu" and asked and _widget_text(asked, visible):
+        widget = asked and _widget_text(asked, visible)
+        if context := style == "menu" and widget:
             question["context"] = context
             # Only an approval is restated: a numbered choice such as "Which environment?"
             # keeps its own question.
@@ -1679,7 +1677,7 @@ def classify(
                 question["ask"] = ask
         # A task the model read only off the rows of the widget it asks through (a picker's
         # header tabs) is that widget's row, not the agent's own checklist.
-        if (widget := asked and _widget_head(asked, visible)) and isinstance(
+        if widget and isinstance(
                 tasks := result.get("tasks"), list):
             result["tasks"] = [t for t in tasks if not isinstance(t, dict)
                                or not 0 < _quoted(t.get("text"), visible) <= _quoted(
