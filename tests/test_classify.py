@@ -156,6 +156,9 @@ def test_offers_read_past_agent_notes_repeats_and_the_draft():
     # A narrow pane wraps a note onto two rows: still no message.
     narrow = screen.replace('"Kettle check" finished', '"Kettle check"\n  finished')
     assert classify_mod._last_message(narrow.split(rule, 1)[0]).startswith("Still ready:")
+    # The handoff scrolled above the viewport, only a note below it: still the command.
+    scrolled = screen.replace('\n\n● Agent "Kettle', f'\n\n{VISIBLE_SCREEN}● Agent "Kettle')
+    assert classify_mod.screen_offers(["make tea"], scrolled) == ["! make tea"]
 
 
 def test_a_command_among_a_questions_replies_is_one_offer():

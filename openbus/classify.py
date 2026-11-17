@@ -604,10 +604,12 @@ def _ask_view(text: str) -> str:
     visible = _visible(text)
     bullet = r"(?m)^[ \t]*● "
     # A message bullet in the viewport means the final message begins there, so history
-    # is older; the agent list's "● main" row below the input box is no message.
-    if re.search(bullet, _AGENT_LIST_RE.sub("", visible)):
+    # is older; the agent list's "● main" row below the input box is no message, nor is a
+    # note on a background agent (_AGENT_NOTE_RE), on either side of the boundary.
+    if re.search(bullet, _AGENT_NOTE_RE.sub("", _AGENT_LIST_RE.sub("", visible))):
         return visible
-    *_, start = [None, *re.finditer(bullet, plain := _visible(history) if mark else "")]
+    plain = _AGENT_NOTE_RE.sub("", _visible(history)) if mark else ""
+    *_, start = [None, *re.finditer(bullet, plain)]
     message = plain[start.end():] if start else ""  # from its first word, as _final_message reads
     if not message or _USER_ROW_RE.search(message):
         return visible
