@@ -589,8 +589,8 @@ def _supported_question(question, text: str, tool, pane: Pane) -> bool:
 def _supported_rewind(rewind, visible: str) -> bool:
     """Every row the model read off the rewind picker is on screen."""
     entries = rewind.get("entries") if isinstance(rewind, dict) else None
-    return bool(entries) and all(isinstance(e, dict) and _quoted(e.get("text"), visible)
-                                 for e in entries)
+    return isinstance(entries, list) and bool(entries) and all(
+        isinstance(e, dict) and _quoted(e.get("text"), visible) for e in entries)
 
 
 def _unblocked_ask(result: dict) -> None:

@@ -290,6 +290,9 @@ def test_contract_includes_nonrendered_options_that_change_menu_mapping():
     with_option = push.contract(pane, "123")[0]
     pane["question"]["subject"] = "Ways to free disk:"
     assert push.contract(pane, "123")[0] != with_option
+    with_option = push.contract(pane, "123")[0]
+    pane["question"]["approval"] = True
+    assert push.contract(pane, "123")[0] != with_option
 
 
 def test_body_shows_the_rows_a_question_names(tmp_path, monkeypatch):

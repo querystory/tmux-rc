@@ -970,6 +970,9 @@ def test_rewind_rows_must_be_on_screen():
             "entries": [{"text": t} for t in texts]}}))
     assert read("Wire the CLI --prompt override")["rewind"]
     assert "rewind" not in read("Wire the CLI --prompt override", "Ship the release")
+    for entries in (1, True, "Wire the CLI --prompt override"):  # malformed: rejected, no raise
+        assert "rewind" not in classify(_pane("claude"), capture, _llm(
+            {"tool": "claude", "rewind": {"entries": entries}}))
 
 
 def test_non_codex_session_requires_visible_evidence():

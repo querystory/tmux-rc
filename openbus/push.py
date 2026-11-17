@@ -355,6 +355,8 @@ def contract(pane: dict, birth: str | None) -> tuple[str, dict | None]:
         "subject": question.get("subject") if question else None,
         # The body is the restatement: one that arrives late (a retried call) re-notifies.
         "ask": question.get("ask") if question else None,
+        # An approval is only acted on once restated; a menu that becomes one is a new ask.
+        "approval": is_approval(question) if question else False,
     }
     digest = hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
     return digest, question
