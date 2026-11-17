@@ -418,8 +418,12 @@ export function fleetGraph(box, mini, ctx) {
 
   // The canvas less the HUD's chrome (ctx.inset), kept for draw() to keep words out from under it.
   function room() { const { top = 10, bottom = 0, left = 0, right = 0, tools = 0 } = ctx.inset?.() || {}; return roomAt = { top, left, right, tools, w: W - left - right, h: H - top - bottom }; }
-  // The room less an open popover: a phone's sheet takes the foot (unless it leaves too little, in landscape), a desktop's card the right.
-  function clear() { const R = room(), sheet = pop?.classList.contains('sheet'), above = sheet ? pop.offsetTop - 6 - R.top : 0; return { ...R, w: R.w - (pop && !sheet ? 300 : 0), h: above >= 80 ? Math.min(R.h, above) : R.h }; }
+  // The room less an open popover: a desktop's card takes the right, a phone's sheet the foot;
+  // a tall sheet (a long question, a landscape phone) leaves the room above it, the HUD's band too.
+  function clear() {
+    const R = room(), sheet = pop?.classList.contains('sheet'), foot = sheet ? pop.offsetTop - 6 : R.top + R.h, top = foot - R.top >= 80 ? R.top : 0;
+    return { ...R, top, w: R.w - (pop && !sheet ? 300 : 0), h: Math.max(1, Math.min(R.top + R.h, foot) - top) };
+  }
   // The view framing `ns` inside the HUD's chrome (ctx.inset) and beside any popover, not under
   // them; zoomed in no further than `kMax`.
   function frame(ns, pad, kMax) {
