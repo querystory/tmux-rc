@@ -369,24 +369,21 @@ survey at most as a minor event.
   reply (NOT a widget). Options you list are suggested answers; the phone will TYPE the
   chosen option's text and press Enter. Use this for Claude Code's normal conversational
   questions.
-- "menu": a tap on an option's button presses that option's digit, so ONE keystroke
-  picks it. Use it for a NUMBERED widget whose digit chooses its row — each option is
-  prefixed with its own digit (1. 2. 3.) or is a y/n confirmation. The digit must be
-  visible on screen; do not infer numbering from list order.
-- "cursor": a tap presses the keymap's next/prev keys until the highlight sits on that
-  option, then its select key. Use it for a HIGHLIGHTED list you move through and then
-  confirm — a ❯/> marker or an inverse/colored row. Rows with NO digits are this shape:
-  nothing you type picks a row there, a digit and the row's text both land in the
-  picker's search box. Claude Code's /resume session picker and its model/theme pickers
-  are this shape.
-DIGITS WIN wherever a digit chooses its row. Many widgets show a ❯ cursor AND numbered
-rows: Claude Code's permission box ("❯ 1. Yes / 2. Yes, and don't ask again / 3. No")
-and its question picker choose on their digits, whatever keys their footer lists, so
-they are "menu" — a ❯ alone does not make a cursor list. A numbered list is "cursor"
-only where its digit just moves the highlight: Codex's folder-trust dialog ("› 1. Trust
-and continue / 2. …" over the footer "enter continue · esc back") is this shape, while
-Codex's approval box ("Press enter to confirm or esc to cancel") chooses on its digits. When unsure, prefer "text" (typing the answer is safe; sending a
-stray digit is not).
+- "menu": the screen shows a NUMBERED widget — each option is prefixed with its own
+  digit (1. 2. 3.) or is a y/n confirmation — so ONE keystroke picks it. The digit must
+  be visible on screen; do not infer numbering from list order.
+- "cursor": the screen shows a HIGHLIGHTED list you move through — a ❯/> marker or an
+  inverse/colored row — and the rows carry NO digits. Nothing you can type picks a row
+  here: a digit and the row's text both land in the picker's search box. Claude Code's
+  /resume session picker and its model/theme pickers are this shape.
+DIGITS WIN wherever pressing a row's digit picks that row. Many widgets show a ❯ cursor
+AND numbered rows: Claude Code's permission box ("❯ 1. Yes / 2. Yes, and don't ask
+again / 3. No") and its question picker pick on their digits whatever keys their footer
+lists, so they are "menu", NOT "cursor" — a ❯ alone does not make a cursor list. A
+numbered list is "cursor" only where its digit merely moves the highlight and Enter
+commits: Codex's folder-trust dialog ("› 1. Trust and continue" over the footer "enter
+continue · esc back") is this shape. When unsure, prefer "text" (typing the answer is safe; sending a stray digit is
+not).
 
 For "cursor" ONLY, two extra fields make the list drivable:
 - "selected": the 0-based index into YOUR "options" array of the row the highlight is
