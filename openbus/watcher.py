@@ -128,12 +128,6 @@ RECENT_EVENT_TTL = 15 * 60
 # structured fields — we only ignore them for the change check.)
 _OMP_BAR = _OMP_CTX_RE.pattern  # omp's context bar: the mark of its status row
 _OMP_ROW = rf".*{_OMP_BAR}"  # lookahead body: the rest of this line holds the bar
-# OpenCode 1.18's spinner row: ■/⬝ blocks, or "[⋯]" with animations off; a first Esc press
-# turns the label into "esc again to interrupt". Its animation is not a change.
-_OPENCODE_SPINNER_RE = re.compile(
-    r"^[ \t]*(?:[▰▱▮▯■⬝□▪▫█▓▒░]+|\[⋯\])[ \t]+esc[ \t]+(?:again[ \t]+to[ \t]+)?interrupt[ \t]*$",
-    re.IGNORECASE | re.MULTILINE,
-)
 _VOLATILE_RE = re.compile(
     # durations; fractional seconds only as omp's job timer ("· 3.4s"), so "1.2s" elsewhere
     # stays content rather than leaving a "1." that half-tracks it
@@ -160,7 +154,7 @@ _VOLATILE_RE = re.compile(
     rf"|(?<= > )S[\d.]+(?={_OMP_ROW})|(?<=\d )\(\+\d+\.\d+\)(?={_OMP_ROW})|{_OMP_BAR}[─╎┃\d.KM]*"
     r"|· \d+ 🛠 · \d+ req · [\d.]+%/[\d.]+[KM]"
     rf"|^ ?\S(?= [\dhms ]+ > {_OMP_ROW})"
-    r"|[⏳✳✻✶✷✽❋⣾⣽⣻⢿⡿⣟⣯⣷◐◓◑◒]"  # spinner glyphs
+    r"|[⏳✳✻✶✷✽❋⣾⣽⣻⢿⡿⣟⣯⣷◐◓◑◒▰▱■⬝]"  # spinner glyphs (OpenCode's blocks too)
     # (Codex's moving "sparkle" animation needs more than deletion — see _SPARKLE_RE.)
     # trailing whitespace, outside the group so one run has one quantifier, and only from
     # the run's start: a padded row's every space would otherwise rescan it to the end
@@ -214,7 +208,6 @@ def _fingerprint(text: str) -> str:
     collapsing spacing globally would erase the indentation that distinguishes one
     screen from another (a diff, a tree, nested output)."""
     text = text.rsplit(tmux.VISIBLE_SCREEN, 1)[-1]
-    text = _OPENCODE_SPINNER_RE.sub("[opencode-active]", text)
     text = _VOLATILE_RE.sub("", text)
     lines = text.split("\n")
     anchors = [i for i, ln in enumerate(lines) if _CODEX_INPUT_RE.match(ln)]
