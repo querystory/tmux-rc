@@ -155,8 +155,10 @@ function closeUp(session) {
     await jump.click();
     await page.locator(".fg-pop .fg-x").click(); // focus() opens the pane's popover
     for (let i = 0; i < 2; i++) await tool("Zoom in");
-    const plan = await page.evaluate((session) => {
-      const nodes = [...document.querySelectorAll(".fg-nodes button")].map((b) => b._n), v = document.querySelector(".fg-box").parentElement._g.view();
+    const plan = await page.evaluate(([session, id]) => {
+      const nodes = [...document.querySelectorAll(".fg-nodes button")].map((b) => b._n), fb = document.querySelector(".fg-box"), at = nodes.find((n) => n.p?.pane_id === id);
+      // A base from before view() had focus() centre the pane at zoom 1.4.
+      const k = 1.4 * 1.35 ** 2, v = fb.parentElement._g.view?.() || { k, x: fb.clientWidth / 2 - at.tx * k, y: fb.clientHeight / 2 - at.ty * k };
       const hub = nodes.find((n) => n.kind === "group" && n.label === session);
       const mine = nodes.filter((n) => n === hub || n.up === hub || n.up?.up === hub), xs = mine.map((n) => n.tx), ys = mine.map((n) => n.ty);
       const r = (e) => document.querySelector(e).getBoundingClientRect(), box = r(".fg-box");
@@ -171,7 +173,7 @@ function closeUp(session) {
         if (d > best) { best = d; empty = { x, y }; }
       }
       return { from, to, empty };
-    }, session);
+    }, [session, await jump.getAttribute("data-id")]);
     // The drag starts mid-room: the session's middle may lie under the HUD, which takes no pan.
     await page.mouse.move(plan.to.x, plan.to.y); await page.mouse.down();
     await page.mouse.move(2 * plan.to.x - plan.from.x, 2 * plan.to.y - plan.from.y, { steps: 8 }); await page.mouse.up();

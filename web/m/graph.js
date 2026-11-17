@@ -478,7 +478,7 @@ export function fleetGraph(box, mini, ctx) {
     },
     fit() { touched = false; size(); fly(fitView()); },
     setLens(l) { lens = l; close(); relayout(true); ctx.onChange?.(); }, lens: () => lens,
-    zoom(f) { touched = true; fly(zoomed(W / 2, H / 2, f)); },
+    zoom(f) { touched = true; fly(zoomed(W / 2, H / 2, f, anim?.v1)); }, // quick taps compound on the target
     // Unfold a pane's hubs and tap it: its popover opens and the camera flies to it.
     focus(id) {
       const n = cache.get(id);
@@ -513,7 +513,7 @@ export function fleetGraph(box, mini, ctx) {
   };
 
   // ---- pan, pinch, wheel, hover, tap ----
-  function zoomed(x, y, f) { const k = Math.max(K_MIN, Math.min(4, view.k * f)); return { k, x: x - (x - view.x) * k / view.k, y: y - (y - view.y) * k / view.k }; } // (x, y) stays put
+  function zoomed(x, y, f, v = view) { const k = Math.max(K_MIN, Math.min(4, v.k * f)); return { k, x: x - (x - v.x) * k / v.k, y: y - (y - v.y) * k / v.k }; } // (x, y) stays put
   function zoomAt(x, y, f) { touched = true; land(); Object.assign(view, zoomed(x, y, f)); draw(); }
   const scr = n => ({ x: n.x * view.k + view.x, y: n.y * view.k + view.y }), world = (x, y) => ({ x: (x - view.x) / view.k, y: (y - view.y) / view.k });
   function hit(x, y) {
