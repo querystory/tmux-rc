@@ -1535,11 +1535,12 @@ def classify(
     over = spent or result.get("activity") == "quota_blocked"  # its ask already dropped
     if (offers := screen_offers(result.pop("offers", None), text)) and not over:
         result["offers"] = [_from_reply(offer, reply) for offer in offers]
-    # A text question the model gave no replies for gets its buttons from their own call;
-    # not a handed-over `! command`, whose Send it runs it ("Yes" typed back runs nothing).
+    # An agent's text question the model gave no replies for gets its buttons from their own
+    # call; not a shell's (its program reads its own input, "y" rather than "Yes"), nor a
+    # handed-over `! command`, whose Send it runs it ("Yes" typed back runs nothing).
     question = result.get("question")
     if (isinstance(question, dict) and question.get("answer_style", "text") == "text"
-            and not question.get("options")
+            and not question.get("options") and result.get("tool") != "shell"
             and not any(o.startswith("! ") for o in result.get("offers", ()))
             and (asked := _question_prompt(question))
             and (options := _reply_options(asked.strip(), replies_fn))):

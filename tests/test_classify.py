@@ -1846,6 +1846,10 @@ def test_a_handed_over_command_gets_no_reply_buttons(replies):
     model = {"question": {"prompt": ask, "answer_style": "text"}, "offers": ["! make tea"]}
     out = classify(_pane("claude"), _auto_screen(ask), _llm(model), replies_fn=make({}))
     assert out["offers"] == ["! make tea"] and "options" not in out["question"] and not calls
+    shell = classify(_pane("bash"), "Continue? [y/N] ", _llm({
+        "tool": "shell", "question": {"prompt": "Continue?", "answer_style": "text"}}),
+        replies_fn=make({"options": ["Yes", "No"]}))
+    assert "options" not in shell["question"] and not calls  # a shell reads its own input
 
 
 def test_decline_survives_the_cap_and_a_lone_option_is_unusable(replies):
