@@ -2450,3 +2450,7 @@ def test_a_second_look_asks_only_when_set_and_holds_its_ask_to_the_screen(monkey
     quoted = "Shall I merge it?"  # not on screen: no ask
     assert classify(_pane("claude"), screen, llm)["activity"] == "idle"
     classify_mod._looks.clear()
+    looks.clear()
+    quoted = ask  # a turn the chrome shows live is no idle one: no look
+    live = screen.replace("✻ Baked for 16s", "✻ Baking… (16s · esc to interrupt)")
+    assert classify(_pane("claude"), live, llm)["activity"] == "running" and not looks

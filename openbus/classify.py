@@ -1577,7 +1577,6 @@ def classify(
     # cut above the quota notice (the re-read's own ask is dropped inside it).
     _unblocked_ask(result)
     _ground_visible_fields(result, text, pane, llm_fn, prompt, process_tool)
-    _second_look(result, text, pane, llm_fn)
     # OpenCode answer bullets and omp Ask radios are not tasks. Match genuine visible
     # checkbox rows after a bounded re-read, whose replacement fields need grounding too.
     if result.get("tool") in ("opencode", "omp") and "tasks" in result:
@@ -1671,6 +1670,8 @@ def classify(
     if (result.get("tool") == "codex" and turn_live and not result.get("question")
             and result.get("activity") in ("idle", "unknown", None)):
         result["activity"] = "running"
+    # After the turn chrome above has had its say: a turn it shows live is no idle one.
+    _second_look(result, text, pane, llm_fn)
     # Each agent's own turn chrome only: a shell or Claude printing "■ Build failed" is not
     # a Codex error, and Claude chrome quoted inside Codex is not Codex's turn.
     # The finished turn's own chrome is authoritative over any model question: nothing was

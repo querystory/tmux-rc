@@ -44,6 +44,11 @@ _MODEL = os.environ.get("TMUXRC_GEMINI_MODEL", "gemini-3.1-flash-lite")
 # this daemon ever reported was ~2.5x under reality. Cached input bills at 10% of list.
 _IN_PER_M = float(os.environ.get("TMUXRC_IN_PER_M", "0.25"))
 _OUT_PER_M = float(os.environ.get("TMUXRC_OUT_PER_M", "1.50"))
+# Any other model a call names (TMUXRC_SECOND_LOOK_MODEL): Google's pricing page lists no
+# gemini-3.5-flash, so these default to the nearest Flash it lists (3.6/3.8 Flash, through
+# 2026-12-31; they double on 2027-01-01).
+_OTHER_PER_M = (float(os.environ.get("TMUXRC_OTHER_IN_PER_M", "0.75")),
+                float(os.environ.get("TMUXRC_OTHER_OUT_PER_M", "3.75")))
 
 # Durable per-call metrics log (JSONL): one line per LLM call with tokens/cost/latency,
 # so "add it all up / averages" is a real query (and the seed for QueryStory
@@ -375,10 +380,10 @@ def classify_text(
         # Trace the tail we sent and what came back — grep /tmp/tmux-rc-llm.log.
         _trace.info("IN%s [%s]: %r", "+img" if image_png else "", who, text[-500:])
         _trace.info("OUT: %s", json.dumps(result))
-        _record(resp)  # tokens/cost/latency → metrics jsonl + running totals
+        _record(resp, model)  # tokens/cost/latency → metrics jsonl + running totals
         _emit(
             text, result, time.time() - t0, resp, changed, pane_uid, pane_label, None,
-            kind,
+            kind, model,
         )  # OTLP benchmark record
         # Healthy again; forget the failure streak and its reason. Unless it began after
         # this call did: with panes read in parallel, a call already in flight must not
@@ -399,7 +404,7 @@ def classify_text(
         _metrics.info(json.dumps({"ts": time.time(), "error": msg[:120]}))
         _emit(
             text, None, time.time() - t0, None, changed, pane_uid, pane_label, msg,
-            kind,
+            kind, model,
         )  # record the failure too
         return None
 
@@ -431,24 +436,27 @@ def one_sentence(prompt: str) -> str | None:
         return None
 
 
-def _tokens_cost(resp) -> tuple[int, int, int, float]:
+def _tokens_cost(resp, model: str = _MODEL) -> tuple[int, int, int, float]:
     """(in_tokens, cached_tokens, out_tokens, cost) off a Gemini response — one source of
     truth for how usage comes off the wire, shared by _record (running totals) and _emit
     (telemetry). prompt_token_count INCLUDES cached tokens, which bill at 10% of list —
-    cost must subtract them or a cache hit looks as expensive as a miss."""
+    cost must subtract them or a cache hit looks as expensive as a miss. Thinking tokens
+    bill as output."""
     u = getattr(resp, "usage_metadata", None)
     in_tok = getattr(u, "prompt_token_count", 0) or 0
     cached = getattr(u, "cached_content_token_count", 0) or 0
-    out_tok = getattr(u, "candidates_token_count", 0) or 0
-    cost = ((in_tok - cached) + cached * 0.1) / 1e6 * _IN_PER_M + out_tok / 1e6 * _OUT_PER_M
+    out_tok = (getattr(u, "candidates_token_count", 0) or 0) + (
+        getattr(u, "thoughts_token_count", 0) or 0)
+    in_rate, out_rate = (_IN_PER_M, _OUT_PER_M) if model == _MODEL else _OTHER_PER_M
+    cost = ((in_tok - cached) + cached * 0.1) / 1e6 * in_rate + out_tok / 1e6 * out_rate
     return in_tok, cached, out_tok, cost
 
 
-def _record(resp) -> None:
+def _record(resp, model: str = _MODEL) -> None:
     """Update running totals and append a metrics line. Best-effort — metering must
     never break a parse."""
     try:
-        in_tok, cached, out_tok, cost = _tokens_cost(resp)
+        in_tok, cached, out_tok, cost = _tokens_cost(resp, model)
         _totals["calls"] += 1
         _totals["in_tokens"] += in_tok
         _totals["out_tokens"] += out_tok
@@ -478,16 +486,17 @@ def _emit(
     pane_label: str,
     error: str | None,
     kind: str = "parse",
+    model: str = _MODEL,
 ) -> None:
     """Adapt a Gemini call to the OTLP benchmark record. Best-effort. TTFT isn't exposed
     by the non-streaming google-genai call, so it's left None here (a streaming provider
     path can fill it)."""
     try:
         in_tok, cached, out_tok, cost = (
-            _tokens_cost(resp) if resp is not None else (0, 0, 0, 0.0)
+            _tokens_cost(resp, model) if resp is not None else (0, 0, 0, 0.0)
         )
         emit_parse(
-            model=_MODEL,
+            model=model,
             provider=provider(),
             pane_uid=pane_uid,
             pane_label=pane_label,
