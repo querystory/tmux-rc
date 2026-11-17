@@ -2454,3 +2454,6 @@ def test_a_second_look_asks_only_when_set_and_holds_its_ask_to_the_screen(monkey
     quoted = ask  # a turn the chrome shows live is no idle one: no look
     live = screen.replace("✻ Baked for 16s", "✻ Baking… (16s · esc to interrupt)")
     assert classify(_pane("claude"), live, llm)["activity"] == "running" and not looks
+    # A bash-mode command below the turn spent its ask: no look.
+    spent = screen.replace("✻ Baked for 16s\n", "✻ Baked for 16s\n\n! make tea\n")
+    assert "question" not in classify(_pane("claude"), spent, llm) and not looks

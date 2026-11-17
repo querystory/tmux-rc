@@ -1151,11 +1151,16 @@ _LOOK_ROWS = 40
 _looks: dict[str, dict] = {}
 
 
+def second_look_model() -> str:
+    """The model TMUXRC_SECOND_LOOK_MODEL names for the second look, or "" (off)."""
+    return os.environ.get("TMUXRC_SECOND_LOOK_MODEL", "").strip()
+
+
 def _second_look(result: dict, text: str, pane: Pane, llm_fn) -> None:
     """The look's ask, as the parse's own question and offers would be, and held to the
     same screen: its question only where _supported_question finds it, its offers through
     screen_offers later."""
-    model = os.environ.get("TMUXRC_SECOND_LOOK_MODEL", "").strip()
+    model = second_look_model()
     tool = result.get("tool")
     if not (model and llm_fn and tool in ("claude", "codex") and "parse_ok" not in result
             and result.get("activity") == "idle"
@@ -1670,8 +1675,10 @@ def classify(
     if (result.get("tool") == "codex" and turn_live and not result.get("question")
             and result.get("activity") in ("idle", "unknown", None)):
         result["activity"] = "running"
-    # After the turn chrome above has had its say: a turn it shows live is no idle one.
-    _second_look(result, text, pane, llm_fn)
+    # After the turn chrome above has had its say: a turn it shows live is no idle one,
+    # and one a bash-mode command spent asks nothing any more.
+    if not spent:
+        _second_look(result, text, pane, llm_fn)
     # Each agent's own turn chrome only: a shell or Claude printing "■ Build failed" is not
     # a Codex error, and Claude chrome quoted inside Codex is not Codex's turn.
     # The finished turn's own chrome is authoritative over any model question: nothing was
