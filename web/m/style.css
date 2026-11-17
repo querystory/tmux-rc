@@ -21,7 +21,7 @@
 * { box-sizing: border-box; letter-spacing: 0; -webkit-tap-highlight-color: transparent; }
 [hidden] { display: none !important; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-html, body { position: fixed; inset: 0; overflow: hidden; }
+html, body { position: fixed; inset: 0; overflow: hidden; overscroll-behavior: none; } /* the app shell never scrolls: each view's own scroller does */
 /* iOS Safari's text autosizing boosts some blocks (long terminal lines in a wide scroller)
    to about twice the set size after a layout change. The page sizes its own text. */
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
@@ -174,6 +174,7 @@ a.icon-button, .pane-row, .sb-open, .sb-rail { color: inherit; text-decoration: 
   --lens: blur(8px) saturate(200%) brightness(.8); --drop: 0 12px 30px rgb(0 0 0 / .55), 0 2px 6px rgb(0 0 0 / .35);
   background: linear-gradient(180deg, var(--sheen), transparent 55%), var(--fill); -webkit-backdrop-filter: var(--lens); backdrop-filter: var(--lens);
   border: 1px solid var(--edge); box-shadow: inset 0 1px 0 var(--spec), inset 0 -1px 1px rgb(0 0 0 / .06), var(--drop); }
+#list-nav { touch-action: none; } /* a drag on the bar pans nothing; its tabs still tap */
 .editing #list-nav { display: none; } /* typing: the keyboard's rows, not the tabs, go above it */
 :root.light #list-nav { --fill: rgb(255 255 255 / .08); --sheen: rgb(255 255 255 / .38); --edge: rgb(255 255 255 / .65); --spec: #fff; --ink: #1f2e27; --halo: rgb(255 255 255 / .7);
   --lens: blur(8px) saturate(220%) brightness(1.03); --drop: 0 10px 28px rgb(0 0 0 / .16), 0 1px 3px rgb(0 0 0 / .12); }
@@ -417,6 +418,9 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 #launch-dialog label { margin: 12px 0 6px; }
 #launch-dialog .launch-row label { margin: 0; }
 #launch-choices { margin-top: 8px; }
+#launch-teleport { border-top: 1px solid var(--line); margin-top: 4px; }
+#launch-teleport input { flex: 1; min-width: 0; }
+#launch-teleport button { flex: none; padding: 0 14px; }
 #launch-choices button { min-height: 52px; gap: 12px; padding: 6px 4px; }
 #launch-choices img { width: 22px; height: 22px; }
 #launch-choices > button > span { display: flex; flex-direction: column; gap: 2px; }
@@ -1118,10 +1122,12 @@ label:has([value="auto"]) > .thumb { border-style: dashed; }
    Include the top safe area for translucent installs; opaque installs report
    zero. Bare 100vh overflows the opaque case; bare dvh shortens the translucent one.
    Pure CSS, never a measurement: only an editor measures (fitViewport), so nothing
-   taken with the keyboard up can outlive it. */
+   taken with the keyboard up can outlive it. The root keeps overflow hidden, which clips
+   at the viewport, not at --fill: a visible root let a drag that starts outside every
+   scroller (the tab bar) scroll the whole document. */
 .standalone-fill { --fill: min(100vh, calc(100dvh + env(safe-area-inset-top))); }
-.standalone-fill, .standalone-fill body { position: static; inset: auto; height: var(--fill); overflow: visible; }
-.standalone-fill body { position: relative; }
+.standalone-fill, .standalone-fill body { position: static; inset: auto; height: var(--fill); }
+.standalone-fill body { position: relative; overflow: visible; }
 .standalone-fill #app { bottom: auto; height: var(--fill); }
 
 /* Compacting remains busy, but is distinct from running work. */
