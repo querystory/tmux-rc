@@ -915,6 +915,11 @@ _LINK_TARGET_RE = re.compile(
     r"\[((?:[^][\n]|\[[^][\n]*\])*)\]\((?:[^()\s]|\([^()\s]*\))*\)")
 
 
+def _one_line(text: str) -> str:
+    """Rows as one line: each row's own spacing kept ('a  b' is a command's), a break a space."""
+    return " ".join(row.strip() for row in text.splitlines() if row.strip())
+
+
 def _final_paragraph(message: str) -> str:
     """The message's last paragraph as one line: terminal wrapping splits a long question
     across rows. Reading back from the end it stops at a blank row, and at a list item (kept
@@ -932,7 +937,7 @@ def _final_paragraph(message: str) -> str:
                 rows.append(row)  # the item itself, or the one the wrapped rows continue
             break
         rows.append(row)
-    return " ".join(r.strip() for r in reversed(rows))
+    return _one_line("\n".join(reversed(rows)))
 
 
 def _final_message(visible: str, tool: str) -> str | None:
@@ -1018,7 +1023,7 @@ def screen_offers(offers: object, text: str) -> list[str]:
     whole."""
     listed = offers if isinstance(offers, list) else ()
     visible = _ask_view(text)
-    whole = [re.sub(r"[ \t]*\n[ \t]*", " ", o.strip()) for o in listed if isinstance(o, str)]
+    whole = [_one_line(o) for o in listed if isinstance(o, str)]
     # A reply is the user's own words for the final message's ask ("merge PR #5144" for
     # "Approvals to merge PR #5385 and PR #5144"), read off one paragraph (_invited). A
     # `! command` the agent wrote without its "!" is on the screen as the command alone.
@@ -1060,14 +1065,12 @@ def _final_ask(visible: str, tool: str, message: str, offers: list[str], waiting
                           if offered and re.search(offered, p)), None)
         if paragraph is None:
             # A `! command` row hands over its whole paragraph (a narrow pane wraps the
-            # command over several rows) with the one leading into it, each row's own
-            # spacing kept ('a  b' is the command's).
+            # command over several rows) with the one leading into it.
             handoff = next((i for i in reversed(range(len(blocks)))
                             if _BASH_ROW_RE.search(blocks[i])), None)
             if handoff is None:  # the closing paragraph the model read as waiting on the user
                 return {"prompt": closing, "answer_style": "text"} if waiting else None
-            paragraph = " ".join(row.strip() for block in blocks[max(handoff - 1, 0):handoff + 1]
-                                 for row in block.splitlines() if row.strip())
+            paragraph = _one_line("\n".join(blocks[max(handoff - 1, 0):handoff + 1]))
     # Not a question: no reply buttons, since "Yes, proceed" typed back runs nothing.
     return {"prompt": paragraph, "answer_style": "text", "options": []}
 
