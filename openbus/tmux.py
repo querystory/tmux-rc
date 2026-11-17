@@ -983,20 +983,13 @@ def capture_rows(pane_id: str, start: str, end: str = "", then: Sequence[str] = 
     `screen`: a key that changes whenever history rows are renumbered. That is a width
     change (reflow), a switch of screen, or trimming at the history limit, which drops the
     oldest rows (and can refill to the same size between two looks, so a size alone can't
-    tell). `then` is more tmux commands, whose output follows the rows.
+    tell). `then` is more tmux command arguments, whose output follows the rows.
 
-    The commands are joined by CLI ``;`` so tmux's client parses them into a
-    single command list executed atomically on the server — no output can land
-    between working out the range, capturing it and reading the size.  That is
-    what lets a client address history by absolute row (see capture_history).
-    The pane id is spliced into a command string tmux parses, so anything but a
-    pane id is refused (as a missing pane: the same 404 the callers already
-    give).
-
-    This used ``run-shell -C`` until Nov 2026; that route leaks a cmd_list on
-    every call (tmux/tmux#5531), ~1.7 KB each, growing the server by ~17 MiB/h
-    under tmux-rc's polling rate.  CLI ``;`` takes the client-side parse path
-    which does not leak.  ``then`` is extra tmux arg tokens."""
+    The commands go to tmux as one `;`-separated command list, run in one queue, so no
+    output can land between working out the range, capturing it and reading the size. That
+    is what lets a client address history by absolute row (see capture_history). Anything
+    but a pane id is refused (as a missing pane: the same 404 the callers already give).
+    Not run-shell -C or if-shell: tmux < 3.8 leaks each command string they parse."""
     _check_pane_id(pane_id)
     meta_fmt = "#{history_size} #{pane_width} #{alternate_on}"
     nonce = os.urandom(16).hex()

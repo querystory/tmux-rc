@@ -17,19 +17,9 @@ def fake_tmux(monkeypatch, screen, sgr="1", physical=None, history=""):
     sent = []
 
     def run(argv):
-        if ";" in argv:  # capture_rows: batched meta + oldest + nonce + screen
-            # Split on ";" into sub-commands
-            cmds, cur = [], []
-            for a in argv:
-                if a == ";":
-                    cmds.append(cur)
-                    cur = []
-                else:
-                    cur.append(a)
-            if cur:
-                cmds.append(cur)
-            assert cmds[-1][-1] == "-200"
-            nonce = cmds[2][2]  # display-message -p NONCE
+        if ";" in argv:  # capture_rows: the size, the oldest rows, the nonce, the screen
+            assert argv[-1] == "-200"
+            nonce = argv[argv.index("display-message", 1) + 2]
             return f"0 80 0\n{nonce}\n{history}{screen}\n"
         if argv[0] == "display-message":
             return f"80 {sgr}\n"
