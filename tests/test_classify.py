@@ -648,8 +648,9 @@ def test_model_only_as_the_screen_shows_it(status, model):
     # A narrow pane cuts its status line before the model slot; the parser then fills in
     # the prompt's example. A name the screen doesn't show is dropped.
     r = classify(_pane(), f"╭───╮\n│ > │\n╰───╯\n  {status}",
-                 _llm({"tool": "claude", "activity": "idle", "model": "Opus 4.8"}))
-    assert r.get("model") == model
+                 _llm({"tool": "claude", "activity": "idle", "model": "Opus 4.8",
+                       "status_entries": ["Opus 4.8", "2h"]}))
+    assert r.get("model") == model and r["status_entries"] == ["2h"]
 
 
 def test_question_forces_waiting():

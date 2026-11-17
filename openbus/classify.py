@@ -1776,10 +1776,6 @@ def classify(
     # Likewise the reset time, which only a quota-blocked pane shows.
     if result.get("activity") != "quota_blocked" or not isinstance(result.get("resets"), str):
         result.pop("resets", None)
-    # A model name is read off the screen, so one it doesn't show is the prompt's example
-    # ("Opus 4.8" on a narrow pane whose status line was cut off before its model slot).
-    if not _quoted(result.get("model"), visible):
-        result.pop("model", None)
     if result.get("tool") == "claude":  # its agent list's workflow rows are chrome
         _read_workflow_rows(result, visible)
     # The model's quota read covers the workers too: they share the parent's limit, so a
@@ -1910,6 +1906,11 @@ def classify(
             e in (result.get("model"), result.get("cost")) or (
                 result.get("context_pct") is not None and isinstance(e, str)
                 and _CONTEXT_ENTRY_RE.fullmatch(e.strip())))]
+    # A model name is read off the screen, so one it doesn't show is the prompt's example
+    # ("Opus 4.8" on a narrow pane whose status line was cut off before its model slot).
+    # Dropped after the filter above, so a guess copied into status_entries goes too.
+    if not _quoted(result.get("model"), visible):
+        result.pop("model", None)
     working_prs = _working_prs(
         result.get("working_prs"), repository, "\n".join([*(prior or []), text]))
     if working_prs:
