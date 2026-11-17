@@ -1463,8 +1463,7 @@ def teleport_session(body: TeleportBody, request: Request):
             refuse(409, f"No checkout of {info['repo']} was found here. Clone it and open "
                         "a session in it, then try again.")
     argv = teleport.command(sid, info)
-    command = accounts.command(  # the default dir's is unset, as its own launch would be
-        "claude", env.get(accounts.ENV["claude"]) or str(accounts.default_dir("claude")), argv)
+    command = accounts.pinned("claude", env.get(accounts.ENV["claude"]), argv)
     try:
         pane_id = tmux.new_window(body.session, info["title"][:40] or "teleport", command, cwd)
     except Exception as e:

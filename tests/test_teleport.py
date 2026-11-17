@@ -124,22 +124,30 @@ def test_teleport_opens_the_window_in_the_sessions_checkout(client, tmp_path, mo
         "claude", str(tmp_path), teleport.command(SID, INFO))
 
 
-@pytest.mark.parametrize("standard", [False, True])
-def test_the_standard_account_is_looked_up_under_tmuxs_home_and_launched_unset(
-        client, tmp_path, monkeypatch, standard):
+@pytest.mark.parametrize(("var", "account", "creds"), [
+    ("", None, "tmux/.claude"),  # inherited unset
+    ("/x", "/std", "tmux/.claude"),  # the standard profile chosen over a session default
+    ("daemon/.claude", None, "daemon/.claude"),  # an override naming the daemon's default
+])
+def test_the_lookup_and_the_launch_share_one_account_under_tmuxs_home(
+        client, tmp_path, monkeypatch, var, account, creds):
     """tmux's HOME, not the daemon's, says where an unset CLAUDE_CONFIG_DIR leads: the token
-    is read there, and the launch keeps the variable unset (inherited, or the standard
-    profile chosen over a session default)."""
-    (tmp_path / "home/.claude").mkdir(parents=True)
-    _signed_in(tmp_path / "home/.claude", monkeypatch, {"title": "Notes"})
-    monkeypatch.setattr(T, "show_env", lambda session=None: {"HOME": str(tmp_path / "home")}
-                        if session is None else {"CLAUDE_CONFIG_DIR": "/x" if standard else ""})
+    is read there and the launch keeps it unset; an override, even of the daemon's own
+    ~/.claude, is read and launched as set."""
+    at = lambda rel: str(tmp_path / rel) if rel and rel[0] != "/" else rel  # noqa: E731
+    monkeypatch.setenv("HOME", at("daemon"))
+    (tmp_path / creds).mkdir(parents=True)
+    _signed_in(tmp_path / creds, monkeypatch, {"title": "Notes"})
+    monkeypatch.setattr(T, "show_env", lambda session=None: {"HOME": at("tmux")}
+                        if session is None else {"CLAUDE_CONFIG_DIR": at(var)})
     monkeypatch.setattr(S.accounts, "find", lambda d, p: {"dir": d, "default": True})
     calls = []
     monkeypatch.setattr(T, "_run", lambda argv: (calls.append(argv), "%42")[1])
-    body = {"session": "work", "cloud": SID, **({"account": "/std"} if standard else {})}
+    body = {"session": "work", "cloud": SID, **({"account": account} if account else {})}
     assert client.post("/api/teleport", json=body).status_code == 200
-    assert calls[0][calls[0].index("--") + 1:][:3] == ["env", "-u", "CLAUDE_CONFIG_DIR"]
+    argv = calls[0][calls[0].index("--") + 1:]
+    pin = [f"CLAUDE_CONFIG_DIR={at(var)}"] if var == creds else ["-u", "CLAUDE_CONFIG_DIR"]
+    assert argv[:len(pin) + 1] == ["env", *pin]
 
 
 def test_single_pane_mode_opens_no_window(client, monkeypatch):
