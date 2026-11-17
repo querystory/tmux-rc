@@ -7,7 +7,7 @@ import pytest
 
 from openbus import classify as classify_mod
 from openbus import tmux
-from openbus.classify import VISIBLE_SCREEN, bootstrap, classify
+from openbus.classify import VISIBLE_SCREEN, _unsuggested, bootstrap, classify
 from openbus.tmux import Pane
 
 
@@ -204,6 +204,12 @@ def test_payload_leaves_out_the_input_box_suggestion():
              prior=[box])
     assert "restart the jobs" not in seen["text"] and seen["text"].count("● Done.") == 2
     assert seen["text"].count("❯ ⟪placeholder⟫⟪/placeholder⟫") == 2
+
+
+def test_an_unmatched_placeholder_marker_keeps_the_rest_of_the_capture():
+    # A literal opener printed by a program is no suggestion: the frames after it stay.
+    text = f'PLACEHOLDER_OPEN = "⟪placeholder⟫"\n{VISIBLE_SCREEN}\n● Ship it?'
+    assert _unsuggested(text) == text
 
 
 def test_no_llm_skips_prompt_composition(monkeypatch):

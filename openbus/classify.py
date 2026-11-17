@@ -541,7 +541,10 @@ def _unsuggested(text: str, mark: str = "") -> str:
     quote it. The model's payload keeps an empty `mark` where it was, since a suggestion
     in the box is itself a sign of a welcome screen."""
     head, *runs = text.split(PLACEHOLDER_OPEN)
-    return head + "".join(mark + run.partition(PLACEHOLDER_CLOSE)[2] for run in runs)
+    for run in runs:  # only a pair on one row, as _mark_placeholder writes it, is a suggestion
+        words, close, rest = run.partition(PLACEHOLDER_CLOSE)
+        head += mark + rest if close and "\n" not in words else PLACEHOLDER_OPEN + run
+    return head
 
 
 def _visible(text: str) -> str:
