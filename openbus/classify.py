@@ -1776,6 +1776,10 @@ def classify(
     # Likewise the reset time, which only a quota-blocked pane shows.
     if result.get("activity") != "quota_blocked" or not isinstance(result.get("resets"), str):
         result.pop("resets", None)
+    # A model name is read off the screen, so one it doesn't show is the prompt's example
+    # ("Opus 4.8" on a narrow pane whose status line was cut off before its model slot).
+    if not _quoted(result.get("model"), visible):
+        result.pop("model", None)
     if result.get("tool") == "claude":  # its agent list's workflow rows are chrome
         _read_workflow_rows(result, visible)
     # The model's quota read covers the workers too: they share the parent's limit, so a
