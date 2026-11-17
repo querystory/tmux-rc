@@ -1,10 +1,8 @@
 import { scopeHistory } from './fleet-history.js';
 import { atlasCharts, fleetChart, latestAverage, shownStates, unchanged } from './atlas-charts.js';
-import { needsYou, markWorking, modelProvider, paneName } from './pane-model.js';
-
-import { STATES, stateOf, liveCounts as countFleet } from './fleet-counts.js';
+import { markWorking, modelProvider, paneName } from './pane-model.js';
+import { STATES, stateOf, sum, liveCounts as countFleet } from './fleet-counts.js';
 export { STATES, stateOf } from './fleet-counts.js';
-const sum = rows => rows.some(row => row == null) ? null : STATES.map((_, i) => rows.reduce((n, row) => n + (row[i] || 0), 0));
 const toolOf = p => p.tool || 'other';
 // 'unknown' (classifier could not tell) and 'other' (no tool) are buckets, not agents to
 // filter to: they still count under All, but get no chip of their own.

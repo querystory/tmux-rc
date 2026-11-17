@@ -1,5 +1,4 @@
-import { STATES } from './fleet-counts.js';
-const sum = rows => rows.some(row => row == null) ? null : STATES.map((_, i) => rows.reduce((n, row) => n + (row[i] || 0), 0));
+import { STATES, sum } from './fleet-counts.js';
 
 // Preserve independent pane evidence while applying source gaps only to their known sessions.
 export function scopeHistory(scope, samples) {
