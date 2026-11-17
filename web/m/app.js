@@ -2036,8 +2036,8 @@ async function answer(id, option, index, offer = false) {
 // past sessions that screen lists, and the agent's own resume command, which opens its
 // session picker; the picker is then a question card like any other. A listed session is a
 // way in to that picker too, since only the picker knows which row each title is. The
-// sessions and Resume only where the composer is proven empty (`resumable`): typed after a
-// draft, the command would go out with it as one prompt.
+// sessions and Resume only while the session is fresh (`resumable`), whose input box is empty:
+// typed after a draft, the command would go out with it as one prompt.
 const RESUME = { claude: "/resume", codex: "/resume", gemini: "/resume", antigravity: "/resume", opencode: "/sessions", omp: "/resume" };
 function renderFresh(pane) {
   const resume = pane?.fresh === true && RESUME[pane.tool];
