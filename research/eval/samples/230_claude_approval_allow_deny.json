@@ -1,0 +1,15 @@
+{
+  "description": "A permission prompt whose buttons read Allow / Deny instead of Yes / No: the agent asks to fetch a page. It is still an approval, so the card restates what approving does. Invented screen.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n● I'll read the changelog for the date parser before upgrading it.\n\n────────────────────────────────────────────────────────────────────────────────\n Fetch\n   https://example.org/datewise/CHANGELOG.md\n   Read the release notes for datewise 4.0\n\n Allow Claude to fetch this page?\n ❯ 1. Allow\n   2. Allow for this domain\n   3. Deny\n\n Esc to cancel",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "menu",
+      "ask": "The agent wants to fetch a file from the internet. Continue?"
+    },
+    "headline": "Asking permission to fetch the datewise changelog"
+  }
+}

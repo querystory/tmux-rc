@@ -153,6 +153,7 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
                "items": ["1. ..."],   // when it names rows of a list above it ("do 1 and 2?", "A or B?"): exactly the rows it names
                "subject": "...",   // with "items": the heading or lead-in line just above that list
                "link": "https://...",   // the URL in "links" this question asks the user to open, if any
+               "approval": true,   // a permission prompt: the agent asks leave to take an action it shows (run a command, edit a file, fetch a page), whatever its buttons say; the card then spells out what approving does
                "keymap": {"next": "Down", "prev": "Up", "select": "Enter", "search": true|false}},
   "rewind": {"entries": [{"text": "...", "note": "...", "selected": true}], "more_above": <int>, "more_below": <int>},
   "tasks": [{"text": "...", "done": true|false}],

@@ -1,0 +1,15 @@
+{
+  "description": "A numbered Yes / No question about a preference (tabs or spaces) asked through the agent's question picker: no action is waiting to run, so it is a plain choice and is not restated as an approval. Invented screen.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n> Set up the formatter for the bird-count project.\n\n● The formatter config is ready except for one choice.\n\n────────────────────────────────────────────────────────────────────────────────\n Indentation\n\nShould the formatter indent with tabs?\n\n❯ 1. Yes\n     Tabs, shown 4 wide\n  2. No\n     Four spaces\n  3. Type something.\n\nEnter to select · ↑/↓ to navigate · Esc to cancel",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "menu",
+      "ask": null
+    },
+    "headline": "Asking whether the formatter should indent with tabs"
+  }
+}
