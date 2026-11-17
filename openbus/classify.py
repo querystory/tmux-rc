@@ -535,10 +535,12 @@ def _canonical_session(name, visible: str) -> str | None:
     return matches[0] if len(matches) == 1 else None
 
 
-def _unsuggested(text: str) -> str:
-    """The capture minus the greyed suggestion an agent shows in its empty input box: a
-    prompt the tool offers, that nobody typed, so every read of the screen leaves it out."""
-    return re.sub(f"{PLACEHOLDER_OPEN}.*?{PLACEHOLDER_CLOSE}", "", text)
+def _unsuggested(text: str, mark: str = "") -> str:
+    """The capture minus the words of the greyed suggestion an agent shows in its empty
+    input box: a prompt the tool offers, that nobody typed, so no read of the screen can
+    quote it. The model's payload keeps an empty `mark` where it was, since a suggestion
+    in the box is itself a sign of a welcome screen."""
+    return re.sub(f"{PLACEHOLDER_OPEN}.*?{PLACEHOLDER_CLOSE}", mark, text)
 
 
 def _visible(text: str) -> str:
@@ -1473,7 +1475,8 @@ def classify(
     heuristic dict."""
     visible = _visible(text)
     process_tool = _host_tool(pane)
-    payload = _with_recent_events(_unsuggested(_with_prior(text, prior or [])), recent_events or [])
+    payload = _unsuggested(_with_prior(text, prior or []), PLACEHOLDER_OPEN + PLACEHOLDER_CLOSE)
+    payload = _with_recent_events(payload, recent_events or [])
     # Ground truth the model can't hallucinate past: tmux's foreground process for the
     # pane. Anchors tool identity when screen CONTENT mentions agents/models (a server
     # log printing gemini-… lines is not the Gemini CLI).
