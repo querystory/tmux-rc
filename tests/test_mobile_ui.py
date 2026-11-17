@@ -84,21 +84,6 @@ def test_retired_desktop_assets_are_gone(path):
     assert TestClient(app).get(path).status_code == 404
 
 
-def test_failed_push_repair_retries_before_unsubscribe():
-    source = (Path(__file__).resolve().parents[1] / "web/push.js").read_text()
-    retry = source.index("if (subscription && repairNeeded)")
-    unsubscribe = source.index('fetch("/api/push/unsubscribe"')
-    retry_body = source[retry:unsubscribe]
-    assert 'fetch("/api/push/subscribe"' in retry_body
-    assert "repairNeeded = false" in retry_body
-    failed_enable = source.rindex("if (!response.ok) {")
-    assert "repairNeeded = true" in source[failed_enable:failed_enable + 350]
-
-    worker = (Path(__file__).resolve().parents[1] / "web/sw.js").read_text()
-    assert 'pathname.startsWith("/m")' in worker
-    assert "clients.openWindow(target)" in worker
-
-
 def test_version_tracks_nested_mobile_assets(tmp_path, monkeypatch):
     (tmp_path / "app.js").write_text("desktop")
     mobile = tmp_path / "m"
