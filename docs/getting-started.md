@@ -9,7 +9,7 @@ direct dashboard controls.
 
 ## Run it
 
-Install tmux, Python 3.12 or newer, and [uv](https://docs.astral.sh/uv/).
+Install tmux 3.4 or newer, Python 3.12 or newer, and [uv](https://docs.astral.sh/uv/).
 Keep an existing tmux session running, or start one and launch your preferred agent.
 Get a Gemini API key from [aistudio.google.com](https://aistudio.google.com/apikey)
 (no Google Cloud project needed), then run:
