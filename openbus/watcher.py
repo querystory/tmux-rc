@@ -1719,7 +1719,8 @@ class Watcher:
             if (turn_live and state.get("tool") == "codex" and not state.get("question")
                     and state.get("activity") in ("idle", "unknown", None)):
                 state["activity"] = "running"
-            if turn_live is False and state.get("activity") == "running":
+            if (turn_live is False and state.get("tool") in ("claude", "codex")
+                    and state.get("activity") == "running"):
                 state["activity"] = "idle"  # and a closed one is not, on the kept card too
         state.pop("parse_ok", None)
         state["prs"] = list(self._prs.get(pane.id, []))

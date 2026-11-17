@@ -2128,6 +2128,9 @@ def test_a_turn_its_transcript_closed_is_not_running():
         assert r["activity"] == "idle"
         assert classify(_pane(tool), "❯ ", _llm({"tool": tool, "activity": "running"}),
                         turn_live=None)["activity"] == "running"
+    # A program run while the agent is suspended is not the agent's turn.
+    assert classify(_pane("make"), "$ make", _llm({"tool": "shell", "activity": "running"}),
+                    turn_live=False)["activity"] == "running"
 
 
 def test_codex_turn_open_in_its_rollout_is_running():

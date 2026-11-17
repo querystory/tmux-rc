@@ -1571,7 +1571,8 @@ def classify(
         result["activity"] = "running"
     # And a turn the transcript has closed is not running, whatever it left running in the
     # background ("2 shells still running" under Claude's stamp).
-    if turn_live is False and result.get("activity") == "running":
+    if (turn_live is False and result.get("tool") in ("claude", "codex")
+            and result.get("activity") == "running"):
         result["activity"] = "idle"
     # Each agent's own turn chrome only: a shell or Claude printing "■ Build failed" is not
     # a Codex error, and Claude chrome quoted inside Codex is not Codex's turn.
