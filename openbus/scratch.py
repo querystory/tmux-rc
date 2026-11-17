@@ -55,10 +55,20 @@ STATES = {"working": ("In progress",
           "stopped": ("Stopped", "No page was made. Its agent stopped or moved on.")}
 DOCS = "https://github.com/querystory/tmux-rc/blob/main/docs/scratch.md"
 SIDECARS = ("meta.json", "thumb.webp")  # what tmux-rc and agents add beside a page
-# What every /scratch/ response is served under (see server.py's no_cache middleware).
-SANDBOX = "sandbox allow-scripts allow-popups; form-action 'none'; connect-src 'none'"
+# What every /scratch/ response is served under (see server.py's no_cache middleware). A tab
+# a page opens leaves its sandbox: a scratch link there goes to the app's viewer, which can't
+# run sandboxed, and a scratch page there carries this policy again.
+SANDBOX = ("sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox; "
+           "form-action 'none'; connect-src 'none'")
 PINS = 6  # pages pinned to the app's menu, at most: the sidebar's nav can't overflow
 BINDINGS: Path | None = None  # where bind() keeps the panes pages were moved to (server sets it)
+
+
+def configured() -> str | None:
+    """TMUXRC_SCRATCH_DIR, absolute (panes get it as their env, and the gallery's find takes
+    "-draft" for an option), when it names a directory: scratch exists only then."""
+    root = os.environ.get("TMUXRC_SCRATCH_DIR")
+    return os.path.realpath(root) if root and Path(root).is_dir() else None
 
 
 def inside(path: Path, root: Path) -> bool:

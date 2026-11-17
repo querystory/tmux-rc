@@ -9,7 +9,7 @@ const ask = () => { const img = new Image(); let late; // an ask unanswered in 1
   const end = (ok) => { if (!late) return; clearTimeout(late); late = null; img.onload = img.onerror = null;
     document.getElementById("offline").hidden = ok || ++fails < 2;
     if (ok) fails = 0;
-    if (ok && img.naturalWidth > 1 && !document.querySelector("a:hover")) return location.reload();
+    if (ok && img.naturalWidth > 1 && !document.querySelector("a:hover")) { if (window.top !== window) parent.postMessage({ reload: true }, "*"); return location.reload(); } // the app's viewer: a fresh frame (viewerFrame)
     setTimeout(ask, ok ? {every} : Math.min({every} * 2 ** fails, 30000)); };
   late = setTimeout(() => { end(false); img.src = ""; }, 10000);
   img.onload = () => end(true); img.onerror = () => end(false);

@@ -56,6 +56,7 @@ shaped for the phone and carries only the events new since the last parse.
 | --- | --- |
 | `GET /api/launchers` | The **+** menu's entries (labels only; commands stay in the daemon, `TMUXRC_LAUNCHERS`) |
 | `POST /api/windows`, `POST /api/sessions`, `GET /api/sessions/dirs` | Open a window or session running a configured launcher; directory suggestions |
+| `POST /api/teleport` | Continue a claude.ai/code session in a new window: `{cloud, session, account?}`, where `cloud` is the session's link or id ([design](design/teleport.md)) |
 | `GET`/`POST`/`PUT /api/accounts`, `/accounts/login`, `/accounts/default` | Agent accounts and their sign-in windows |
 | `GET`/`POST /api/restore`, `POST /api/restore/dismiss` | Offer and restore the workspace of a dead tmux server ([design](design/reboot-restore.md)) |
 | `GET /api/export?part=…` | The parts named (repeat `part`; none means only what every archive carries), as a `.tgz`, like `tmux-rc export`'s flags |

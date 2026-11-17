@@ -206,7 +206,7 @@ export function fleetGraph(box, mini, ctx) {
       const t = Math.max(0, Math.min(1, (now - anim.t0) / anim.dur)), e = t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2;
       model.nodes.forEach(n => { n.x = n.fx + (n.tx - n.fx) * e; n.y = n.fy + (n.ty - n.fy) * e; n.alpha = n.fresh ? e : 1; });
       Object.assign(view, { k: anim.v0.k + (anim.v1.k - anim.v0.k) * e, x: anim.v0.x + (anim.v1.x - anim.v0.x) * e, y: anim.v0.y + (anim.v1.y - anim.v0.y) * e });
-      if (t >= 1) { const then = anim.then; anim = null; model.nodes.forEach(n => { n.fresh = false; n.alpha = 1; }); then?.(); }
+      if (t >= 1) { anim = null; model.nodes.forEach(n => { n.fresh = false; n.alpha = 1; }); }
     }
     const dpr = devicePixelRatio || 1, k = view.k, moving = motion(), add = C.dark ? 'lighter' : 'source-over'; // additive light only reads on a dark ground
     if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) Object.assign(cv, { width: Math.round(W * dpr), height: Math.round(H * dpr) }); // a resize, or another display's ratio
@@ -418,12 +418,23 @@ export function fleetGraph(box, mini, ctx) {
 
   // The canvas less the HUD's chrome (ctx.inset), kept for draw() to keep words out from under it.
   function room() { const { top = 10, bottom = 0, left = 0, right = 0, tools = 0 } = ctx.inset?.() || {}; return roomAt = { top, left, right, tools, w: W - left - right, h: H - top - bottom }; }
-  function fitView() { // the graph framed inside the HUD's chrome (ctx.inset), not under it
-    const xs = model.nodes.map(n => n.tx), ys = model.nodes.map(n => n.ty), { top, left, w, h } = room();
-    const x0 = Math.min(...xs) - PAD, x1 = Math.max(...xs) + PAD, y0 = Math.min(...ys) - PAD, y1 = Math.max(...ys) + PAD;
-    const k = Math.max(K_MIN, Math.min(3, w / (x1 - x0), h / (y1 - y0)));
+  // The room less an open popover: a desktop's card takes the right, a phone's sheet the foot;
+  // a tall sheet (a long question, a landscape phone) leaves the room above it, the HUD's band too.
+  function clear() {
+    const R = room(), sheet = pop?.classList.contains('sheet'), foot = sheet ? pop.offsetTop - 6 : R.top + R.h, top = foot - R.top >= 80 ? R.top : 0;
+    return { ...R, top, w: R.w - (pop && !sheet ? 300 : 0), h: Math.max(1, Math.min(R.top + R.h, foot) - top) };
+  }
+  // The view framing `ns` inside the HUD's chrome (ctx.inset) and beside any popover, not under
+  // them; zoomed in no further than `kMax`.
+  function frame(ns, pad, kMax) {
+    const xs = ns.map(n => n.tx), ys = ns.map(n => n.ty), { top, left, w, h } = clear();
+    const x0 = Math.min(...xs) - pad, x1 = Math.max(...xs) + pad, y0 = Math.min(...ys) - pad, y1 = Math.max(...ys) + pad;
+    const k = Math.max(K_MIN, Math.min(kMax, w / (x1 - x0), h / (y1 - y0)));
     return { k, x: left + w / 2 - (x0 + x1) / 2 * k, y: top + h / 2 - (y0 + y1) / 2 * k };
   }
+  const fitView = () => frame(model.nodes, PAD, 3);
+  // The camera flies to `v1`, panning and zooming together (a jump without motion); nodes mid-glide keep gliding.
+  function fly(v1) { anim = { t0: performance.now(), dur: motion() ? 500 : 1, v0: { ...view }, v1 }; model.nodes.forEach(n => { if (!Number.isNaN(n.x)) { n.fx = n.x; n.fy = n.y; } }); animate(); } // one not yet drawn keeps its start
   // Rebuild and glide to it. A structure unchanged since the last poll only redraws; `refit`
   // re-frames the view too (a lens change), where a poll or a fold keeps the user's pan and zoom.
   function relayout(refit) {
@@ -469,23 +480,21 @@ export function fleetGraph(box, mini, ctx) {
       if (!pop) return;
       refreshPop();
     },
-    fit() { touched = false; size(); anim = { t0: performance.now(), dur: motion() ? 400 : 1, v0: { ...view }, v1: fitView() }; model.nodes.forEach(n => { n.fx = n.x; n.fy = n.y; }); animate(); },
+    fit() { touched = false; size(); fly(fitView()); },
     setLens(l) { lens = l; close(); relayout(true); ctx.onChange?.(); }, lens: () => lens,
-    zoom(f) { zoomAt(W / 2, H / 2, f); },
-    // Glide to a pane, unfolding its hubs, and open its popover there.
+    zoom(f) { touched = true; fly(zoomed(W / 2, H / 2, f, anim?.v1)); }, // quick taps compound on the target
+    // Unfold a pane's hubs and tap it: its popover opens and the camera flies to it.
     focus(id) {
       const n = cache.get(id);
       if (!n) return;
       let fold = false;
       for (let u = n.up; u; u = u.up) fold = collapsed.delete(u.id) || fold;
       if (fold) relayout(false);
-      touched = true; land();
-      const k = Math.max(view.k, phone() ? 1.1 : 1.4);
-      anim = { t0: performance.now(), dur: motion() ? 500 : 1, v0: { ...view }, v1: { k, x: W / 2 - n.tx * k, y: H / 2 - n.ty * k }, then: () => tap({ x: W / 2, y: H / 2 }, n) };
-      model.nodes.forEach(m => { m.fx = m.x; m.fy = m.y; }); animate();
+      tap(scr(n), n);
     },
     hud() { room(); draw(); }, // the HUD changed shape (callouts folded): words keep clear of it, the camera stays
     perf: () => ({ cost, budget, particles }),
+    view: () => ({ ...view }), // the camera, for scripts/screenshots.mjs
   };
   if (mini) return api;
 
@@ -501,15 +510,16 @@ export function fleetGraph(box, mini, ctx) {
       buttons._sig = model.sig;
       buttons.replaceChildren(...model.nodes.filter(n => n.kind !== 'root').map(n => Object.assign(el('button'), { _n: n,
         onfocus: () => { if (sel !== n) { pop?.remove(); pop = null; } sel = n; draw(); }, // another node's popover goes
-        onclick: () => { tap({ x: n.x * view.k + view.x, y: n.y * view.k + view.y }, n); pop?.querySelector('[data-open]')?.focus(); } })));
+        onclick: () => { tap(scr(n), n); pop?.querySelector('[data-open]')?.focus(); } })));
       [...buttons.children].find(b => b._n.id === had)?.focus(); // a fold rebuilt the list: stay on its hub
     }
     for (const b of buttons.children) b.textContent = say(b._n);
   };
 
   // ---- pan, pinch, wheel, hover, tap ----
-  function zoomAt(x, y, f) { touched = true; land(); const k = Math.max(K_MIN, Math.min(4, view.k * f)); view.x = x - (x - view.x) * k / view.k; view.y = y - (y - view.y) * k / view.k; view.k = k; draw(); }
-  const world = (x, y) => ({ x: (x - view.x) / view.k, y: (y - view.y) / view.k });
+  function zoomed(x, y, f, v = view) { const k = Math.max(K_MIN, Math.min(4, v.k * f)); return { k, x: x - (x - v.x) * k / v.k, y: y - (y - v.y) * k / v.k }; } // (x, y) stays put
+  function zoomAt(x, y, f) { touched = true; land(); Object.assign(view, zoomed(x, y, f)); draw(); }
+  const scr = n => ({ x: n.x * view.k + view.x, y: n.y * view.k + view.y }), world = (x, y) => ({ x: (x - view.x) / view.k, y: (y - view.y) / view.k });
   function hit(x, y) {
     const w = world(x, y), slop = n => Math.max(rad(n), (phone() ? 18 : 10) / view.k);
     let best = null, bd = Infinity;
@@ -558,21 +568,26 @@ export function fleetGraph(box, mini, ctx) {
     if (!pop) return;
     const focused = pop.contains(document.activeElement) && document.activeElement.className;
     if (moved) pop._html = null;
-    tap(pop._at, sel);
+    tap(pop._at, sel, true);
     if (focused) pop.querySelector(`.${focused.split(' ')[0]}`)?.focus();
   }
   function popover(html, at, n) {
     if (pop?._html === html && sel === n) return; // a poll that changed nothing in it
     pop?.remove();
-    pop = Object.assign(el('div', `fg-pop${phone() ? ' sheet' : ''}`, html), { _at: at, _html: html });
-    box.append(pop);
-    if (!phone()) { pop.style.left = `${Math.min(W - 292, Math.max(8, at.x + 18))}px`; pop.style.top = `${Math.max(8, Math.min(H - pop.offsetHeight - 8, at.y - 30))}px`; }
+    pop = Object.assign(el('div', `fg-pop${phone() ? ' sheet' : ''}`, html), { _html: html });
+    box.append(pop); place(at);
     pop.querySelector('.fg-x').onclick = () => { // the keyboard goes back to the node it came from
       const back = pop.contains(document.activeElement) && [...buttons.children].find(b => b._n === sel);
       close(); back?.focus();
     };
     pop.querySelector('[data-open]').onclick = () => ctx.open(n.kind === 'sub' ? n.parent.id : n.id);
     sel = n; draw();
+  }
+  const place = at => { pop._at = at; if (!phone()) { pop.style.left = `${Math.min(W - 292, Math.max(8, at.x + 18))}px`; pop.style.top = `${Math.max(8, Math.min(H - pop.offsetHeight - 8, at.y - 30))}px`; } };
+  // A pane and its satellites flown to, legible, in the room the HUD and the popover leave; a desktop popover waits beside them.
+  function flyTo(n) {
+    const c = n.kind === 'sub' ? n.parent : n, v1 = frame([c, ...c.subs], 48, Math.max(view.k, 1.8)), R = clear();
+    touched = true; place({ x: R.left + R.w, y: n.ty * v1.k + v1.y }); fly(v1);
   }
   const head = (lead, title) => `<div class="fg-pop-head">${lead}<b>${esc(title)}</b><button class="fg-x" aria-label="Close">${ctx.icon('x', 16)}</button></div>`;
   const stLine = (s, extra) => `<span class="fg-st"><i style="background:${ring(C, s)}"></i>${STATES[s]}${extra ? ` · ${esc(extra)}` : ''}</span>`;
@@ -581,7 +596,11 @@ export function fleetGraph(box, mini, ctx) {
   const agentTally = (p, subs) => { const t = {}, list = subsList(p); [...list, ...Array(subs - list.length).fill(null)].forEach(a => { const k = STATES[subState(a)].toLowerCase(); t[k] = (t[k] || 0) + 1; });
     return Object.entries(t).map(([k, n]) => `${n} ${k}`).join(', '); };
   const openBtn = '<button class="fg-btn" data-open>Open pane</button>';
-  function tap(at, n = hit(at.x, at.y)) {
+  function tap(at, n = hit(at.x, at.y), still) { // still: a refresh, the camera stays
+    tapped(at, n);
+    if (!still && pop && sel === n) flyTo(n);
+  }
+  function tapped(at, n) {
     if (!n) return close();
     if (n.kind === 'root') { close(); return api.fit(); }
     if (n.kind === 'group') { collapsed.has(n.id) ? collapsed.delete(n.id) : collapsed.add(n.id); close(); return relayout(false); }
