@@ -270,7 +270,7 @@ def backing_off() -> bool:
     return _backoff_remaining() > 0
 
 
-def _handle_llm_error(e: Exception, t0: float | None = None, own_quota: bool = False) -> str:
+def _handle_llm_error(e: Exception, t0: float | None = None, other_model: bool = False) -> str:
     """Log an LLM failure at the right fidelity and return a short user-facing message.
 
     Known OPERATIONAL failures — quota (429), expired auth, timeouts, malformed model
@@ -279,13 +279,14 @@ def _handle_llm_error(e: Exception, t0: float | None = None, own_quota: bool = F
     dozens of 40-line tracebacks into the daemon output). Unknown failures keep
     exc_info so real bugs stay debuggable.
     An operational failure also arms the shared backoff so the watcher stops hammering
-    Vertex while the condition persists; `t0` is when the failed call started. A 429 on
-    a model with `own_quota` (one the parse does not use) is that model's alone, so it
-    leaves the parse's calls running."""
+    Vertex while the condition persists; `t0` is when the failed call started. A 429 or a
+    timeout on an `other_model` (one the parse does not use) is that model's own quota or
+    pace, so it leaves the parse's calls running; expired auth still stops them all."""
     msg, t0 = str(e), time.time() if t0 is None else t0
-    if (getattr(e, "code", None) == 429 or "RESOURCE_EXHAUSTED" in msg or " 429 " in msg) and (
-            own_quota):
-        short = "rate limited (429) on a second model"
+    if other_model and (getattr(e, "code", None) == 429 or "RESOURCE_EXHAUSTED" in msg
+                        or " 429 " in msg or "timeout" in msg.lower()
+                        or "Timeout" in type(e).__name__):
+        short = f"second model failed: {msg[:80]}"
         logger.warning("LLM %s", short)
     elif getattr(e, "code", None) == 429 or "RESOURCE_EXHAUSTED" in msg or " 429 " in msg:
         delay = _arm_backoff("rate limited (429)", t0)
@@ -404,7 +405,7 @@ def classify_text(
         # Remember WHY (last_error → UI shows "LLM unavailable: <reason>" instead of
         # silently degrading to a blank heuristic card). _handle_llm_error picks the log
         # fidelity and arms the shared backoff.
-        msg = _handle_llm_error(e, t0, own_quota=model != _MODEL)
+        msg = _handle_llm_error(e, t0, other_model=model != _MODEL)
         last_error["msg"] = msg[:200]
         _totals["errors"] += 1
         _metrics.info(json.dumps({"ts": time.time(), "error": msg[:120]}))
