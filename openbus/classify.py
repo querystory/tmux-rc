@@ -420,6 +420,9 @@ def _codex_model_segments(line: str) -> list[int]:
             if segment and _CODEX_MODEL_TOKEN_RE.fullmatch(segment.split(maxsplit=1)[0])]
 
 
+_OMP_LABEL_RE = re.compile(r"^ {8,}(\S.*?)\s*$")
+
+
 def _session_chrome(text: str) -> list[str]:
     lines = strip_dim(text.rsplit(VISIBLE_SCREEN, 1)[-1]).splitlines()
     # The input row separates conversation output from the bottom status chrome.
@@ -437,6 +440,10 @@ def _session_chrome(text: str) -> list[str]:
                 and re.match(r"^\s*[─━]+\s+\S", candidates[i - 1])):
             chrome.append(candidates[i - 1])  # Claude title immediately above status.
         chrome.append(line)
+    # omp right-aligns its session label on the row above its status row (the context bar).
+    *_, bar = [None, *(i for i, line in enumerate(lines) if _OMP_CTX_RE.search(line))]
+    if bar and _OMP_LABEL_RE.match(lines[bar - 1]):
+        chrome.append(lines[bar - 1])
     renames = [line for line in strip_dim(text).splitlines()
                if re.match(r"^\s*[•●]\s+Thread renamed to \S", line)]
     if renames:
@@ -456,7 +463,8 @@ def _session_evidence(text: str) -> str:
             model = models[-1]
             if model:
                 titles.append(" · ".join(segments[:model]))
-        match = re.match(r"^\s*[•●]\s+Thread renamed to (\S.*?)\s*$", line)
+        match = (re.match(r"^\s*[•●]\s+Thread renamed to (\S.*?)\s*$", line)
+                 or _OMP_LABEL_RE.match(line))
         if match:
             titles.append(match.group(1))
     return "\n".join(titles)

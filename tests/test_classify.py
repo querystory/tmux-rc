@@ -402,6 +402,18 @@ def test_omp_rejected_queue_text_keeps_the_whole_viewport_for_the_retry():
     assert "Completed Ask receipt" not in retry and "Reviewing the documentation" in retry
 
 
+def test_omp_session_label_above_its_status_row_is_title_evidence():
+    screen = _sample("60_omp_bun_idle")
+    result = classify(_pane("bun", "π > omp-play"), screen, _llm({
+        "tool": "omp", "activity": "idle", "session": "Ask Preferred Color Choice"}))
+    assert result["session"] == "Ask Preferred Color Choice"
+    # Not a label: the same words in the transcript, away from the status row.
+    moved = screen.replace("Ask Preferred Color Choice", "").replace(
+        "No direct subdirectories", "Ask Preferred Color Choice. No direct subdirectories")
+    assert "session" not in classify(_pane("bun", "π > omp-play"), moved, _llm({
+        "tool": "omp", "activity": "idle", "session": "Ask Preferred Color Choice"}))
+
+
 def test_screen_inferred_omp_drops_a_rejected_questions_tables():
     screen = "\x1e[visible screen]\x1f\n" + _sample("61_omp_running_subagents")
     result = classify(_pane("bash", "t"), screen, _llm({
