@@ -82,7 +82,7 @@ def test_a_changed_claude_shape_is_an_error_not_zero():
 def test_expired_token_is_unavailable_without_a_request(tmp_path, monkeypatch):
     (tmp_path / ".credentials.json").write_text(json.dumps(
         {"claudeAiOauth": {"accessToken": "x", "expiresAt": (NOW - 1) * 1000}}))
-    monkeypatch.setattr(plan_usage._OPENER, "open", pytest.fail)
+    monkeypatch.setattr(plan_usage.OPENER, "open", pytest.fail)
     with pytest.raises(PermissionError):
         plan_usage.fetch_claude(tmp_path, NOW)
 
@@ -101,7 +101,7 @@ def _opener(monkeypatch, *errors):
         if len(calls) <= len(errors):
             raise errors[len(calls) - 1]
         return io.BytesIO(body)
-    monkeypatch.setattr(plan_usage._OPENER, "open", open_)
+    monkeypatch.setattr(plan_usage.OPENER, "open", open_)
     monkeypatch.setattr(plan_usage.time, "sleep", lambda s: None)
     return calls
 

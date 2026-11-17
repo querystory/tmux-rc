@@ -571,7 +571,7 @@ def new_window(session: str, name: str, command: str | list[str], cwd: str | Non
     arguments are never parsed as shell syntax, but each still goes through _literal."""
     return _run(
         ["new-window", "-d", "-P", "-F", "#{pane_id}", "-c", cwd or "#{session_path}",
-         "-t", f"{session}:", "-n", name, "--", *_argv(command)]
+         "-t", f"{session}:", "-n", _literal(name), "--", *_argv(command)]
     ).strip()
 
 
