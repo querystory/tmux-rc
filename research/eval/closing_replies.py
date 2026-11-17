@@ -133,9 +133,8 @@ def run(args: argparse.Namespace) -> None:
     _client()  # build before the threads race to
     with ThreadPoolExecutor(args.workers) as pool:
         for i in range(args.runs):
-            if hasattr(C, "_replies"):
-                C._replies.clear()  # one call per question per RUN, not per process
-                C._looks.clear()  # and one second look per screen per run
+            for cache in ("_replies", "_looks"):  # one call per question or screen per RUN
+                getattr(C, cache, {}).clear()
             jobs = [(s, "closing") for s in samples] + [(s, "existing") for s in existing]
             outs = pool.map(lambda j: _run_one(j[0], args.model, not args.no_replies, takes), jobs)
             for (s, corpus), o in zip(jobs, outs, strict=True):
