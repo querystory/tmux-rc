@@ -1429,7 +1429,7 @@ def classify(
     = events already reported (so the model doesn't repeat them). `prev_activity` is the
     pane's last classified activity, held onto when the parse fails (see below). `reply`
     is the agent's last message from its transcript, whose code blocks become copyables;
-    `turn_live` whether Codex's rollout has a turn open (transcript.codex_turn_live).
+    `turn_live` whether the agent's transcript has its turn open (transcript.turn_live).
     Returns the model's JSON with pane_id/label merged in; on no/failed LLM a minimal
     heuristic dict."""
     visible = _visible(text)
@@ -1569,6 +1569,10 @@ def classify(
     if (result.get("tool") == "codex" and turn_live and not result.get("question")
             and result.get("activity") in ("idle", "unknown", None)):
         result["activity"] = "running"
+    # And a turn the transcript has closed is not running, whatever it left running in the
+    # background ("2 shells still running" under Claude's stamp).
+    if turn_live is False and result.get("activity") == "running":
+        result["activity"] = "idle"
     # Each agent's own turn chrome only: a shell or Claude printing "■ Build failed" is not
     # a Codex error, and Claude chrome quoted inside Codex is not Codex's turn.
     # The finished turn's own chrome is authoritative over any model question: nothing was

@@ -2120,6 +2120,16 @@ Enter to select · Tab/Arrow keys to navigate · Esc to cancel"""
 
 
 
+def test_a_turn_its_transcript_closed_is_not_running():
+    # Background shells outlive the turn; the model reading them as the turn is overruled.
+    for tool in ("claude", "codex"):
+        r = classify(_pane(tool), "❯ ", _llm({"tool": tool, "activity": "running"}),
+                     turn_live=False)
+        assert r["activity"] == "idle"
+        assert classify(_pane(tool), "❯ ", _llm({"tool": tool, "activity": "running"}),
+                        turn_live=None)["activity"] == "running"
+
+
 def test_codex_turn_open_in_its_rollout_is_running():
     # Codex hides its live row while a message prints mid-turn; its rollout still has the
     # turn open. A question it asks, and a turn the rollout has closed, keep the read.
