@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 import openbus.server as S
 import openbus.tmux as T
-from openbus import plan_usage, teleport
+from openbus import accounts, plan_usage, teleport
 
 SID = "session_01ExampleSeedPlanner"
 SESSION = {"id": "cse_01ExampleSeedPlanner", "title": "Seed  planner\nfrost dates", "config": {
@@ -101,8 +101,8 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(T, "server_path", lambda: "/nonexistent")
     monkeypatch.setattr(S.shutil, "which", lambda c, path=None: c)
     monkeypatch.setattr(T, "list_panes", lambda: [T.Pane("work", "1", "w", "0", "%9", "bash", "t")])
-    monkeypatch.setattr(S.accounts, "session_defaults",
-                        lambda s: {"work": {"claude": str(tmp_path)}})
+    monkeypatch.setattr(T, "show_env", lambda session=None:  # the session's default account
+                        {"CLAUDE_CONFIG_DIR": str(tmp_path)} if session else {})
     monkeypatch.setattr(S.agent_history, "recent_dirs", lambda: [str(tmp_path / "planner")])
     monkeypatch.setattr(S, "_audit", lambda *a, **k: None)
     return TestClient(S.app)
@@ -119,7 +119,35 @@ def test_teleport_opens_the_window_in_the_sessions_checkout(client, tmp_path, mo
                         "also": ["example-org/garden-site"]}
     argv = calls[0]
     assert argv[argv.index("-c") + 1] == here and argv[argv.index("-t") + 1] == "work:"
-    assert argv[argv.index("--") + 1:] == teleport.command(SID, INFO)
+    # Pinned to the account it was looked up on, whatever the session's default is by then.
+    assert argv[argv.index("--") + 1:] == accounts.command(
+        "claude", str(tmp_path), teleport.command(SID, INFO))
+
+
+@pytest.mark.parametrize("standard", [False, True])
+def test_the_standard_account_is_looked_up_under_tmuxs_home_and_launched_unset(
+        client, tmp_path, monkeypatch, standard):
+    """tmux's HOME, not the daemon's, says where an unset CLAUDE_CONFIG_DIR leads: the token
+    is read there, and the launch keeps the variable unset (inherited, or the standard
+    profile chosen over a session default)."""
+    (tmp_path / "home/.claude").mkdir(parents=True)
+    _signed_in(tmp_path / "home/.claude", monkeypatch, {"title": "Notes"})
+    monkeypatch.setattr(T, "show_env", lambda session=None: {"HOME": str(tmp_path / "home")}
+                        if session is None else {"CLAUDE_CONFIG_DIR": "/x" if standard else ""})
+    monkeypatch.setattr(S.accounts, "find", lambda d, p: {"dir": d, "default": True})
+    calls = []
+    monkeypatch.setattr(T, "_run", lambda argv: (calls.append(argv), "%42")[1])
+    body = {"session": "work", "cloud": SID, **({"account": "/std"} if standard else {})}
+    assert client.post("/api/teleport", json=body).status_code == 200
+    assert calls[0][calls[0].index("--") + 1:][:3] == ["env", "-u", "CLAUDE_CONFIG_DIR"]
+
+
+def test_single_pane_mode_opens_no_window(client, monkeypatch):
+    """The watcher publishes only TMUXRC_TARGET, so the new window could never be shown."""
+    monkeypatch.setenv("TMUXRC_TARGET", "%3")
+    monkeypatch.setattr(T, "_run", lambda argv: pytest.fail("must not run"))
+    r = client.post("/api/teleport", json={"session": "work", "cloud": SID})
+    assert r.status_code == 409 and "single-pane" in r.json()["detail"], r.text
 
 
 def test_a_title_ending_in_a_semicolon_does_not_end_the_tmux_command(monkeypatch):

@@ -92,6 +92,7 @@ from . import (  # noqa: E402
     export,
     expunge,
     fit,
+    plan_usage,
     restore,
     scratch,
     scratch_markdown,
@@ -1422,6 +1423,7 @@ def teleport_session(body: TeleportBody, request: Request):
     sid = teleport.session_id(body.cloud)
     detail = f"session={body.session[:80]!r} cloud={sid or body.cloud[:80]!r}"
     refuse = partial(_refuse, request, "teleport", detail)
+    _single_pane(refuse, "a teleported session")
     if not sid:
         refuse(422, "Paste a claude.ai/code session link or its id.")
     if not any(p.session == body.session for p in tmux.list_panes()):
@@ -1431,9 +1433,12 @@ def teleport_session(body: TeleportBody, request: Request):
     profile = accounts.find(body.account, "claude") if body.account else None
     if body.account and not profile:
         refuse(404, "unknown account")
-    config = Path(profile["dir"]) if profile else Path(
-        accounts.session_defaults([body.session])[body.session]["claude"]
-        or accounts.default_dir("claude"))
+    # One account for the lookup and the launch: what a window there inherits from tmux
+    # (its HOME too, which may not be the daemon's), the chosen profile over it, pinned.
+    env = {**tmux.show_env(), **tmux.show_env(body.session)}
+    if profile:
+        env[accounts.ENV["claude"]] = "" if profile["default"] else profile["dir"]
+    config = plan_usage.home("claude", env)
     try:
         info = teleport.describe(teleport.fetch(config, sid, time.time()))
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
@@ -1458,7 +1463,8 @@ def teleport_session(body: TeleportBody, request: Request):
             refuse(409, f"No checkout of {info['repo']} was found here. Clone it and open "
                         "a session in it, then try again.")
     argv = teleport.command(sid, info)
-    command = accounts.command("claude", profile["dir"], argv) if profile else argv
+    command = accounts.command(  # the default dir's is unset, as its own launch would be
+        "claude", env.get(accounts.ENV["claude"]) or str(accounts.default_dir("claude")), argv)
     try:
         pane_id = tmux.new_window(body.session, info["title"][:40] or "teleport", command, cwd)
     except Exception as e:
@@ -1471,6 +1477,13 @@ def teleport_session(body: TeleportBody, request: Request):
 def _refuse(request: Request, action: str, detail: str, status: int, why: str, **extra):
     _audit(request, action, "-", detail, outcome=f"rejected: {why}"[:80])
     raise HTTPException(status, {"message": why, **extra} if extra else why)
+
+
+def _single_pane(refuse, what: str):
+    """Single-pane mode publishes only its target, so a new pane could never appear (the
+    history tools are withheld for the same reason: agent_history.offered)."""
+    if os.environ.get("TMUXRC_TARGET"):
+        refuse(409, f"single-pane mode (TMUXRC_TARGET) cannot show {what}")
 
 
 @app.get("/api/accounts")
@@ -1725,14 +1738,8 @@ def new_session(body: NewSessionBody, request: Request):
     detail = (f"session={body.name[:80]!r} cwd={body.cwd[:120]!r} "
               f"launcher={(body.launcher or '')[:80]!r}")
 
-    def refuse(status: int, why: str):
-        _audit(request, "new_session", "-", detail, outcome=f"rejected: {why}"[:80])
-        raise HTTPException(status, why)
-
-    # Single-pane mode publishes only its target, so the new pane could never appear
-    # (the history tools are withheld for the same reason: agent_history.offered).
-    if os.environ.get("TMUXRC_TARGET"):
-        refuse(409, "single-pane mode (TMUXRC_TARGET) cannot show a new session")
+    refuse = partial(_refuse, request, "new_session", detail)
+    _single_pane(refuse, "a new session")
     # tmux silently rewrites ':' and '.' in a session name (they are target syntax), so
     # the session would not be called what was asked for; refuse rather than surprise.
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", body.name):
