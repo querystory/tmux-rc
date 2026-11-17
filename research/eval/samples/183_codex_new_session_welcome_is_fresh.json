@@ -1,0 +1,12 @@
+{
+  "description": "Codex just launched in a new session: its version banner with model and directory, the 'To get started' command list, and an empty › composer. No conversation yet, and Codex lists no past sessions, so fresh=true with no recent_sessions. Synthetic: an invented garden-planner project.",
+  "current_command": "codex",
+  "capture": "╭───────────────────────────────────────────────╮\n│ >_ OpenAI Codex (v0.71.0)                     │\n│                                               │\n│ model:     gpt-6-codex medium   /model to change │\n│ directory: ~/src/garden-planner               │\n╰───────────────────────────────────────────────╯\n\n  To get started, describe a task or try one of these commands:\n\n  /init - create an AGENTS.md file with instructions for Codex\n  /status - show current session configuration\n  /model - choose what model and reasoning effort to use\n  /review - review any changes and find issues\n\n› \n\n  100% context left · ? for shortcuts",
+  "expected": {
+    "tool": "codex",
+    "activity": "idle",
+    "fresh": true,
+    "recent_sessions": null,
+    "headline": "New Codex session, ready for a task"
+  }
+}

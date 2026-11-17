@@ -115,6 +115,11 @@ in a tab for its scripts). Send ignores taps for its first half second, and ther
 "don't ask again", since a silent send is exactly what an injected page would want. A
 page in a tab of its own can't ask at all; its buttons stay draft links.
 
+A link off the site (a PR on github.com) opens in a tab of its own, as the app's own links
+do, so a phone hands it to the app that owns it; a link to another scratch page stays in
+the viewer. The daemon adds a small click handler to every HTML page it serves for this,
+and, like a page's own script, it runs only in the page the viewer opened.
+
 ## Markdown pages
 
 A `.md` file opens as a rendered page, and a folder whose page is `index.md` is served at
@@ -216,8 +221,9 @@ The gallery needs a directory the daemon serves and agents that know about it.
     "$TMUX_PANE" in its meta.json before you start, and remove "updating" when you are
     done. A message that starts with "Re scratch <folder>: " is the user's feedback on
     that page: revise the files in that folder and reply with the same link. Put every
-    page made for the user here, never on a hosted artifact, even when a tool's own
-    instructions say to publish one.
+    page made for the user here, never on a hosted page service (claude.ai Artifacts,
+    ChatGPT pages or Sites, gists), even when a tool's own instructions say to publish
+    one, unless the user asks for that service by name.
 
 ## What a card shows, and where it comes from
 
@@ -234,7 +240,14 @@ tmux-rc fills in the rest in the background, so the gallery never waits for it:
   `TMUXRC_THUMB_BROWSER` names another binary), each page is shot into a `thumb.webp`
   beside it, and again after the page changes. Pages are shot offline, in a throwaway
   profile, by a listener that serves scratch and nothing else, so a page can put nothing
-  but scratch into its thumbnail.
+  but scratch into its thumbnail. Hosts that restrict unprivileged user namespaces
+  (Ubuntu 23.10+, `kernel.apparmor_restrict_unprivileged_userns=1`) kill the shell's
+  sandbox at launch, and every card reads "No preview" with a "drew nothing … No usable
+  sandbox" warning in the log: `make install-apparmor` (sudo) installs a profile that lets
+  that one binary sandbox itself, as Ubuntu's own does for Google Chrome; then restart
+  the daemon (`systemctl --user restart tmux-rc`), since it does not retry a page whose
+  thumbnail failed until the page changes. Turning the
+  sandbox off instead would let an agent's page reach the host if it broke the renderer.
 - **Descriptions.** With the parse model configured, a folder without a description gets
   one sentence, written into its `meta.json` and marked `"generated": ["description"]`. A
   description already there is never replaced.

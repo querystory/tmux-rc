@@ -151,13 +151,15 @@ export function setupSidebar(ctx) {
     Object.assign(menu.style, { position: "", left: "", top: "", right: "", maxHeight: "" });
     if (!picker.open || !root.getClientRects().length) return; // a phone's is a bottom sheet (style.css)
     const side = root.getBoundingClientRect(), top = picker.getBoundingClientRect().top;
-    if (innerWidth - side.right >= menu.offsetWidth + 16) Object.assign(menu.style, { position: "fixed", right: "auto",
+    if (picker.closest("#find") && innerWidth - side.right >= menu.offsetWidth + 16) Object.assign(menu.style, { position: "fixed", right: "auto",
       left: `${side.right + 8}px`, top: `${Math.max(8, Math.min(top, innerHeight - menu.offsetHeight - 8))}px` });
     else {
       const over = side.left + 8 - menu.getBoundingClientRect().left;
       if (over > 0) menu.style.right = `${-over}px`;
     }
-    menu.style.maxHeight = `${innerHeight - menu.getBoundingClientRect().top - 8}px`; // many accounts: it scrolls
+    // Many accounts: it scrolls, within the screen, and within the graph that clips it when seated there (app.js placePill).
+    const floor = Math.min(innerHeight, picker.closest(".fg-box")?.getBoundingClientRect().bottom ?? innerHeight);
+    menu.style.maxHeight = `${floor - menu.getBoundingClientRect().top - 8}px`;
   });
 
   function head(g) {
@@ -426,6 +428,7 @@ export function setupSidebar(ctx) {
   }
   render.marks = marks;
   render.picker = picker; // the filter menu: app.js adds the account filter, then these
+  render.group = group; // for app.js's own options, the graph's Hide idle
   render.views = [by, sortBy, document.createElement("hr"), clearAll];
   render.clearAll = clearAll;
   render.drafts = drafts; // for the app's unsent-draft guard on reload

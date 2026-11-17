@@ -149,13 +149,13 @@ _log_handler.setFormatter(
 )
 _log_level = os.environ.get("TMUXRC_LOG_LEVEL", "INFO").upper()
 logging.basicConfig(level=_log_level, handlers=[_log_handler])
-# Chatty third-party libraries log a line per LLM call at INFO (httpx: every Vertex
+# Chatty third-party libraries log a line per LLM call at INFO (httpx/httpx2: every Vertex
 # POST; google_genai: an "AFC is enabled" banner). That's ~2 lines per parse of pure
 # noise drowning our own signal — pin them to WARNING. EXCEPT under DEBUG: those same
 # loggers are the ones you need when debugging the Vertex/HTTP path, so an explicit
 # TMUXRC_LOG_LEVEL=DEBUG unmutes everything.
 if _log_level != "DEBUG":
-    for _noisy in ("httpx", "httpcore", "google_genai"):
+    for _noisy in ("httpx", "httpcore", "httpx2", "httpcore2", "google_genai"):
         logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
@@ -2410,6 +2410,14 @@ if _scratch_dir:
         page = scratch.named(root, name) or scratch.named(scratch.archive(root), name) or {}
         return {"pane": pane.get("pane_id"), "birth": pane.get("birth"),
                 "about": scratch.about(root, name), "title": page.get("title")}
+
+    @app.get("/api/scratch/{name}/version")
+    def scratch_version(name: str, archived: bool = False) -> dict:
+        """The folder's version (scratch.version), for the scratch viewer."""
+        at = f"{scratch_markdown.ARCHIVE}/{name}" if archived else name
+        if (v := scratch.version(Path(_scratch_dir), at)) is None:
+            raise HTTPException(404)  # mid-rewrite, gone or in progress: no answer, not a change
+        return {"version": v}
 
     class ScratchPane(BaseModel):
         pane: str
