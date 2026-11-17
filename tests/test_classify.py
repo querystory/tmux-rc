@@ -979,6 +979,20 @@ def test_question_retry_cannot_resurrect_stale_rewind():
     assert result["activity"] == "unknown" and result["parse_ok"] is False
 
 
+@pytest.mark.parametrize("tabs", [" ☐ Storage", "←  ☒ Format  ☐ Storage  ✔ Submit  →"])
+def test_a_task_read_only_off_the_asked_widget_is_dropped(tabs):
+    screen = (f"{tmux.VISIBLE_SCREEN}\n● One choice is left.\n" + "─" * 40 + f"\n{tabs}\n\n"
+              "Where should the tallies be kept?\n\n❯ 1. SQLite file\n  2. CSV per day\n\n"
+              "Enter picks · Esc closes")
+    def read(_system, _text):  # fresh each call: classify() edits the parse in place
+        return {"tool": "claude", "tasks": [{"text": "Storage", "done": False}], "question": {
+            "prompt": "Where should the tallies be kept?", "answer_style": "menu"}}
+    assert "tasks" not in classify(_pane("claude"), screen, read)
+    # The agent's own checklist row with the same words stays a task.
+    own = screen.replace("● One choice", "  ⎿  ☐ Storage\n● One choice")
+    assert classify(_pane("claude"), own, read)["tasks"] == [{"text": "Storage", "done": False}]
+
+
 def test_rewind_rows_must_be_on_screen():
     capture = f"{tmux.VISIBLE_SCREEN}\n" + _sample("09_claude_rewind")
     def read(*texts):

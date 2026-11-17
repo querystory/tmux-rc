@@ -723,6 +723,14 @@ def _indent(row: str) -> int:
     return len(row) - len(row.lstrip(" \t│┃╎"))
 
 
+def _widget_head(prompt: str, visible: str) -> str:
+    """The rows of the widget the prompt is asked in, from its top edge down to the prompt."""
+    found = _last_occurrence(prompt, visible)
+    above = visible[:found.start()].splitlines()[-16:] if found else []
+    top = next((i for i in reversed(range(len(above))) if _WIDGET_TOP_RE.match(above[i])), None)
+    return "\n".join(above[top + 1:]) if top is not None else ""
+
+
 def _widget_text(prompt: str, visible: str) -> str:
     """What a menu asks about, read off its own widget: the rows from the widget's top
     edge down to the prompt (Claude's tool, description, command and any blocking notice)
@@ -1669,6 +1677,15 @@ def classify(
             # keeps its own question.
             if is_approval(question) and (ask := _restate(question, replies_fn)):
                 question["ask"] = ask
+        # A task the model read only off the rows of the widget it asks through (a picker's
+        # header tabs) is that widget's row, not the agent's own checklist.
+        if (widget := asked and _widget_head(asked, visible)) and isinstance(
+                tasks := result.get("tasks"), list):
+            result["tasks"] = [t for t in tasks if not isinstance(t, dict)
+                               or not 0 < _quoted(t.get("text"), visible) <= _quoted(
+                                   t.get("text"), widget)]
+            if not result["tasks"]:
+                result.pop("tasks")
     # The model's own answers must agree: a question, rewind or offer it returned (and the
     # screen showed) is something for the user to answer or send, so the pane waits on the
     # user, whatever it put in "activity" (a stray "external" included).

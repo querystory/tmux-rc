@@ -1,0 +1,18 @@
+{
+  "description": "Claude Code's sign-in lapsed: the turn after the user's request ends with 'Login expired · Please run /login', above dim chrome (a '/clear' hint row) and an empty input box in auto mode. Nothing else can happen until the user signs in again, so the pane waits on the user with /login as its offer. Invented screen.",
+  "current_command": "claude",
+  "capture": "● Checked the heron counts for the north marsh survey: 14 birds, matching the field sheets.\n\n● Checked the egret counts for the north marsh survey: 9 birds, matching the field sheets.\n\n● Checked the plover counts for the north marsh survey: 31 birds, matching the field sheets.\n\n● Checked the tern counts for the north marsh survey: 22 birds, matching the field sheets.\n\n\u001e[visible screen]\u001f\n● The survey tallies are saved in tallies.csv and the chart is rebuilt.\n\n⟪dim⟫✻ Worked for 2m 10s · done 9:12 PM⟪/dim⟫\n\n❯ Now write the summary for the newsletter\n⟪dim⟫  ⎿  1 skill available\n\n⟪/dim⟫● Login expired · Please run /login\n\n⟪dim⟫✻ Brewed for 0s · done 6:02 AM\n                                                            new task? ⟪/dim⟫/clear⟪dim⟫ to save ⟪/dim⟫40.1k tokens\n⟪dim⟫────────────────────────────────────────────────────────────────────────────────────────────────────\n⟪/dim⟫❯\n⟪dim⟫────────────────────────────────────────────────────────────────────────────────────────────────────\n  ⟪/dim⟫~/src/bird-count ⟪dim⟫| ⟪/dim⟫Opus 5.5 ⟪dim⟫| 12% ctx | $3.40⟪/dim⟫\n  ⏵⏵ auto mode on⟪dim⟫ (shift+tab to cycle)⟪/dim⟫",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "offers": [
+      "/login"
+    ],
+    "headline": "Login expired; waiting for the user to run /login",
+    "question": {
+      "present": true,
+      "answer_style": "text"
+    }
+  }
+}
