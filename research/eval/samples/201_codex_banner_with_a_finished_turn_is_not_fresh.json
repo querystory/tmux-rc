@@ -1,0 +1,15 @@
+{
+  "description": "Codex's '>_ OpenAI Codex (v…)' banner is still in view, but a turn has run under it: the user asked for a change, Codex edited a file and replied, the turn's elapsed-time rule is drawn, and the composer is empty again. The banner is scrollback now, so the pane is a finished turn, not a new session: no fresh. Synthetic: an invented bird-count project.",
+  "current_command": "node",
+  "processes": [
+    "node /usr/local/bin/codex"
+  ],
+  "capture": "\n  >_ OpenAI Codex (v0.169.0)\n     ~/src/bird-count\n\n  Tip: Use /model to pick a different model.\n\n\n› sort the species list alphabetically\n\n• Edited data/species.txt (+0 -0)\n\n• Sorted data/species.txt alphabetically; 64 species, no duplicates found.\n\n─ Worked for 9s ─────────────────────────────────────────────────────────\n\n› \n\n  gpt-6-codex medium · Context 97% left · main · ~/src/bird-count",
+  "expected": {
+    "tool": "codex",
+    "activity": "idle",
+    "fresh": null,
+    "recent_sessions": null,
+    "headline": "Sorted the species list alphabetically, 64 species"
+  }
+}
