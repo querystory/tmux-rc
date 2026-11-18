@@ -30,9 +30,10 @@ dropped before the page is written.
 
 A theme's state word is such a rule, because it is a count. A theme is "Live on main" only
 when nearly all of its work this week is on main. Otherwise it takes the state of what is
-still outstanding, the most urgent first: "Stuck" when a check fails, "Live on your
-machine, not on main" when finished work is held there, and "In progress" for the rest.
-A theme with a rebase waiting can never read as live.
+still outstanding: whichever of "Stuck" (checks failing), "Live on your machine, not on
+main" (finished and held there) and "In progress" holds most of it, a tie going in that
+order. A theme with held work waiting can never read as live, and one red change among
+many stays a red dot rather than the theme's word.
 
 ## Why themes keep their identity
 
@@ -47,7 +48,9 @@ The registry is plain JSON meant to be edited, because the themes are the reader
 projects and a model splits work by technical area when left alone. A name changed in
 the file stays: the model names a theme once, when it creates it, and afterwards rewrites
 only its outcome line. Themes written by hand with no members are filled by the model,
-which is the best way to start: it files work under the names you already use.
+which is the best way to start: it files work under the names you already use. A theme
+may carry a `holds` line, yours alone, saying what belongs in it; the model reads it when
+filing.
 
 ## Why effort is joined by tool calls
 
@@ -66,6 +69,14 @@ A digest is one slow request a day. In the daemon it would share the parser's ti
 backoff and restart cycle; as a timer unit it can take minutes, fail loudly in the
 journal, and be rerun by hand. It reads the daemon over its local API and writes two
 scratch pages, which the daemon already serves and announces.
+
+## Why both pages are one page
+
+The app's scratch viewer runs a page's script only in the page it opened: once that page
+has loaded, the frame is sandboxed for every later document. A link from the daily page to
+the weekly one therefore landed on a page with no script, so no theme from the app and no
+taps. Each folder now gets one page holding both views, switched in place by CSS, and the
+page takes its theme from the message the viewer posts to the page it opened.
 
 ## Alternatives rejected
 

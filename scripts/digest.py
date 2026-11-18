@@ -26,8 +26,9 @@ from openbus.scratch_markdown import tokens
 
 DAY = 86400
 HERE = Path(__file__).parent
-# themes.json, the registry, is plain JSON meant to be edited: rename a theme, reword it, or
-# write your own themes with empty members, and the model files work under them.
+# themes.json, the registry, is plain JSON meant to be edited: rename a theme, give it a
+# "holds" line saying what belongs in it, or write your own themes with empty members, and
+# the model files work under them.
 STATE = Path.home() / ".local/share/tmux-rc/digest"
 STAGES = {"main": "on main", "held": "on your machine", "ready": "approved, waiting",
           "open": "in progress", "stuck": "stuck", "dropped": "closed"}
@@ -41,7 +42,8 @@ SIZES = ((.6, "most"), (.45, "half"), (.3, "a third"), (.24, "a quarter"), (.17,
 # themes, not for paying. A cache write costs 1.25x input, 2x when kept for an hour.
 PRICE = {"opus": (4, 20, .2), "sonnet": (2, 10, .1), "haiku": (.1, .5, .01), "fable": (8, 40, .2)}
 FIELDS = """number title url state isDraft updatedAt mergedAt closedAt mergeable reviewDecision
-headRefName headRefOid bodyText repository { nameWithOwner }
+headRefName headRefOid baseRefName bodyText
+repository { nameWithOwner defaultBranchRef { name } }
 commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
 reviews(first: 40) { nodes { author { login } } }"""
 FALLBACK = "The model could not be reached, so this page has no summary. The pictures are current."
@@ -70,7 +72,10 @@ def change(n: dict, now: float, held: bool) -> dict:
     commit = (n["commits"]["nodes"] or [{}])[0].get("commit") or {}
     checks = (commit.get("statusCheckRollup") or {}).get("state")
     green = (n["reviewDecision"], checks, n["mergeable"]) == ("APPROVED", "SUCCESS", "MERGEABLE")
-    stage = ("main" if n["state"] == "MERGED" else "dropped" if n["state"] == "CLOSED" else
+    # Merged into another PR's branch is not on main yet: it rides with that PR.
+    onto_main = n["baseRefName"] == (n["repository"]["defaultBranchRef"] or {}).get("name")
+    stage = ("main" if n["state"] == "MERGED" and onto_main else
+             "open" if n["state"] == "MERGED" else "dropped" if n["state"] == "CLOSED" else
              "held" if held else "stuck" if checks in ("FAILURE", "ERROR") else
              "ready" if green and not n["isDraft"] else "open")
     moved = ts(n["mergedAt"] or n["closedAt"] or commit.get("committedDate"))
@@ -90,7 +95,8 @@ def change(n: dict, now: float, held: bool) -> dict:
 
 def hidden(repo: str | None) -> str:
     """A generic label for work in the repositories TMUXRC_DIGEST_HIDE names (sales, customer
-    work): scratch is a shared space, so neither the model nor the page gets their words."""
+    work): scratch is a shared space, so neither the model nor the page gets their words.
+    Words already in the registry stay as written; edit or delete it after changing the list."""
     names = os.environ.get("TMUXRC_DIGEST_HIDE", "").split(",")
     return "Private work" if repo and repo.split("/")[-1] in names else ""
 
@@ -155,7 +161,7 @@ def join(rows: list[dict], worktrees: list[dict], changes: list[dict]) -> dict:
     for r in rows:
         w = at.get(r["wt"]) or {}
         key = (head.get((w.get("repo"), w.get("branch"))) or (r["pr"] in head.values() and r["pr"])
-               or (w and not hidden(w["repo"]) and f'wt:{Path(w["path"]).name}') or "")
+               or (w and not hidden(w["repo"]) and f'wt:{w["repo"]}/{Path(w["path"]).name}') or "")
         slot = out.setdefault(key, {"d": 0.0, "w": 0.0, "p": 0.0})
         for k in slot:
             slot[k] += r[k]
@@ -197,7 +203,7 @@ def prunable(trees: list[dict], changes: list[dict], cwds: list[str], now: float
     merged = {(c["repo"], c["head"], c["oid"]) for c in changes if c["stage"] == "main"}
     unfinished = {(c["repo"], c["head"]) for c in changes if c["stage"] not in ("main", "dropped")}
     return [w["path"] for w in trees
-            if w["common"] != w["path"] + "/.git" and not w["dirty"]
+            if w["common"] != w["path"] + "/.git" and not w["dirty"] and not hidden(w["repo"])
             and (w["repo"], w["branch"], w["oid"]) in merged and w["active_at"] < now - DAY
             and (w["repo"], w["branch"]) not in unfinished
             and not any((cwd + "/").startswith(w["path"] + "/") for cwd in cwds)]
@@ -268,7 +274,8 @@ def lay(reg: dict, facts: dict) -> dict:
     for tid, t in reg["themes"].items():
         pieces = sorted((live[k] for k in t["members"] if k in live),
                         key=lambda c: (list(STAGES).index(c["stage"]), not c["need"], c["key"]))
-        rest = [p["stage"] for p in pieces if p["stage"] not in ("main", "dropped")]
+        active = [p["stage"] for p in pieces if p["stage"] != "dropped"]
+        rest = ["open" if stage == "ready" else stage for stage in active if stage != "main"]
         spent = week(t["members"])
         if pieces or spent:
             t["last"] = now
@@ -276,10 +283,12 @@ def lay(reg: dict, facts: dict) -> dict:
             "id": tid, **{k: t[k] for k in ("name", "short", "outcome", "members")},
             "pieces": pieces, "effort": spent, "part": spent / total,
             "share": next(word for least, word in SIZES if spent / total >= least),
-            # On main only when nearly all of it is; else the state of what is outstanding:
-            # stuck before held before in progress.
-            "state": "main" if pieces and len(rest) <= len(pieces) / 10
-            else next((s for s in ("stuck", "held") if s in rest), "open")})
+            # On main only when nearly all of it is; else the state most of the outstanding
+            # work is in (a tie: stuck, then held, then in progress). One red change among
+            # many is its own red dot, not the theme's word.
+            "holds": t.get("holds", ""),
+            "state": "main" if active and len(rest) <= len(active) / 10
+            else max(("stuck", "held", "open"), key=rest.count) if rest else "open"})
     themes.sort(key=lambda t: (not any(p["need"] for p in t["pieces"]), -t["effort"]))
     placed = {k for t in themes for k in t["members"]}
     loose = [c for k, c in live.items() if k not in placed]
@@ -315,7 +324,7 @@ def lay(reg: dict, facts: dict) -> dict:
             "pace": ("Running hot" if any(u["projected"] >= 100 for u in facts["usage"])
                      else "On pace"),
             # What has no theme yet: changes, and worktrees with real effort and no change.
-            "new": loose + [{"key": k, "title": f"worktree {k[3:]}"} for k in effort
+            "new": loose + [{"key": k, "title": f"worktree {k.rpartition('/')[2]}"} for k in effort
                             if k.startswith("wt:") and k not in placed
                             and week([k]) >= total / 100]}
 
@@ -328,7 +337,7 @@ def build(facts: dict, reg: dict, ask) -> dict:
     reg.setdefault("themes", {})
     d = lay(reg, facts)
     reply = ask((HERE / "digest_prompt.txt").read_text(), json.dumps({
-        "themes": [{"id": t["id"], "name": t["name"], "outcome": t["outcome"],
+        "themes": [{"id": t["id"], "name": t["name"], "holds": t["holds"], "outcome": t["outcome"],
                     "state": STATES[t["state"]], "share": t["share"],
                     "work": [{k: p[k] for k in ("repo", "title", "stage")} for p in t["pieces"]]}
                    for t in d["themes"]],
@@ -337,6 +346,8 @@ def build(facts: dict, reg: dict, ask) -> dict:
                 for n, c in enumerate(d["new"])],
         "needs_you": [{"n": n, **{k: a[k] for k in ("text", "work") if k in a}}
                       for n, a in enumerate(d["actions"])],
+        "largest": [t["short"] for t in sorted(d["themes"], key=lambda t: -t["effort"])[:2]
+                    if t["effort"]],
         "landed_yesterday": d["landed"]})) or {}
     repos = {x for c in facts["changes"] for x in (c["repo"], c["repo"].split("/")[1])}
     placed = {k for t in reg["themes"].values() for k in t["members"]}

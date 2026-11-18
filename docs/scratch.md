@@ -117,7 +117,8 @@ never a plain shell, where the line would run as a command. The send is bound to
 pane's process as it was when asked, so a recycled id gets nothing. Only the page the
 viewer opened can ask: after its first load the app sandboxes the frame for every later
 document, so a page it navigates to runs no script (open such a page from the gallery or
-in a tab for its scripts). Send ignores taps for its first half second, and there is no
+in a tab for its scripts). A page with several views should switch them in place rather
+than link to a sibling page, which would load with no script and no theme set by one. Send ignores taps for its first half second, and there is no
 "don't ask again", since a silent send is exactly what an injected page would want. A
 page in a tab of its own can't ask at all; its buttons stay draft links.
 

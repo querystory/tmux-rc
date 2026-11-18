@@ -22,6 +22,8 @@ h4{margin:0 0 12px;font-size:16px;font-weight:600}
 /* dots: one per change, by stage */
 .dots{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .d{display:inline-block;width:10px;height:10px;border-radius:50%;flex:none;border:1.5px solid var(--nm);background:transparent;padding:0;cursor:pointer}
+button.d{position:relative}
+button.d:after{content:"";position:absolute;inset:-7px}
 .d.main{background:var(--g1);border-color:var(--g1)}
 .d.held{background:var(--g3);border-color:var(--g2)}
 .d.ready{border-color:var(--g2)}
