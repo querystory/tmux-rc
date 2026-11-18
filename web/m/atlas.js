@@ -251,7 +251,7 @@ export function pageHead(title, icon, back) {
 }
 
 // The Dashboard's heatmap card: the last week, compact, its rows growing into the height the
-// cards beside it give the row, over the figures the grid only implies, in Open loops' tiles.
+// cards beside it give the row, over the figures the grid only implies.
 function heatCard(scope, open) {
   const card = detailCard(el('section', 'atlas-heat-card'), 'Running by hour', `last 7 days · ${heatUnit()}`, open);
   if (!heat) return card.append(heatWaiting()), card;

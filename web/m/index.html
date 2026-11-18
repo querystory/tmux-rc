@@ -106,7 +106,6 @@
   <link rel="modulepreload" href="/v/0/m/sidebar.js">
   <link rel="modulepreload" href="/v/0/m/usage.js">
   <link rel="modulepreload" href="/v/0/m/accounts.js">
-  <link rel="modulepreload" href="/v/0/m/loops.js">
   <link rel="modulepreload" href="/v/0/cursor-pick.js">
 </head>
 <body>
@@ -155,12 +154,13 @@
         <h2 id="landing-title"></h2>
         <p id="landing-sub" class="muted"></p><button id="landing-start" class="primary start-session" hidden>Start a tmux session</button>
         <div id="session-atlas" role="region" aria-label="Session atlas"></div>
-        <!-- The grid of cards under the filters, placed by atlas.js: Open loops (loops.js), the
+        <!-- The grid of cards under the filters, placed by atlas.js: the Fleet graph, the Digest's two scratch
+             pages (written outside the daemon, shown once there: app.js refreshCached), the
              heatmap and the word cloud (atlas.js), and Plan usage (usage.js), whose Details, or
              the phone's usage strip, opens #view=usage. -->
-        <div id="landing-cards"><section id="graph-card"></section><section id="loops-card" hidden><div class="loop-card-body"></div></section><div id="heat-card"></div><div id="radar-card"></div><section id="usage-panel" hidden><div id="usage-board" class="usage-board" role="group" aria-label="Plan usage"></div></section></div>
+        <div id="landing-cards"><section id="graph-card"></section><section id="digest-card" class="atlas-panel atlas-panel-heading" hidden><h3>Digest</h3><span class="fleet-gap"></span><a class="atlas-reset-zoom" href="/scratch/digest-daily/" title="Daily digest">Daily ›</a><a class="atlas-reset-zoom" href="/scratch/digest-weekly/" title="Weekly digest">Weekly ›</a></section><div id="heat-card"></div><div id="radar-card"></div><section id="usage-panel" hidden><div id="usage-board" class="usage-board" role="group" aria-label="Plan usage"></div></section></div>
       </div>
-      <div id="dash-page" class="landing-inner" hidden></div><!-- a dashboard card's own view: #view=heat, #view=usage, #view=loops, #view=graph (app.js) -->
+      <div id="dash-page" class="landing-inner" hidden></div><!-- a dashboard card's own view: #view=heat, #view=usage, #view=graph (app.js) -->
     </section>
     <div id="divider" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0" hidden></div>
     <section id="detail" aria-label="Selected pane" hidden>

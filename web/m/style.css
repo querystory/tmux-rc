@@ -762,51 +762,24 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 #landing-title:empty, #landing-sub:empty { display: none; }
 .landing-inner h3 { margin: 24px 0 8px; font-size: 13px; text-transform: uppercase;
                     letter-spacing: 0.04em; color: var(--muted); }
-/* Open loops: a lane per <details>, a workstream per section, a row per loop. */
-.loop-lane > summary { display: flex; align-items: center; gap: 8px; margin: 24px 0 8px; cursor: pointer; list-style: none; }
-.landing-inner .loop-lane > summary h3 { margin: 0; }
-.loop-lane > summary::-webkit-details-marker { display: none; }
-.loop-lane > summary svg { flex: none; color: var(--muted); transition: transform 0.15s; }
-.loop-lane[open] > summary svg { transform: rotate(90deg); }
-.loop-ws h4 { margin: 12px 0 2px; font-size: 14px; overflow-wrap: anywhere; }
-.loop-row { display: flex; flex-direction: column; gap: 2px; padding: 8px 2px; border-top: 1px solid var(--line); }
-.loop-row a, .loop-row .t { font-weight: 600; color: inherit; overflow-wrap: anywhere; }
-#landing-loops .m, #loops-card .m { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
-.loop-panes { display: flex; flex-wrap: wrap; gap: 6px; }
-.loop-pane { display: inline-flex; align-items: center; gap: 4px; min-height: 32px; max-width: 100%; padding: 0 10px;
-             border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font-size: 12px;
-             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
-.loop-pane:hover { border-color: var(--accent); }
-.loop-orphan { font-size: 12px; color: var(--amber); }
-.loop-notes { margin-top: 16px; }
-/* The Open loops card: a tile per lane (each opens the page at its lane), then the top rows. */
-/* The dashboard's KPI tiles: a big coloured number over its label (Open loops, Running by hour). */
+/* The dashboard's KPI tiles: a big coloured number over its label (Running by hour). */
 .kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 8px; }
 .kpi { display: flex; flex-direction: column; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; color: var(--c); }
 .kpi b { font-size: 24px; line-height: 1.15; font-variant-numeric: tabular-nums; }
 .kpi span { font-size: 12px; color: var(--muted); }
-.kpi.waiting { --c: var(--amber); background: var(--amber-bg); border-color: transparent; }
-.kpi.moving { --c: var(--accent); }
-.kpi.dropped { --c: var(--red); }
-#loops-card h4 { margin: 8px 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
-#loops-card .loop-row:first-of-type { border-top: 0; }
-#loops-card .loop-row a { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#loops-card .loop-panes { display: none; }
 /* One grid of cards: columns of at least 320px, never more than three, each row's height
-   shared. At three, Plan usage takes the second row whole, as a short strip of meters; at
-   two, the four cards are 2 + 2; on a phone, one column. Three fit from 3 × 320 + 2 × 16. */
+   shared, under the Fleet graph's row and the Digest's line. At two, Plan usage takes the
+   second row whole, as a short strip of meters; on a phone, one column. Three fit from
+   3 × 320 + 2 × 16. */
 #landing-main { container: dash / inline-size; }
 #landing-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(max(min(100%, 320px), calc((100% - 32px) / 3)), 1fr)); gap: 16px; margin-top: 16px; }
 #landing-cards .atlas-panel { height: 100%; margin-top: 0; }
-@container dash (min-width: 992px) { #usage-panel { grid-column: 1 / -1; } #loops-card[hidden] ~ #usage-panel { grid-column: auto; } }
+#digest-card { grid-column: 1 / -1; margin-bottom: 0; }
+#digest-card a { text-decoration: none; }
 /* Plan usage follows its own width: wide, its meters sit in one row with short trends. */
 #usage-panel { container-name: usage; }
 @container usage (min-width: 720px) { #usage-board .usage-spark { height: 28px; margin-top: 2px; } #usage-panel > .atlas-panel-heading { margin-bottom: 4px; } }
-/* With one card missing (Open loops still loading, or no plan meters), three are left: at
-   three columns they share the row, and at two the lone last card takes its row. */
-@container dash (min-width: 656px) and (max-width: 991.98px) {
-  #loops-card:not([hidden]) ~ #radar-card:has(+ #usage-panel[hidden]), #loops-card[hidden] ~ #usage-panel { grid-column: 1 / -1; }
-}
+@container dash (min-width: 656px) and (max-width: 991.98px) { #usage-panel { grid-column: 1 / -1; } }
 /* Activity, last on the page: until its slot scrolls into view, a strip pinned to the bottom
    edge (atlas.js), growing into the full chart as the slot arrives. */
 .atlas-pulse .fleet-chart-axis { transition: height .25s; }

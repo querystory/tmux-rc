@@ -6,10 +6,7 @@ before (home paths, real project names, accounts) and anything shaped like a cre
 import json
 import re
 
-import pytest
-
 from openbus.history import History
-from openbus.open_loops import OpenLoops
 from openbus.plan_usage import PlanUsage
 from scripts import demo_fleet as demo
 from tests.test_public_data import IDENTITY
@@ -18,19 +15,9 @@ from tests.test_public_data import IDENTITY
 PRIVATE = re.compile(rf"/home/|querystory|tmux-rc|{IDENTITY}", re.IGNORECASE)
 
 
-@pytest.fixture(autouse=True)
-def _no_keyword_map(monkeypatch):
-    """A checkout's own TMUXRC_WORKSTREAMS must not rename the demo's workstreams."""
-    monkeypatch.delenv("TMUXRC_WORKSTREAMS", raising=False)
-
-
-def _loops() -> dict:
-    return demo.seed_loops(OpenLoops()).report(demo.fleet(), demo.NOW)
-
-
 def _everything() -> str:
     fleet = demo.fleet()
-    return json.dumps([fleet, demo.events_log(), [demo.capture(p) for p in fleet], _loops(),
+    return json.dumps([fleet, demo.events_log(), [demo.capture(p) for p in fleet],
                        demo.restore_snapshot(), demo.SCRATCH, demo.SCRATCH_WRITERS, demo.PAGES])
 
 
@@ -90,17 +77,6 @@ def test_the_two_account_state_is_fictional_and_splits_the_sessions(tmp_path):
     for since, signed_in in ((0, False), (99, True)):
         listed = demo.accounts(two=True, signing_in=since)["profiles"]
         assert [p["signed_in"] for p in listed if p["name"] == "Demo"] == [signed_in]
-
-
-def test_open_loops_fill_every_lane_and_grouping_signal():
-    lanes = _loops()["lanes"]
-    reasons = {r for groups in lanes.values() for g in groups for i in g["items"]
-               for r in i.get("reasons", [])}
-    assert {"approved", "review_requested", "no_reviewer", "checks_failed", "base_merged",
-            "conflicts", "stale", "no_pane"} <= reasons
-    assert {(g["workstream"] or {}).get("id") for g in lanes["waiting"]} >= {
-        "example-org/shop-api#409", "workstream:build-cache"}  # a stack and a label
-    assert any(i["panes"] for g in lanes["waiting"] for i in g["items"] if i["kind"] == "pr")
 
 
 def test_restore_offer_shows_every_default_and_a_refusal(tmp_path, monkeypatch):
