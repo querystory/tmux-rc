@@ -1036,10 +1036,18 @@ def test_a_page_being_updated_notifies_once_its_mark_is_gone(tmp_path, monkeypat
     meta = root / "page" / "meta.json"
     meta.write_text('{"title": "Mock", "updating": "v5"}')
     service.landed()
+    meta.write_text('{"title": "Mo')  # half-written: the mark is not gone yet
+    service.landed()
+    (root / "page" / "report.html").write_text("page v6")  # rewritten after all, and the
+    meta.write_text('{"title": "Mock"}')  # mark gone, both before the next scan
+    service.landed()
+    assert len(sender.payloads) == 3  # a mark caught half-written still waits for its page
+    meta.write_text('{"title": "Mock", "updating": "v7"}')
+    service.landed()
     meta.write_text('{"title": "Mock"}')
     service.landed()
     service.landed()
-    assert service._waiting == {} and len(sender.payloads) == 2
+    assert service._waiting == {} and len(sender.payloads) == 3
 
 
 def test_a_page_made_between_two_scans_still_notifies(tmp_path, monkeypatch):

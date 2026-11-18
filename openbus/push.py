@@ -605,7 +605,7 @@ class PushManager:
                     key, "Ready")
                 if item["revising"]:
                     self._marked.setdefault(key, item["named"])
-            elif verb == "Updated" and item["updated"] < self._marked.get(key, 0):
+            elif verb == "Updated" and item["read"] and item["updated"] < self._marked.get(key, 0):
                 self._waiting.pop(key)  # its mark came and went, its page untouched: no news
             elif verb and item["read"] and (verb == "Updated" or item["href"].endswith("/")):
                 if message := self._ready_push(item, now, verb):
