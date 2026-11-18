@@ -1,0 +1,15 @@
+{
+  "description": "Codex's compact resume picker highlights the second of two identical titles. The visible row position, including the title after the status column, determines the selection.",
+  "current_command": "codex",
+  "capture": "\u001e[visible screen]\u001f\n Resume a previous session\n\n Filter: Cwd   Active  Sort: Updated\n\n Type to search\n\n    2d ago      ● Sort garden seeds\n  › 2d ago      ● Sort garden seeds\n    4d ago      ● Repair the greenhouse\n\n─────────────────────────────────────\n enter resume   esc back\n ↑/↓ browse",
+  "expected": {
+    "tool": "codex",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "cursor",
+      "selected": 1
+    },
+    "headline": "The resume picker is open and waiting for a session selection"
+  }
+}

@@ -22,6 +22,7 @@ import textwrap
 from functools import lru_cache
 from itertools import islice
 from pathlib import Path
+from typing import NamedTuple
 
 from .tmux import (
     DIM_CLOSE,
@@ -213,26 +214,74 @@ def _live_prompt(visible: str, prompt: str) -> tuple[re.Match, int] | None:
 _DIALOG_TOP_RE = re.compile(r"^(?:[─━▔]{3,}|╭)", re.MULTILINE)
 
 
-def _drawn_row(visible: str, live: tuple[re.Match, int]) -> str | None:
+def _drawn_row(visible: str, live: tuple[re.Match, int]) -> re.Match | None:
     *_, row = [None, *_HIGHLIGHT_RE.finditer(visible, live[0].end(), live[1])]
-    return row and row["label"]
+    return row
 
 
-def picker_read(text: str, prompt: str) -> tuple[str, str | None] | None:
-    """A capture's live picker, as a walk is held to it: its digest and its highlighted
-    row as drawn, or None. The digest hashes from the dialog's top edge (so the command a
-    generic "Do you want to proceed?" approves is part of it) down to the screen's end, as
-    classify reads the viewport (_visible) but otherwise verbatim. Any change since the
-    frame a step was computed from, be it a replacement picker, a moved highlight or a
-    row's "30s" now "60s", refuses the step (/send), and /send hands both back after each
-    key, so the next step is planned off the screen itself with no parse in between."""
+class PickerPosition(NamedTuple):
+    layout: str
+    selected: int
+    options: list[str]
+
+
+class PickerRead(NamedTuple):
+    digest: str
+    row: str | None
+    position: PickerPosition | None
+
+
+def _compact_picker_position(widget: str, highlight: int) -> PickerPosition | None:
+    """Ground Codex's compact table by its cursor gutter and aligned status column.
+
+    Its title follows metadata such as a relative time and a status dot. Match the
+    uninterrupted block containing the cursor and include the rest of the screen in
+    the layout hash, so a filter, scroll or replacement invalidates a positional tap.
+    """
+    lines = widget.split("\n")
+    selected = widget.count("\n", 0, highlight)
+    current = lines[selected]
+    column = current.find(" ● ", 4)
+    if not current.startswith("  › ") or column < 5:
+        return None
+
+    def title(line: str) -> str:
+        if (line.startswith(("  › ", "    ")) and line[column:column + 3] == " ● "
+                and line[4:column].strip()):
+            return line[column + 3:].strip()
+        return ""
+
+    if not title(current):
+        return None
+    first, end = selected, selected + 1
+    while first > 0 and title(lines[first - 1]):
+        first -= 1
+    while end < len(lines) and title(lines[end]):
+        end += 1
+    if sum(line.startswith("  › ") for line in lines[first:end]) != 1:
+        return None
+    lines[selected] = "    " + current[4:]
+    layout = hashlib.sha256("\n".join(lines).encode()).hexdigest()
+    return PickerPosition(layout, selected - first, [title(line) for line in lines[first:end]])
+
+
+def picker_read(text: str, prompt: str) -> PickerRead | None:
+    """Read the digest, highlighted label and any screen-grounded position of a live picker.
+
+    /send holds every key to the digest from the dialog's top edge to the screen's end.
+    The digest includes the command a generic approval prompt refers to and changes
+    on any repaint of the widget, including a move to a row with the same title.
+    """
     visible = _visible(text)
     live = _live_prompt(visible, prompt)
     if not live:
         return None
     *_, top = [live[0].start(), *(m.start() for m in
                                   _DIALOG_TOP_RE.finditer(visible, 0, live[0].start()))]
-    return hashlib.sha256(visible[top:].encode()).hexdigest(), _drawn_row(visible, live)
+    row = _drawn_row(visible, live)
+    widget = visible[top:]
+    position = _compact_picker_position(widget, row.start() - top) if row else None
+    return PickerRead(hashlib.sha256(widget.encode()).hexdigest(), row and row["label"], position)
 
 
 def prompt_gone(text: str, prompt: str) -> bool:
@@ -244,15 +293,16 @@ def prompt_gone(text: str, prompt: str) -> bool:
 
 def picker_digest(text: str, prompt: str) -> str | None:
     read = picker_read(text, prompt)
-    return read and read[0]
+    return read and read.digest
 
 
 def highlighted_row(visible: str, prompt: str, options: list) -> str | None:
     """The one option the live picker's highlighted row under prompt names, or None."""
     live = _live_prompt(visible, prompt)
-    label = live and _drawn_row(visible, live)
-    if label is None:
+    row = live and _drawn_row(visible, live)
+    if row is None:
         return None
+    label = row["label"]
     # A stepper row draws its value between ←/→ arrows ("Autocompact at ‹ 400k › tokens")
     # that its option leaves out; read so only where the row as drawn names no option.
     for drawn in (label, _STEPPER_RE.sub(r"\1", label)):
@@ -1676,9 +1726,15 @@ def classify(
         # only where it shows which row is highlighted: a colour-only highlight is invisible
         # to the digest, so no walk is held to a screen that hashes alike whichever row it is.
         question.pop("picker", None)
-        if asked and isinstance(rows, list) and (row := highlighted_row(visible, asked, rows)):
-            question["selected"] = rows.index(row)
-            question["picker"] = picker_digest(text, asked)
+        question.pop("picker_layout", None)
+        if asked and isinstance(rows, list) and (read := picker_read(text, asked)):
+            if read.position:
+                # Positional taps require the card to mirror the visible rows, duplicates included.
+                if rows == read.position.options:
+                    question.update(selected=read.position.selected, picker=read.digest,
+                                    picker_layout=read.position.layout)
+            elif row := highlighted_row(visible, asked, rows):
+                question.update(selected=rows.index(row), picker=read.digest)
     if isinstance(question, dict):
         # The widget's rows and their restatement are read here, never passed through.
         for key in ("context", "ask"):

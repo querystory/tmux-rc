@@ -112,6 +112,27 @@ CASES = [
         {"sent": ["Down"] * 13 + ["Enter"], "selected": 13, "notes": []},
     ),
     (
+        "compact picker readback walks to the second of two equally titled rows",
+        {"options": ["Sort garden seeds"] * 2, "selected": 0, "keymap": FULL_KM,
+         "reads": True, "layout": "unchanged"},
+        "Sort garden seeds", 1,
+        {"sent": ["Down", "Enter"], "selected": 1, "notes": []},
+    ),
+    (
+        "compact picker cancels if a redraw changes the layout during the move",
+        {"options": ["Sort garden seeds"] * 2, "selected": 0, "keymap": FULL_KM,
+         "reads": True, "layout": "unchanged", "new_layout": "changed"},
+        "Sort garden seeds", 1,
+        {"sent": ["Down"], "selected": 1, "notes": 1},
+    ),
+    (
+        "compact picker cancels if the move skips a row",
+        {"options": ["Sort garden seeds"] * 3, "selected": 0, "keymap": FULL_KM,
+         "reads": True, "layout": "unchanged", "stride": 2},
+        "Sort garden seeds", 2,
+        {"sent": ["Down"], "selected": 2, "notes": 1},
+    ),
+    (
         # A duplicated title can't be filtered for, however far: walk to the tapped index.
         # Its read-back can't say which "beta" it is, so the walk takes the parse there.
         "a far duplicate title is walked to by its index, not searched for",
@@ -430,6 +451,7 @@ function fake(spec) {{
       ? {{
         answer_style: p.style, selected: p.selected, keymap: p.keymap,
         picker: spec.dead_select && "same",
+        picker_layout: spec.layout,
         prompt: spec.reask_after !== undefined && p.sends >= spec.reask_after ? "B?" : "A?",
         options: spec.no_options ? undefined : p.options,
       }}
@@ -459,7 +481,9 @@ function fake(spec) {{
       if (k === km.select && (spec.dead_select || early)) return {{ picker: q.picker, row: "" }};
       if (k === km.select && !spec.hold_open) p.open = false;
       const row = (spec.drawn || p.options)[p.selected]; // as drawn: a stepper's ‹ › too
-      return spec.reads ? {{ picker: `f${{p.sends}}`, row }} : true;
+      return spec.reads ? {{
+        picker: `f${{p.sends}}`, row, layout: spec.new_layout ?? spec.layout, selected: p.selected,
+      }} : true;
     }},
     sendText: async (t) => {{
       if (spec.refuse_text && !p.refused) {{ p.refused = true; p.parsed_at += 1; return STALE; }}

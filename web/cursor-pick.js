@@ -175,7 +175,9 @@ function rowIndex(options, label) {
 // walk waits for the parse instead.
 function after(q, sent) {
   if (!sent?.picker) return null;
-  const at = sent.picker === q.picker ? q.selected : rowIndex(q.options, sent.row);
+  const at = q.picker_layout
+    ? sent.layout === q.picker_layout ? sent.selected : null
+    : sent.picker === q.picker ? q.selected : rowIndex(q.options, sent.row);
   return at === null ? null : { ...q, picker: sent.picker, selected: at };
 }
 
@@ -190,7 +192,7 @@ const typable = (text) => !/[\x00-\x1f\x7f]/.test(text);
 // Same rows, same order — i.e. the list has not renumbered under us.
 const sameRows = (a, b) => a.length === b.length && a.every((row, i) => row === b[i]);
 
-async function walk(io, targetText, targetIndex) {
+async function walk(io, targetText, targetIndex, layout) {
   // The rows as of the previous pass. A long picker shows a WINDOW onto its list and
   // scrolls it as the highlight leaves the edge, so the options array can renumber between
   // two passes of this loop — see the identity check below for why that matters.
@@ -207,6 +209,7 @@ async function walk(io, targetText, targetIndex) {
     const live = picker(io);
     if (!live) return false;
     const q = read || live;
+    if (layout && q.picker_layout !== layout) return false;
     // A read-back grounds the row, never the bindings: those are the widget's, not its
     // highlight's, so no move changes them, and the latest parse is the one to trust.
     const km = bindings(live);
@@ -251,7 +254,12 @@ async function walk(io, targetText, targetIndex) {
     if (at === want) return took(sent, q.picker);
     read = after(q, sent);
     arrowed = true;
-    if (read) { if (read.selected === at) return false; continue; } // a key that moved nothing
+    if (read) {
+      // A positional move must reach the adjacent visible row in the same layout.
+      if (layout ? read.selected !== at + Math.sign(want - at) : read.selected === at) return false;
+      continue;
+    }
+    if (layout) return false; // the position is no longer corroborated by the screen
     // A move that landed MOVED the highlight. A frame still reporting the old anchor is
     // either one that predates the key or a move that did nothing (the end of the list, a
     // binding the widget doesn't really have) — and both mean this walk cannot continue.
@@ -299,6 +307,13 @@ export async function pickCursorRow(io, targetText, targetIndex) {
 
 async function pick(io, targetText, targetIndex) {
   const first = picker(io), sole = first ? soleIndex(first.options, targetText) : -1;
+  // This index identifies a particular visible row, even if more than one shares its
+  // title. Keep it tied to the same layout throughout the walk, including stale retries.
+  if (first?.picker_layout) {
+    const done = await walk(io, targetText, targetIndex, first.picker_layout);
+    if (done === false) io.note(STUCK);
+    return done;
+  }
   const far = sole >= 0 && bindings(first).search && typable(targetText)
     && !(Math.abs(sole - first.selected) <= NEAR);
   // Each walk's answer stands unless it is false: null, an ignored select, is final too.

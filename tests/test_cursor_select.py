@@ -5,12 +5,14 @@ end-to-end case drives a fake digitless No/Yes menu (the shape of Claude Code's
 artifact-delete prompt) in a private tmux server reached only by its own -L socket,
 never $TMUX, and closes it by the pane id it created."""
 
+import json
 import os
 import shutil
 import subprocess
 import sys
 import time
 import uuid
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -363,6 +365,36 @@ def test_a_walk_down_a_counted_picker_is_sent(monkeypatch):
         closing.setattr(tmux, "capture_pane", lambda *a, **k: subprocess.check_output("false"))
         assert send(question["picker"]) == 409
 
+
+
+def test_compact_resume_readback_distinguishes_duplicate_titles(monkeypatch):
+    sample = Path(__file__).resolve().parents[1] / (
+        "research/eval/samples/235_codex_resume_duplicate_titles.json"
+    )
+    second = json.loads(sample.read_text())["capture"]
+    first = second.replace("  › 2d", "    2d").replace("    2d", "  › 2d", 1)
+    options = ["Sort garden seeds", "Sort garden seeds", "Repair the greenhouse"]
+
+    def question(screen, rows):
+        return classify(CODEX_PANE, screen, lambda *_: {"tool": "codex", "question": {
+            "prompt": "Resume a previous session", "answer_style": "cursor",
+            "options": rows, "selected": 0,
+        }})["question"]
+
+    before = question(first, options)
+    after = question(second, options)
+    assert (before["selected"], after["selected"]) == (0, 1)
+    assert before["picker"] != after["picker"]
+    assert before["picker_layout"] == after["picker_layout"]
+    assert "picker" not in question(second, options[1:])  # the model omitted a row
+    assert "picker" not in question(second, options[::-1])  # the model reordered rows
+
+    monkeypatch.setattr(tmux, "capture_pane", lambda *a, **k: second)
+    body = server.SendBody(keys="Down", prompt=before["prompt"], picker=before["picker"])
+    readback = server._picker_after(CODEX_PANE.id, body)
+    assert (readback["picker"], readback["layout"], readback["selected"]) == (
+        after["picker"], before["picker_layout"], 1,
+    )
 
 MENU = """
 import sys, time, tty

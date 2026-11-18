@@ -1284,7 +1284,7 @@ def _picker_after(pane_id: str, body: SendBody) -> dict:
         except subprocess.CalledProcessError:  # the pane closed: nothing to read
             return {"picker": None, "row": None}
         read = picker_read(screen, body.prompt)
-        if not read or read[0] != body.picker:  # redrawn, or the picker is gone
+        if not read or read.digest != body.picker:  # redrawn, or the picker is gone
             break
     # Answered and erased: the card leaves Needs you now, not a model parse later. Gone
     # from two frames apart, so a repaint caught blank in between does not count.
@@ -1297,7 +1297,10 @@ def _picker_after(pane_id: str, body: SendBody) -> dict:
         read = picker_read(screen, body.prompt)  # repainted: the walk goes on from this
         if not read and prompt_gone(screen, body.prompt):
             app.state.watcher.drop_question(pane_id, body.prompt)
-    return {"picker": read and read[0], "row": read and read[1]}
+    result = {"picker": read and read.digest, "row": read and read.row}
+    if read and read.position:
+        result.update(layout=read.position.layout, selected=read.position.selected)
+    return result
 
 
 @app.post("/api/panes/{pane_id}/click")
