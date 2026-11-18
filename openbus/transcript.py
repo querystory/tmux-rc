@@ -157,18 +157,15 @@ _rollout_reads: dict[Path, tuple[int, int, bool | None]] = {}
 
 
 def turn_live(pane: Pane, text: str) -> bool | None:
-    """Whether the agent's own transcript has its turn open (True), closed (False), or
-    cannot say (None). Claude's closes with a turn_duration record (the "Worked for" stamp)
-    and is closed while nothing follows it; an interrupt writes none, so a turn after it is
-    None, never True. Codex's is open from task_started to task_complete or turn_aborted:
-    Codex hides its "Working" row while a message prints mid-turn, so the screen alone can
-    show a live turn as over. Its rollout is read incrementally, since one long turn writes
-    megabytes, far past `_TAIL`. A Claude run under Codex is not the pane's turn, so in a
-    Codex pane only its rollout answers."""
+    """Whether Codex's rollout has a turn open (True), closed (False), or cannot say
+    (None): open from task_started to task_complete or turn_aborted. Codex hides its
+    "Working" row while a message prints mid-turn, so the screen alone can show a live turn
+    as over. Read incrementally, since one long turn writes megabytes, far past `_TAIL`.
+    Claude's transcript is not read for this: a turn it closes can leave background agents
+    working, and whether the pane is busy is the model's read of the screen."""
     path = _codex_file(pane, text)
     if not path:
-        claude = pane.pid and "codex" not in _programs(pane.pid) and _claude_file(pane)
-        return _claude_turn_live(claude, _stamp(claude)) if claude else None
+        return None
     try:
         with path.open("rb") as f:
             ino, size = (st := os.fstat(f.fileno())).st_ino, st.st_size
@@ -190,24 +187,6 @@ def turn_live(pane: Pane, text: str) -> bool | None:
     except OSError:
         return None
     _rollout_reads[path] = (ino, pos, live)
-    return live
-
-
-@lru_cache(maxsize=256)
-def _claude_turn_live(path: Path, _stat: tuple) -> bool | None:
-    try:
-        with path.open("rb") as f:
-            f.seek(-1, os.SEEK_END)
-            if f.read(1) != b"\n":
-                return None  # a record still being written may be the next turn's
-    except OSError:
-        return None
-    live = None
-    for e in _entries(path):
-        if e.get("type") == "system" and e.get("subtype") == "turn_duration":
-            live = False
-        elif e.get("type") in ("user", "assistant") and not e.get("isSidechain"):
-            live = None
     return live
 
 
