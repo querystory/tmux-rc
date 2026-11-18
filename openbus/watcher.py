@@ -668,6 +668,8 @@ class Watcher:
             self.wake()
             return
         with self._publish_lock:
+            if self._birth.get(pane_id) != pane.pid:  # its id was reused during the read
+                return
             self.states = [_latest({**s, "tmux_active": x.get("tmux_active")}, x)
                            if x.get("pane_id") == pane_id else x for x in self.states]
             self._bump_state_if_changed(self.states)
