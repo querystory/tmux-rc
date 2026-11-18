@@ -33,7 +33,11 @@ const LONG_POLL_TIMEOUT_MS = 35000;
 const NO_TIMEOUT = 2 ** 31 - 1;
 // How long a delivered answer holds its card (spinner, options disabled) when the pane's
 // question never changes — an ignored key — before we trust the pane's own state again.
+// Past it the hold lasts until the card has been read off another screen (its `frame`
+// moves), up to ANSWER_GIVE_UP_MS: a watcher tick over many panes can
+// outlast 15s, and letting go before that read put the answered menu back on the card.
 const ANSWER_PENDING_MS = 15000;
+const ANSWER_GIVE_UP_MS = 60000;
 // Being this close to the bottom of the terminal counts as following it, so a frame
 // keeps the view pinned to the tail; further up, the user is reading and we leave it.
 const FOLLOW_SLACK_PX = 48;
@@ -171,6 +175,7 @@ let viewerTo = null; const viewerDrafts = new Map(); // the scratch viewer's mak
 let dashboard = false, page = null;
 const CARDS = { heat: "heat-card", usage: "usage-panel", loops: "loops-card", graph: "graph-card" };
 const dashboardVisible = () => !active && (WIDE.matches || dashboard);
+let reportedWorkers = [], workerSource = null;
 let panes = [], statePanes = [], paneIds = null, accountsAt = 0, active = null, view = "summary", filter = [], loaded = false, booted = false, tmuxRunning = true;
 let focusPushComposer = false, linked = null; // linked: a link's draft, offered once its pane's state is in (offerDraft)
 // The sort is a per-browser preference, as the sidebar's grouping is: how you like to read the
@@ -604,7 +609,7 @@ const renderLanding = steady(() => {
     renderList();
     navigate();
     $("sessions").scrollTop = $("sb-scroll").scrollTop = $("side-list").scrollTop = 0;
-  }, licon, [$("landing-cards")], $("heat-card"), () => openPage("heat"), $("radar-card"), accounts.sessionBadge);
+  }, licon, [$("landing-cards")], $("heat-card"), () => openPage("heat"), $("radar-card"), accounts.sessionBadge, reportedWorkers.filter(w => panes.some(p => p.pane_id === w.controller_pane_id && accounts.matches(p))), workerSource);
   renderLoopsCard($("loops-card"), accounts.loops(loops), openLane, licon);
   renderGraphCard($("graph-card"), panes.filter(accounts.matches), graphCtx);
 });
@@ -805,7 +810,7 @@ fleetHandle.onkeydown = (e) => {
 const openDashboard = () => navigate(null, "dashboard");
 function renderFleetSplit() {
   if (!WIDE.matches || !active) return;
-  renderFleet($("fleet"), panes, { open: fleetShown > STRIP, icon: licon, toggle: foldFleet, dashboard: openDashboard });
+  renderFleet($("fleet"), panes, { open: fleetShown > STRIP, icon: licon, toggle: foldFleet, dashboard: openDashboard, workers: reportedWorkers });
 }
 const refreshHistory = (force) => refreshAtlasHistory(request, () => { if (dashboardVisible()) renderLanding(); renderFleetSplit(); }, force);
 // Plan limits move on the daemon's minute poll (Claude's every five), so a minute is plenty.
@@ -1868,6 +1873,7 @@ async function pollState(signal) {
       const ids = (data.panes || []).map((p) => `${p.pane_id}:${p.birth}:${p.tool}`).join(); // birth: a recycled id is a new pane
       if (ids !== paneIds || Date.now() - accountsAt > 20000) { paneIds = ids; accountsAt = Date.now(); accounts.refresh(); }
       const wasRunning = loaded ? tmuxRunning : null; // null: the first answer always asks
+      reportedWorkers = data.workers || []; workerSource = data.worker_source || null;
       scratchNews(data.scratch); statePanes = data.panes || []; showPanes(); loaded = true; booted = data.booted !== false; tmuxRunning = data.tmux_running !== false; prefix = data.prefix || "C-b"; host = data.host || "";
       if (wasRunning !== tmuxRunning || restore.due()) restore.refresh(); // a server came or went: the offer changes
       $("ctrl-b").hidden = data.prefix === "C-b"; // absent prefix: can't know it's C-b, so show it
@@ -2013,14 +2019,24 @@ function badgeOf(pane) {
 }
 // Holds pane `id`'s card under `pending` at once, "Sending…" and not Needs you. The returned
 // settle(sent) ends the send: delivered, "Sent, waiting for the agent" until the pane's next
-// state or ANSWER_PENDING_MS; not sent, the options are live again (the notice says why).
+// state or ANSWER_PENDING_MS (see there); not sent, the options are live again (the notice says why).
 function hold(id, pending) {
+  const frame = () => panes.find((p) => p.pane_id === id)?.frame;
   pending.note = "Sending…"; pendingAnswers.set(id, pending); render();
   return (sent) => {
     if (pendingAnswers.get(id) !== pending || sent && pending.sent) return; // moved on, or said already
     if (!sent) { pendingAnswers.delete(id); render(); return; }
     pending.sent = true; pending.note = "Sent, waiting for the agent"; render();
-    setTimeout(() => { if (pendingAnswers.get(id) === pending) { pendingAnswers.delete(id); render(); } }, ANSWER_PENDING_MS);
+    // Read at delivery, not the tap: a cursor walk's moves are parsed before its select lands.
+    // A wall-clock deadline, so a page woken from suspension lets go at once.
+    const unread = frame(), until = Date.now() + ANSWER_GIVE_UP_MS;
+    const expire = (ms) => setTimeout(() => {
+      if (pendingAnswers.get(id) !== pending) return;
+      const left = until - Date.now();
+      if (frame() === unread && left > 0) { expire(Math.min(ANSWER_PENDING_MS, left)); return; }
+      pendingAnswers.delete(id); render();
+    }, ms);
+    expire(ANSWER_PENDING_MS);
   };
 }
 // A tap holds its card at once: the tapped option spins, the rest go grey, and the card
@@ -2045,8 +2061,8 @@ async function answer(id, option, index, offer = false) {
 // past sessions that screen lists, and the agent's own resume command, which opens its
 // session picker; the picker is then a question card like any other. A listed session is a
 // way in to that picker too, since only the picker knows which row each title is. The
-// sessions and Resume only where the composer is proven empty (`resumable`): typed after a
-// draft, the command would go out with it as one prompt.
+// sessions and Resume only while the session is fresh (`resumable`), whose input box is empty:
+// typed after a draft, the command would go out with it as one prompt.
 const RESUME = { claude: "/resume", codex: "/resume", gemini: "/resume", antigravity: "/resume", opencode: "/sessions", omp: "/resume" };
 function renderFresh(pane) {
   const resume = pane?.fresh === true && RESUME[pane.tool];
@@ -3124,10 +3140,13 @@ const moveSheet = (other) => async () => {
 $("move-pane").onclick = moveSheet(false);
 $("move-agent").onclick = moveSheet(true);
 window.addEventListener("hashchange", route);
-// A push tapped while the app is open: sw.js names the address to show, and it is routed
-// here like any move. pushState, not location.hash, so the bare-list "/m" routes too.
-const openLink = (url) => { history.pushState(null, "", url); route(); };
-navigator.serviceWorker?.addEventListener("message", ({ data }) => { if (data?.open) openLink(data.open); });
+// An address to show, routed like any move: a news notice's Open, or a tapped push (sw.js,
+// through live.js). Pushed, not set on location.hash, so the bare-list "/m" routes too; the
+// screen already showing (a cold start opened at it) is replaced, as navigate() would.
+const openLink = (url) => {
+  const how = historyMode(location.hash, new URL(url, location.href).hash);
+  history[`${how}State`](how === "replace" ? history.state : null, "", url); route();
+};
 // Pages that landed (push.py's news in /api/state), each told once: a notice with Open and the
 // Recent pages read again. A notification is the push's alone, so a device that turned them
 // off gets none, and two tabs never show one twice. A first state's news is old.
@@ -3161,7 +3180,7 @@ setupPush($("push"), notice, licon("bell"));
 // /api/state; a stale one whose pane has since closed takes the normal gone-pane path.
 const openOffered = (id, at) => !panes.some((p) => p.pane_id === id) && awaitingLaunch({ id, at }, id)
   ? openLaunched(id, at) : navigate(id);
-const live = setupLiveMode({ request, session: liveSession, licon, wide: WIDE, open: openOffered, report: reportError, onVersion: observeVersion, onChat: () => renderList(), account: accounts.consent, panes: () => panes, logos: LOGOS });
+const live = setupLiveMode({ request, session: liveSession, licon, wide: WIDE, open: openOffered, onLink: openLink, report: reportError, onVersion: observeVersion, onChat: () => renderList(), account: accounts.consent, panes: () => panes, logos: LOGOS });
 // Wide, the top bar's Chat and Voice open New session on that tab, beside the sidebar; nothing
 // starts or docks until something is asked. A conversation already running is just brought back.
 for (const [id, kind] of [["chat", "chat"], ["live-mode", "voice"]]) {
