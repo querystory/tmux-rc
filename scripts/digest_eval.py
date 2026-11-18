@@ -14,9 +14,6 @@ import time
 from collections import Counter
 from pathlib import Path
 
-from dotenv import load_dotenv
-
-from openbus.config import dotenv_path
 from scripts import digest
 
 # Advice only code may give, and only through its gates: the words a model's sentence would
@@ -71,7 +68,6 @@ def score(model: dict, base: dict, before: dict | None = None) -> dict:
 
 
 def main(folder: Path) -> None:
-    load_dotenv(dotenv_path())
     facts, baseline = (json.loads((folder / name).read_text())
                        for name in ("facts.json", "baseline.json"))
     base = {**baseline, **digest.lay(baseline, facts)}
