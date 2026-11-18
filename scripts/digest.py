@@ -177,6 +177,7 @@ def gather(now: float) -> dict:
             return json.load(reply)
 
     panes, accounts = api("state")["panes"], api("usage")["accounts"]
+    names = {p["dir"]: p["name"] for p in api("accounts")["profiles"]}  # as the Usage tab says
     cwds = [p["cwd"] for p in panes if p.get("cwd")]
     worktrees = scan_worktrees(cwds)
     common = {w["repo"]: w["common"] for w in worktrees}
@@ -200,7 +201,7 @@ def gather(now: float) -> dict:
                      "headline": private or p.get("headline") or ""} for p in panes
                     if p.get("activity") == "waiting" and p.get("waiting_on") != "external"
                     for private in [hidden((p.get("worktree") or {}).get("repo"))]],
-        "usage": [{"name": Path(a["dirs"][0]).name.lstrip("."), "pct": w["pct"],
+        "usage": [{"name": names.get(a["dirs"][0], a["provider"]), "pct": w["pct"],
                    "projected": w["projected"],
                    "pace": (now * 1000 - w["start"]) / (w["resets_at"] - w["start"]) * 100}
                   for a in accounts for w in a["windows"]
@@ -247,10 +248,15 @@ def lay(reg: dict, facts: dict) -> dict:
     themes.sort(key=lambda t: (not any(p["need"] for p in t["pieces"]), -t["effort"]))
     placed = {k for t in themes for k in t["members"]}
     loose = [c for k, c in live.items() if k not in placed]
-    actions = [{"text": f'{t["short"]} {NEEDS[kind][0]}', "sub": NEEDS[kind][1],
-                "btn": kind.title(), "url": hit[0]["url"], "theme": t.get("id")}
+    # A rebase is one ask for a theme's whole stack; each change that can merge is its own.
+    # The words are the model's once it has written them (reg["asks"]); the rest is rule.
+    actions = [{"key": f'{kind}:{hit[0]["key"]}', "sub": NEEDS[kind][1], "btn": kind.title(),
+                "text": reg.get("asks", {}).get(f'{kind}:{hit[0]["key"]}')
+                or f'{t["short"]} {NEEDS[kind][0]}',
+                "work": [p["title"] for p in hit], "url": hit[0]["url"], "theme": t.get("id")}
                for kind in NEEDS for t in [*themes, {"short": "Other work", "pieces": loose}]
-               if (hit := [p for p in t["pieces"] if p["need"] == kind])]
+               for hit in [[p for p in t["pieces"] if p["need"] == kind]][:kind == "rebase"]
+               + [[p] for p in t["pieces"] if p["need"] == kind == "merge"] if hit]
     actions += [{"text": p["title"], "sub": ". ".join(sentences(p["headline"], set())),
                  "btn": "Open", "url": f'/m#pane={quote(p["id"])}'} for p in facts["waiting"]]
     if facts["asked"]:
@@ -293,7 +299,9 @@ def build(facts: dict, reg: dict, ask) -> dict:
         "new": [{"n": n, **{k: c[k] for k in ("repo", "title", "about", "stage") if k in c},
                  "branch": "" if hidden(c.get("repo")) else c.get("head", "")}
                 for n, c in enumerate(d["new"])],
-        "needs_you": [a["text"] for a in d["actions"]], "landed_yesterday": d["landed"]})) or {}
+        "needs_you": [{"n": n, **{k: a[k] for k in ("text", "work") if k in a}}
+                      for n, a in enumerate(d["actions"])],
+        "landed_yesterday": d["landed"]})) or {}
     repos = {x for c in facts["changes"] for x in (c["repo"], c["repo"].split("/")[1])}
     placed = {k for t in reg["themes"].values() for k in t["members"]}
     leaks = sentences(f'{reply.get("daily")}. {reply.get("weekly")}', repos, leaky=True)
@@ -310,6 +318,10 @@ def build(facts: dict, reg: dict, ask) -> dict:
         theme.update({k: v for k, v in words.items() if v})
         theme["members"] += add
         placed.update(add)
+    reg["asks"] = {d["actions"][a["n"]]["key"]: ". ".join(sentences(a.get("text"), repos))
+                   for a in reply.get("asks") or [] if isinstance(a, dict)
+                   and isinstance(a.get("n"), int) and 0 <= a["n"] < len(d["actions"])
+                   and "key" in d["actions"][a["n"]]} or reg.get("asks", {})
     d = lay(reg, facts)  # before retiring: a theme with live work was just seen
     reg["themes"] = {k: t for k, t in reg["themes"].items()
                      if t["last"] >= facts["now"] - 14 * DAY}
@@ -447,10 +459,11 @@ def publish(d: dict, root: Path) -> None:
 
 def model():
     """openbus.llm, the daemon's own Gemini path, given the minutes one large request needs
-    (it reads its timeout at import) and, optionally, a stronger model than the parser's."""
-    os.environ.setdefault("TMUXRC_LLM_TIMEOUT_MS", "300000")
-    if os.environ.get("TMUXRC_DIGEST_MODEL"):
-        os.environ["TMUXRC_GEMINI_MODEL"] = os.environ["TMUXRC_DIGEST_MODEL"]
+    (it reads its timeout at import) and a model that writes better than the parser's fast
+    one: flash-lite's digest read as filler."""
+    os.environ.setdefault("TMUXRC_LLM_TIMEOUT_MS", "600000")
+    os.environ["TMUXRC_GEMINI_MODEL"] = os.environ.get(
+        "TMUXRC_DIGEST_MODEL", "gemini-3-flash-preview")
     from openbus import llm
     return llm
 

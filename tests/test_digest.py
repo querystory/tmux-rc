@@ -80,13 +80,17 @@ def test_cleanup_is_gated_by_code():
 def test_theme_identity_is_stable():
     reg = copy.deepcopy(BASELINE)
     new = {c["title"]: n for n, c in enumerate(digest.lay(reg, FACTS)["new"])}
-    reply = {"daily": "Fine. See example-org/harbor#412.", "weekly": "Search led.", "themes": [
+    reply = {"daily": "Fine. See example-org/harbor#412.", "weekly": "Search led.",
+             "asks": [{"n": 0, "text": "Highlight sync needs a rebase"}, {"n": 9, "text": "x"}],
+             "themes": [
         {"id": "search", "name": "Finding books", "short": "Search", "outcome": "Renamed.",
          "add": [new["chore: bump the linter"]]},
         {"id": "solo", "name": "Upkeep", "short": "Upkeep", "outcome": "One change.",
          "add": [new["chore: bump the linter"]]}]}
     d = digest.build(FACTS, reg, lambda system, text: reply)
     assert d["daily"] == "Fine" and d["leaks"] == 1  # the sentence naming a change is dropped
+    assert [a["text"] for a in d["actions"][:2]] == [  # the model's words, else the rule's
+        "Highlight sync needs a rebase", "Reminders can merge"]
     assert "solo" not in reg["themes"]  # one change is not a theme, and it was already placed
     assert reg["themes"]["search"]["name"] == "Finding books"  # a rename keeps the id
     assert "example-org/harbor#425" in reg["themes"]["search"]["members"]
