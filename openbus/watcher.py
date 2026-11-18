@@ -659,7 +659,8 @@ class Watcher:
         with self._publish_lock:
             since = self._queued.pop(pane_id)
         try:
-            pane = next(p for p in tmux.dedupe_grouped(tmux.list_panes()) if p.id == pane_id)
+            pane = next(p for p in tmux.dedupe_grouped(tmux.list_panes())  # the pane the tick
+                        if p.id == pane_id and p.pid == self._birth.get(p.id))  # knows, not a reuse
             s = self._finish(dict(self._tick_pane(pane, since)), pane)
         except Exception:  # gone, or tmux failed: the full tick reads it instead
             logger.info("input-driven read of %s failed", pane_id, exc_info=True)
@@ -795,10 +796,11 @@ class Watcher:
         for p in panes:
             if p.id not in fresh:
                 continue
-            if p.id in self._birth:
-                self._forget(p.id)  # recycled id: emits pane_removed for the old occupant
+            with self._pane_lock(p.id):  # never under an input-driven read
+                if p.id in self._birth:
+                    self._forget(p.id)  # recycled id: emits pane_removed for the old occupant
+                self._birth[p.id] = p.pid
             self._pane_event("pane_created", pane_id=p.id, label=p.label, tool=None)
-            self._birth[p.id] = p.pid
         # Publish identity BEFORE the slow work whenever a pane the phone has never seen
         # is in this inventory — at startup (every pane is new) and equally when a window
         # is opened mid-session (#176 generalized). Discovery is cheap; making a brand-new
@@ -1275,8 +1277,9 @@ class Watcher:
             label=last.get("label", pane_id),
             tool=last.get("tool"),
         )
-        for store in self._stores():
-            store.pop(pane_id, None)
+        with self._pane_lock(pane_id):  # not out from under an input-driven read
+            for store in self._stores():
+                store.pop(pane_id, None)
         with self._input_generation_lock:  # its answer marker with it, never apart
             self._input_generation.pop(pane_id, None)
             self._answered.pop(pane_id, None)
@@ -1465,8 +1468,10 @@ class Watcher:
         # Dim-marked so the parser can tell drafts/suggestions/chrome from output.
         # Snapshots store the marked text too (prior frames must match the current
         # one); snapshot_text() strips the markers at the phone-facing boundary.
+        # Before the capture: drop_question compares it with an answer's, and a parse stamped
+        # after an input (request_reparse's `since`) never carries a token from before it.
+        now = time.time()
         generation = self.pane_input_generation(pane.id)  # read first: later input wins
-        now = time.time()  # before the capture: drop_question compares it with an answer's
         captured = time.monotonic()  # and what _confirmed's second capture waits out
         text = tmux.capture_pane(pane.id, mark_dim=True)
         looked = time.monotonic()  # a resize begun before this may be in the capture
