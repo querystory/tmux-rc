@@ -219,7 +219,8 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
       try { await post("/api/accounts/default", { session: select.value, dir: e.target.checked ? picks[provider] : "", provider }); } catch { notice("The session default could not be set.", 6000); }
       delete picks[provider]; await refresh(); paint();
     };
-    select.addEventListener("change", () => { for (const k of Object.keys(picks)) delete picks[k]; paint(); }, { signal: done.signal });
+    // Another session (or New session…) is a fresh choice: its default, and the agents again.
+    select.addEventListener("change", () => { for (const k of Object.keys(picks)) delete picks[k]; step = null; paint(); }, { signal: done.signal });
     choices.before(box); paint();
     return {
       account: (provider) => several(provider) ? picks[provider] : undefined,

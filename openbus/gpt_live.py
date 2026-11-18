@@ -431,6 +431,7 @@ async def run_session(browser, watcher, meter):
     meter.details = {"backend_model": backend, "voice_seconds": 0.0, "usage_final": False}
     meter.usage = Usage(backend)
     await browser.send_json({"type": "status", "status": "connecting"})
+    instructions = await asyncio.to_thread(live._system_prompt, watcher)  # noqa: SLF001 - shared Live adapter internals
     async with _connect(key) as ws:
         session = Session(ws, browser, watcher, meter)
         await session.send(
@@ -449,9 +450,7 @@ async def run_session(browser, watcher, meter):
                         "type": "responses",
                         "responses": {
                             "model": backend,
-                            "instructions": live._system_prompt(watcher)  # noqa: SLF001 - shared Live adapter internals
-                            + "\n\n"
-                            + BACKEND_PROMPT,
+                            "instructions": instructions + "\n\n" + BACKEND_PROMPT,
                             "tools": tool_definitions(),
                             "tool_choice": "auto",
                             "parallel_tool_calls": False,
