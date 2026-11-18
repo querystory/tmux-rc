@@ -86,6 +86,17 @@ Codex, shells) had to be restored from transcripts.
 No PR merges with unaddressed review comments. Drive Copilot review to clean (resolve
 every thread, re-request, repeat) before merging. Merge only on the user's explicit word.
 
+## Contributors' PRs land as theirs
+
+We want contributions, so a teammate's or outside contributor's PR merges as their own PR,
+under their name, once review is clean and the user says go. Anything we want on top
+(renames, a toggle, polish) goes in a follow-up PR after theirs lands, never in a
+superseding PR that copies their commit in: co-author credit inside our squash is not
+their PR merging, and since the repo only squash-merges, a superseded PR can never be
+marked merged afterwards. If their fork blocks maintainer edits, or the PR needs fixes we
+cannot push, ask them on the PR (with thanks) and tell the user rather than routing around
+them. Either way, thank them on their PR.
+
 ## UI iconography: no emoji — inline Lucide icons
 
 Never use emoji glyphs (🎙 ⌨ 📎 ☀ …) as UI chrome (buttons, badges, menus, toggles).
@@ -184,3 +195,16 @@ fix without a matching eval case is incomplete. Run `python -m research.eval` (a
 must pass); for a prompt edit, A/B it with `python -m research.eval --prompt <candidate>`
 to confirm the fix without regressing other cases. See `research/eval/README.md` for the
 scoring model, adding a sample, and `--model`/`--prompt`.
+
+## Parser
+
+An LLM reads each pane and decides what it means: whether the agent is working or waiting,
+which questions, options and offers it shows, and the headline. Keep every such judgement
+with the model. A regex on terminal wording (spinners, banners, "finished" lines, prompts)
+breaks silently the day Claude Code or Codex rephrase their UI, and code that reclassifies
+the model's answer fights it with a rule that cannot tell asking from mentioning. When the
+parser gets a pane wrong, fix `openbus/parser_prompt.txt` with the smallest change that
+says what the model should do, and prove it on three runs of the full eval. Code is limited
+to plumbing (capture, ANSI, process detection) and evidence gates that check what the
+model names is really on screen. `tests/test_regex_ratchet.py` holds the regex count in
+`openbus/` to a baseline that only goes down; raising it is a diff a reviewer must accept.
