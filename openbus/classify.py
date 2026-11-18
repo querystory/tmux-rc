@@ -1675,13 +1675,18 @@ def classify(
             # keeps its own question.
             if is_approval(question) and (ask := _restate(question, replies_fn)):
                 question["ask"] = ask
-        # A task the model read only off the rows of the widget it asks through (a picker's
-        # header tabs) is that widget's row, not the agent's own checklist.
-        if widget and isinstance(
-                tasks := result.get("tasks"), list):
+        # A task the model read only off the menu it asks through (a picker's header tabs
+        # under its top edge, which question_rows starts on) is that widget's row, not the
+        # agent's own checklist. Rows are compared as checklist labels, spacing and case aside.
+        # Claude frames each menu, so its nearest edge is the menu's own; Codex's are unframed.
+        widget = question_rows(question, text) if result.get("tool") == "claude" else ""
+        if widget[:1] in ("─", "━", "▔", "╭") and isinstance(tasks := result.get("tasks"), list):
+            def seen(task, view):
+                label = task.get("text")
+                return isinstance(label, str) and _quoted(_checklist_text(label), "\n".join(
+                    map(_checklist_text, view.splitlines())))
             result["tasks"] = [t for t in tasks if not isinstance(t, dict)
-                               or not 0 < _quoted(t.get("text"), visible) <= _quoted(
-                                   t.get("text"), widget)]
+                               or not 0 < seen(t, visible) <= seen(t, widget)]
             if not result["tasks"]:
                 result.pop("tasks")
     # The model's own answers must agree: a question, rewind or offer it returned (and the

@@ -1794,17 +1794,19 @@ def new_session(body: NewSessionBody, request: Request):
 
 
 @app.post("/api/panes/{pane_id}/select")
-def select(pane_id: str, request: Request):
-    """Focus this pane in tmux itself — tapping a card on the phone follows on host."""
+def select(pane_id: str, request: Request, follow: bool = True):
+    """The app opened this pane; unless the phone's Desktop follows phone is off (follow=0),
+    tmux focuses it too, so the host follows."""
     if (pane := tmux.find_pane(pane_id)) is None:
         _audit(request, "select_pane", pane_id, outcome="rejected: pane not found")
         raise HTTPException(404, "pane not found")
-    try:
-        tmux.select_pane(pane_id)
-    except Exception as e:
-        _audit(request, "select_pane", pane_id, outcome=f"error: {e}"[:80])
-        raise
-    _audit(request, "select_pane", pane_id)
+    if follow:
+        try:
+            tmux.select_pane(pane_id)
+        except Exception as e:
+            _audit(request, "select_pane", pane_id, outcome=f"error: {e}"[:80])
+            raise
+        _audit(request, "select_pane", pane_id)
     # The app selects the pane it opens: a visit, keyed as History keys a pane, so a recycled
     # id (or one after a reboot) is some other pane; by its own pid, which the watcher may not
     # know yet (a pane just launched).

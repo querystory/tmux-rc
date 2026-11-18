@@ -420,7 +420,8 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 #launch-choices { margin-top: 8px; }
 #launch-teleport { border-top: 1px solid var(--line); margin-top: 4px; }
 #launch-teleport input { flex: 1; min-width: 0; }
-#launch-teleport button { flex: none; padding: 0 14px; }
+#teleport-go { flex: none; padding: 0 14px; border: 1px solid var(--line); }
+#teleport-go:disabled { color: var(--muted); opacity: .6; }
 #launch-choices button { min-height: 52px; gap: 12px; padding: 6px 4px; }
 #launch-choices img { width: 22px; height: 22px; }
 #launch-choices > button > span { display: flex; flex-direction: column; gap: 2px; }

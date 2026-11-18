@@ -452,6 +452,44 @@ def test_omp_ask_radios_do_not_become_tasks(checked, unchecked):
     ]
 
 
+@pytest.mark.parametrize("bar", ["", "│ "])  # a barred prompt above unbarred options
+@pytest.mark.parametrize("rule", ["─", "▔"])
+@pytest.mark.parametrize(("tabs", "label"), [
+    (" ☐ Fruit ", "Fruit"), ("←  ☒ Beds  ☐ Fruit  ✔ Submit  →", "Fruit"),
+    (" ☐ API → UI", "API → UI"), (" ☐ API  →  UI", "API → UI"),
+    (" ☐ Fruit →", "Fruit →"),  # a lone tab keeps its trailing arrow
+])
+def test_claude_picker_header_tabs_are_not_tasks(tabs, label, rule, bar):
+    screen = (
+        "  ⎿  ☐ Plant the seedlings\n" + rule * 40 + f"\n{tabs}\n\n{bar}Which fruit should "
+        "we plant?\n\n❯ 1. Apple\n  2. Pear\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n"
+    )
+    tasks = [{"text": text, "done": False} for text in ("Plant the seedlings", label)]
+
+    def read(tasks, tool="claude"):
+        return _llm({"tool": tool, "activity": "waiting", "tasks": tasks, "question": {
+            "prompt": "Which fruit should we plant?", "answer_style": "menu",
+            "options": ["1. Apple", "2. Pear"]}})
+    assert classify(_pane("claude"), screen, read(tasks))["tasks"] == tasks[:1]
+    assert "tasks" not in classify(_pane("claude"), screen, read(tasks[1:]))
+    # A real task with the tab's label stays, barred (│ … │) or not.
+    for row in [f"  ⎿  {box} {label}" for box in ("☐", "☒", "☑", "✓", "•", "[x]", "[X]", "[ ]")] + [
+            f"│ ⎿  ☐ {label}      │", f"  ⎿  ☐ {label.replace(' ', '  ')}"]:
+        assert classify(_pane("claude"), f"{row}\n" + screen, read(tasks[1:]))["tasks"] == tasks[1:]
+    # Codex draws no frame, so a rule above its menu may be output's: every task stays.
+    assert classify(_pane("codex"), screen, read(tasks[1:], "codex"))["tasks"] == tasks[1:]
+    top = screen.split("\n", 1)[1]  # the widget's edge opens the capture
+    assert classify(_pane("claude"), top, read(tasks[1:])).get("tasks") is None
+    # Claude's own plan under a rule, no picker: a checklist, every row kept.
+    plan = rule * 40 + f"\n☐ Water the beds\n☐ {label}"
+    assert classify(_pane("claude"), plan, _llm({
+        "tool": "claude", "activity": "running", "tasks": tasks[1:],
+    }))["tasks"] == tasks[1:]
+    # The same plan above the open picker: only the picker's own header is chrome.
+    rows = [{"text": "Water the beds", "done": False}, *tasks[1:]]
+    assert classify(_pane("claude"), f"  {plan}\n\n" + screen, read(rows))["tasks"] == rows
+
+
 def test_opencode_stale_interrupt_row_does_not_override_idle_footer():
     r = classify(
         _pane(cmd="opencode"),
@@ -977,20 +1015,6 @@ def test_question_retry_cannot_resurrect_stale_rewind():
     )
     assert not any(key in result for key in ("question", "rewind", "waiting_on"))
     assert result["activity"] == "unknown" and result["parse_ok"] is False
-
-
-@pytest.mark.parametrize("tabs", [" ☐ Storage", "←  ☒ Format  ☐ Storage  ✔ Submit  →"])
-def test_a_task_read_only_off_the_asked_widget_is_dropped(tabs):
-    screen = (f"{tmux.VISIBLE_SCREEN}\n● One choice is left.\n" + "─" * 40 + f"\n{tabs}\n\n"
-              "Where should the tallies be kept?\n\n❯ 1. SQLite file\n  2. CSV per day\n\n"
-              "Enter picks · Esc closes")
-    def read(_system, _text):  # fresh each call: classify() edits the parse in place
-        return {"tool": "claude", "tasks": [{"text": "Storage", "done": False}], "question": {
-            "prompt": "Where should the tallies be kept?", "answer_style": "menu"}}
-    assert "tasks" not in classify(_pane("claude"), screen, read)
-    # The agent's own checklist row with the same words stays a task.
-    own = screen.replace("● One choice", "  ⎿  ☐ Storage\n● One choice")
-    assert classify(_pane("claude"), own, read)["tasks"] == [{"text": "Storage", "done": False}]
 
 
 def test_rewind_rows_must_be_on_screen():
