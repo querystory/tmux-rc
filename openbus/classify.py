@@ -64,22 +64,6 @@ _CHECKLIST_LINE_RE = re.compile(
     r"(?im)^[ \t│├└─|+*-]*(?:(?P<done>☑|✓|✔|\uf14a|\[[x✓]\])|☐|\uf096|\[[ •]\])"
     r"[ \t]*(?P<text>\S.*)$",
 )
-# Claude's AskUserQuestion draws each question's header as a ☐/☒/✔ tab on the row right
-# under the dialog's top rule (a lone tab for a single question, "← … →" around several):
-# picker chrome, so a task that is only a tab's label (no checkbox row of its own
-# elsewhere on screen) is the model misreading it. The arrows come as a pair: a lone
-# tab's label keeps a trailing →.
-_PICKER_TABS_RE = re.compile(
-    r"(?m)^[ \t]*[─━▔]{3,}[ \t]*\n[ \t]*(←[ \t]*)?([☐☒✔].*?)(?(1)[ \t]*→)[ \t]*$")
-# Its footer is the evidence a picker is open at all: a plan's checklist under a rule
-# has none, and keeps every row. A narrow pane wraps the footer onto a second row.
-_PICKER_FOOTER_RE = re.compile(
-    r"(?m)^[ \t]*Enter to select\b[^\n]*(?:\n[ \t]*[^\n]*)?"
-    r"\bEsc[ \t]*\n?[ \t]*to[ \t]*\n?[ \t]*cancel[ \t]*$")
-_PICKER_TAB_RE = re.compile(r"[☐☒✔][ \t]*([^☐☒✔\n]*[^☐☒✔\s])")
-# A label's own checkbox row elsewhere: behind any gutter (⎿ ☐, ├─ [X], •), and before a
-# barred transcript's right border. A real task there keeps a tab's label.
-_OWN_ROW = r"(?im)^[^\w\n]*?(?:[☐☒☑✔✓•]|\[[ x✓•]\])[ \t]*{}[ \t│┃║]*$"
 _OPENCODE_RUNNING_RE = re.compile(
     # OpenCode 1.18's spinner is ■/⬝ blocks, or "[⋯]" with animations off; a first Esc
     # press turns the label into "esc again to interrupt".
@@ -1555,19 +1539,6 @@ def classify(
             and _checklist_text(task["text"]) in visible_tasks
         ] if isinstance(tasks, list) else []
         result["tasks"] = validated
-    footer = (result.get("tool") == "claude" and isinstance(result.get("tasks"), list)
-              and _PICKER_FOOTER_RE.search(visible))
-    # The open picker's header is the last tab row above its footer; a plan under a rule
-    # higher up is a checklist, and its rows stay evidence.
-    headers = list(_PICKER_TABS_RE.finditer(visible, endpos=footer.start())) if footer else []
-    if headers:
-        header = headers[-1]
-        rest = visible[:header.start()] + visible[header.end():]
-        tabs = {_checklist_text(tab) for tab in _PICKER_TAB_RE.findall(header[2])
-                if not re.search(_OWN_ROW.format(r"[ \t]+".join(map(re.escape, tab.split()))),
-                                 rest)}
-        result["tasks"] = [task for task in result["tasks"] if not isinstance(task, dict)
-                           or _checklist_text(str(task.get("text"))) not in tabs]
     if result.get("tasks") == []:
         result.pop("tasks")
     # Apply authoritative live chrome AFTER a bounded retry can replace activity.
@@ -1749,6 +1720,20 @@ def classify(
             # keeps its own question.
             if is_approval(question) and (ask := _restate(question, replies_fn)):
                 question["ask"] = ask
+        # A task the model read only off the menu it asks through (a picker's header tabs
+        # under its top edge, which question_rows starts on) is that widget's row, not the
+        # agent's own checklist. Rows are compared as checklist labels, spacing and case aside.
+        # Claude frames each menu, so its nearest edge is the menu's own; Codex's are unframed.
+        widget = question_rows(question, text) if result.get("tool") == "claude" else ""
+        if widget[:1] in ("─", "━", "▔", "╭") and isinstance(tasks := result.get("tasks"), list):
+            def seen(task, view):
+                label = task.get("text")
+                return isinstance(label, str) and _quoted(_checklist_text(label), "\n".join(
+                    map(_checklist_text, view.splitlines())))
+            result["tasks"] = [t for t in tasks if not isinstance(t, dict)
+                               or not 0 < seen(t, visible) <= seen(t, widget)]
+            if not result["tasks"]:
+                result.pop("tasks")
     # Codex reads typed text only in its › composer (a menu the screen can't back is text
     # by now). A text question with no composer on screen has nowhere to be typed: `codex
     # login --device-auth`'s "Enter code …" means in the browser, so the pane waits on

@@ -1,0 +1,16 @@
+{
+  "description": "A single-question picker whose header tab (\"☐ Storage\") sits under the dialog's top rule, with the footer worded differently from sample 131. The tab names the question; the agent shows no checklist of its own, so there are no tasks. Invented screen.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n● The tally importer works; one design choice is left.\n\n────────────────────────────────────────────────────────────────────────────────\n ☐ Storage\n\nWhere should the daily tallies be kept?\n\n❯ 1. SQLite file\n     One file next to the photos\n  2. CSV per day\n     Easy to open in a spreadsheet\n  3. Type something.\n\nEnter picks · ↑/↓ moves · Esc closes",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "tasks": null,
+    "question": {
+      "answer_style": "menu",
+      "ask": null
+    },
+    "headline": "Asking where to keep the daily tallies"
+  }
+}
