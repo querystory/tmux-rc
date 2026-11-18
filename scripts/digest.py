@@ -20,8 +20,8 @@ from urllib.parse import quote
 from dotenv import load_dotenv
 
 from openbus.config import dotenv_path
-from openbus.open_loops import scan_worktrees
 from openbus.pr_titles import run_gh
+from openbus.repository import github_repository
 from openbus.scratch_markdown import tokens
 
 DAY = 86400
@@ -74,7 +74,7 @@ def change(n: dict, now: float, held: bool) -> dict:
     moved = ts(n["mergedAt"] or n["closedAt"] or commit.get("committedDate"))
     repo = n["repository"]["nameWithOwner"]
     return {"key": f'{repo}#{n["number"]}', "repo": repo, "url": n["url"],
-            "head": n["headRefName"], "title": hidden(repo) or n["title"],
+            "head": n["headRefName"], "oid": n["headRefOid"], "title": hidden(repo) or n["title"],
             # Its first real sentence: a heading says nothing.
             "about": hidden(repo) or next((x for x in n["bodyText"].splitlines() if len(x) > 40),
                                           "")[:240],
@@ -160,13 +160,41 @@ def join(rows: list[dict], worktrees: list[dict], changes: list[dict]) -> dict:
     return out
 
 
-def prunable(worktrees: list[dict], changes: list[dict], cwds: list[str], now: float) -> list[str]:
+def git(*args: str) -> str | None:
+    """No optional locks: a status here must never take an index.lock an agent then hits."""
+    done = subprocess.run(["git", "--no-optional-locks", *args], capture_output=True, text=True,
+                          timeout=30, check=False)
+    return None if done.returncode else done.stdout.strip()
+
+
+def worktrees(cwds: list[str]) -> list[dict]:
+    """Every worktree of every repository a pane sits in, with what the cleanup gates read.
+    Its own listing, so the script needs nothing of the daemon's scan."""
+    out = []
+    for common in sorted({git("-C", c, "rev-parse", "--path-format=absolute", "--git-common-dir")
+                          for c in set(cwds)} - {None, ""}):
+        repo = None
+        listing = git("--git-dir", common, "worktree", "list", "--porcelain") or ""
+        for block in listing.split("\n\n"):
+            fields = dict([*line.split(" ", 1), ""][:2] for line in block.splitlines())
+            path = fields.get("worktree")
+            if path and os.path.isdir(path):
+                repo = repo or github_repository(path)
+                out.append({"path": path, "common": common, "repo": repo, "oid": fields.get("HEAD"),
+                            "branch": fields.get("branch", "").removeprefix("refs/heads/"),
+                            "dirty": git("-C", path, "status", "--porcelain") != "",
+                            "active_at": float(git("-C", path, "log", "-g", "-1", "--format=%ct")
+                                               or time.time())})
+    return out
+
+
+def prunable(trees: list[dict], changes: list[dict], cwds: list[str], now: float) -> list[str]:
     """Worktrees safe to remove, by gates alone (the model never adds to this list): clean,
-    nothing unpushed, its branch's PR merged and none open, no pane in it, idle for a day."""
-    stage = {(c["repo"], c["head"]): c["stage"] for c in sorted(changes, key=lambda c: c["at"])}
-    return [w["path"] for w in worktrees
-            if w["common"] != w["path"] + "/.git" and not w["dirty"] and not w["unpushed"]
-            and stage.get((w["repo"], w["branch"])) == "main" and w["active_at"] < now - DAY
+    at exactly the commit its branch's PR merged, no pane in it, and idle for a day."""
+    merged = {(c["repo"], c["head"], c["oid"]) for c in changes if c["stage"] == "main"}
+    return [w["path"] for w in trees
+            if w["common"] != w["path"] + "/.git" and not w["dirty"]
+            and (w["repo"], w["branch"], w["oid"]) in merged and w["active_at"] < now - DAY
             and not any((cwd + "/").startswith(w["path"] + "/") for cwd in cwds)]
 
 
@@ -179,23 +207,23 @@ def gather(now: float) -> dict:
     panes, accounts = api("state")["panes"], api("usage")["accounts"]
     names = {p["dir"]: p["name"] for p in api("accounts")["profiles"]}  # as the Usage tab says
     cwds = [p["cwd"] for p in panes if p.get("cwd")]
-    worktrees = scan_worktrees(cwds)
-    common = {w["repo"]: w["common"] for w in worktrees}
+    trees = worktrees(cwds)
+    common = {w["repo"]: w["common"] for w in trees}
 
     def held(n):  # its head is in the integration branch the user's machine runs
         root = common.get(n["repository"]["nameWithOwner"])
-        return bool(root) and n["state"] == "OPEN" and subprocess.run(
-            ["git", "--git-dir", root, "merge-base", "--is-ancestor", n["headRefOid"],
-             "origin/integration"], capture_output=True, timeout=30, check=False).returncode == 0
+        return bool(root) and n["state"] == "OPEN" and git(
+            "--git-dir", root, "merge-base", "--is-ancestor", n["headRefOid"],
+            "origin/integration") is not None
 
     since = time.strftime("%Y-%m-%d", time.gmtime(now - 14 * DAY))
     changes = [change(n, now, held(n))
                for n in search(f"is:pr author:@me archived:false updated:>={since}")]
-    paths = sorted((w["path"] for w in worktrees if w["common"] != w["path"] + "/.git"),
+    paths = sorted((w["path"] for w in trees if w["common"] != w["path"] + "/.git"),
                    key=len, reverse=True)
     rows = spend([d for a in accounts if a["provider"] == "claude" for d in a["dirs"]], paths, now)
     return {
-        "now": now, "changes": changes, "effort": join(rows, worktrees, changes),
+        "now": now, "changes": changes, "effort": join(rows, trees, changes),
         "asked": len(search("is:pr is:open review-requested:@me archived:false")),
         "waiting": [{"id": p["pane_id"], "title": private or p.get("title") or p.get("label") or "",
                      "headline": private or p.get("headline") or ""} for p in panes
@@ -206,7 +234,7 @@ def gather(now: float) -> dict:
                    "pace": (now * 1000 - w["start"]) / (w["resets_at"] - w["start"]) * 100}
                   for a in accounts for w in a["windows"]
                   if w["window"] == "7d" and w.get("start")],
-        "cleanup": prunable(worktrees, changes, cwds, now)}
+        "cleanup": prunable(trees, changes, cwds, now)}
 
 
 def sentences(text: object, repos: set[str], leaky: bool = False) -> list[str]:

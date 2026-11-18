@@ -21,7 +21,7 @@ def test_stage_and_need_are_rules(monkeypatch):
         checks = {"state": over.pop("checks", "SUCCESS")}
         return {"number": 1, "title": "t", "url": "u", "state": "OPEN", "isDraft": False,
                 "updatedAt": None, "mergedAt": None, "closedAt": None, "mergeable": "MERGEABLE",
-                "reviewDecision": None, "headRefName": "h", "bodyText": "",
+                "reviewDecision": None, "headRefName": "h", "headRefOid": "c", "bodyText": "",
                 "reviews": {"nodes": []}, "repository": {"nameWithOwner": "o/r"},
                 "commits": {"nodes": [{"commit": {"statusCheckRollup": checks}}]}, **over}
 
@@ -63,18 +63,17 @@ def test_effort_joins_by_tool_paths_not_the_root_branch(tmp_path):
 
 
 def test_cleanup_is_gated_by_code():
-    wt = {"path": "/w/wt/a", "common": "/w/repo/.git", "repo": "o/r", "branch": "a", "dirty": 0,
-          "unpushed": 0, "active_at": NOW - 2 * digest.DAY}
-    merged = [{"repo": "o/r", "head": "a", "stage": "main", "at": NOW - 9}]
+    wt = {"path": "/w/wt/a", "common": "/w/repo/.git", "repo": "o/r", "branch": "a", "oid": "c1",
+          "dirty": False, "active_at": NOW - 2 * digest.DAY}
+    merged = [{"repo": "o/r", "head": "a", "oid": "c1", "stage": "main"}]
 
     def safe(changes=merged, cwds=(), **over):
         return bool(digest.prunable([{**wt, **over}], changes, cwds, NOW))
 
     assert safe()
-    assert not safe(dirty=1) and not safe(unpushed=1) and not safe(active_at=NOW - 60)
+    assert not safe(dirty=True) and not safe(oid="c2") and not safe(active_at=NOW - 60)
     assert not safe(cwds=["/w/wt/a/src"]) and not safe(path="/w/repo")
-    assert not safe(changes=[])
-    assert not safe(changes=[*merged, {**merged[0], "stage": "open", "at": NOW}])  # reopened
+    assert not safe(changes=[]) and not safe(changes=[{**merged[0], "stage": "open"}])
 
 
 def test_theme_identity_is_stable():
