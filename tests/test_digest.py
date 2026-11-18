@@ -30,6 +30,7 @@ def test_stage_and_need_are_rules(monkeypatch):
         return c["stage"], c["need"]
 
     assert rule(state="MERGED") == ("main", "")
+    assert not digest.hidden(None) and not digest.hidden("o/r")  # nothing is hidden unasked
     monkeypatch.setenv("TMUXRC_DIGEST_HIDE", "r")  # a hidden repository's words go nowhere
     assert digest.change(node(), NOW, held=False)["title"] == "Private work"
     assert rule(held=True, mergeable="CONFLICTING") == ("held", "rebase")
@@ -74,6 +75,7 @@ def test_cleanup_is_gated_by_code():
     assert not safe(dirty=True) and not safe(oid="c2") and not safe(active_at=NOW - 60)
     assert not safe(cwds=["/w/wt/a/src"]) and not safe(path="/w/repo")
     assert not safe(changes=[]) and not safe(changes=[{**merged[0], "stage": "open"}])
+    assert not safe(changes=[*merged, {**merged[0], "oid": "c2", "stage": "open"}])  # reopened
 
 
 def test_theme_identity_is_stable():
@@ -93,6 +95,7 @@ def test_theme_identity_is_stable():
     assert "solo" not in reg["themes"]  # one change is not a theme, and it was already placed
     assert reg["themes"]["search"]["name"] == "Finding books"  # a rename keeps the id
     assert "example-org/harbor#425" in reg["themes"]["search"]["members"]
+    assert digest.sentences("The build is ready. See ui today", {"ui"}) == ["The build is ready"]
     again = digest.build(FACTS, reg, lambda system, text: None)  # the model is down
     assert again["daily"] == digest.FALLBACK and again["themes"] == d["themes"]
 
@@ -100,6 +103,9 @@ def test_theme_identity_is_stable():
 def test_pages_keep_change_numbers_behind_a_tap(tmp_path):
     d = base()
     assert [t["state"] for t in d["themes"]] == ["held", "stuck", "open", "open"]
+    spike = {"themes": {"s": dict.fromkeys(("name", "short", "outcome"), "x")
+                        | {"members": ["wt:reader-spike"]}}}
+    assert digest.lay(spike, FACTS)["themes"][0]["state"] == "open"  # effort alone is not stuck
     assert [a["text"] for a in d["actions"]] == [
         "Offline reading needs a rebase", "Reminders can merge", "Search ranking",
         "A teammate asks for your review"]

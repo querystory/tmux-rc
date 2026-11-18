@@ -90,7 +90,7 @@ def hidden(repo: str | None) -> str:
     """A generic label for work in the repositories TMUXRC_DIGEST_HIDE names (sales, customer
     work): scratch is a shared space, so neither the model nor the page gets their words."""
     names = os.environ.get("TMUXRC_DIGEST_HIDE", "").split(",")
-    return "Private work" if (repo or "").split("/")[-1] in names else ""
+    return "Private work" if repo and repo.split("/")[-1] in names else ""
 
 
 def cost(model: str, u: dict) -> float:
@@ -153,7 +153,7 @@ def join(rows: list[dict], worktrees: list[dict], changes: list[dict]) -> dict:
     for r in rows:
         w = at.get(r["wt"]) or {}
         key = (head.get((w.get("repo"), w.get("branch"))) or (r["pr"] in head.values() and r["pr"])
-               or (w and f'wt:{Path(w["path"]).name}') or "")
+               or (w and not hidden(w["repo"]) and f'wt:{Path(w["path"]).name}') or "")
         slot = out.setdefault(key, {"d": 0.0, "w": 0.0, "p": 0.0})
         for k in slot:
             slot[k] += r[k]
@@ -190,11 +190,14 @@ def worktrees(cwds: list[str]) -> list[dict]:
 
 def prunable(trees: list[dict], changes: list[dict], cwds: list[str], now: float) -> list[str]:
     """Worktrees safe to remove, by gates alone (the model never adds to this list): clean,
-    at exactly the commit its branch's PR merged, no pane in it, and idle for a day."""
+    at exactly the commit its branch's PR merged, no other PR of that branch unfinished, no
+    pane in it, and idle for a day."""
     merged = {(c["repo"], c["head"], c["oid"]) for c in changes if c["stage"] == "main"}
+    unfinished = {(c["repo"], c["head"]) for c in changes if c["stage"] not in ("main", "dropped")}
     return [w["path"] for w in trees
             if w["common"] != w["path"] + "/.git" and not w["dirty"]
             and (w["repo"], w["branch"], w["oid"]) in merged and w["active_at"] < now - DAY
+            and (w["repo"], w["branch"]) not in unfinished
             and not any((cwd + "/").startswith(w["path"] + "/") for cwd in cwds)]
 
 
@@ -240,8 +243,8 @@ def gather(now: float) -> dict:
 def sentences(text: object, repos: set[str], leaky: bool = False) -> list[str]:
     """The text's sentences that name no change number and no repository, or (leaky) the ones
     that do: those never reach the page, and the eval counts them."""
-    return [s for s in str(text or "").split(". ")
-            if ("#" in s or any(r in s for r in repos)) is leaky and s.strip()]
+    return [s for s in str(text or "").split(". ") if s.strip() and leaky is (
+        "#" in s or bool(repos & {word.strip(".,:;!?()'\"") for word in s.split()}))]
 
 
 def lay(reg: dict, facts: dict) -> dict:
@@ -257,7 +260,8 @@ def lay(reg: dict, facts: dict) -> dict:
                 "rounds": statistics.median([c["rounds"] for c in landed] or [0])}
 
     total = week(effort) or 1
-    live = {c["key"]: c for c in facts["changes"] if c["at"] >= now - 7 * DAY}
+    # The week's work, and whatever still waits on the user however long it has sat.
+    live = {c["key"]: c for c in facts["changes"] if c["at"] >= now - 7 * DAY or c["need"]}
     themes = []
     for tid, t in reg["themes"].items():
         pieces = sorted((live[k] for k in t["members"] if k in live),
@@ -272,7 +276,7 @@ def lay(reg: dict, facts: dict) -> dict:
             "share": next(word for least, word in SIZES if spent / total >= least),
             # Stuck when something fails and nothing has been delivered; else the commonest.
             "state": "stuck" if tally["stuck"] and not tally["main"] + tally["held"]
-            else max(STATES, key=lambda s: tally[s])})
+            else max(STATES, key=lambda s: tally[s]) if pieces else "open"})
     themes.sort(key=lambda t: (not any(p["need"] for p in t["pieces"]), -t["effort"]))
     placed = {k for t in themes for k in t["members"]}
     loose = [c for k, c in live.items() if k not in placed]
@@ -298,9 +302,9 @@ def lay(reg: dict, facts: dict) -> dict:
     def monday(t):
         return time.strftime("%G-W%V", time.localtime(t))
 
+    # Both rewritten each run, so the two newest points are adjacent weeks, never overlapping.
     weeks = reg.setdefault("weeks", {})
-    weeks.setdefault(monday(now - 7 * DAY),
-                     figures(sum(e["p"] for e in effort.values()), landed(7, 14)))
+    weeks[monday(now - 7 * DAY)] = figures(sum(e["p"] for e in effort.values()), landed(7, 14))
     weeks[monday(now)] = figures(total, landed(0, 7))
     return {"now": now, "themes": themes, "actions": actions, "coordination": week([""]),
             "landed": sum(c["moved"] for c in landed(0, 7)), "weeks": weeks,
@@ -489,6 +493,8 @@ def model():
     """openbus.llm, the daemon's own Gemini path, given the minutes one large request needs
     (it reads its timeout at import) and a model that writes better than the parser's fast
     one: flash-lite's digest read as filler."""
+    load_dotenv(dotenv_path())  # the daemon's own configuration and model credentials
+    load_dotenv(Path.home() / ".config/tmux-rc/openai.env")
     os.environ.setdefault("TMUXRC_LLM_TIMEOUT_MS", "600000")
     os.environ["TMUXRC_GEMINI_MODEL"] = os.environ.get(
         "TMUXRC_DIGEST_MODEL", "gemini-3-flash-preview")
@@ -497,13 +503,12 @@ def model():
 
 
 def main() -> None:
-    load_dotenv(dotenv_path())
+    llm = model()
     STATE.mkdir(parents=True, exist_ok=True)
     facts = gather(time.time())
     (STATE / "facts.json").write_text(json.dumps(facts))  # what `make digest-eval DIR=` scores
     registry = STATE / "themes.json"
     reg = json.loads(registry.read_text()) if registry.exists() else {}
-    llm = model()
     # An empty registry takes two calls: one to form the themes, one to write about them.
     for _ in range(1 if reg.get("themes") else 2):
         d = build(facts, reg, lambda system, text: llm.classify_text(system, text, kind="digest"))

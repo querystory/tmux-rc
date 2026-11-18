@@ -1,6 +1,10 @@
 [Unit]
 Description=tmux-rc digest: the daily and weekly pages on scratch (scripts/digest.py)
-After=network-online.target
+# It reads the daemon's local API. Started straight after a boot (the timer is Persistent)
+# it can beat the daemon up, so a failed run is retried a few times, not left to tomorrow.
+After=network-online.target tmux-rc.service
+StartLimitIntervalSec=1h
+StartLimitBurst=5
 
 [Service]
 Type=oneshot
@@ -8,4 +12,6 @@ Type=oneshot
 # does for the daemon. The script loads that checkout's .env itself.
 WorkingDirectory=%h/src/tmux-rc
 ExecStart=%h/.local/bin/uv run python -m scripts.digest
+Restart=on-failure
+RestartSec=2min
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
