@@ -15,8 +15,9 @@ number.
 
 Deciding that eleven changes are one piece of work, and saying what is now true because of
 them, is a reading of meaning. A rule over titles cannot do it, so one model call does:
-it places each change in a theme, names the themes, and writes each theme's outcome line
-and the two verdicts.
+it places each change in a theme, names the themes, and writes each theme's outcome line,
+the few words of each ask, and the two verdicts. It is a model that writes well rather
+than the parser's fastest one, whose digest read as filler; a run a day can afford it.
 
 Everything a reader could act on wrongly is a rule in code instead. A change's stage,
 whether it needs the user and which button that earns, each theme's state word and share
