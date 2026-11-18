@@ -285,8 +285,13 @@ def metered() -> list[tuple[str, Path]]:
 def command(provider: str, config: str, cmd: str | list[str]) -> list[str]:
     """`cmd` on this account whatever the session's default: the provider's variable set
     to the dir, or unset for the default dir. A string runs through sh, as tmux would."""
+    return pinned(provider, None if Path(config) == default_dir(provider) else config, cmd)
+
+
+def pinned(provider: str, value: str | None, cmd: str | list[str]) -> list[str]:
+    """`cmd` with the provider's variable set to `value`, or unset when that is empty."""
     var = ENV[provider]
-    pin = ["-u", var] if Path(config) == default_dir(provider) else [f"{var}={config}"]
+    pin = [f"{var}={value}"] if value else ["-u", var]
     return ["env", *pin, *(cmd if isinstance(cmd, list) else ["sh", "-c", cmd])]
 
 

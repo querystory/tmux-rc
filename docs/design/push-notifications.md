@@ -195,7 +195,7 @@ whatever front end the operator put in front of the daemon rather than authentic
 anything itself (see [Deploying](../../deploy/)). Registering a subscription is
 therefore exactly as reachable as typing into a pane already is: it adds no new
 exposure, but it is not a permission check either. It is paired with an unsubscribe
-(the client calls it when the user flips the bell off or permission is revoked) plus
+(the client calls it when the user turns notifications off) plus
 a revoke-all — a lost or replaced device must not keep receiving pane
 content until the platform happens to return `404` or `410`. It's single-user,
 multi-device: every stored subscription gets every push. The store retains at most

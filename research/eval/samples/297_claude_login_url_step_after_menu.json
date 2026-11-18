@@ -1,0 +1,19 @@
+{
+  "description": "Claude Code's /login after an expired session, at 50 columns. The earlier frame shows the 'Select login method' menu; the user picked option 1 and the screen now shows the browser sign-in step: the authorize URL hard-wrapped across rows, and a 'Paste code here' field. Asserted: the card reads the current step, waiting on the user for TEXT (the code) with the whole URL as a link, not the menu the prior frame showed. Invented session content and URL.",
+  "current_command": "claude",
+  "prior": [
+    "\u001e[visible screen]\u001f\n● Watering schedule updated: the back beds now run at 6:10 AM for 12 minutes, and the\n  tomato row skips any day after more than 8 mm of rain.\n\n✻ Brewed for 38s · done 9:02 PM\n\n❯ Now add a frost check so nothing runs below 2°C\n\n● Login expired · Please run /login\n\n✻ Sautéed for 0s · done 6:15 AM\n\n❯ /login\n▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔\n   Login\n\n   Claude Code can be used with your Claude\n   subscription or billed based on API usage\n   through your Console account.\n\n   Select login method:\n\n   ❯ 1. Claude account with subscription ·\n        Individual, Team, or Enterprise\n     2. Anthropic Console account · API usage\n        billing\n     3. 3rd-party platform · Amazon Bedrock,\n        Microsoft Foundry, or Vertex AI\n\n   Esc to cancel"
+  ],
+  "capture": "\u001e[visible screen]\u001f\n● Watering schedule updated: the back beds now run at 6:10 AM for 12 minutes, and the\n  tomato row skips any day after more than 8 mm of rain.\n\n✻ Brewed for 38s · done 9:02 PM\n\n❯ Now add a frost check so nothing runs below 2°C\n\n● Login expired · Please run /login\n\n✻ Sautéed for 0s · done 6:15 AM\n\n❯ /login\n▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔\n   Login\n\n   Browser didn't open? Use the url   (c to\n   below to sign in                   copy)\n\nhttps://login.example.com/oauth/authorize?code=tru\ne&client_id=0f1e2d3c-4b5a-4968-8776-5a4b3c2d1e0f&r\nesponse_type=code&redirect_uri=https%3A%2F%2Fconso\nle.example.com%2Foauth%2Fcallback&scope=user%3Apro\nfile+user%3Ainference&code_challenge=Qw7Er9Ty1Ui3O\np5As7Df9Gh1Jk3Lz5Xc7Vb9Nm1Qa3W&code_challenge_meth\nod=S256&state=Pl0Ok9Ij8Uh7Yg6Tf5Rd4Es3Wa2Qz1Xs\n\n   Hold Shift (Option in iTerm2, Fn in\n   Terminal.app) while selecting to use your\n   terminal's native copy\n\n   Paste code here if prompted >\n\n   Esc to cancel",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "links": [
+      "https://login.example.com/oauth/authorize?code=true&client_id=0f1e2d3c-4b5a-4968-8776-5a4b3c2d1e0f&response_type=code&redirect_uri=https%3A%2F%2Fconsole.example.com%2Foauth%2Fcallback&scope=user%3Aprofile+user%3Ainference&code_challenge=Qw7Er9Ty1Ui3Op5As7Df9Gh1Jk3Lz5Xc7Vb9Nm1Qa3W&code_challenge_method=S256&state=Pl0Ok9Ij8Uh7Yg6Tf5Rd4Es3Wa2Qz1Xs"
+    ],
+    "question": {
+      "answer_style": "text"
+    }
+  }
+}
