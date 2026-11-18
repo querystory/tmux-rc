@@ -132,5 +132,5 @@ def test_a_blank_cursor_row_beside_the_panel_still_ends_the_capture(monkeypatch)
     # The cursor rests on the last row, blank on the conversation's side: the capture ends
     # in an empty row, as it does with no panel (_answered_prompt reads that).
     screen = "\n".join([*SCREEN[:6], _row("", "tail")])
-    monkeypatch.setattr(tmux, "_run", lambda args: f"{args[9]}\n{screen}\n-1 60\n")
+    monkeypatch.setattr(tmux, "_run", lambda args: f"0\n{args[19]}\n{screen}\n-1 60\n")
     assert tmux.capture_pane("%1", mark_dim=True).endswith("\n  Run this: ! make migrate\n")

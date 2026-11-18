@@ -137,7 +137,7 @@ keep, the requirements other tools left open for us, and the alternatives we res
 
 ## Run
 
-Prereqs: `tmux`, Python 3.12+, [`uv`](https://docs.astral.sh/uv/), and a way to reach
+Prereqs: `tmux` 3.4+, Python 3.12+, [`uv`](https://docs.astral.sh/uv/), and a way to reach
 Gemini Flash Lite for the classification pass. The simplest is a **Gemini API key**: get one
 at [aistudio.google.com](https://aistudio.google.com/apikey) and put `GEMINI_API_KEY=…` in
 `~/.config/tmux-rc/openai.env` (mode 600, outside every checkout), with no Google Cloud project

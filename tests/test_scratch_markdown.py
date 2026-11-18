@@ -116,6 +116,15 @@ def test_a_page_loads_mermaid_only_for_a_diagram(tmp_path):
 
 
 
+def test_ios_text_autosizing_stays_off_after_a_rotation(tmp_path):
+    # iOS boosts text in landscape and keeps it in portrait unless the page opts out.
+    rule = "html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }"
+    page = M.page(_doc(tmp_path), WEB_DIR)
+    assert page.index(rule) < page.index("</head>") and 'content="width=device-width' in page
+    assert rule in M.tokens(WEB_DIR / "m" / "style.css")  # the gallery and placeholder too
+    assert rule in M.OUT.decode()  # an agent's own HTML page
+
+
 def test_the_theme_is_set_before_the_body_and_light_unless_asked_for_dark(tmp_path):
     # Raw HTML passes through, and an unclosed <title> swallows everything after it as text.
     page = M.page(_doc(tmp_path, text='"Ready: <title>" gets its own slot.'), WEB_DIR)
