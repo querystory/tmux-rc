@@ -8,6 +8,7 @@ import { setupPush } from "/push.js";
 import { linkGroups, askLink } from "/pr-links.js";
 import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, AGENT_TOOLS, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf, tabTitle, tabIconKey, isRunning, sendIntent } from "/m/pane-model.js";
 import { tabIcon } from "/tab-icon.js";
+import { digestHtml } from "/m/digest.js";
 import { parseHash, formatHash, dropOneShots, historyMode, PAGES, scratchUrl } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { dragToDismiss } from "/m/drag-dismiss.js";
@@ -854,6 +855,7 @@ const usageView = document.createElement("section");
 usageView.className = "atlas-panel usage-view";
 usageView.ariaLabel = "Plan usage over time";
 detailCard($("usage-panel"), "Plan usage", "", () => openPage("usage"));
+$("digest-card").onclick = (e) => { if (!e.target.closest("a")) $("digest-card").querySelector("a").click(); }; // anywhere else opens the daily page
 // The Fleet graph (graph.js): the card's at a glance, the view's to pan, zoom and regroup.
 const graphView = Object.assign(document.createElement("section"), { className: "fg-view", ariaLabel: "Fleet graph" });
 const graphCtx = { icon: licon, logos: LOGOS, open: (id) => navigate(id), owner: accounts.owner, several: accounts.any };
@@ -1134,12 +1136,13 @@ function cardView(title, node) {
   if (!$("dash-page").contains(node)) $("dash-page").replaceChildren(pageHead(title, licon, closePage), node);
   return node;
 }
-// Plan usage is cached by the server; a minute is fresh enough. As it is for the Digest's row,
-// which offers each of its scratch pages once it is there (a 404 until its writer has run).
+// Plan usage is cached by the server; a minute is fresh enough. As it is for the Digest's card,
+// there once its writer has run (its summary and the weekly page are 404s until then).
 async function refreshCached(force) {
   if (!force && Date.now() - cachedAt < 60000) return;
   cachedAt = Date.now(); usagePast = page === "usage" && usageDays();
-  for (const a of $("digest-card").querySelectorAll("a")) fetch(a.href, { method: "HEAD" }).then((r) => { a.hidden = !r.ok; show("digest-card", $("digest-card").querySelector("a:not([hidden])")); }, () => {});
+  fetch("/scratch/digest-daily/summary.json").then((r) => r.ok ? r.json() : null).then((s) => { if (s) html($("digest-body"), digestHtml(s)); show("digest-card", s); }).catch(() => show("digest-card", false));
+  fetch($("digest-weekly").href, { method: "HEAD" }).then((r) => show("digest-weekly", r.ok), () => {});
   const seq = ++cachedSeq;
   // The accounts with the meters, not after: drawn before them, several accounts' meters
   // stand as one tall grid for a moment before folding into their strip.

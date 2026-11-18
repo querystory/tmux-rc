@@ -633,6 +633,7 @@ phone width.
 ab-sweep-interim|130,5|%14|Prompt A/B sweep: interim|Variant C leads after 60 of 200 runs.|\
 Adding runs 61 to 120
 release-notes-draft|190,190|%19|-|Merged PRs since v0.14, grouped by area.
+digest-daily|540,540|%19|Daily digest|What moved yesterday, and what needs you.
 cost-breakdown|1500,1380|%77|Monthly cost breakdown|Compute, storage and egress by team.
 latency-heatmap|4400,4300|%18|-|p50 and p99 by endpoint over the long-input bench."""
 SCRATCH_WRITERS = {"cost-breakdown": {"harness": "claude", "session_id": "demo-cost",
@@ -709,6 +710,14 @@ the sweep finishes in about two hours.
 flowchart LR
   S[Samples] --> A & B & C --> J[Judge] --> R[Report]
 ```
+"""), "digest-daily": ("index.md", """\
+# Tuesday morning
+
+Refunds work end to end on your machine and are ready to ship. The checkout tests are still
+stuck on the slow iframe.
+
+- **Needs you:** refunds can merge, and the preview deploy wants its checks run.
+- **Moved yesterday:** release notes and the cost reports reached main.
 """), "cost-breakdown": ("index.html", """\
 <!doctype html><title>Monthly cost breakdown</title>
 <style>body{font:15px/1.5 system-ui,sans-serif;margin:32px auto;max-width:720px;color:#1f2a24}
@@ -735,9 +744,25 @@ egress doubled with the image CDN move.</p>
 """)}
 
 
+# The dashboard's Digest card (web/m/digest.js): this morning's summary, as the job outside
+# the daemon leaves it beside its page in scratch (SCRATCH's digest-daily).
+DIGEST = {
+    "generated": datetime.fromtimestamp(NOW - 9 * 3600, UTC).isoformat(),
+    "verdict": "Refunds work end to end on your machine and are ready to ship. "
+               "The checkout tests are still stuck on the slow iframe.",
+    "needs_you": [{"text": "Refunds can merge: reviewed and green",
+                   "href": f"https://{ORG}/shop-api/pull/413"}],
+    "more": 1, "pace": "On pace",
+    "themes": [{"name": name, "state": state, "share": share} for name, state, share in (
+        ("Refunds", "Live on your machine, not on main", .34), ("Checkout tests", "Stuck", .22),
+        ("Money type migration", "In progress", .2), ("Release notes", "Live on main", .14),
+        ("Cost reports", "Live on main", .1))]}
+
+
 def seed_scratch(root) -> None:
     """Write SCRATCH's folders: each its page (PAGES), its meta.json, and a thumbnail shot
-    through the gallery's own renderer (openbus.scratch_sidecars, served as it serves them)."""
+    through the gallery's own renderer (openbus.scratch_sidecars, served as it serves them).
+    The digest's folder holds its summary too."""
     from openbus import scratch_sidecars
     from openbus.server import WEB_DIR
 
@@ -749,6 +774,8 @@ def seed_scratch(root) -> None:
             folder.mkdir()
             index, body = PAGES[name]
             (folder / index).write_text(body)
+            if name == "digest-daily":
+                (folder / "summary.json").write_text(json.dumps(DIGEST))
             (folder / "meta.json").write_text(json.dumps({
                 "title": "" if title == "-" else title, "description": description,
                 "pane": pane, "created": datetime.fromtimestamp(created, UTC).isoformat(),

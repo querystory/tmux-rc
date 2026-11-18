@@ -18,7 +18,8 @@ PRIVATE = re.compile(rf"/home/|querystory|tmux-rc|{IDENTITY}", re.IGNORECASE)
 def _everything() -> str:
     fleet = demo.fleet()
     return json.dumps([fleet, demo.events_log(), [demo.capture(p) for p in fleet],
-                       demo.restore_snapshot(), demo.SCRATCH, demo.SCRATCH_WRITERS, demo.PAGES])
+                       demo.restore_snapshot(), demo.SCRATCH, demo.SCRATCH_WRITERS, demo.PAGES,
+                       demo.DIGEST])
 
 
 def test_fleet_contains_nothing_private():
