@@ -598,7 +598,8 @@ def main() -> None:
     root = Path(os.environ.get("TMUXRC_SCRATCH_DIR") or STATE.parent / "scratch")
     for meta in (root / "digest-daily/meta.json", root / "digest-weekly/meta.json"):
         if meta.exists():  # its own two pages: scratch then announces each as it lands
-            meta.write_text(json.dumps(json.loads(meta.read_text()) | {"updating": "Today's digest"}))
+            marked = json.loads(meta.read_text()) | {"updating": "Today's digest"}
+            meta.write_text(json.dumps(marked))
     facts = gather(time.time())
     (STATE / "facts.json").write_text(json.dumps(facts))  # what `make digest-eval DIR=` scores
     registry = STATE / "themes.json"
