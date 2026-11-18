@@ -43,7 +43,10 @@ def score(model: dict, base: dict, before: dict | None = None) -> dict:
     lost.append((round((1 - agreement) * 10), f"grouping agrees {agreement:.0%}"))
     pieces = [p for t in model["themes"] for p in t["pieces"]]
     texts = [(f'{model["daily"]} {model["weekly"]}', pieces),
-             *((t["outcome"], t["pieces"]) for t in model["themes"])]
+             *((t["outcome"], t["pieces"]) for t in model["themes"]),
+             # An ask's words are the model's: only a merge ask may speak of merging.
+             *((a["text"], [{"need": a["btn"].lower(), "stage": "open"}])
+               for a in model["actions"] if "key" in a)]
     unsafe = [text for text, about in texts if
               (any(w in text.lower() for w in MERGE) and "merge" not in {p["need"] for p in about})
               or (any(w in text.lower() for w in PRUNE)

@@ -86,6 +86,7 @@ def change(n: dict, now: float, held: bool) -> dict:
             "about": hidden(repo) or next((x for x in n["bodyText"].splitlines() if len(x) > 40),
                                           "")[:240],
             "stage": stage, "moved": moved >= now - DAY,
+            "onto": "" if onto_main or n["state"] != "MERGED" else n["baseRefName"],
             "at": ts(n["mergedAt"] or n["closedAt"] or n["updatedAt"]),
             "need": ("rebase" if stage == "held" and n["mergeable"] == "CONFLICTING" else
                      "merge" if stage == "ready" else ""),
@@ -116,13 +117,13 @@ def spend(dirs: list[str], paths: list[str], now: float) -> list[dict]:
     and git branch say nothing (the branch is the root's, and pinned a week's effort on an
     unrelated PR): the place is the worktree most of its tool calls name. `paths` are the
     worktrees that are not a root, longest first."""
-    rows = []
+    rows, seen = [], set()  # a session moved between accounts keeps a copy of its calls
     for d in dirs:
         for f in [*Path(d, "projects").glob("*/*.jsonl"),
                   *Path(d, "projects").glob("*/*/subagents/*.jsonl")]:
             if f.stat().st_mtime < now - 14 * DAY:
                 continue
-            row, votes, links, seen = {"d": 0.0, "w": 0.0, "p": 0.0}, Counter(), set(), set()
+            row, votes, links = {"d": 0.0, "w": 0.0, "p": 0.0}, Counter(), set()
             with f.open(errors="ignore") as lines:
                 for line in lines:
                     if '"assistant"' not in line and '"pr-link"' not in line:
@@ -230,6 +231,11 @@ def gather(now: float) -> dict:
     since = time.strftime("%Y-%m-%d", time.gmtime(now - 14 * DAY))
     changes = [change(n, now, held(n))
                for n in search(f"is:pr author:@me archived:false updated:>={since}")]
+    for _ in range(3):  # a stack: merged into a branch whose own PR has since reached main
+        landed = {(c["repo"], c["head"]) for c in changes if c["stage"] == "main"}
+        for c in changes:
+            if c["onto"] and (c["repo"], c["onto"]) in landed:
+                c.update(stage="main", onto="")
     paths = sorted((w["path"] for w in trees if w["common"] != w["path"] + "/.git"),
                    key=len, reverse=True)
     rows = spend([d for a in accounts if a["provider"] == "claude" for d in a["dirs"]], paths, now)
@@ -239,7 +245,9 @@ def gather(now: float) -> dict:
         "waiting": [{"id": p["pane_id"], "title": private or p.get("title") or p.get("label") or "",
                      "headline": private or p.get("headline") or ""} for p in panes
                     if p.get("activity") == "waiting" and p.get("waiting_on") != "external"
-                    for private in [hidden((p.get("worktree") or {}).get("repo"))]],
+                    for private in [hidden(next((w["repo"] for w in sorted(
+                        trees, key=lambda w: -len(w["path"]))
+                        if ((p.get("cwd") or "") + "/").startswith(w["path"] + "/")), None))]],
         "usage": [{"name": names.get(a["dirs"][0], a["provider"]), "pct": w["pct"],
                    "projected": w["projected"],
                    "pace": (now * 1000 - w["start"]) / (w["resets_at"] - w["start"]) * 100}
@@ -272,6 +280,9 @@ def lay(reg: dict, facts: dict) -> dict:
     live = {c["key"]: c for c in facts["changes"] if c["at"] >= now - 7 * DAY or c["need"]}
     themes = []
     for tid, t in reg["themes"].items():
+        for field, default in (("members", []), ("last", now), ("outcome", ""),
+                               ("short", t["name"])):  # written by hand, maybe just a name
+            t.setdefault(field, default)
         pieces = sorted((live[k] for k in t["members"] if k in live),
                         key=lambda c: (list(STAGES).index(c["stage"]), not c["need"], c["key"]))
         active = [p["stage"] for p in pieces if p["stage"] != "dropped"]
@@ -287,7 +298,7 @@ def lay(reg: dict, facts: dict) -> dict:
             # work is in (a tie: stuck, then held, then in progress). One red change among
             # many is its own red dot, not the theme's word.
             "holds": t.get("holds", ""),
-            "state": "main" if active and len(rest) <= len(active) / 10
+            "state": "main" if active and len(rest) <= len(active) / 10 and "held" not in rest
             else max(("stuck", "held", "open"), key=rest.count) if rest else "open"})
     themes.sort(key=lambda t: (not any(p["need"] for p in t["pieces"]), -t["effort"]))
     placed = {k for t in themes for k in t["members"]}
@@ -337,7 +348,7 @@ def build(facts: dict, reg: dict, ask) -> dict:
     reg.setdefault("themes", {})
     d = lay(reg, facts)
     reply = ask((HERE / "digest_prompt.txt").read_text(), json.dumps({
-        "themes": [{"id": t["id"], "name": t["name"], "holds": t["holds"], "outcome": t["outcome"],
+        "themes": [{**{k: t[k] for k in ("id", "name", "short", "holds", "outcome")},
                     "state": STATES[t["state"]], "share": t["share"],
                     "work": [{k: p[k] for k in ("repo", "title", "stage")} for p in t["pieces"]]}
                    for t in d["themes"]],
@@ -472,6 +483,8 @@ def weekly(d: dict) -> str:
             ("landed", "Fewer reached main", "More reached main", "↑"),
             ("rounds", "Shorter review loops", "Longer review loops", "↓")):
         series = [w[field] for _, w in sorted(d["weeks"].items())[-5:]]
+        if series[-1] == series[-2]:
+            continue  # nothing moved: no arrow to draw
         arrow = "↓" if series[-1] < series[-2] else "↑"
         versus += (f'<div class="vs"><b class="{"good" if arrow == good else "bad"}">{arrow}</b>'
                    f"<p>{fewer if arrow == '↓' else more}</p>{spark(series)}</div>")
