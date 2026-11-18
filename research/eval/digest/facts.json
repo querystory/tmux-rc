@@ -1,0 +1,42 @@
+{
+"now": 1800000000,
+"changes": [
+  {"key": "example-org/harbor#412", "repo": "example-org/harbor", "title": "Reader: downloaded books open without a network", "url": "https://github.com/example-org/harbor/pull/412", "about": "A member on a train can keep reading.", "head": "reader-offline", "stage": "main", "moved": true, "at": 1799956800, "need": "", "rounds": 2},
+  {"key": "example-org/harbor#415", "repo": "example-org/harbor", "title": "Reader: resume at the last page after a restart", "url": "https://github.com/example-org/harbor/pull/415", "about": "The last page is kept on the device.", "head": "reader-resume", "stage": "main", "moved": false, "at": 1799740800, "need": "", "rounds": 1},
+  {"key": "example-org/harbor#418", "repo": "example-org/harbor", "title": "Reader: sync highlights when the network returns", "url": "https://github.com/example-org/harbor/pull/418", "about": "Highlights made offline are sent once online.", "head": "reader-sync", "stage": "held", "moved": true, "at": 1799965440, "need": "rebase", "rounds": 3},
+  {"key": "example-org/harbor#421", "repo": "example-org/harbor", "title": "Reader: show download progress on the shelf", "url": "https://github.com/example-org/harbor/pull/421", "about": "A ring on each cover fills as the book arrives.", "head": "reader-progress", "stage": "held", "moved": false, "at": 1799827200, "need": "", "rounds": 2},
+  {"key": "example-org/harbor#409", "repo": "example-org/harbor", "title": "feat(notify): reminder three days before a loan is due", "url": "https://github.com/example-org/harbor/pull/409", "about": "Members get one push before the due date.", "head": "loan-reminder", "stage": "ready", "moved": false, "at": 1799870400, "need": "merge", "rounds": 2},
+  {"key": "example-org/harbor#417", "repo": "example-org/harbor", "title": "feat(notify): let members snooze a reminder", "url": "https://github.com/example-org/harbor/pull/417", "about": "A snoozed reminder returns the next morning.", "head": "reminder-snooze", "stage": "open", "moved": true, "at": 1799974080, "need": "", "rounds": 0},
+  {"key": "example-org/harbor#423", "repo": "example-org/harbor", "title": "fix(notify): no reminder for a book already returned", "url": "https://github.com/example-org/harbor/pull/423", "about": "Returned loans are skipped by the reminder job.", "head": "reminder-returned", "stage": "stuck", "moved": false, "at": 1799827200, "need": "", "rounds": 1},
+  {"key": "example-org/tidewatch#88", "repo": "example-org/tidewatch", "title": "Search: rank exact title matches first", "url": "https://github.com/example-org/tidewatch/pull/88", "about": "An exact title now tops its results.", "head": "search-exact", "stage": "main", "moved": true, "at": 1799948160, "need": "", "rounds": 1},
+  {"key": "example-org/tidewatch#90", "repo": "example-org/tidewatch", "title": "Search: tolerate one typo in an author's name", "url": "https://github.com/example-org/tidewatch/pull/90", "about": "One wrong letter still finds the author.", "head": "search-typo", "stage": "main", "moved": false, "at": 1799654400, "need": "", "rounds": 2},
+  {"key": "example-org/tidewatch#91", "repo": "example-org/tidewatch", "title": "Search: filter by branch library", "url": "https://github.com/example-org/tidewatch/pull/91", "about": "Results can be narrowed to one branch.", "head": "search-branch", "stage": "open", "moved": true, "at": 1799982720, "need": "", "rounds": 0},
+  {"key": "example-org/tidewatch#93", "repo": "example-org/tidewatch", "title": "Search: an index rebuild that no longer blocks writes", "url": "https://github.com/example-org/tidewatch/pull/93", "about": "The catalogue stays editable while it reindexes.", "head": "search-rebuild", "stage": "open", "moved": false, "at": 1799568000, "need": "", "rounds": 1},
+  {"key": "example-org/harbor#402", "repo": "example-org/harbor", "title": "Desk: scan a member card to open their record", "url": "https://github.com/example-org/harbor/pull/402", "about": "Staff scan a card instead of typing a name.", "head": "counter-scan", "stage": "main", "moved": false, "at": 1799481600, "need": "", "rounds": 1},
+  {"key": "example-org/harbor#420", "repo": "example-org/harbor", "title": "Desk: waive a late fee with a reason", "url": "https://github.com/example-org/harbor/pull/420", "about": "A waiver records who gave it and why.", "head": "counter-waive", "stage": "open", "moved": false, "at": 1799896320, "need": "", "rounds": 0},
+  {"key": "example-org/harbor#424", "repo": "example-org/harbor", "title": "Desk: print a hold slip", "url": "https://github.com/example-org/harbor/pull/424", "about": "Closed: the slip is printed by the shelf label change instead.", "head": "counter-slip", "stage": "dropped", "moved": true, "at": 1799939521, "need": "", "rounds": 0},
+  {"key": "example-org/harbor#425", "repo": "example-org/harbor", "title": "chore: bump the linter", "url": "https://github.com/example-org/harbor/pull/425", "about": "Routine upkeep.", "head": "lint-bump", "stage": "main", "moved": false, "at": 1799784000, "need": "", "rounds": 0},
+  {"key": "example-org/harbor#390", "repo": "example-org/harbor", "title": "Reader: a larger type size setting", "url": "https://github.com/example-org/harbor/pull/390", "about": "Last week's work.", "head": "reader-type", "stage": "main", "moved": false, "at": 1799222400, "need": "", "rounds": 1},
+  {"key": "example-org/tidewatch#80", "repo": "example-org/tidewatch", "title": "Search: index the series a book belongs to", "url": "https://github.com/example-org/tidewatch/pull/80", "about": "Last week's work.", "head": "search-series", "stage": "main", "moved": false, "at": 1799049600, "need": "", "rounds": 3}
+ ],
+"effort": {
+  "example-org/harbor#412": {"d": 6.0, "w": 10.0, "p": 0.0},
+  "example-org/harbor#418": {"d": 9.0, "w": 14.0, "p": 0.0},
+  "example-org/harbor#421": {"d": 0.0, "w": 8.0, "p": 0.0},
+  "example-org/harbor#409": {"d": 0.0, "w": 7.0, "p": 2.0},
+  "example-org/harbor#417": {"d": 4.0, "w": 0.0, "p": 0.0},
+  "example-org/harbor#423": {"d": 0.0, "w": 5.0, "p": 0.0},
+  "example-org/tidewatch#88": {"d": 3.0, "w": 4.0, "p": 0.0},
+  "example-org/tidewatch#91": {"d": 5.0, "w": 0.0, "p": 0.0},
+  "example-org/tidewatch#93": {"d": 0.0, "w": 6.0, "p": 0.0},
+  "example-org/harbor#420": {"d": 0.0, "w": 3.0, "p": 0.0},
+  "example-org/harbor#390": {"d": 0.0, "w": 0.0, "p": 12.0},
+  "example-org/tidewatch#80": {"d": 0.0, "w": 0.0, "p": 20.0},
+  "wt:reader-spike": {"d": 0.0, "w": 5.0, "p": 0.0},
+  "": {"d": 4.0, "w": 7.0, "p": 9.0}
+ },
+"asked": 1,
+"waiting": [{"id": "%7", "title": "Search ranking", "headline": "Which branch libraries should the filter list first?"}],
+"usage": [{"name": "claude", "pct": 35.0, "projected": 60.0, "pace": 50.0}],
+"cleanup": ["/work/harbor-wt/reader-offline"]
+}
