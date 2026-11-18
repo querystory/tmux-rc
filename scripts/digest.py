@@ -343,6 +343,8 @@ def build(facts: dict, reg: dict, ask) -> dict:
                 for n, c in enumerate(d["new"])],
         "needs_you": [{"n": n, **{k: a[k] for k in ("text", "work") if k in a}}
                       for n, a in enumerate(d["actions"])],
+        "largest": [t["short"] for t in sorted(d["themes"], key=lambda t: -t["effort"])[:2]
+                    if t["effort"]],
         "landed_yesterday": d["landed"]})) or {}
     repos = {x for c in facts["changes"] for x in (c["repo"], c["repo"].split("/")[1])}
     placed = {k for t in reg["themes"].values() for k in t["members"]}
