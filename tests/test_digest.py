@@ -32,7 +32,8 @@ def test_stage_and_need_are_rules(monkeypatch):
         return c["stage"], c["need"]
 
     assert rule(state="MERGED") == ("main", "")
-    assert rule(state="MERGED", baseRefName="stack-parent") == ("open", "")  # not on main yet
+    assert rule(state="MERGED", baseRefName="parent", reviewDecision="APPROVED") == (
+        "open", "")  # merged into another PR's branch: not on main yet, and nothing to merge
     assert not digest.hidden(None) and not digest.hidden("o/r")  # nothing is hidden unasked
     monkeypatch.setenv("TMUXRC_DIGEST_HIDE", "r")  # a hidden repository's words go nowhere
     assert digest.change(node(), NOW, held=False)["title"] == "Private work"

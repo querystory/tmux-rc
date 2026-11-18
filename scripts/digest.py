@@ -74,7 +74,8 @@ def change(n: dict, now: float, held: bool) -> dict:
     # Merged into another PR's branch is not on main yet: it rides with that PR.
     onto_main = n["baseRefName"] == (n["repository"]["defaultBranchRef"] or {}).get("name")
     stage = ("main" if n["state"] == "MERGED" and onto_main else
-             "dropped" if n["state"] == "CLOSED" else "held" if held else "stuck" if checks in ("FAILURE", "ERROR") else
+             "open" if n["state"] == "MERGED" else "dropped" if n["state"] == "CLOSED" else
+             "held" if held else "stuck" if checks in ("FAILURE", "ERROR") else
              "ready" if green and not n["isDraft"] else "open")
     moved = ts(n["mergedAt"] or n["closedAt"] or commit.get("committedDate"))
     repo = n["repository"]["nameWithOwner"]
