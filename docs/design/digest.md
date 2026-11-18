@@ -28,6 +28,12 @@ by gates (clean, pushed, merged, no pane, idle for a day), because a wrong "safe
 delete" costs work. A model sentence that names a change number or a repository is
 dropped before the page is written.
 
+A theme's state word is such a rule, because it is a count. A theme is "Live on main" only
+when nearly all of its work this week is on main. Otherwise it takes the state of what is
+still outstanding, the most urgent first: "Stuck" when a check fails, "Live on your
+machine, not on main" when finished work is held there, and "In progress" for the rest.
+A theme with a rebase waiting can never read as live.
+
 ## Why themes keep their identity
 
 A page that reshuffles its cards every morning cannot be skimmed. Themes live in a small

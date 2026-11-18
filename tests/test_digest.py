@@ -104,6 +104,9 @@ def test_theme_identity_is_stable():
 def test_pages_keep_change_numbers_behind_a_tap(tmp_path):
     d = base()
     assert [t["state"] for t in d["themes"]] == ["held", "stuck", "open", "open"]
+    landed = {"themes": {"s": {**BASELINE["themes"]["search"], "members": [
+        "example-org/tidewatch#88", "example-org/tidewatch#90"]}}}
+    assert digest.lay(landed, FACTS)["themes"][0]["state"] == "main"  # only when all of it is
     spike = {"themes": {"s": dict.fromkeys(("name", "short", "outcome"), "x")
                         | {"members": ["wt:reader-spike"]}}}
     assert digest.lay(spike, FACTS)["themes"][0]["state"] == "open"  # effort alone is not stuck
@@ -117,6 +120,7 @@ def test_pages_keep_change_numbers_behind_a_tap(tmp_path):
         for c in FACTS["changes"]:  # a change's link is behind the tap; nothing else names it
             assert c["key"].split("#")[1] not in body.replace(c["url"], "")
         assert "Reading without a network" in body and "harbor" not in body.replace("/harbor/", "")
+        assert f'id="{name[7:]}" checked' in body and body.count("checked") == 1  # its own view
         assert json.loads((tmp_path / name / "meta.json").read_text())["description"]
     summary = json.loads((tmp_path / "digest-daily/summary.json").read_text())  # the dashboard's
     assert set(summary) == {"generated", "verdict", "needs_you", "more", "themes", "pace"}

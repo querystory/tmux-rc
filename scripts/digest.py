@@ -32,7 +32,7 @@ STATE = Path.home() / ".local/share/tmux-rc/digest"
 STAGES = {"main": "on main", "held": "on your machine", "ready": "approved, waiting",
           "open": "in progress", "stuck": "stuck", "dropped": "closed"}
 STATES = {"stuck": "Stuck", "held": "Live on your machine, not on main",
-          "open": "In progress", "main": "Live on main"}  # in the order a tie goes
+          "open": "In progress", "main": "Live on main"}
 NEEDS = {"rebase": ("needs a rebase", "it can't reach main until then"),
          "merge": ("can merge", "approved and green")}
 SIZES = ((.6, "most"), (.45, "half"), (.3, "a third"), (.24, "a quarter"), (.17, "a fifth"),
@@ -268,7 +268,7 @@ def lay(reg: dict, facts: dict) -> dict:
     for tid, t in reg["themes"].items():
         pieces = sorted((live[k] for k in t["members"] if k in live),
                         key=lambda c: (list(STAGES).index(c["stage"]), not c["need"], c["key"]))
-        tally = Counter("open" if p["stage"] == "ready" else p["stage"] for p in pieces)
+        rest = [p["stage"] for p in pieces if p["stage"] not in ("main", "dropped")]
         spent = week(t["members"])
         if pieces or spent:
             t["last"] = now
@@ -276,9 +276,10 @@ def lay(reg: dict, facts: dict) -> dict:
             "id": tid, **{k: t[k] for k in ("name", "short", "outcome", "members")},
             "pieces": pieces, "effort": spent, "part": spent / total,
             "share": next(word for least, word in SIZES if spent / total >= least),
-            # Stuck when something fails and nothing has been delivered; else the commonest.
-            "state": "stuck" if tally["stuck"] and not tally["main"] + tally["held"]
-            else max(STATES, key=lambda s: tally[s]) if pieces else "open"})
+            # On main only when nearly all of it is; else the state of what is outstanding:
+            # stuck before held before in progress.
+            "state": "main" if pieces and len(rest) <= len(pieces) / 10
+            else next((s for s in ("stuck", "held") if s in rest), "open")})
     themes.sort(key=lambda t: (not any(p["need"] for p in t["pieces"]), -t["effort"]))
     placed = {k for t in themes for k in t["members"]}
     loose = [c for k, c in live.items() if k not in placed]
@@ -440,7 +441,8 @@ def weekly(d: dict) -> str:
     blocks = sorted([(t["effort"], t["state"], t["short"]) for t in d["themes"] if t["effort"]]
                     + [(d["coordination"], "none", "Coordination")], reverse=True)
     tm = "".join(f'<div style="flex-grow:{sum(b[0] for b in row)}">' + "".join(
-        f'<div class="s-{state}" style="flex-grow:{spent}">{html.escape(name)}</div>'
+        f'<div class="s-{state}" style="flex-grow:{spent}"><i class="d {state}"></i>'
+        f"{html.escape(name)}</div>"
         for spent, state, name in row) + "</div>" for row in (blocks[:2], blocks[2:4], blocks[4:])
         if row)
     cards = "".join(
@@ -468,23 +470,29 @@ def weekly(d: dict) -> str:
 
 def publish(d: dict, root: Path) -> None:
     """Both pages, each folder's meta.json first; its description is the push's teaser. The
-    daily folder also gets summary.json, the same digest cut down for the dashboard's card."""
+    daily folder also gets summary.json, the same digest cut down for the dashboard's card.
+    Each page holds both views and switches between them without navigating: the app's
+    viewer runs no script in a page its frame navigates to, so a link to the other folder
+    would land on a page with no theme and no taps."""
     page = (HERE / "digest.html").read_text().replace(
         "{tokens}", tokens(HERE.parent / "web/m/style.css"))
     when = datetime.fromtimestamp(d["now"]).astimezone()
-    pages = {"digest-daily": ("Today", "Daily digest", d["daily"], daily(d)),
-             "digest-weekly": ("This week", "Weekly digest", d["weekly"], weekly(d))}
-    tabs = {name: f'<a href="../{name}/"%s>{label}</a>' for name, (label, *_) in pages.items()}
-    for name, (_, title, verdict, body) in pages.items():
-        folder = root / name
+    views = {"daily": ("Today", "Daily digest", d["daily"], daily(d)),
+             "weekly": ("This week", "Weekly digest", d["weekly"], weekly(d))}
+    body = "<nav>" + "".join(f'<label for="{v}">{tab}</label>' for v, (tab, *_) in views.items()) \
+        + "</nav>" + "".join(
+        f'<section class="{v}"><div class="date">{when:%A %-d %B}</div><p class="verdict">'
+        f"{html.escape(verdict)}</p>{view}</section>" for v, (_, _, verdict, view) in views.items())
+    for name, (_, title, verdict, _) in views.items():
+        folder = root / f"digest-{name}"
         folder.mkdir(parents=True, exist_ok=True)
         (folder / "meta.json").write_text(json.dumps({
             "title": title, "description": verdict.split(". ")[0],
             "pane": os.environ.get("TMUX_PANE", ""), "created": when.isoformat("T", "seconds")}))
-        nav = "".join(tab % (" aria-current=page" * (to == name)) for to, tab in tabs.items())
-        (folder / "index.html").write_text(page.replace("{title}", title).replace("{body}", (
-            f'<nav>{nav}</nav><div class="date">{when:%A %-d %B}</div>'
-            f'<p class="verdict">{html.escape(verdict)}</p>{body}')))
+        picks = "".join(f'<input type="radio" name="view" id="{v}"{" checked" * (v == name)}>'
+                        for v in views)
+        (folder / "index.html").write_text(
+            page.replace("{title}", title).replace("{body}", picks + body))
     (root / "digest-daily/summary.json").write_text(json.dumps({
         "generated": when.isoformat("T", "seconds"), "pace": d["pace"],
         "verdict": ". ".join(d["daily"].split(". ")[:2]).rstrip(".") + ".",
