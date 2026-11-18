@@ -26,4 +26,7 @@ test("a summary that missed a morning says so, and one with no asks has no asks"
   const html = digestHtml({ ...summary, needs_you: [], generated: "2026-06-14T06:30:00Z" }, NOW);
   assert.match(html, /Out of date: last written 2d ago/);
   assert.doesNotMatch(html, /Needs you|more ›/);
+  const five = digestHtml({ ...summary, more: 0, needs_you: [1, 2, 3, 4, 5].map((n) => ({ text: `ask ${n}`, href: "/scratch/x/" })) }, NOW);
+  assert.match(five, /ask 3<.*2 more ›/); // three at most, the rest counted
+  assert.doesNotMatch(five, /ask 4/);
 });

@@ -1141,13 +1141,14 @@ function cardView(title, node) {
 async function refreshCached(force) {
   if (!force && Date.now() - cachedAt < 60000) return;
   cachedAt = Date.now(); usagePast = page === "usage" && usageDays();
-  fetch("/scratch/digest-daily/summary.json").then((r) => r.ok ? r.json() : null).then((s) => { if (s) html($("digest-body"), digestHtml(s)); show("digest-card", s); }).catch(() => show("digest-card", false));
-  fetch($("digest-weekly").href, { method: "HEAD" }).then((r) => show("digest-weekly", r.ok), () => {});
   const seq = ++cachedSeq;
   // The accounts with the meters, not after: drawn before them, several accounts' meters
   // stand as one tall grid for a moment before folding into their strip.
-  const [u] = await Promise.allSettled([request(usagePast ? `/api/usage?past=${usagePast}` : "/api/usage"), accounts.refresh()]);
+  const [d, w, u] = await Promise.allSettled([fetch("/scratch/digest-daily/summary.json").then((r) => r.ok ? r.json().then(digestHtml) : ""), fetch($("digest-weekly").href, { method: "HEAD" }),
+    request(usagePast ? `/api/usage?past=${usagePast}` : "/api/usage"), accounts.refresh()]);
   if (seq !== cachedSeq) return; // a forced fetch overlapped this one: only the latest answers land
+  if (d.value) html($("digest-body"), d.value); // unread or unreadable: no card
+  show("digest-card", d.value); show("digest-weekly", w.value?.ok);
   if (u.status === "fulfilled") usage = u.value.accounts || [];
   paintUsage(); render();
 }
