@@ -9,10 +9,10 @@ const link = (href) => /^(https?:\/\/|\/)/.test(href) ? esc(href) : "#"; // an a
 
 export function digestHtml(s, now = Date.now()) {
   const at = Date.parse(s.generated), asks = s.needs_you || [], themes = [...s.themes || []].sort((a, b) => b.share - a.share);
-  const mark = (t, grow) => `<i class="digest-state ${STATES[t.state] ?? ""}"${grow ? ` style="flex-grow:${Number(t.share) || 0}"` : ""}></i>`;
+  const mark = (t, grow) => `<i class="digest-state ${STATES[t.state] ?? ""}"${grow ? ` style="flex-grow:${Math.round(t.share * 1000) || 0}"` : ""}></i>`;
   return `<p class="digest-verdict">${esc(s.verdict)}</p>`
     + `<div class="digest-strip" role="img" aria-label="${esc(themes.map((t) => `${t.name}: ${t.state}`).join(". "))}">${themes.map((t) => mark(t, true)).join("")}</div>`
-    + themes.slice(0, 3).map((t) => `<div class="digest-theme">${mark(t)}<span>${esc(t.name)}</span><span class="muted">${esc(t.state)}</span></div>`).join("")
+    + themes.slice(0, 3).map((t) => `<div class="digest-theme">${mark(t)}<span>${esc(t.name)} <span class="muted">· ${esc(t.state)}</span></span></div>`).join("")
     + (asks.length ? `<div class="digest-asks"><p class="muted">Needs you</p>${asks.map((n) => `<a href="${link(n.href)}" target="_blank" rel="noopener">${esc(n.text)}</a>`).join("")}`
       + `${s.more ? `<p class="muted">${Number(s.more)} more ›</p>` : ""}</div>` : "")
     + '<p class="muted">'

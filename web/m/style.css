@@ -779,7 +779,6 @@ dialog.beside .dialog-heading { min-height: var(--bar); }
 .digest-state.held { background: var(--accent-bg); box-shadow: inset 0 0 0 1.5px var(--chart-s1); } /* outlined: not on main yet */
 .digest-state.stuck { background: var(--red); }
 .digest-theme { display: flex; align-items: baseline; gap: 8px; font-size: 13px; }
-.digest-theme > :last-child { margin-left: auto; text-align: right; }
 .digest-asks { margin-top: 12px; border-top: 1px solid var(--line); }
 .digest-asks a { display: block; padding: 4px 0; font-weight: 600; }
 #digest-body a + p { margin-top: 0; }

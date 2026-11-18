@@ -13,9 +13,9 @@ const summary = {
 test("the card: the verdict, a strip by share and state, the largest themes named, the asks", () => {
   const html = digestHtml(summary, NOW);
   assert.match(html, /<p class="digest-verdict">Refunds are ready\. &#60;b&#62;Checkout/); // an agent wrote it: text, never markup
-  assert.deepEqual([...html.matchAll(/class="digest-state (\w*)" style="flex-grow:([\d.]+)"/g)].map((m) => m.slice(1)),
-    [["held", "0.5"], ["stuck", "0.25"], ["", "0.15"], ["main", "0.1"]]); // largest first
-  assert.deepEqual([...html.matchAll(/<span>(\w+)<\/span>/g)].map((m) => m[1]), ["Refunds", "Checkout", "Money"]);
+  assert.deepEqual([...html.matchAll(/class="digest-state (\w*)" style="flex-grow:(\d+)"/g)].map((m) => m.slice(1)),
+    [["held", "500"], ["stuck", "250"], ["", "150"], ["main", "100"]]); // largest first, filling the strip whatever the shares sum to
+  assert.deepEqual([...html.matchAll(/<span>(\w+) <span class="muted">· /g)].map((m) => m[1]), ["Refunds", "Checkout", "Money"]);
   assert.match(html, /href="https:\/\/github\.com\/example-org\/shop-api\/pull\/413"[^>]*>Refunds can merge</);
   assert.match(html, /href="#"[^>]*>Run it</); // no script URLs
   assert.match(html, /2 more ›/);
