@@ -463,18 +463,16 @@ def _session_chrome(text: str) -> list[str]:
     input_row = max((i for i, line in enumerate(lines)
                      if re.match(r"^\s*[›❯](?:\s|$)", line)), default=-1)
     candidates = lines[max(input_row + 1, len(lines) - 4):]
-    # Claude Code prints its title on a rule: the input box's top border, or above status.
-    rules = [lines[input_row - 1]] if input_row > 0 else []
-    status = []
+    chrome = []
     status_rows = [(i, line, re.match(r"^\s*(?:~/|/)", line))
                    for i, line in enumerate(candidates)
                    if re.match(r"^\s*(?:~/|/)", line) or _codex_model_segments(line)]
     if status_rows:
         i, line, path_status = status_rows[-1]  # The bottommost recognized row is live chrome.
-        if path_status and i:
-            rules.append(candidates[i - 1])
-        status = [line]
-    chrome = [row for row in rules if re.match(r"^\s*[─━]+\s+\S", row)] + status
+        if (path_status and i
+                and re.match(r"^\s*[─━]+\s+\S", candidates[i - 1])):
+            chrome.append(candidates[i - 1])  # Claude title immediately above status.
+        chrome.append(line)
     renames = [line for line in strip_dim(text).splitlines()
                if re.match(r"^\s*[•●]\s+Thread renamed to \S", line)]
     if renames:
@@ -485,8 +483,9 @@ def _session_chrome(text: str) -> list[str]:
 def _session_evidence(text: str) -> str:
     titles = []
     for line in _session_chrome(text):
-        if line.lstrip().startswith(("─", "━")):  # a titled rule, as _session_chrome kept it
-            titles.append(line.strip().strip("─━").strip())
+        match = re.match(r"^\s*[─━]+\s+(\S.*?)\s*$", line)
+        if match:
+            titles.append(match.group(1))
             continue
         if models := _codex_model_segments(line):
             segments = [segment.strip() for segment in line.split("·")]
