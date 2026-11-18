@@ -76,19 +76,18 @@ def main(folder: Path) -> None:
                        for name in ("facts.json", "baseline.json"))
     base = {**baseline, **digest.lay(baseline, facts)}
     seed = folder / "themes.json"  # optional: the registry the model starts from
-    llm, start = digest.model(), time.time()
+    (ask, usage), start = digest.model(), time.time()
     reg = json.loads(seed.read_text()) if seed.exists() else {}
-    first, model = (digest.build(facts, reg, lambda system, text: llm.classify_text(
-        system, text, kind="digest")) for _ in range(2))
+    first, model = (digest.build(facts, reg, ask) for _ in range(2))
     result = score(model, base, first)
     (folder / "model.json").write_text(json.dumps(model, indent=1))
     for name, d in (("baseline", base), ("model", model)):
         print(f"\n{name}\n daily: {d['daily']}\n weekly: {d['weekly']}")
         for t in d["themes"]:
             print(f' {t["name"]} [{t["state"]}, {t["share"]}, {len(t["members"])}]: {t["outcome"]}')
-    usage = llm.usage_totals()
+    spent = usage()
     print(json.dumps(result, indent=1), f'\n2 calls, {time.time() - start:.0f}s, '
-          f'${usage["cost"]:.4f}, {usage["in_tokens"]} in, {usage["out_tokens"]} out')
+          f'${spent["cost"]:.4f}, {spent["in_tokens"]} in, {spent["out_tokens"]} out')
     sys.exit(not result["pass"])
 
 

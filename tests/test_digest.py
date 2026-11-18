@@ -63,9 +63,11 @@ def test_effort_joins_by_tool_paths_not_the_root_branch(tmp_path):
     worktrees = [{"path": "/w/wt/reader", "repo": "o/r", "branch": "reader"}]
     changes = [{"repo": "o/r", "head": "reader", "key": "o/r#5"},
                {"repo": "o/r", "head": "unrelated", "key": "o/r#9"}]
-    assert {k: v["d"] for k, v in digest.join(rows, worktrees, changes).items()} == {
-        "o/r#5": 40.0, "": 20.0}
-    assert "wt:o/r/reader" in digest.join(rows, worktrees, [])  # no change: its worktree, by repo
+    cuts = digest.join(rows, worktrees, changes, {str(tmp_path): "Work"})
+    assert {k: v["d"] for k, v in cuts["effort"].items()} == {"o/r#5": 40.0, "": 20.0}
+    assert (cuts["account"]["Work"]["d"], cuts["worktree"]["reader"]["d"]) == (60.0, 40.0)
+    assert cuts["repo"] == {"r": cuts["effort"]["o/r#5"], "": cuts["effort"][""]}
+    assert "wt:o/r/reader" in digest.join(rows, worktrees, [], {})["effort"]  # by repository
 
 
 def test_cleanup_is_gated_by_code():
@@ -127,8 +129,13 @@ def test_pages_keep_change_numbers_behind_a_tap(tmp_path):
         body = page[page.index("<main>"):]
         for c in FACTS["changes"]:  # a change's link is behind the tap; nothing else names it
             assert c["key"].split("#")[1] not in body.replace(c["url"], "")
-        assert "Reading without a network" in body and "harbor" not in body.replace("/harbor/", "")
+        surface = body.split("Slice it")[0].replace("/harbor/", "")  # Repo is a tap in there
+        assert "Reading without a network" in body and "harbor" not in surface
         assert f'id="{name[7:]}" checked' in body and body.count("checked") == 1  # its own view
+        # The explorer: eight views drawn, and only this week by theme showing.
+        assert (body.count('class="x"'), body.count(' hidden><p class="xsay"')) == (8, 7)
+        assert "Half of this week’s effort went into “Reading without a network”" in body
+        assert "<em>" in body  # the verdict's second sentence, in amber
         assert json.loads((tmp_path / name / "meta.json").read_text())["description"]
     summary = json.loads((tmp_path / "digest-daily/summary.json").read_text())  # the dashboard's
     assert set(summary) == {"generated", "verdict", "needs_you", "more", "themes", "pace"}

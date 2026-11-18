@@ -18,6 +18,7 @@ input[name=view]{position:absolute;opacity:0;pointer-events:none}
 #daily:focus-visible~nav [for=daily],#weekly:focus-visible~nav [for=weekly]{outline:2px solid var(--accent)}
 .date,.pick,.key,.ch,.act small,.tcard .hd span,.pace .bars div{font-size:13px;color:var(--muted)}
 .date{padding:0 4px 6px}
+.verdict em{font-style:normal;color:var(--amber)}
 .verdict{font-size:18px;line-height:1.38;font-weight:600;margin-bottom:16px;padding:0 4px;text-wrap:balance}
 .panel{min-width:0;margin-top:16px;padding:16px;border:1px solid var(--line);border-radius:20px;background:var(--surface)}
 h4{margin:0 0 12px;font-size:16px;font-weight:600}
@@ -93,6 +94,20 @@ h4+.vs{border-top:0;padding-top:0}
 .vs b{font-size:18px;line-height:1}
 .vs .good{color:var(--accent)}.vs .bad{color:var(--amber)}
 .vs p{font-weight:600;line-height:1.3}
+.vs small,.xrow small{display:block;font-size:13px;font-weight:400;color:var(--muted)}
+/* slice it: the same effort cut four ways */
+.seg{display:flex;gap:2px;padding:3px;border-radius:12px;background:var(--raised);margin-bottom:8px}
+.seg button{flex:1;min-width:0;min-height:36px;border:0;background:none;color:var(--muted);font:inherit;font-size:13px;font-weight:600;border-radius:9px;cursor:pointer}
+.seg [aria-pressed=true]{background:var(--lift);color:var(--fg);box-shadow:0 1px 3px rgb(0 0 0/.14)}
+.xsay{font-size:17px;font-weight:600;line-height:1.35;margin:16px 0 12px;text-wrap:pretty}
+.prop{display:flex;gap:2px;height:14px;margin-bottom:8px}
+.prop i{border-radius:3px;background:var(--g2)}
+.prop i:first-child{background:var(--g1)}
+.xrow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;padding-top:10px;font-weight:600}
+.xrow span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.xrow>i{grid-column:1/-1;height:6px;border-radius:3px;background:var(--g2)}
+.xrow.un{font-weight:400;color:var(--muted)}
+.xrow.un>i,.prop i.un{background:var(--nm)}
 [hidden]{display:none}
 </style>
 <script>// In <head> for the first paint. The app's theme when it frames the page and says so
@@ -114,4 +129,12 @@ document.addEventListener("click", (e) => {
   box.hidden = false;
   box.replaceChildren(b, document.createElement("br"), d.dataset.s + " · ", a);
 });
+// Slice it: the pressed button of each row picks which of the drawn views shows.
+document.querySelectorAll(".seg").forEach((g) => g.addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  g.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", x === b));
+  const k = [...document.querySelectorAll(".seg [aria-pressed=true]")].map((x) => x.dataset.v).join("-");
+  document.querySelectorAll(".x").forEach((x) => { x.hidden = x.dataset.k !== k; });
+}));
 </script></body></html>
