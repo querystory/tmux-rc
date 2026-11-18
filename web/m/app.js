@@ -433,7 +433,7 @@ function route() {
     const id = active;
     // A dead deep link selects before state can say so; a 404 is the gone-pane path, and a
     // rejection after the user moved on must not overwrite whatever notice that left.
-    post(paneUrl(id, "select")).catch((error) => {
+    post(paneUrl(id, followPhone === "on" ? "select" : "select?follow=0")).catch((error) => {
       if (error.status === 404) leaveMissingPane(id);
       else if (stillOnPane(location.hash, id)) notice("Could not focus this pane on the host.");
     });
@@ -1528,6 +1528,9 @@ const FIT_PICKS = { "": "Default", width: "Width", tall: "Tall", off: "Off" };
 const stored = (k, fallback) => { try { return localStorage.getItem(k) ?? fallback; } catch { return fallback; } };
 const store = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
 let fitDefault = stored("tmuxrc-fit-default", "auto"), tallRows = Number(stored("tmuxrc-tall-rows", 500)) || 500;
+// Desktop follows phone: opening a pane here focuses it in tmux on the host too. Per browser, on by default.
+let followPhone = stored("tmuxrc-desktop-follows", "on");
+const setFollowPhone = (v) => { followPhone = v; store("tmuxrc-desktop-follows", v); paintSettings(); };
 let fitPicks = {}; try { fitPicks = JSON.parse(stored("tmuxrc-fit-picks", "{}")) || {}; } catch {}
 const paneKey = (id) => `${id}:${panes.find((p) => p.pane_id === id)?.birth ?? ""}`;
 const fitMode = (id) => fitPicks[paneKey(id)] || fitDefault;
@@ -2471,6 +2474,7 @@ function paintSettings() {
   choices("sort", SORTS, sort, setSort);
   choices("pin-needs", { on: "On", off: "Off" }, pinNeeds ? "on" : "off", setPinNeeds);
   choices("fit-default", FIT_DEFAULTS, fitDefault, setFitDefault);
+  choices("desktop-follows", { on: "On", off: "Off" }, followPhone, setFollowPhone);
   $("tall-rows").value = tallRows;
   show("sort-row", !WIDE.matches); // wide, the filter menu's Sort by sets it
 }

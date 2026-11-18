@@ -40,6 +40,7 @@ OMP = ["usage", "--json", "--provider", "anthropic"]  # ~1s; every provider take
 TAIL = 1 << 20  # Codex session logs reach hundreds of MB; the newest limits sit at the end
 CODEX_FILES = 20  # bounds the scan when recent logs hold no limits event at all
 SPARK_POINTS = 120  # samples sent per window: a sidebar sparkline's width, not a week of polls
+PACE_BASIS = 0.2  # of a window: early on, a pace is the use so far over at least this long
 
 
 def window_name(minutes: int) -> str:
@@ -277,8 +278,10 @@ def project(samples: list[tuple[float, float]], resets_at: float, seconds: int,
     """Where the window ends at the current pace: a least-squares slope over this window's
     samples, anchored at 0% when it opened, extended from now to the reset. The latest
     value holds until now (no new Codex event means no new use), so a quiet spell slows
-    the pace instead of leaving a forecast in the past. `limit_at` is when that line
-    crosses 100%, if before the reset."""
+    the pace instead of leaving a forecast in the past. Until PACE_BASIS of the window has
+    passed, the pace is at most the use so far spread over that much: 3% in the first hour
+    of a week is no evidence of 70% a day. `limit_at` is when that line crosses 100%, if
+    before the reset."""
     start = resets_at - seconds
     points = [(start, 0.0), *((t, p) for t, p in samples if t >= start)]
     if now > points[-1][0]:
@@ -288,6 +291,8 @@ def project(samples: list[tuple[float, float]], resets_at: float, seconds: int,
     var = sum((t - mt) ** 2 for t, _ in points)
     slope = max(0.0, sum((t - mt) * (p - mp) for t, p in points) / var) if var else 0.0
     t, p = points[-1]
+    if t - start < PACE_BASIS * seconds:
+        slope = min(slope, p / (PACE_BASIS * seconds))
     projected = p + slope * (resets_at - t)
     return {"projected": round(projected, 1),
             "limit_at": t + (100 - p) / slope if projected > 100 and p < 100 else None}

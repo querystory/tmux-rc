@@ -146,6 +146,22 @@ def test_projection_extends_the_fitted_pace_to_the_reset():
     assert project([(start - hour, 90.0)], start + 5 * hour, 5 * hour, start)["projected"] == 0.0
 
 
+def test_projection_waits_for_a_fifth_of_the_window_before_trusting_a_fast_pace():
+    hour, start, week = 3600, NOW, 7 * 86400
+    # Just reset: 0 to 3% in the first 75 minutes of a week fits ~60%/day; over the
+    # 33.6h basis it is ~2%/day, so no false "full".
+    reset = [(start + m * 60, pct) for m, pct in ((25, 1.0), (35, 2.0), (60, 3.0), (74, 3.0))]
+    early = project(reset, start + week, week, start + 75 * 60)
+    assert early["limit_at"] is None and early["projected"] < 25
+    # Heavy use from the start still fills: 30% in 3h is 30% per 33.6h even at the floor.
+    heavy = [(start + h * hour, 10.0 * h) for h in (1, 2, 3)]
+    assert project(heavy, start + week, week, start + 3 * hour)["limit_at"] is not None
+    # Past the basis, the fitted pace stands: 15%/day reaches 100% on day 6.7, before the reset.
+    mid = [(start + d * 86400, 15.0 * d) for d in (0.5, 1, 1.5, 2)]
+    assert project(mid, start + week, week, start + 2 * 86400) == {
+        "projected": 105.0, "limit_at": start + 100 / 15 * 86400}
+
+
 def _claude_home(path, uuid, email):
     path.mkdir(parents=True)
     (path / ".claude.json").write_text(json.dumps(
