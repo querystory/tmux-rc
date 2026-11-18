@@ -1,5 +1,5 @@
 - "claude" (Claude Code): model line names a Claude model ("Opus", "Sonnet", "Haiku",
-  "Fable" + a version like "4.8" — the family grows, so an unfamiliar name in the model
+  "Fable" + a version number — the family grows, so an unfamiliar name in the model
   slot is claude when the rest of the chrome matches); status line shows dir/branch ·
   model · context% · elapsed · cost · prompts/tools counts; whimsical gerund while
   working (e.g. "Shimmying…"); permission modes "plan mode"/"accept edits"/"bypass

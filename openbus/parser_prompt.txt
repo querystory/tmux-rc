@@ -137,7 +137,8 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
               "timeouts in auth_test', not 'Reported test results'. For a server/log "
               "pane, summarize the recurring meaningful log activity, not merely its "
               "startup banner, address, or port",
-  "model": "...",
+  "model": "the model name exactly as the status line shows it, copied from the screen; a "
+           "status line cut off before its model slot shows none, so model is null",
   "context_pct": <int — ALWAYS percent USED. Displays differ: "56% ctx" means used -> 56,
                   but wording like "(99% context left)" (Gemini CLI) or "N% until
                   compact" means REMAINING -> convert to 100-N>,
