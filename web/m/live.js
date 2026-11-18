@@ -19,7 +19,7 @@ const TRANSCRIPT_ROWS = 40; // Oldest transcript rows are dropped past this coun
 const FOLLOW_SLACK_PX = 48; // Keep auto-scrolling while the log is within this distance of the bottom.
 const CHAT_MODEL_KEY = "tmuxrc-chat-model"; // Chat's last model, apart from the voice picker's
 // Where sw.js records a notification tap (named when it held only chat taps, which a page
-// still running the old live.js under a new worker reads), where the page marks the last tap it
+// still running the old live.js under a new worker reads), where the page marks each tap it
 // acted on, and how long the page acts on one.
 const TAP_CACHE = "chat-tap", TAP_KEY = "/__tapped-chat", SPENT_KEY = "/__spent-tap", TAP_FRESH_MS = 60000;
 const TAP_READS_MS = [0, 1000, 3000]; // when a page coming back reads it, the worker maybe not yet run
@@ -655,17 +655,17 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
   // since. iOS may show the page before the worker has even run, so each return reads again
   // shortly after.
   // A killed page has no chat left to bring back (it lived in the page): that tap does nothing.
-  // The page never deletes the worker's record, since a newer tap could land between a read
-  // and the delete: spending one keeps its `at` under a key of its own, and a record no newer
-  // than that reads as spent.
+  // The page never deletes or rewrites a shared entry, since another write (the worker's
+  // next tap, another window's spend) could land between its read and its write: spending a
+  // tap adds a key of the tap's own, named by its `at`.
+  const spentKey = (tap) => `${SPENT_KEY}/${tap.at}`;
   const recorded = async (cache) => {
-    const read = async (key) => (await cache.match(key))?.json();
-    const [tap, spent] = await Promise.all([read(TAP_KEY), read(SPENT_KEY)]);
-    return tap && tap.at > (spent || 0) ? tap : undefined;
+    const tap = await (await cache.match(TAP_KEY))?.json();
+    return tap && !(await cache.match(spentKey(tap))) ? tap : undefined;
   };
   const spend = (mine) => caches.open(TAP_CACHE).then(async (cache) => {
     const tap = await recorded(cache);
-    if (tap && mine(tap)) await cache.put(SPENT_KEY, new Response(JSON.stringify(tap.at)));
+    if (tap && mine(tap)) await cache.put(spentKey(tap), new Response(""));
   }).catch(() => {});
   function bringBack(id) {
     const card = run?.proposals.get(id);

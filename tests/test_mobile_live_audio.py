@@ -232,12 +232,12 @@ const caches = {open: async (name) => ({
   match: async (key) => {
     const entry = tapped.get(`${name} ${key}`);
     const json = async () => { const write = midRead; midRead = null; write?.(); return entry; };
-    return entry && {json};
+    return entry === undefined ? undefined : {json};
   },
-  put: async (key, response) => tapped.set(`${name} ${key}`, await response.json())})};
-// Whether the recorded tap is still unspent (live.js marks the last one it acted on).
+  put: async (key, response) => tapped.set(`${name} ${key}`, await response.text())})};
+// Whether the recorded tap is still unspent (live.js marks each one it acted on).
 const unspent = () =>
-  +((tapped.get('chat-tap /__tapped-chat')?.at ?? 0) > (tapped.get('chat-tap /__spent-tap') ?? 0));
+  +!tapped.has(`chat-tap /__spent-tap/${tapped.get('chat-tap /__tapped-chat')?.at}`);
 const sandbox = {document, window, navigator, caches, Response, AudioContext: Context,
   WebSocket: Socket, appendChatMarkdown, renderChatText, since, paneName, sessionOf,
   AudioWorkletNode: class { constructor() {this.port = {};} connect() {} disconnect() {} },
