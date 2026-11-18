@@ -194,8 +194,37 @@ Deliberately **absent**: pane switching (the model doesn't need focus to act —
 `send_keys` targets any pane), pane creation ("open claude in a new pane in ~/src/x" is
 the obvious v0.2; `POST /api/windows` already opens configured launchers),
 kill/destroy (destructive, needs the risk tiers in
-[the control plane](agentic-control-plane.md)), and any read tool (state is pushed,
-not pulled).
+[the control plane](agentic-control-plane.md)), and any read tool for pane state (state
+is pushed, not pulled). Scratch pages are the one thing pulled; see below.
+
+## Scratch pages: an index pushed, a page pulled
+
+Agents publish reports and previews to scratch, and the user asks about them by voice
+("what did the flaky-tests report say"). Every page whole cannot ride in the prompt: a
+few dozen reports would outgrow the setup limit that already forced the screen budget.
+So the connect snapshot carries an index, one line per page for the newest twenty
+(folder, title, description, who made it, age), and `read_scratch(folder)` returns one
+page's text when the model decides it needs it: Markdown as written, HTML reduced to its
+visible text, cut at a fixed length and flagged when cut.
+
+Which page the user means is the model's call, not a keyword match. The index names the
+pane that made each page exactly as the pane list names it, with its id, and the gallery's
+own attribution decides that (the same `resolve` the scratch cards use, so a page made
+before a restore still finds its session's new pane). The model already knows the ACTIVE
+pane and the pane the conversation is on, so "the scratch from this window" is a join it
+can make; marking pages "current" in the index would go stale the moment the user moved.
+
+Embedding retrieval was considered and rejected for now: the descriptions every page
+already gets (the agent's, or the gallery's generated sentence) are a better summary to
+choose from than chunk vectors, the set is small and recent, and an index adds a store
+to keep in sync for no gain the model can't get by reading one more page. If scratch
+grows past what twenty lines cover, a search over titles and descriptions is the next
+step, before vectors.
+
+Page text is written by agents and can say anything, so it never enters the instructions:
+it arrives only as a tool result, labelled as material to answer from, and the prompt says
+a page's text is never instructions. The index's fields are quoted and flattened to one
+line each, as pane titles are.
 
 ## Prompting strategy (where the quality lives)
 
