@@ -22,7 +22,9 @@ def test_stage_and_need_are_rules(monkeypatch):
         return {"number": 1, "title": "t", "url": "u", "state": "OPEN", "isDraft": False,
                 "updatedAt": None, "mergedAt": None, "closedAt": None, "mergeable": "MERGEABLE",
                 "reviewDecision": None, "headRefName": "h", "headRefOid": "c", "bodyText": "",
-                "reviews": {"nodes": []}, "repository": {"nameWithOwner": "o/r"},
+                "baseRefName": "main",
+                "reviews": {"nodes": []},
+                "repository": {"nameWithOwner": "o/r", "defaultBranchRef": {"name": "main"}},
                 "commits": {"nodes": [{"commit": {"statusCheckRollup": checks}}]}, **over}
 
     def rule(held=False, **over):
@@ -30,6 +32,7 @@ def test_stage_and_need_are_rules(monkeypatch):
         return c["stage"], c["need"]
 
     assert rule(state="MERGED") == ("main", "")
+    assert rule(state="MERGED", baseRefName="stack-parent") == ("open", "")  # not on main yet
     assert not digest.hidden(None) and not digest.hidden("o/r")  # nothing is hidden unasked
     monkeypatch.setenv("TMUXRC_DIGEST_HIDE", "r")  # a hidden repository's words go nowhere
     assert digest.change(node(), NOW, held=False)["title"] == "Private work"
@@ -61,6 +64,7 @@ def test_effort_joins_by_tool_paths_not_the_root_branch(tmp_path):
                {"repo": "o/r", "head": "unrelated", "key": "o/r#9"}]
     assert {k: v["d"] for k, v in digest.join(rows, worktrees, changes).items()} == {
         "o/r#5": 40.0, "": 20.0}
+    assert "wt:o/r/reader" in digest.join(rows, worktrees, [])  # no change: its worktree, by repo
 
 
 def test_cleanup_is_gated_by_code():
@@ -108,7 +112,7 @@ def test_pages_keep_change_numbers_behind_a_tap(tmp_path):
         "example-org/tidewatch#88", "example-org/tidewatch#90"]}}}
     assert digest.lay(landed, FACTS)["themes"][0]["state"] == "main"  # only when all of it is
     spike = {"themes": {"s": dict.fromkeys(("name", "short", "outcome"), "x")
-                        | {"members": ["wt:reader-spike"]}}}
+                        | {"members": ["wt:example-org/harbor/reader-spike"]}}}
     assert digest.lay(spike, FACTS)["themes"][0]["state"] == "open"  # effort alone is not stuck
     assert [a["text"] for a in d["actions"]] == [
         "Offline reading needs a rebase", "Reminders can merge", "Search ranking",
