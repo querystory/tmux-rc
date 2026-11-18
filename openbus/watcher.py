@@ -63,7 +63,7 @@ CHECKPOINT_EVENTS = 100
 DEAD_SERVER_RETENTION = 30 * 86400
 # Bump when classification or the fingerprint changes meaning: stored cards then miss
 # their hash once and every pane is re-read, instead of restoring an older parser's card.
-CARD_VERSION = 87
+CARD_VERSION = 96
 # LLM parse cadence. We capture every tick (cheap, for the snapshot buffer) but only
 # PARSE when the content fingerprint CHANGED vs. the last parse (or on a forced reparse).
 # `changed` compares against _prev_fp, which is written only on a SUCCESSFUL parse — so a
@@ -1717,9 +1717,6 @@ class Watcher:
             if (turn_live and state.get("tool") == "codex" and not state.get("question")
                     and state.get("activity") in ("idle", "unknown", None)):
                 state["activity"] = "running"
-            if (turn_live is False and state.get("tool") in ("claude", "codex")
-                    and state.get("activity") == "running"):
-                state["activity"] = "idle"  # and a closed one is not, on the kept card too
         state.pop("parse_ok", None)
         state["prs"] = list(self._prs.get(pane.id, []))
 
