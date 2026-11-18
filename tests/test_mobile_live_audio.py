@@ -581,6 +581,12 @@ def test_tapped_push_address_opens_once_from_the_message_or_the_record():
   record({open: newer, at: at + 2});
   document.hidden = true; await reads(); document.hidden = false;
   assert.deepEqual(links, [url, url, newer]); assert.equal(tapped.size, 1);
+  // Spending an older tap leaves a newer record the worker wrote meanwhile.
+  tell({open: url, at: at + 3}); record({open: newer, at: at + 4}); await flush();
+  assert.equal(tapped.size, 1); await reads();
+  assert.deepEqual(links, [url, url, newer, url, newer]);
+  tell({open: url}); // the previous worker's message: no `at`, opened as it always was
+  assert.deepEqual(links, [url, url, newer, url, newer, url]);
 })().catch((error) => {console.error(error); process.exitCode = 1;});
 """, {"version": "v", "live_enabled": True, "live_models": [{"label": "Sonnet", "text": True}]})
 

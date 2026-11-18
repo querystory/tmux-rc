@@ -654,20 +654,26 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
   // since. iOS may show the page before the worker has even run, so each return reads again
   // shortly after.
   // A killed page has no chat left to bring back (it lived in the page): that tap does nothing.
-  const taps = async () => caches.open(TAP_CACHE);
-  const spend = () => taps().then((cache) => cache.delete(TAP_KEY)).catch(() => {});
+  // Spent only while the record is still this tap's: a newer one the worker wrote meanwhile stays.
+  const recorded = async (cache) => (await cache.match(TAP_KEY))?.json();
+  const spend = (mine) => caches.open(TAP_CACHE).then(async (cache) => {
+    if (mine((await recorded(cache)) || {})) await cache.delete(TAP_KEY);
+  }).catch(() => {});
   function bringBack(id) {
     const card = run?.proposals.get(id);
     if (!card) return false;
     show(); card.actions.scrollIntoView?.({ block: "nearest" });
-    spend();
+    spend((tap) => tap.chat === id);
     return true;
   }
   let followed = 0;
-  const follow = ({ open, at }) => { if (at > followed) { followed = at; spend(); onLink(open); } };
+  const follow = ({ open, at }) => {
+    if (at === undefined) onLink(open); // the previous worker's message, which records no address
+    else if (at > followed) { followed = at; spend((tap) => tap.at === at); onLink(open); }
+  };
   async function pullTap() {
     try {
-      const tap = await (await (await taps()).match(TAP_KEY))?.json();
+      const tap = await recorded(await caches.open(TAP_CACHE));
       if (!tap || Date.now() - tap.at >= TAP_FRESH_MS) return;
       if (tap.chat) bringBack(tap.chat); else if (tap.open && !document.hidden) follow(tap);
     } catch { /* no Cache Storage (an insecure context): the message is the only path */ }
