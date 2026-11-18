@@ -2021,16 +2021,19 @@ function badgeOf(pane) {
 function hold(id, pending) {
   const generation = () => panes.find((p) => p.pane_id === id)?.input_generation;
   pending.note = "Sending…"; pendingAnswers.set(id, pending); render();
-  const unread = generation();
   return (sent) => {
     if (pendingAnswers.get(id) !== pending || sent && pending.sent) return; // moved on, or said already
     if (!sent) { pendingAnswers.delete(id); render(); return; }
     pending.sent = true; pending.note = "Sent, waiting for the agent"; render();
-    const expire = (waited) => setTimeout(() => {
+    // Read at delivery, not the tap: a cursor walk's moves are parsed before its select lands.
+    // A wall-clock deadline, so a page woken from suspension lets go at once.
+    const unread = generation(), until = Date.now() + ANSWER_GIVE_UP_MS;
+    const expire = (ms) => setTimeout(() => {
       if (pendingAnswers.get(id) !== pending) return;
-      if (generation() === unread && waited < ANSWER_GIVE_UP_MS) { expire(waited + ANSWER_PENDING_MS); return; }
+      const left = until - Date.now();
+      if (generation() === unread && left > 0) { expire(Math.min(ANSWER_PENDING_MS, left)); return; }
       pendingAnswers.delete(id); render();
-    }, ANSWER_PENDING_MS);
+    }, ms);
     expire(ANSWER_PENDING_MS);
   };
 }
