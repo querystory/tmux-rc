@@ -1299,7 +1299,7 @@ def _picker_after(pane_id: str, body: SendBody) -> dict:
             app.state.watcher.drop_question(pane_id, body.prompt)
     result = {"picker": read and read.digest, "row": read and read.row}
     if read and read.position:
-        result.update(layout=read.position.layout, selected=read.position.selected)
+        result.update(layout=read.position.layout, line=read.position.line)
     return result
 
 

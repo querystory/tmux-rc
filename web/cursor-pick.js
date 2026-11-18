@@ -175,9 +175,12 @@ function rowIndex(options, label) {
 // walk waits for the parse instead.
 function after(q, sent) {
   if (!sent?.picker) return null;
-  const at = q.picker_layout
-    ? sent.layout === q.picker_layout ? sent.selected : null
-    : sent.picker === q.picker ? q.selected : rowIndex(q.options, sent.row);
+  if (q.picker_layout) {
+    if (sent.layout !== q.picker_layout || !Number.isInteger(sent.line)) return null;
+    return { ...q, picker: sent.picker, picker_line: sent.line,
+      selected: q.selected + (sent.line - q.picker_line) };
+  }
+  const at = sent.picker === q.picker ? q.selected : rowIndex(q.options, sent.row);
   return at === null ? null : { ...q, picker: sent.picker, selected: at };
 }
 

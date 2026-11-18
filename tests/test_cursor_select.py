@@ -367,33 +367,42 @@ def test_a_walk_down_a_counted_picker_is_sent(monkeypatch):
 
 
 
-def test_compact_resume_readback_distinguishes_duplicate_titles(monkeypatch):
+@pytest.mark.parametrize("alternate_layout", [False, True])
+def test_quoted_rows_distinguish_duplicate_titles(monkeypatch, alternate_layout):
     sample = Path(__file__).resolve().parents[1] / (
         "research/eval/samples/235_codex_resume_duplicate_titles.json"
     )
     second = json.loads(sample.read_text())["capture"]
     first = second.replace("  › 2d", "    2d").replace("    2d", "  › 2d", 1)
+    if alternate_layout:
+        first = first.replace("  › ", "  > ").replace("ago      ●", "ago  | saved |")
+        second = second.replace("  › ", "  > ").replace("ago      ●", "ago  | saved |")
     options = ["Sort garden seeds", "Sort garden seeds", "Repair the greenhouse"]
 
-    def question(screen, rows):
-        return classify(CODEX_PANE, screen, lambda *_: {"tool": "codex", "question": {
-            "prompt": "Resume a previous session", "answer_style": "cursor",
-            "options": rows, "selected": 0,
-        }})["question"]
+    def question(screen, rows, selected, quotes=None):
+        if quotes is None:
+            quotes = [line.strip() for line in screen.splitlines() if "ago" in line]
+        read = {"tool": "codex", "question": {"prompt": "Resume a previous session",
+                "answer_style": "cursor", "options": options, "selected": 0}}
+        reread = {"options": rows, "selected": selected, "rows": quotes}
+        calls = iter((read, reread))
+        return classify(CODEX_PANE, screen, lambda *_: next(calls))["question"]
 
-    before = question(first, options)
-    after = question(second, options)
+    before = question(first, options, 0)
+    after = question(second, options, 1)
     assert (before["selected"], after["selected"]) == (0, 1)
     assert before["picker"] != after["picker"]
     assert before["picker_layout"] == after["picker_layout"]
-    assert "picker" not in question(second, options[1:])  # the model omitted a row
-    assert "picker" not in question(second, options[::-1])  # the model reordered rows
+    assert "picker" not in question(second, options[1:], 0)  # the model omitted a row
+    assert "picker" not in question(second, options[::-1], 1)  # the model reordered labels
+    assert "picker" not in question(second, options, 0)  # the model miscounted the cursor
+    assert "picker" not in question(second, options, 1, ["fabricated"] * 3)
 
     monkeypatch.setattr(tmux, "capture_pane", lambda *a, **k: second)
     body = server.SendBody(keys="Down", prompt=before["prompt"], picker=before["picker"])
     readback = server._picker_after(CODEX_PANE.id, body)
-    assert (readback["picker"], readback["layout"], readback["selected"]) == (
-        after["picker"], before["picker_layout"], 1,
+    assert (readback["picker"], readback["layout"], readback["line"]) == (
+        after["picker"], before["picker_layout"], before["picker_line"] + 1,
     )
 
 MENU = """

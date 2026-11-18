@@ -162,7 +162,7 @@ def _tabbed_panel_open(visible: str) -> bool:
 # ahead of a value column ("Auto-compact      true"). Only a row that opens with a frame
 # loses one closing bar: a label's own bar is content.
 _HIGHLIGHT_RE = re.compile(
-    rf"^[ \t]*(?P<frame>│)?[ \t│]*[{PROMPT_GLYPHS}>][ \t]*(?:[○●◉◯✔✓✘][ \t]*)?"
+    rf"^[ \t]*(?P<frame>│)?[ \t│]*(?P<cursor>[{PROMPT_GLYPHS}>])[ \t]*(?:[○●◉◯✔✓✘][ \t]*)?"
     r"(?P<digit>\d+[.)][ \t]+)?(?P<label>.*?)(?(frame)[ \t]*[│┃╎])[ \t]*$", re.MULTILINE)
 # A picker heading's live count ("Resume session (1 of 47)"): it redraws with every move
 # and filter while the picker stays the same, so it is never part of the prompt.
@@ -221,8 +221,8 @@ def _drawn_row(visible: str, live: tuple[re.Match, int]) -> re.Match | None:
 
 class PickerPosition(NamedTuple):
     layout: str
-    selected: int
-    options: list[str]
+    line: int
+    body: list[str]
 
 
 class PickerRead(NamedTuple):
@@ -231,38 +231,22 @@ class PickerRead(NamedTuple):
     position: PickerPosition | None
 
 
-def _compact_picker_position(widget: str, highlight: int) -> PickerPosition | None:
-    """Ground Codex's compact table by its cursor gutter and aligned status column.
-
-    Its title follows metadata such as a relative time and a status dot. Match the
-    uninterrupted block containing the cursor and include the rest of the screen in
-    the layout hash, so a filter, scroll or replacement invalidates a positional tap.
-    """
-    lines = widget.split("\n")
-    selected = widget.count("\n", 0, highlight)
-    current = lines[selected]
-    column = current.find(" ● ", 4)
-    if not current.startswith("  › ") or column < 5:
-        return None
-
-    def title(line: str) -> str:
-        if (line.startswith(("  › ", "    ")) and line[column:column + 3] == " ● "
-                and line[4:column].strip()):
-            return line[column + 3:].strip()
-        return ""
-
-    if not title(current):
-        return None
-    first, end = selected, selected + 1
-    while first > 0 and title(lines[first - 1]):
-        first -= 1
-    while end < len(lines) and title(lines[end]):
-        end += 1
-    if sum(line.startswith("  › ") for line in lines[first:end]) != 1:
-        return None
-    lines[selected] = "    " + current[4:]
-    layout = hashlib.sha256("\n".join(lines).encode()).hexdigest()
-    return PickerPosition(layout, selected - first, [title(line) for line in lines[first:end]])
+def _quoted_picker_rows(read: PickerRead, options: object, rows: object, selected: object) -> bool:
+    """Check the model's option-to-screen mapping against the actual cursor line."""
+    position = read.position
+    if (position is None or not isinstance(options, list) or not isinstance(rows, list)
+            or len(rows) != len(options)
+            or type(selected) is not int or not 0 <= selected < len(rows)
+            or not all(isinstance(item, str) and item.strip() for item in (*options, *rows))):
+        return False
+    first = position.line - selected
+    if first < 0:
+        return False
+    quotes = [" ".join(row.split()) for row in rows]
+    seen = position.body[first:first + len(rows)]
+    labels = [" ".join(option.split()) for option in options]
+    return ([" ".join(line.split()) for line in seen] == quotes
+            and all(label in quote for label, quote in zip(labels, quotes, strict=True)))
 
 
 def picker_read(text: str, prompt: str) -> PickerRead | None:
@@ -280,7 +264,14 @@ def picker_read(text: str, prompt: str) -> PickerRead | None:
                                   _DIALOG_TOP_RE.finditer(visible, 0, live[0].start()))]
     row = _drawn_row(visible, live)
     widget = visible[top:]
-    position = _compact_picker_position(widget, row.start() - top) if row else None
+    position = None
+    if row:
+        cursor = row.start("cursor") - top
+        layout = widget[:cursor] + " " + widget[cursor + 1:]
+        body_start = live[0].end()
+        line = visible.count("\n", body_start, row.start())
+        position = PickerPosition(hashlib.sha256(layout.encode()).hexdigest(),
+                                  line, visible[body_start:live[1]].split("\n"))
     return PickerRead(hashlib.sha256(widget.encode()).hexdigest(), row and row["label"], position)
 
 
@@ -1727,14 +1718,21 @@ def classify(
         # to the digest, so no walk is held to a screen that hashes alike whichever row it is.
         question.pop("picker", None)
         question.pop("picker_layout", None)
+        question.pop("picker_line", None)
         if asked and isinstance(rows, list) and (read := picker_read(text, asked)):
-            if read.position:
-                # Positional taps require the card to mirror the visible rows, duplicates included.
-                if rows == read.position.options:
-                    question.update(selected=read.position.selected, picker=read.digest,
-                                    picker_layout=read.position.layout)
-            elif row := highlighted_row(visible, asked, rows):
+            row = highlighted_row(visible, asked, rows)
+            if row and all(rows.count(option) == 1 for option in rows):
                 question.update(selected=rows.index(row), picker=read.digest)
+            elif read.position is not None and llm_fn:
+                body = "\n".join(read.position.body).rstrip()
+                # Let the model resolve repeated labels and metadata columns from this widget.
+                answer = llm_fn(_load_prompt("parser_cursor.txt"), f"{asked}\n{body}")
+                if isinstance(answer, dict):
+                    options, selected = answer.get("options"), answer.get("selected")
+                    if _quoted_picker_rows(read, options, answer.get("rows"), selected):
+                        question.update(options=options, selected=selected, picker=read.digest,
+                                        picker_layout=read.position.layout,
+                                        picker_line=read.position.line)
     if isinstance(question, dict):
         # The widget's rows and their restatement are read here, never passed through.
         for key in ("context", "ask"):

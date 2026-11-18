@@ -112,21 +112,21 @@ CASES = [
         {"sent": ["Down"] * 13 + ["Enter"], "selected": 13, "notes": []},
     ),
     (
-        "compact picker readback walks to the second of two equally titled rows",
+        "quoted picker readback walks to the second of two equally titled rows",
         {"options": ["Sort garden seeds"] * 2, "selected": 0, "keymap": FULL_KM,
          "reads": True, "layout": "unchanged"},
         "Sort garden seeds", 1,
         {"sent": ["Down", "Enter"], "selected": 1, "notes": []},
     ),
     (
-        "compact picker cancels if a redraw changes the layout during the move",
+        "quoted picker cancels if a redraw changes the layout during the move",
         {"options": ["Sort garden seeds"] * 2, "selected": 0, "keymap": FULL_KM,
          "reads": True, "layout": "unchanged", "new_layout": "changed"},
         "Sort garden seeds", 1,
         {"sent": ["Down"], "selected": 1, "notes": 1},
     ),
     (
-        "compact picker cancels if the move skips a row",
+        "quoted picker cancels if the move skips a row",
         {"options": ["Sort garden seeds"] * 3, "selected": 0, "keymap": FULL_KM,
          "reads": True, "layout": "unchanged", "stride": 2},
         "Sort garden seeds", 2,
@@ -452,6 +452,7 @@ function fake(spec) {{
         answer_style: p.style, selected: p.selected, keymap: p.keymap,
         picker: spec.dead_select && "same",
         picker_layout: spec.layout,
+        picker_line: 6 + spec.selected,
         prompt: spec.reask_after !== undefined && p.sends >= spec.reask_after ? "B?" : "A?",
         options: spec.no_options ? undefined : p.options,
       }}
@@ -482,7 +483,7 @@ function fake(spec) {{
       if (k === km.select && !spec.hold_open) p.open = false;
       const row = (spec.drawn || p.options)[p.selected]; // as drawn: a stepper's ‹ › too
       return spec.reads ? {{
-        picker: `f${{p.sends}}`, row, layout: spec.new_layout ?? spec.layout, selected: p.selected,
+        picker: `f${{p.sends}}`, row, layout: spec.new_layout ?? spec.layout, line: 6 + p.selected,
       }} : true;
     }},
     sendText: async (t) => {{
