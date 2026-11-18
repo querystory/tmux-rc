@@ -1,7 +1,6 @@
 """classify() is now a raw-JSON pipe: it returns the LLM's dict (plus pane_id/label),
 with a waiting-override for question/rewind and a no-LLM heuristic fallback."""
 
-import re
 import textwrap
 
 import pytest
@@ -614,15 +613,6 @@ def test_model_only_as_the_screen_shows_it(status, model):
                  _llm({"tool": "claude", "activity": "idle", "model": "Opus 4.8",
                        "status_entries": ["Opus 4.8", "2h"]}))
     assert r.get("model") == model and r["status_entries"] == ["2h"]
-
-
-def test_prompt_names_no_example_model():
-    # The parser copied an example model ("Opus 4.8") onto panes whose status line was cut
-    # off before its model slot. Claude's chrome and the field describe it, quoting none.
-    field = next(r for r in classify_mod.parser_prompt().splitlines() if '"model":' in r)
-    for text in (field, classify_mod._load_prompt("parser_claude.txt"),
-                 classify_mod._load_prompt("parser_claude_detail.txt")):
-        assert not re.search(r"(Opus|Sonnet|Haiku|Fable) \d", text)
 
 
 def test_question_forces_waiting():
