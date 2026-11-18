@@ -23,7 +23,6 @@ from functools import partial
 from . import fit, tmux, transcript, workers
 from .classify import (
     _OMP_CTX_RE,
-    _OPENCODE_RUNNING_RE,
     bootstrap,
     classify,
     prompt_gone,
@@ -64,7 +63,7 @@ CHECKPOINT_EVENTS = 100
 DEAD_SERVER_RETENTION = 30 * 86400
 # Bump when classification or the fingerprint changes meaning: stored cards then miss
 # their hash once and every pane is re-read, instead of restoring an older parser's card.
-CARD_VERSION = 62
+CARD_VERSION = 96
 # LLM parse cadence. We capture every tick (cheap, for the snapshot buffer) but only
 # PARSE when the content fingerprint CHANGED vs. the last parse (or on a forced reparse).
 # `changed` compares against _prev_fp, which is written only on a SUCCESSFUL parse — so a
@@ -155,7 +154,7 @@ _VOLATILE_RE = re.compile(
     rf"|(?<= > )S[\d.]+(?={_OMP_ROW})|(?<=\d )\(\+\d+\.\d+\)(?={_OMP_ROW})|{_OMP_BAR}[─╎┃\d.KM]*"
     r"|· \d+ 🛠 · \d+ req · [\d.]+%/[\d.]+[KM]"
     rf"|^ ?\S(?= [\dhms ]+ > {_OMP_ROW})"
-    r"|[⏳✳✻✶✷✽❋⣾⣽⣻⢿⡿⣟⣯⣷◐◓◑◒]"  # spinner glyphs
+    r"|[⏳✳✻✶✷✽❋⣾⣽⣻⢿⡿⣟⣯⣷◐◓◑◒▰▱■⬝]"  # spinner glyphs (OpenCode's blocks too)
     # (Codex's moving "sparkle" animation needs more than deletion — see _SPARKLE_RE.)
     # trailing whitespace, outside the group so one run has one quantifier, and only from
     # the run's start: a padded row's every space would otherwise rescan it to the end
@@ -209,9 +208,6 @@ def _fingerprint(text: str) -> str:
     collapsing spacing globally would erase the indentation that distinguishes one
     screen from another (a diff, a tree, nested output)."""
     text = text.rsplit(tmux.VISIBLE_SCREEN, 1)[-1]
-    # Share the exact line matcher with classify(): anything decisive enough to force
-    # running is normalized here, and nothing else can accidentally become invisible.
-    text = _OPENCODE_RUNNING_RE.sub("[opencode-active]", text)
     text = _VOLATILE_RE.sub("", text)
     lines = text.split("\n")
     anchors = [i for i, ln in enumerate(lines) if _CODEX_INPUT_RE.match(ln)]
@@ -1197,7 +1193,8 @@ class Watcher:
         must, yet output still streaming above the menu must not make it look stale."""
         rows = question_rows(question, text) if isinstance(question, dict) else ""
         return hashlib.sha256(
-            f"{CARD_VERSION}:{self.use_llm}\n{rows or _fingerprint(text)}".encode()).hexdigest()
+            f"{CARD_VERSION}:{self.use_llm}\n{rows or _fingerprint(text)}"
+            .encode()).hexdigest()
 
     def pane_input_generation(self, pane_id: str) -> int:
         """Monotonic token changed immediately after accepted pane input."""
@@ -1487,7 +1484,7 @@ class Watcher:
             self._parse_fails.pop(pane.id, None)  # the retry budget is per SCREEN
         # The agent's transcript can land after its screen settles; a reply or turn end
         # the last parse didn't have re-reads the card even though the screen is unchanged.
-        told = transcript.last_reply(pane, text), transcript.codex_turn_live(pane, text)
+        told = transcript.last_reply(pane, text), transcript.turn_live(pane, text)
         said = transcript.turn(pane, text)  # before the parse: what it reads, not after
         changed = not hold and (fp != self._prev_fp.get(pane.id)  # differs from the last parse
                                 # A restored card has no parsed reply: the first seen stands
@@ -1762,6 +1759,9 @@ class Watcher:
             if (turn_live and state.get("tool") == "codex" and not state.get("question")
                     and state.get("activity") in ("idle", "unknown", None)):
                 state["activity"] = "running"
+            if (turn_live is False and state.get("tool") in ("claude", "codex")
+                    and state.get("activity") == "running"):
+                state["activity"] = "idle"  # and a closed one is not, on the kept card too
         state.pop("parse_ok", None)
         state["prs"] = list(self._prs.get(pane.id, []))
 

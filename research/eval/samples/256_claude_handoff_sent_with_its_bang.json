@@ -1,0 +1,17 @@
+{
+  "description": "Synthetic: a finished auto-mode turn hands the user a command to run in this session with the ! prefix, alone on its row. The Send it text is the command with its \"! \" so it runs in bash mode here rather than being said to the agent.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ clear the stale cache and rebuild\n\n● The cache directory is outside the project, so my sandbox can't remove it. Run this here:\n\n  ! rm -rf ~/.cache/acme-build\n\n  Once it's gone I'll rebuild from scratch.\n\n✻ Worked for 12s · done 4:05 PM\n──────────────────────────────────────────────────────────────────────────────── demo ─\n❯\n────────────────────────────────────────────────────────────────────────────────────────────────\n  ~/src/acme/tools on main | Opus 5.5 | user@example.com\n  session: +4/-2 lines · 9% ctx · 22m · $0.40\n  ⏵⏵ auto mode on · ← for agents",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "text"
+    },
+    "headline": "User must clear the build cache",
+    "offers": [
+      "! rm -rf ~/.cache/acme-build"
+    ]
+  }
+}

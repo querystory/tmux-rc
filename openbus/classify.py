@@ -899,6 +899,11 @@ _LINK_TARGET_RE = re.compile(
     r"\[((?:[^][\n]|\[[^][\n]*\])*)\]\((?:[^()\s]|\([^()\s]*\))*\)")
 
 
+def _one_line(text: str) -> str:
+    """Rows as one line: each row's own spacing kept ('a  b' is a command's), a break a space."""
+    return " ".join(row.strip() for row in text.splitlines() if row.strip())
+
+
 def _final_paragraph(message: str) -> str:
     """The message's last paragraph as one line: terminal wrapping splits a long question
     across rows. Reading back from the end it stops at a blank row, and at a list item (kept
@@ -916,7 +921,7 @@ def _final_paragraph(message: str) -> str:
                 rows.append(row)  # the item itself, or the one the wrapped rows continue
             break
         rows.append(row)
-    return " ".join(r.strip() for r in reversed(rows))
+    return _one_line("\n".join(reversed(rows)))
 
 
 def _final_message(visible: str, tool: str) -> str | None:
@@ -991,33 +996,18 @@ def _invited(reply: str, view: str) -> bool:
     return False
 
 
-def screen_offers(offers: object, text: str, copied: object = ()) -> list[str]:
+def screen_offers(offers: object, text: str) -> list[str]:
     """The model's offers that hold up on `text`, three at most: each is on the screen
     (_quoted), and a `! command` is one bash reads whole and that does not end in a line
     continuation (which bash -n accepts). Classify's gate, and the watcher's on a screen it
-    does not reparse (its fingerprint ignores a duration). An offer is sent as one line, so
-    a row break the model copied from a wrap is a space. A command the screen hands over
-    as `! command` in the final message, alone on its rows and nowhere else on screen, keeps
-    that `! ` even where the model's copy dropped it: it is what makes Send it run the
-    command rather than say it to the agent. Any other sighting (an older turn, a reply to
-    type) leaves it as is. A reply ("delete it" for "I'd delete this job, unless you want to
-    keep it") is the user's words, so it is on the screen word by word rather than whole.
-    Text the model `copied` (its copyables, on one line) that is such a handed-over command
-    is offered too, as the model sometimes keeps it a copyable only."""
+    does not reparse (its fingerprint ignores a duration). What to send, "! " included, is
+    the model's call (_fold_sends). An offer is sent as one line, so a row break the model
+    copied from a wrap is a space. A reply ("delete it" for "I'd delete this job, unless you
+    want to keep it") is the user's words, so it is on the screen word by word rather than
+    whole."""
     listed = offers if isinstance(offers, list) else ()
     visible = _ask_view(text)
-    # The final assistant message (from its bullet, or the top when the view begins inside
-    # it), above any unsent draft; none once the user typed after it.
-    above = _below_turn(visible, 0)
-    reply = above[max(0, ("\n" + above).rfind("\n● ")):]
-    turn = "" if _USER_ROW_RE.search(reply) else reply
-    handed = lambda o: _quoted(o, turn, rows=True) and _quoted(o[2:], visible) == 1  # noqa: E731
-    flat = lambda texts: (re.sub(r"[ \t]*\n[ \t]*", " ", o.strip())  # noqa: E731
-                          for o in texts if isinstance(o, str))
-    whole = [f"! {o}" if not o.startswith("!") and handed(f"! {o}") else o for o in flat(listed)]
-    # A copyable keeps its real newlines (the model joins wraps), so one with rows is no line.
-    whole += [o for o in (o if o.startswith("! ") else f"! {o}" for o in flat(
-        c for c in copied if isinstance(c, str) and "\n" not in c.strip())) if handed(o)]
+    whole = [_one_line(o) for o in listed if isinstance(o, str)]
     # A reply is the user's own words for the final message's ask ("merge PR #5144" for
     # "Approvals to merge PR #5385 and PR #5144"), read off one paragraph (_invited). A
     # `! command` the agent wrote without its "!" is on the screen as the command alone.
@@ -1059,14 +1049,12 @@ def _final_ask(visible: str, tool: str, message: str, offers: list[str], waiting
                           if offered and re.search(offered, p)), None)
         if paragraph is None:
             # A `! command` row hands over its whole paragraph (a narrow pane wraps the
-            # command over several rows) with the one leading into it, each row's own
-            # spacing kept ('a  b' is the command's).
+            # command over several rows) with the one leading into it.
             handoff = next((i for i in reversed(range(len(blocks)))
                             if _BASH_ROW_RE.search(blocks[i])), None)
             if handoff is None:  # the closing paragraph the model read as waiting on the user
                 return {"prompt": closing, "answer_style": "text"} if waiting else None
-            paragraph = " ".join(row.strip() for block in blocks[max(handoff - 1, 0):handoff + 1]
-                                 for row in block.splitlines() if row.strip())
+            paragraph = _one_line("\n".join(blocks[max(handoff - 1, 0):handoff + 1]))
     # Not a question: no reply buttons, since "Yes, proceed" typed back runs nothing.
     return {"prompt": paragraph, "answer_style": "text", "options": []}
 
@@ -1611,15 +1599,7 @@ def classify(
     over = spent or blocked
     # Claude's final message is read on the ask view: a long one begins above the viewport.
     final = not over and tool in _TURN_ERROR_RE and _final_message(view, tool)
-    # Only Claude Code's finished turn hands a command over as `! command`; a "!" row in a
-    # running turn's tool output or another program is bash's own. In auto mode, where the
-    # agent stops only when it needs the user, its handoff row is the turn's ask (_final_ask);
-    # elsewhere the row may just show code, so the model's own offer is needed.
-    cps = result.get("copyables")
-    copied = [c.get("text") for c in cps if isinstance(c, dict)] if (
-        isinstance(cps, list) and tool == "claude" and final
-        and claude_mode(visible) == "auto mode") else []
-    if (offers := screen_offers(result.pop("offers", None), text, copied)) and not over:
+    if (offers := screen_offers(result.pop("offers", None), text)) and not over:
         result["offers"] = offers = [_from_reply(offer, reply) for offer in offers]
     # The model's own read of this screen (not an activity carried over a failed parse) that
     # the turn waits on the user, where no question of its own survived grounding.
@@ -1866,6 +1846,7 @@ def classify(
 
     # The agent's own code blocks beat the model's re-typing of them (see transcript.py);
     # the model's picks remain for shells and for replies with no code.
+    cps = result.get("copyables")
     good = list(islice(_valid(_code_blocks(reply), transcript=True), 3)) or (
         list(islice(_valid(cps), 3)) if isinstance(cps, list) else [])
     question = result.get("question")

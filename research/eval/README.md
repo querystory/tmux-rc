@@ -226,6 +226,8 @@ actually hit:
 | `137_claude_working_on_usage_limit_handling` | synthetic: a live spinner while editing code that handles "usage limit reached" → running, no reset time |
 | `138_claude_quota_blocked_after_a_closing_question` | synthetic: an auto-mode turn ending "Want me to merge…?", then the limit hit → `quota_blocked`, no question, not Needs you |
 | `156_claude_decision_list_with_defaults_is_one_ask` | synthetic: a finished auto-mode turn sets out seven decisions with proposed defaults → one text user-wait, at most three reply buttons, none a list row |
+| `255_claude_bang_row_showing_code_is_no_offer` | synthetic: a finished auto-mode turn shows a `! grep` guard line as code → no offer, idle |
+| `256_claude_handoff_sent_with_its_bang` | synthetic: a finished auto-mode turn hands over `! rm -rf …` to run here → the offer keeps its `! ` |
 
 Sample 16 originally exposed a table-extraction failure: the prompt said to carry a
 question's supporting list but also to omit tables unless an actual table was shown.
