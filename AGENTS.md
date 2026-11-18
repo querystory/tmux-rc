@@ -184,3 +184,16 @@ fix without a matching eval case is incomplete. Run `python -m research.eval` (a
 must pass); for a prompt edit, A/B it with `python -m research.eval --prompt <candidate>`
 to confirm the fix without regressing other cases. See `research/eval/README.md` for the
 scoring model, adding a sample, and `--model`/`--prompt`.
+
+## Parser
+
+An LLM reads each pane and decides what it means: whether the agent is working or waiting,
+which questions, options and offers it shows, and the headline. Keep every such judgement
+with the model. A regex on terminal wording (spinners, banners, "finished" lines, prompts)
+breaks silently the day Claude Code or Codex rephrase their UI, and code that reclassifies
+the model's answer fights it with a rule that cannot tell asking from mentioning. When the
+parser gets a pane wrong, fix `openbus/parser_prompt.txt` with the smallest change that
+says what the model should do, and prove it on three runs of the full eval. Code is limited
+to plumbing (capture, ANSI, process detection) and evidence gates that check what the
+model names is really on screen. `tests/test_regex_ratchet.py` holds the regex count in
+`openbus/` to a baseline that only goes down; raising it is a diff a reviewer must accept.
