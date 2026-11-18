@@ -98,7 +98,7 @@ def _sync(name: str, out: Path | None) -> None:
 
 
 def _indexed(card: dict | None) -> bool:
-    return bool(card) and card["href"].endswith("/")  # its page is its index
+    return bool(card) and not card["pending"] and card["href"].endswith("/")  # it has one
 
 
 def publish(root: Path, name: str, web: Path) -> str:

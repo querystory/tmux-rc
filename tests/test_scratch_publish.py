@@ -75,6 +75,10 @@ def test_only_a_folder_with_an_index_is_published(root):
     (root / "tea notes/index.md").rename(root / "tea notes/report.md")
     with pytest.raises(SystemExit):  # its URL, the folder's, would open nothing
         P.cli(["publish", "tea notes"], WEB_DIR)
+    (root / "tea notes/report.md").unlink()
+    (root / "tea notes/leaf.txt").unlink()  # its meta.json alone: a page in progress
+    with pytest.raises(SystemExit):
+        P.cli(["publish", "tea notes"], WEB_DIR)
     assert BUCKET == {} and "publish" not in _meta(root)
 
 
