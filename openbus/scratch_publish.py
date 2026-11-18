@@ -23,17 +23,19 @@ _LOCK = threading.Lock()  # one copy at a time: each reads and rewrites the reco
 
 
 class Gcs:
-    """The driver: objects under a gs://bucket/prefix, written through the JSON API as
-    Google's default credentials (the daemon's, for Vertex too)."""
+    """The driver: objects under a gs://bucket/prefix, written through the JSON API as the
+    account in TMUXRC_SCRATCH_PUBLISH_KEY: one of its own, never the Vertex classifier's."""
 
     API = "https://storage.googleapis.com"
 
     def __init__(self, target: str):
         self.bucket, _, self.prefix = target.removeprefix("gs://").strip("/").partition("/")
+        if not (key := os.environ.get("TMUXRC_SCRATCH_PUBLISH_KEY", "").strip()):
+            raise SystemExit("set TMUXRC_SCRATCH_PUBLISH_KEY (the publisher's key file)")
         import google.auth  # noqa: PLC0415 - only a publish pays for it
         from google.auth.transport.requests import AuthorizedSession  # noqa: PLC0415
-        self.http = AuthorizedSession(google.auth.default(
-            scopes=["https://www.googleapis.com/auth/devstorage.read_write"])[0])
+        self.http = AuthorizedSession(google.auth.load_credentials_from_file(
+            key, scopes=["https://www.googleapis.com/auth/devstorage.read_write"])[0])
 
     def _name(self, key: str) -> str:
         return f"{self.prefix}/{key}" if self.prefix else key

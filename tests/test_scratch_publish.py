@@ -113,8 +113,13 @@ def test_the_gcs_driver_writes_and_deletes_by_name_and_never_lists(tmp_path, mon
             calls.append(("DELETE", url))
             return Response(404)  # already gone is fine
 
-    monkeypatch.setattr(google.auth, "default", lambda scopes: ("adc", "proj"))
+    monkeypatch.setattr(google.auth, "load_credentials_from_file",
+                        lambda key, scopes: ("adc", "proj") if key == "pub.json" else None)
     monkeypatch.setattr(google.auth.transport.requests, "AuthorizedSession", Session)
+    monkeypatch.delenv("TMUXRC_SCRATCH_PUBLISH_KEY", raising=False)
+    with pytest.raises(SystemExit, match="TMUXRC_SCRATCH_PUBLISH_KEY"):  # never the Vertex key
+        P.Gcs("gs://bkt/people/ada")
+    monkeypatch.setenv("TMUXRC_SCRATCH_PUBLISH_KEY", "pub.json")
     (tmp_path / "a.html").write_text("<p>hi")
     gcs = P.Gcs("gs://bkt/people/ada")
     gcs.put("tea/a.html", tmp_path / "a.html")
