@@ -438,7 +438,9 @@ def _tokens_cost(resp) -> tuple[int, int, int, float]:
     u = getattr(resp, "usage_metadata", None)
     in_tok = getattr(u, "prompt_token_count", 0) or 0
     cached = getattr(u, "cached_content_token_count", 0) or 0
-    out_tok = getattr(u, "candidates_token_count", 0) or 0
+    # Thinking is billed as output, and a thinking model spends most of its output there.
+    out_tok = (getattr(u, "candidates_token_count", 0) or 0) + (
+        getattr(u, "thoughts_token_count", 0) or 0)
     cost = ((in_tok - cached) + cached * 0.1) / 1e6 * _IN_PER_M + out_tok / 1e6 * _OUT_PER_M
     return in_tok, cached, out_tok, cost
 

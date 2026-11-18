@@ -26,9 +26,7 @@ from openbus.scratch_markdown import tokens
 
 DAY = 86400
 HERE = Path(__file__).parent
-# themes.json, the registry, is plain JSON meant to be edited: rename a theme, give it a
-# "holds" line saying what belongs in it, or write your own themes with empty members, and
-# the model files work under them.
+# Holds themes.json, the registry: plain JSON the user may edit (docs/design/digest.md).
 STATE = Path.home() / ".local/share/tmux-rc/digest"
 STAGES = {"main": "on main", "held": "on your machine", "ready": "approved, waiting",
           "open": "in progress", "stuck": "stuck", "dropped": "closed"}
@@ -95,9 +93,9 @@ def change(n: dict, now: float, held: bool) -> dict:
 
 
 def hidden(repo: str | None) -> str:
-    """A generic label for work in the repositories TMUXRC_DIGEST_HIDE names (sales, customer
-    work): scratch is a shared space, so neither the model nor the page gets their words.
-    Words already in the registry stay as written; edit or delete it after changing the list."""
+    """A generic label for work in the repositories TMUXRC_DIGEST_HIDE names: scratch is
+    shared, so neither the model nor the page gets their words. The registry keeps what it
+    already holds; edit it after changing the list."""
     names = os.environ.get("TMUXRC_DIGEST_HIDE", "").split(",")
     return "Private work" if repo and repo.split("/")[-1] in names else ""
 
@@ -112,18 +110,16 @@ def cost(model: str, u: dict) -> float:
 
 def spend(dirs: list[str], paths: list[str], now: float) -> list[dict]:
     """One row per Claude Code transcript: its list-price cost in the last day (d), the rest
-    of the week (w) and the week before (p), and where the work was done. An agent works in a
-    worktree through `git -C` while its session sits at the repo root, so the session's cwd
-    and git branch say nothing (the branch is the root's, and pinned a week's effort on an
-    unrelated PR): the place is the worktree most of its tool calls name. `paths` are the
-    worktrees that are not a root, longest first."""
+    of the week (w) and the week before (p), and where it worked: the worktree most of its
+    tool calls name (`paths`: those that are not a root, longest first). Its git-branch field
+    is never read: a session sits at the repo root, so that is the root's branch."""
     rows, seen = [], set()  # a session moved between accounts keeps a copy of its calls
     for d in dirs:
         for f in [*Path(d, "projects").glob("*/*.jsonl"),
                   *Path(d, "projects").glob("*/*/subagents/*.jsonl")]:
             if f.stat().st_mtime < now - 14 * DAY:
                 continue
-            row, votes, links = {"d": 0.0, "w": 0.0, "p": 0.0}, Counter(), set()
+            row, votes, links, cwd = {"d": 0.0, "w": 0.0, "p": 0.0}, Counter(), set(), ""
             with f.open(errors="ignore") as lines:
                 for line in lines:
                     if '"assistant"' not in line and '"pr-link"' not in line:
@@ -137,7 +133,8 @@ def spend(dirs: list[str], paths: list[str], now: float) -> list[dict]:
                     msg = r.get("message")
                     if r.get("type") != "assistant" or not isinstance(msg, dict):
                         continue
-                    used = json.dumps([r.get("cwd"), *(
+                    cwd = r.get("cwd") or cwd
+                    used = json.dumps([cwd, *(
                         b.get("input") for b in msg.get("content") or []
                         if isinstance(b, dict) and b.get("type") == "tool_use")])
                     votes.update([p for p in paths if p in used][:1])
@@ -148,24 +145,39 @@ def spend(dirs: list[str], paths: list[str], now: float) -> list[dict]:
                         row["d" if ago < DAY else "w" if ago < 7 * DAY else "p"] += cost(
                             msg.get("model") or "", usage)
             if any(row.values()):
-                rows.append({**row, "wt": votes.most_common(1)[0][0] if votes else None,
+                rows.append({**row, "acct": d, "cwd": cwd,
+                             "wt": votes.most_common(1)[0][0] if votes else None,
                              "pr": next(iter(links)) if len(links) == 1 else None})
     return rows
 
 
-def join(rows: list[dict], worktrees: list[dict], changes: list[dict]) -> dict:
-    """Effort per change, per worktree that has no change ("wt:name"), and "" for the rest,
-    which is coordination. A run belongs to its worktree's branch's PR, else to the one PR
-    its session links."""
+def inside(trees: list[dict], cwd: str | None) -> dict:
+    """The innermost worktree holding cwd, or {}."""
+    return max((w for w in trees if ((cwd or "") + "/").startswith(w["path"] + "/")),
+               key=lambda w: len(w["path"]), default={})
+
+
+def join(rows: list[dict], trees: list[dict], changes: list[dict], names: dict) -> dict:
+    """The rows' effort four ways. "effort": per change, per worktree that has no change
+    ("wt:repo/name") and "" for the rest, which is coordination; a run belongs to its
+    worktree's branch's PR, else to the one PR its session links. Then by account, repo
+    and worktree, for the explorer; "" there is effort with no such place."""
     head = {(c["repo"], c["head"]): c["key"] for c in changes}
-    at, out = {w["path"]: w for w in worktrees}, {}
+    at, out = {w["path"]: w for w in trees}, {}
     for r in rows:
         w = at.get(r["wt"]) or {}
-        key = (head.get((w.get("repo"), w.get("branch"))) or (r["pr"] in head.values() and r["pr"])
-               or (w and not hidden(w["repo"]) and f'wt:{w["repo"]}/{Path(w["path"]).name}') or "")
-        slot = out.setdefault(key, {"d": 0.0, "w": 0.0, "p": 0.0})
-        for k in slot:
-            slot[k] += r[k]
+        home = w or inside(trees, r["cwd"])
+        private, name = hidden(home.get("repo")), w and Path(w["path"]).name
+        labels = {
+            "effort": head.get((w.get("repo"), w.get("branch")))
+            or (r["pr"] in head.values() and r["pr"])
+            or (w and not private and f'wt:{w["repo"]}/{name}') or "",
+            "account": names.get(r["acct"], r["acct"]), "worktree": private or name or "",
+            "repo": private or (home.get("repo") or "").rpartition("/")[2]}
+        for cut, label in labels.items():
+            slot = out.setdefault(cut, {}).setdefault(label, {"d": 0.0, "w": 0.0, "p": 0.0})
+            for k in slot:
+                slot[k] += r[k]
     return out
 
 
@@ -177,8 +189,7 @@ def git(*args: str) -> str | None:
 
 
 def worktrees(cwds: list[str]) -> list[dict]:
-    """Every worktree of every repository a pane sits in, with what the cleanup gates read.
-    Its own listing, so the script needs nothing of the daemon's scan."""
+    """Every worktree of every repository a pane sits in, with what the cleanup gates read."""
     out = []
     for common in sorted({git("-C", c, "rev-parse", "--path-format=absolute", "--git-common-dir")
                           for c in set(cwds)} - {None, ""}):
@@ -240,14 +251,12 @@ def gather(now: float) -> dict:
                    key=len, reverse=True)
     rows = spend([d for a in accounts if a["provider"] == "claude" for d in a["dirs"]], paths, now)
     return {
-        "now": now, "changes": changes, "effort": join(rows, trees, changes),
+        "now": now, "changes": changes, **join(rows, trees, changes, names),
         "asked": len(search("is:pr is:open review-requested:@me archived:false")),
         "waiting": [{"id": p["pane_id"], "title": private or p.get("title") or p.get("label") or "",
                      "headline": private or p.get("headline") or ""} for p in panes
                     if p.get("activity") == "waiting" and p.get("waiting_on") != "external"
-                    for private in [hidden(next((w["repo"] for w in sorted(
-                        trees, key=lambda w: -len(w["path"]))
-                        if ((p.get("cwd") or "") + "/").startswith(w["path"] + "/")), None))]],
+                    for private in [hidden(inside(trees, p.get("cwd")).get("repo"))]],
         "usage": [{"name": names.get(a["dirs"][0], a["provider"]), "pct": w["pct"],
                    "projected": w["projected"],
                    "pace": (now * 1000 - w["start"]) / (w["resets_at"] - w["start"]) * 100}
@@ -268,8 +277,8 @@ def lay(reg: dict, facts: dict) -> dict:
     and figure here is a rule over the facts; the registry holds the model's words."""
     now, effort = facts["now"], facts["effort"]
 
-    def week(keys):
-        return sum(effort.get(k, {}).get(x, 0) for k in keys for x in "dw")
+    def week(keys, spans="dw"):
+        return sum(effort.get(k, {}).get(x, 0) for k in keys for x in spans)
 
     def figures(spent, landed):
         return {"per": spent / max(len(landed), 1), "landed": len(landed),
@@ -280,9 +289,8 @@ def lay(reg: dict, facts: dict) -> dict:
     live = {c["key"]: c for c in facts["changes"] if c["at"] >= now - 7 * DAY or c["need"]}
     themes = []
     for tid, t in reg["themes"].items():
-        for field, default in (("members", []), ("last", now), ("outcome", ""),
-                               ("short", t["name"])):  # written by hand, maybe just a name
-            t.setdefault(field, default)
+        # Written by hand, a theme may be just its name.
+        t.update({"members": [], "last": now, "outcome": "", "short": t["name"]} | t)
         pieces = sorted((live[k] for k in t["members"] if k in live),
                         key=lambda c: (list(STAGES).index(c["stage"]), not c["need"], c["key"]))
         active = [p["stage"] for p in pieces if p["stage"] != "dropped"]
@@ -293,6 +301,7 @@ def lay(reg: dict, facts: dict) -> dict:
         themes.append({
             "id": tid, **{k: t[k] for k in ("name", "short", "outcome", "members")},
             "pieces": pieces, "effort": spent, "part": spent / total,
+            "day": week(t["members"], "d"),
             "share": next(word for least, word in SIZES if spent / total >= least),
             # On main only when nearly all of it is; else the state most of the outstanding
             # work is in (a tie: stuck, then held, then in progress). One red change among
@@ -329,7 +338,13 @@ def lay(reg: dict, facts: dict) -> dict:
     weeks = reg.setdefault("weeks", {})
     weeks[monday(now - 7 * DAY)] = figures(sum(e["p"] for e in effort.values()), landed(7, 14))
     weeks[monday(now)] = figures(total, landed(0, 7))
+    # The same effort four ways, for yesterday and the week: [label, yesterday, week].
+    cuts = {"Theme": [*([t["name"], t["day"], t["effort"]] for t in themes),
+                      ["", week([""], "d"), week([""])]],
+            **{cut.title(): [[label, e["d"], e["d"] + e["w"]] for label, e in rows.items()]
+               for cut in ("account", "repo", "worktree") if (rows := facts.get(cut))}}
     return {"now": now, "themes": themes, "actions": actions, "coordination": week([""]),
+            "cuts": cuts,
             "landed": sum(c["moved"] for c in landed(0, 7)), "weeks": weeks,
             "usage": facts["usage"], "cleanup": facts["cleanup"],
             "pace": ("Running hot" if any(u["projected"] >= 100 for u in facts["usage"])
@@ -478,26 +493,56 @@ def weekly(d: dict) -> str:
         + "</details>" + "".join([button(a) for a in d["actions"] if a.get("theme") == t["id"]][:1])
         + "</div></div>" for t in d["themes"] if t["pieces"] or t["effort"])
     versus = ""
-    for field, fewer, more, good in (
-            ("per", "Cheaper per change", "Dearer per change", "↓"),
-            ("landed", "Fewer reached main", "More reached main", "↑"),
-            ("rounds", "Shorter review loops", "Longer review loops", "↓")):
+    for field, fewer, more, good, what in (
+            ("per", "Cheaper per change", "Dearer per change", "↓", "effort for each one landed"),
+            ("landed", "Fewer reached main", "More reached main", "↑", "changes in the week"),
+            ("rounds", "Shorter review loops", "Longer review loops", "↓", "rounds to land")):
         series = [w[field] for _, w in sorted(d["weeks"].items())[-5:]]
         if series[-1] == series[-2]:
             continue  # nothing moved: no arrow to draw
         arrow = "↓" if series[-1] < series[-2] else "↑"
         versus += (f'<div class="vs"><b class="{"good" if arrow == good else "bad"}">{arrow}</b>'
-                   f"<p>{fewer if arrow == '↓' else more}</p>{spark(series)}</div>")
+                   f"<p>{fewer if arrow == '↓' else more}<small>{what}</small></p>"
+                   f"{spark(series)}</div>")
     return (panel("Where the effort went", f'<div class="tm">{tm}</div>' + key(""))
-            + f'<div class="panel">{cards}</div>' + panel("Against last week", versus))
+            + f'<div class="panel">{cards}</div>' + panel("Against last week", versus)
+            + panel("Slice it", explorer(d["cuts"])))
+
+
+def explorer(cuts: dict) -> str:
+    """The same effort by theme, account, repo or worktree, yesterday or this week: a sentence,
+    a proportion bar and small numbers. Every view is drawn here; the page shows one."""
+    def seg(group):
+        return '<div class="seg">' + "".join(
+            f'<button data-v="{v}" aria-pressed="{"false" if n else "true"}">{v}</button>'
+            for n, v in enumerate(group)) + "</div>"
+
+    views = ""
+    for at, when in enumerate(("Yesterday", "This week"), 1):
+        for cut, table in cuts.items():
+            rows = sorted(([r[0], r[at]] for r in table if r[at]), key=lambda r: -r[1])
+            total = sum(v for _, v in rows) or 1
+            top = next((r for r in rows if r[0]), ["nothing", 0])
+            size = next(word for least, word in SIZES if top[1] / total >= least).replace(
+                "small", "a small part").capitalize()
+            none = "Coordination" if cut == "Theme" else f"No {cut.lower()}"
+            lines = "".join(
+                f'<div class="xrow{" un" * (not label)}"><span>{html.escape(label or none)}</span>'
+                f'<small>{v / total:.0%}</small><i style="width:{v / rows[0][1]:.0%}"></i></div>'
+                for label, v in rows[:7])
+            views += (
+                f'<div class="x" data-k="{when}-{cut}"{" hidden" * (at == 1 or cut != "Theme")}>'
+                f'<p class="xsay">{size} of {when.lower()}’s '
+                f'effort went into “{html.escape(top[0])}”.</p><div class="prop">' + "".join(
+                    f'<i class="{"un" * (not label)}" style="flex-grow:{v}"></i>'
+                    for label, v in rows) + f"</div>{lines}</div>")
+    return seg(("This week", "Yesterday")) + seg(cuts) + views
 
 
 def publish(d: dict, root: Path) -> None:
-    """Both pages, each folder's meta.json first; its description is the push's teaser. The
-    daily folder also gets summary.json, the same digest cut down for the dashboard's card.
-    Each page holds both views and switches between them without navigating: the app's
-    viewer runs no script in a page its frame navigates to, so a link to the other folder
-    would land on a page with no theme and no taps."""
+    """Both folders, each one's meta.json first (its description is the push's teaser), and
+    summary.json for the dashboard's card. One page holds both views, switched in place: the
+    app's viewer runs no script in a page its frame navigates to."""
     page = (HERE / "digest.html").read_text().replace(
         "{tokens}", tokens(HERE.parent / "web/m/style.css"))
     when = datetime.fromtimestamp(d["now"]).astimezone()
@@ -506,7 +551,9 @@ def publish(d: dict, root: Path) -> None:
     body = "<nav>" + "".join(f'<label for="{v}">{tab}</label>' for v, (tab, *_) in views.items()) \
         + "</nav>" + "".join(
         f'<section class="{v}"><div class="date">{when:%A %-d %B}</div><p class="verdict">'
-        f"{html.escape(verdict)}</p>{view}</section>" for v, (_, _, verdict, view) in views.items())
+        f"{html.escape(first + stop)}<em>{html.escape(rest)}</em></p>{view}</section>"
+        for v, (_, _, verdict, view) in views.items()
+        for first, stop, rest in [verdict.partition(". ")])  # the second sentence is the point
     for name, (_, title, verdict, _) in views.items():
         folder = root / f"digest-{name}"
         folder.mkdir(parents=True, exist_ok=True)
@@ -527,31 +574,33 @@ def publish(d: dict, root: Path) -> None:
 
 
 def model():
-    """openbus.llm, the daemon's own Gemini path, given the minutes one large request needs
-    (it reads its timeout at import) and a model that writes better than the parser's fast
-    one: flash-lite's digest read as filler."""
+    """(ask, usage): openbus.llm's own Gemini call, given the minutes one large request
+    needs (its timeout is read at import), a model that writes better than the parser's fast
+    one, and that model's price from the repo's rate cards."""
     load_dotenv(dotenv_path())  # the daemon's own configuration and model credentials
     load_dotenv(Path.home() / ".config/tmux-rc/openai.env")
     os.environ.setdefault("TMUXRC_LLM_TIMEOUT_MS", "600000")
-    os.environ["TMUXRC_GEMINI_MODEL"] = os.environ.get(
+    name = os.environ["TMUXRC_GEMINI_MODEL"] = os.environ.get(
         "TMUXRC_DIGEST_MODEL", "gemini-3-flash-preview")
-    from openbus import llm
-    return llm
+    from openbus import live_providers, llm
+    for card in (m.rates for m in live_providers.models() if m.model == name):
+        llm._IN_PER_M, llm._OUT_PER_M = card.text_in, card.text_out  # noqa: SLF001 - its rates
+    return (lambda system, text: llm.classify_text(system, text, kind="digest")), llm.usage_totals
 
 
 def main() -> None:
-    llm = model()
+    ask, usage = model()
     STATE.mkdir(parents=True, exist_ok=True)
     facts = gather(time.time())
     (STATE / "facts.json").write_text(json.dumps(facts))  # what `make digest-eval DIR=` scores
     registry = STATE / "themes.json"
     reg = json.loads(registry.read_text()) if registry.exists() else {}
     # With nothing placed yet it takes two calls: one to file the work, one to write about it.
-    for _ in range(1 if any(t["members"] for t in reg.get("themes", {}).values()) else 2):
-        d = build(facts, reg, lambda system, text: llm.classify_text(system, text, kind="digest"))
+    for _ in range(1 if any(t.get("members") for t in reg.get("themes", {}).values()) else 2):
+        d = build(facts, reg, ask)
     registry.write_text(json.dumps(reg, indent=1))
     publish(d, Path(os.environ.get("TMUXRC_SCRATCH_DIR") or STATE.parent / "scratch"))
-    print(f'{len(d["themes"])} themes, {len(d["actions"])} need you; model {llm.usage_totals()}')
+    print(f'{len(d["themes"])} themes, {len(d["actions"])} need you; model {usage()}')
 
 
 if __name__ == "__main__":

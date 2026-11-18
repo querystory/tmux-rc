@@ -35,6 +35,9 @@
   "wt:example-org/harbor/reader-spike": {"d": 0.0, "w": 5.0, "p": 0.0},
   "": {"d": 4.0, "w": 7.0, "p": 9.0}
  },
+"account": {"Work": {"d": 21.0, "w": 49.0, "p": 43.0}, "Personal": {"d": 10.0, "w": 20.0, "p": 0.0}},
+"repo": {"harbor": {"d": 19.0, "w": 52.0, "p": 14.0}, "tidewatch": {"d": 8.0, "w": 10.0, "p": 20.0}, "": {"d": 4.0, "w": 7.0, "p": 9.0}},
+"worktree": {"reader-sync": {"d": 9.0, "w": 14.0, "p": 0.0}, "reader-offline": {"d": 6.0, "w": 10.0, "p": 0.0}, "": {"d": 16.0, "w": 45.0, "p": 43.0}},
 "asked": 1,
 "waiting": [{"id": "%7", "title": "Search ranking", "headline": "Which branch libraries should the filter list first?"}],
 "usage": [{"name": "claude", "pct": 35.0, "projected": 60.0, "pace": 50.0}],

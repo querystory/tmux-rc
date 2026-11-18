@@ -43,11 +43,8 @@ install-apparmor:
 	sudo install -m644 deploy/apparmor/tmux-rc-headless-shell /etc/apparmor.d/
 	sudo apparmor_parser -r /etc/apparmor.d/tmux-rc-headless-shell
 
-# The daily and weekly digest pages (docs/design/digest.md): `digest` builds them into
-# scratch now, `install-digest` has a user timer build them each morning, and `digest-eval`
-# scores the model's digest against a hand-written baseline of the same facts (the invented
-# one here, or DIR=~/.local/share/tmux-rc/digest once you have written a baseline.json
-# beside the facts.json each run leaves there).
+# The digest pages on scratch (docs/design/digest.md): built now, built each morning by a
+# user timer, and scored against a hand-written baseline.json of the facts.json in DIR.
 DIR ?= research/eval/digest
 digest:
 	uv run python -m scripts.digest

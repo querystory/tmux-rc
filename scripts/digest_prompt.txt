@@ -20,8 +20,8 @@ Return JSON with:
 - `asks`: for each entry of `needs_you` that lists `work`, its `n` and a `text` of a few words
   that names what that work does and what it waits for. It is the row beside the button that
   rebases or merges it.
-- `daily`: the verdict that opens today's page, two or three short sentences: how yesterday
-  went, then the one thing in `needs_you` that matters most and what to do about it.
+- `daily`: the verdict that opens today's page: how yesterday went, then the one thing in
+  `needs_you` that matters most and what to do about it.
 - `weekly`: the verdict that opens the week's page: where most of the effort went, naming the
   themes in `largest`, which took the most, and whether that work has reached main.
 
@@ -31,9 +31,9 @@ dropped was closed. Take every count and state from the input as given.
 
 Voice: plain and specific, the way one engineer tells another what happened. Use the concrete
 nouns of the work itself, lead with what changed for the person using it, and say what blocks
-it. For a library's lending app, a good page reads like this:
+it. A verdict is two short sentences, about twenty-five words in all: it heads a phone card. For a library's lending app, a good page reads like this:
 - a theme named "Reading without a network", with the outcome "Downloaded books open and
   resume where you stopped, with no network. Highlight sync is finished but conflicts with main."
 - an ask: "Highlight sync needs a rebase"
-- a daily verdict: "A good day: two changes landed. But the highlight sync you're holding now
-  conflicts with main. Rebase it first."
+- a daily verdict: "A good day: two changes landed. Rebase the highlight sync you're holding:
+  it now conflicts with main."
