@@ -86,6 +86,17 @@ Codex, shells) had to be restored from transcripts.
 No PR merges with unaddressed review comments. Drive Copilot review to clean (resolve
 every thread, re-request, repeat) before merging. Merge only on the user's explicit word.
 
+## Contributors' PRs land as theirs
+
+We want contributions, so a teammate's or outside contributor's PR merges as their own PR,
+under their name, once review is clean and the user says go. Anything we want on top
+(renames, a toggle, polish) goes in a follow-up PR after theirs lands, never in a
+superseding PR that copies their commit in: co-author credit inside our squash is not
+their PR merging, and since the repo only squash-merges, a superseded PR can never be
+marked merged afterwards. If their fork blocks maintainer edits, or the PR needs fixes we
+cannot push, ask them on the PR (with thanks) and tell the user rather than routing around
+them. Either way, thank them on their PR.
+
 ## UI iconography: no emoji — inline Lucide icons
 
 Never use emoji glyphs (🎙 ⌨ 📎 ☀ …) as UI chrome (buttons, badges, menus, toggles).
