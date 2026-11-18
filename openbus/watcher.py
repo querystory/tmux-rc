@@ -420,7 +420,7 @@ class Watcher:
         # so a submitted answer/keypress re-parses within a capture, not a poll interval.
         self._force_parse: set[str] = set()
         self._forced_this_tick: set[str] = set()  # drained from _force_parse per _tick
-        self._queued: set[str] = set()  # panes with an input-driven read pending
+        self._queued: dict[str, float] = {}  # pane -> latest input awaiting its own read
         self._pane_locks: dict[str, threading.Lock] = {}  # one read per pane at a time
         self._wake = asyncio.Event()
         self._evloop: asyncio.AbstractEventLoop | None = None  # set in start()
@@ -640,15 +640,17 @@ class Watcher:
             self.wake()
             return
         with self._publish_lock:
-            if pane_id in self._queued:
-                return
-            self._queued.add(pane_id)
-        threading.Timer(SETTLE_SECONDS, self._reparse_now, (pane_id, since)).start()
+            queued = pane_id in self._queued
+            self._queued[pane_id] = since
+        if not queued:
+            timer = threading.Timer(SETTLE_SECONDS, self._reparse_now, (pane_id,))
+            timer.daemon = True  # never holds up shutdown
+            timer.start()
 
-    def _reparse_now(self, pane_id: str, since: float) -> None:
+    def _reparse_now(self, pane_id: str) -> None:
         """request_reparse's read: the full pass's per-pane path, published alone."""
         with self._publish_lock:
-            self._queued.discard(pane_id)
+            since = self._queued.pop(pane_id)
         try:
             pane = next(p for p in tmux.dedupe_grouped(tmux.list_panes()) if p.id == pane_id)
             s = self._finish(dict(self._tick_pane(pane, since)), pane)
@@ -1371,34 +1373,35 @@ class Watcher:
             return
         rows, keys = [], {}
         for s, p in zip(states, panes, strict=True):
-            fp = self._seen_fp.get(p.id)
-            if fp is None or s is not self._state.get(p.id):
-                continue  # this tick failed for the pane; keep its last checkpoint
-            valid = self._parse_valid.get(p.id, False)
-            idle_since = s.get("state_since") if s.get("activity") == "idle" else None
-            key = (fp, idle_since, valid, s.get("parsed_at"), s.get("events_seq"),
-                   (s.get("summary") or {}).get("text"), s.get("session_summary"),
-                   s.get("bootstrap_title"),
-                   tuple((q["repo"], q["number"]) for q in s.get("prs") or []))
-            held = self._checkpointed.get(p.id, ())
-            if held is None:  # restored this tick: the row already holds this card
-                self._checkpointed[p.id] = key
-            if held is None or held == key:
-                continue
-            boot = self._boot.get(p.id)
-            rows.append({
-                "uid": pane_key(self._server, p.id, self._birth.get(p.id)),
-                "server": self._server, "fp": fp, "idle_since": idle_since,
-                "last_activity_at": s["last_activity_at"],
-                # A card from a failed parse describes an older screen: store none, so
-                # a restart re-parses instead of restoring it against this hash.
-                "card": {
-                    "state": s,
-                    "events": self.events_log.get(p.id, [])[-CHECKPOINT_EVENTS:],
-                    "boot": boot and {k: boot.get(k) for k in ("summary", "name", "tool")},
-                } if valid else None,
-            })
-            keys[p.id] = key
+            with self._pane_lock(p.id):  # never half way through an input-driven read
+                fp = self._seen_fp.get(p.id)
+                if fp is None or s is not self._state.get(p.id):
+                    continue  # this tick failed for the pane; keep its last checkpoint
+                valid = self._parse_valid.get(p.id, False)
+                idle_since = s.get("state_since") if s.get("activity") == "idle" else None
+                key = (fp, idle_since, valid, s.get("parsed_at"), s.get("events_seq"),
+                       (s.get("summary") or {}).get("text"), s.get("session_summary"),
+                       s.get("bootstrap_title"),
+                       tuple((q["repo"], q["number"]) for q in s.get("prs") or []))
+                held = self._checkpointed.get(p.id, ())
+                if held is None:  # restored this tick: the row already holds this card
+                    self._checkpointed[p.id] = key
+                if held is None or held == key:
+                    continue
+                boot = self._boot.get(p.id)
+                rows.append({
+                    "uid": pane_key(self._server, p.id, self._birth.get(p.id)),
+                    "server": self._server, "fp": fp, "idle_since": idle_since,
+                    "last_activity_at": s["last_activity_at"],
+                    # A card from a failed parse describes an older screen: store none, so
+                    # a restart re-parses instead of restoring it against this hash.
+                    "card": {
+                        "state": dict(s),  # a later read updates s in place
+                        "events": self.events_log.get(p.id, [])[-CHECKPOINT_EVENTS:],
+                        "boot": boot and {k: boot.get(k) for k in ("summary", "name", "tool")},
+                    } if valid else None,
+                })
+                keys[p.id] = key
         if not rows:
             return
         # tmux may have restarted mid-tick; never file a new server's panes under the old
@@ -1443,8 +1446,11 @@ class Watcher:
         """One pane's read, the full pass's and request_reparse's alike, which share its
         buffers and so take turns. `since`: parse even an unchanged screen, unless a parse
         of a capture taken after then has landed meanwhile (input changed the pane)."""
-        with self._pane_locks.setdefault(pane.id, threading.Lock()):
+        with self._pane_lock(pane.id):
             return self._read_pane(pane, since)
+
+    def _pane_lock(self, pane_id: str) -> threading.Lock:
+        return self._pane_locks.setdefault(pane_id, threading.Lock())
 
     def _read_pane(self, pane, since: float) -> dict:
         # Dim-marked so the parser can tell drafts/suggestions/chrome from output.
