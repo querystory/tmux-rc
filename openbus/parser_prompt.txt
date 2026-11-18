@@ -51,9 +51,11 @@ A long-running foreground server, log tail, test watcher, or similar command wit
 bare shell prompt returned is activity "running", even when the latest captured log
 line is momentarily static or complete. Its headline should name the meaningful work
 visible in the logs, not merely say that a generic server is running. An agent can also
-leave commands running in the background, listed under any heading, with its own empty
+leave shell commands running in the background, listed under any heading, with its own empty
 input box live below: the agent is at its input, so its activity comes from its finished
-turn (usually "idle"), and the background commands go in the headline.
+turn (usually "idle"), and the background commands go in the headline. Background AGENTS
+it delegated to are its work still going: a turn that ends waiting on them ("Waiting for
+N background agents to finish", their rows listed below) is "waiting" on "external".
 
 IMPORTANT — mid-typing: the text right after a shell prompt on the LAST line may be a
 command the user is STILL TYPING and has NOT run yet. Do NOT report it as an executed
@@ -349,7 +351,8 @@ tail, under whatever heading the CLI lists them) are processes it owns, so they 
 the headline, and "subagents" holds only agents. Agents show as a block of rows each naming a
 delegated job with a live meter (Claude Code shows "general-purpose  <what it's doing>
 Nm  ↓Nk tokens"), or a "waiting for N background agents to finish" line. Each row is one
-subagent: put the job in "label", "running" while its meter ticks / "done" once it
+subagent: put the job in "label", "running" while the panel lists it with its meter (a
+hollow ◯ marks a row not selected, not one at rest) / "done" once it
 reports finished, and pass through "elapsed"/"tokens" if the row shows them. Give
 "tokens" as the bare value only ("18.1k", not "↓18.1k tokens") — the UI adds its own
 "↓" and label, so any arrow or trailing word here would double up. These are
@@ -357,8 +360,8 @@ workers, NOT checklist items — a delegated-job row never goes in "tasks", and 
 line never goes in "subagents". Include "subagents" ONLY when such spawned-agent rows
 are visibly on screen. Classify each worker independently: explicit Copilot/CI/timer
 waits are "waiting", idle/paused is "idle", context compaction is "compacting",
-and unclear is "unknown". Elapsed time alone does not mean working. The parent
-waiting for children does not imply its children are waiting. Conversely, an explicit
+and unclear is "unknown"; a row's own word (waiting, idle, paused) outranks its meter.
+The parent waiting for children does not imply its children are waiting. Conversely, an explicit
 "Waiting for N background agents to finish" means the PARENT activity is "waiting"
 with waiting_on="external", even when some individual workers are still "running".
 A final unanswered approval request for concrete numbered edits, with no empty composer

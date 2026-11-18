@@ -1,0 +1,18 @@
+{
+  "description": "Synthetic: a Claude Code coordinator in a narrow pane whose turn ended with \"✻ Waiting for 3 background agents to finish\" above its own empty input box, an update notice under it, background shells and monitors in the footer, and the agent panel listing three workers by hollow ◯ rows with elapsed time and tokens. The transcript has closed the turn (turn_live false). Its delegated agents are its work still going, so the pane is waiting on external (shown as Working), and each listed worker is running; the shells do not make it idle.",
+  "current_command": "node",
+  "capture": "  The converter port and the image batch are\n  both with their agents; I'll fold them into one\n  release branch once they land.\n\n✻ Waiting for 4 background agents to finish\n\n● Agent \"Draft the pantry-sync notes\" finished ·\n  12m 9s\n\n● The sync notes are in. Still in progress:\n  - The unit converter port is on its test run.\n  - The image agent is shrinking the last batch.\n  - The search agent hasn't named the slow query\n    yet. When it does, I'll open the fix PR.\n\n✻ Waiting for 3 background agents to finish\n          ✔ Update installed · /restart to apply\n─────────────────── recipe-box release ─\n❯ \n──────────────────────────────────────────────────\n  ~/src/recipe-box on main | Opus 5.5 | ada@…\n  session: +2210/-340 lines · 31% ctx · 6h12m…\n  ⏵⏵ auto mode on · 5 shells, 2 monitors\n\n  ● main\n  ◯ general-purpose     41m 3s · ↓ 96.2k tokens\n  ◯ general-purpose     18m 40s · ↓ 51.7k tokens\n  ◯ general-purpose  1h 2m 15s · ↓ 128.4k tokens",
+  "turn_live": false,
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "external",
+    "question": null,
+    "subagent_states": [
+      "running",
+      "running",
+      "running"
+    ],
+    "headline": "Waiting on three background agents: converter port, image batch, slow-query search"
+  }
+}
