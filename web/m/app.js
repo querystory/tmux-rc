@@ -33,7 +33,11 @@ const LONG_POLL_TIMEOUT_MS = 35000;
 const NO_TIMEOUT = 2 ** 31 - 1;
 // How long a delivered answer holds its card (spinner, options disabled) when the pane's
 // question never changes — an ignored key — before we trust the pane's own state again.
+// Past it the hold lasts until the card has been read since the answer (its
+// input_generation moves), up to ANSWER_GIVE_UP_MS: a watcher tick over many panes can
+// outlast 15s, and letting go before that read put the answered menu back on the card.
 const ANSWER_PENDING_MS = 15000;
+const ANSWER_GIVE_UP_MS = 60000;
 // Being this close to the bottom of the terminal counts as following it, so a frame
 // keeps the view pinned to the tail; further up, the user is reading and we leave it.
 const FOLLOW_SLACK_PX = 48;
@@ -2013,14 +2017,21 @@ function badgeOf(pane) {
 }
 // Holds pane `id`'s card under `pending` at once, "Sending…" and not Needs you. The returned
 // settle(sent) ends the send: delivered, "Sent, waiting for the agent" until the pane's next
-// state or ANSWER_PENDING_MS; not sent, the options are live again (the notice says why).
+// state or ANSWER_PENDING_MS (see there); not sent, the options are live again (the notice says why).
 function hold(id, pending) {
+  const generation = () => panes.find((p) => p.pane_id === id)?.input_generation;
   pending.note = "Sending…"; pendingAnswers.set(id, pending); render();
+  const unread = generation();
   return (sent) => {
     if (pendingAnswers.get(id) !== pending || sent && pending.sent) return; // moved on, or said already
     if (!sent) { pendingAnswers.delete(id); render(); return; }
     pending.sent = true; pending.note = "Sent, waiting for the agent"; render();
-    setTimeout(() => { if (pendingAnswers.get(id) === pending) { pendingAnswers.delete(id); render(); } }, ANSWER_PENDING_MS);
+    const expire = (waited) => setTimeout(() => {
+      if (pendingAnswers.get(id) !== pending) return;
+      if (generation() === unread && waited < ANSWER_GIVE_UP_MS) { expire(waited + ANSWER_PENDING_MS); return; }
+      pendingAnswers.delete(id); render();
+    }, ANSWER_PENDING_MS);
+    expire(ANSWER_PENDING_MS);
   };
 }
 // A tap holds its card at once: the tapped option spins, the rest go grey, and the card
