@@ -393,7 +393,8 @@ def test_quoted_rows_distinguish_duplicate_titles(monkeypatch, alternate_layout)
     assert (before["selected"], after["selected"]) == (0, 1)
     assert before["picker"] != after["picker"]
     assert before["picker_layout"] == after["picker_layout"]
-    assert "picker" not in question(second, options[1:], 0)  # the model omitted a row
+    quotes = [line.strip() for line in second.splitlines() if "ago" in line]
+    assert "picker" not in question(second, options[1:], 0, quotes[1:])  # the reread omitted a row
     assert "picker" not in question(second, options[::-1], 1)  # the model reordered labels
     assert "picker" not in question(second, options, 0)  # the model miscounted the cursor
     assert "picker" not in question(second, options, 1, ["fabricated"] * 3)
@@ -404,6 +405,20 @@ def test_quoted_rows_distinguish_duplicate_titles(monkeypatch, alternate_layout)
     assert (readback["picker"], readback["layout"], readback["line"]) == (
         after["picker"], before["picker_layout"], before["picker_line"] + 1,
     )
+
+
+def test_unambiguous_highlight_keeps_the_picker_when_other_titles_repeat():
+    screen = ("Resume a previous session\n  › Sort garden seeds\n"
+              "    Water seedlings\n    Water seedlings")
+    response = {"tool": "codex", "question": {
+        "prompt": "Resume a previous session", "answer_style": "cursor",
+        "options": ["Sort garden seeds", "Water seedlings", "Water seedlings"],
+    }}
+    answers = iter([response])  # no reread is needed to ground this highlight
+    question = classify(CODEX_PANE, screen, lambda *_: next(answers))["question"]
+    assert question["selected"] == 0
+    assert question.get("picker")
+
 
 MENU = """
 import sys, time, tty

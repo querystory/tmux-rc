@@ -231,11 +231,10 @@ class PickerRead(NamedTuple):
     position: PickerPosition | None
 
 
-def _quoted_picker_rows(read: PickerRead, options: object, rows: object, selected: object) -> bool:
+def _quoted_picker_rows(read: PickerRead, options: list, rows: object, selected: object) -> bool:
     """Check the model's option-to-screen mapping against the actual cursor line."""
     position = read.position
-    if (position is None or not isinstance(options, list) or not isinstance(rows, list)
-            or len(rows) != len(options)
+    if (position is None or not isinstance(rows, list) or len(rows) != len(options)
             or type(selected) is not int or not 0 <= selected < len(rows)
             or not all(isinstance(item, str) and item.strip() for item in (*options, *rows))):
         return False
@@ -1721,16 +1720,17 @@ def classify(
         question.pop("picker_line", None)
         if asked and isinstance(rows, list) and (read := picker_read(text, asked)):
             row = highlighted_row(visible, asked, rows)
-            if row and all(rows.count(option) == 1 for option in rows):
+            if row:
                 question.update(selected=rows.index(row), picker=read.digest)
             elif read.position is not None and llm_fn:
                 body = "\n".join(read.position.body).rstrip()
                 # Let the model resolve repeated labels and metadata columns from this widget.
                 answer = llm_fn(_load_prompt("parser_cursor.txt"), f"{asked}\n{body}")
                 if isinstance(answer, dict):
-                    options, selected = answer.get("options"), answer.get("selected")
-                    if _quoted_picker_rows(read, options, answer.get("rows"), selected):
-                        question.update(options=options, selected=selected, picker=read.digest,
+                    selected = answer.get("selected")
+                    if (answer.get("options") == rows
+                            and _quoted_picker_rows(read, rows, answer.get("rows"), selected)):
+                        question.update(selected=selected, picker=read.digest,
                                         picker_layout=read.position.layout,
                                         picker_line=read.position.line)
     if isinstance(question, dict):

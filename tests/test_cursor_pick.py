@@ -126,6 +126,13 @@ CASES = [
         {"sent": ["Down"], "selected": 1, "notes": 1},
     ),
     (
+        "quoted picker refuses a stale retry whose identical labels moved to other lines",
+        {"options": ["Sort garden seeds"] * 2, "selected": 0, "keymap": FULL_KM,
+         "reads": True, "layout": "unchanged", "refuse_first": True, "origin_shift": 1},
+        "Sort garden seeds", 1,
+        {"sent": [], "selected": 0, "notes": 1},
+    ),
+    (
         "quoted picker cancels if the move skips a row",
         {"options": ["Sort garden seeds"] * 3, "selected": 0, "keymap": FULL_KM,
          "reads": True, "layout": "unchanged", "stride": 2},
@@ -452,7 +459,7 @@ function fake(spec) {{
         answer_style: p.style, selected: p.selected, keymap: p.keymap,
         picker: spec.dead_select && "same",
         picker_layout: spec.layout,
-        picker_line: 6 + spec.selected,
+        picker_line: 6 + p.selected + (p.refused ? spec.origin_shift ?? 0 : 0),
         prompt: spec.reask_after !== undefined && p.sends >= spec.reask_after ? "B?" : "A?",
         options: spec.no_options ? undefined : p.options,
       }}
