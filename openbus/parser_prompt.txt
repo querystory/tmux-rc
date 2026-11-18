@@ -50,7 +50,10 @@ it) — is a question in its own answer_style.
 A long-running foreground server, log tail, test watcher, or similar command with no
 bare shell prompt returned is activity "running", even when the latest captured log
 line is momentarily static or complete. Its headline should name the meaningful work
-visible in the logs, not merely say that a generic server is running.
+visible in the logs, not merely say that a generic server is running. An agent can also
+leave commands running in the background, listed under any heading, with its own empty
+input box live below: the agent is at its input, so its activity comes from its finished
+turn (usually "idle"), and the background commands go in the headline.
 
 IMPORTANT — mid-typing: the text right after a shell prompt on the LAST line may be a
 command the user is STILL TYPING and has NOT run yet. Do NOT report it as an executed
@@ -340,7 +343,10 @@ does not make a checklist; require visible checkbox/progress UI. A stale Plan/TO
 heading or old checkbox higher in scrollback does not turn a newer, unrelated
 conversational list into tasks.
 "subagents" is separate: the
-BACKGROUND agents this agent spawned to run in parallel — a block of rows each naming a
+other coding AGENTS this agent delegated work to, each an AI with its own context running
+in parallel. Shell commands it left running in the background (a server, a watcher, a log
+tail, under whatever heading the CLI lists them) are processes it owns, so they belong in
+the headline, and "subagents" holds only agents. Agents show as a block of rows each naming a
 delegated job with a live meter (Claude Code shows "general-purpose  <what it's doing>
 Nm  ↓Nk tokens"), or a "waiting for N background agents to finish" line. Each row is one
 subagent: put the job in "label", "running" while its meter ticks / "done" once it
