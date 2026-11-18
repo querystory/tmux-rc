@@ -1112,38 +1112,39 @@ class Watcher:
             except Exception:  # one pane must never wedge the watcher
                 logger.warning("bootstrap failed for %s", p.id, exc_info=True)
                 result = None
-            if result:
-                self._accumulate_prs(p.id, result.pop("working_prs", []))
-            if result and boot is not None:
-                # Refresh takes only the narration; keep the old name if the model
-                # dropped it this round.
-                boot["summary"] = result["summary"]
-                boot["name"] = result["name"] or boot["name"]
-                if result["name"] and boot.get("tool") in (None, "unknown"):
+            with self._pane_lock(p.id):  # beside an input-driven read of the pane
+                if result:
+                    self._accumulate_prs(p.id, result.pop("working_prs", []))
+                if result and boot is not None:
+                    # Refresh takes only the narration; keep the old name if the model
+                    # dropped it this round.
+                    boot["summary"] = result["summary"]
+                    boot["name"] = result["name"] or boot["name"]
+                    if result["name"] and boot.get("tool") in (None, "unknown"):
+                        current = self._state.get(p.id, {})
+                        boot["tool"] = current.get("identity_tool", current.get("tool"))
+                    boot["seq"] = self._events_seq.get(p.id, 0)
+                    logger.info("%s: summary refreshed", p.id)
+                elif result:
+                    # Reconstructed history seeds the FRONT of the log cache (it predates
+                    # anything observed live), and the parser's already-reported list so
+                    # the next live parse doesn't restate it as new events.
+                    log = self.events_log.setdefault(p.id, [])
+                    log[:0] = [{**e, "ts": now} for e in result["events"]]
+                    del log[:-EVENTS_LOG_MAX]
+                    self._events_seq[p.id] = (
+                        self._events_seq.get(p.id, 0) + len(result["events"])
+                    )
+                    recent = self._recent_events.setdefault(p.id, [])
+                    recent.extend((e["text"], now) for e in result["events"])
+                    # seq snapshots AFTER seeding: the seeded events themselves must not
+                    # count as "new activity" and trigger an immediate refresh.
                     current = self._state.get(p.id, {})
-                    boot["tool"] = current.get("identity_tool", current.get("tool"))
-                boot["seq"] = self._events_seq.get(p.id, 0)
-                logger.info("%s: summary refreshed", p.id)
-            elif result:
-                # Reconstructed history seeds the FRONT of the log cache (it predates
-                # anything observed live), and the parser's already-reported list so
-                # the next live parse doesn't restate it as new events.
-                log = self.events_log.setdefault(p.id, [])
-                log[:0] = [{**e, "ts": now} for e in result["events"]]
-                del log[:-EVENTS_LOG_MAX]
-                self._events_seq[p.id] = (
-                    self._events_seq.get(p.id, 0) + len(result["events"])
-                )
-                recent = self._recent_events.setdefault(p.id, [])
-                recent.extend((e["text"], now) for e in result["events"])
-                # seq snapshots AFTER seeding: the seeded events themselves must not
-                # count as "new activity" and trigger an immediate refresh.
-                current = self._state.get(p.id, {})
-                self._boot[p.id] = {
-                    **result, "ts": now, "seq": self._events_seq[p.id],
-                    "tool": current.get("identity_tool", current.get("tool")),
-                }
-                logger.info("%s: bootstrapped (%d events)", p.id, len(result["events"]))
+                    self._boot[p.id] = {
+                        **result, "ts": now, "seq": self._events_seq[p.id],
+                        "tool": current.get("identity_tool", current.get("tool")),
+                    }
+                    logger.info("%s: bootstrapped (%d events)", p.id, len(result["events"]))
             return  # at most one bootstrap attempt per tick
 
     # Every per-pane store, keyed by pane id. One tuple so gc (vanished panes) and
