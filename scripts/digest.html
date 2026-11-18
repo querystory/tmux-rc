@@ -13,7 +13,9 @@ a{color:var(--accent);text-decoration:none}
 nav{display:flex;gap:2px;padding:3px;border-radius:12px;background:var(--raised);margin-bottom:16px}
 nav label{flex:1;line-height:40px;text-align:center;color:var(--muted);font-size:14px;font-weight:600;border-radius:9px;cursor:pointer}
 #daily:checked~nav [for=daily],#weekly:checked~nav [for=weekly]{background:var(--lift);color:var(--fg);box-shadow:0 1px 3px rgb(0 0 0/.14)}
-input[name=view],#daily:not(:checked)~.daily,#weekly:not(:checked)~.weekly{display:none}
+#daily:not(:checked)~.daily,#weekly:not(:checked)~.weekly{display:none}
+input[name=view]{position:absolute;opacity:0;pointer-events:none}
+#daily:focus-visible~nav [for=daily],#weekly:focus-visible~nav [for=weekly]{outline:2px solid var(--accent)}
 .date,.pick,.key,.ch,.act small,.tcard .hd span,.pace .bars div{font-size:13px;color:var(--muted)}
 .date{padding:0 4px 6px}
 .verdict{font-size:18px;line-height:1.38;font-weight:600;margin-bottom:16px;padding:0 4px;text-wrap:balance}

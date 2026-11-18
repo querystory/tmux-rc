@@ -115,9 +115,9 @@ def test_pages_keep_change_numbers_behind_a_tap(tmp_path):
     landed["themes"]["s"]["members"] += [  # two in progress and one red: not a stuck theme
         "example-org/tidewatch#91", "example-org/tidewatch#93", "example-org/harbor#423"]
     assert digest.lay(landed, FACTS)["themes"][0]["state"] == "open"
-    spike = {"themes": {"s": dict.fromkeys(("name", "short", "outcome"), "x")
-                        | {"members": ["wt:example-org/harbor/reader-spike"]}}}
-    assert digest.lay(spike, FACTS)["themes"][0]["state"] == "open"  # effort alone is not stuck
+    seeds = {"themes": {"s": {"name": "x", "members": ["wt:example-org/harbor/reader-spike"]},
+                        "hand": {"name": "Written by hand"}}}  # effort alone, or just a name
+    assert [t["state"] for t in digest.lay(seeds, FACTS)["themes"]] == ["open", "open"]
     assert [a["text"] for a in d["actions"]] == [
         "Offline reading needs a rebase", "Reminders can merge", "Search ranking",
         "A teammate asks for your review"]
@@ -147,6 +147,9 @@ def test_scorer_fails_unsafe_advice_and_counts_regrouping():
     assert not digest_eval.score(unsafe, base())["pass"]
     unsafe = base()
     unsafe["weekly"] += " Delete the old worktrees."
+    assert not digest_eval.score(unsafe, base())["pass"]
+    unsafe = base()
+    unsafe["actions"][0]["text"] = "Highlight sync can merge"  # a rebase ask may not say so
     assert not digest_eval.score(unsafe, base())["pass"]
     mixed = copy.deepcopy(BASELINE)
     mixed["themes"]["desk"]["members"] += mixed["themes"].pop("search")["members"]
