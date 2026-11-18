@@ -98,6 +98,9 @@ PARSE_RETRIES = 3
 # has to re-read every card (a CARD_VERSION bump, a changed screen) queued ~30 model calls
 # behind each other, and one slow call held up every card behind it.
 TICK_WORKERS = 4
+# Input-driven reads (request_reparse) run beside them, this many at a time, so the two
+# together stay inside llm._MAX_CALLS and a burst of taps cannot fail the fleet's calls.
+INPUT_WORKERS = 2
 BOOTSTRAP_LINES = 800
 BOOTSTRAP_ATTEMPTS = 3
 BOOTSTRAP_RETRY_SECONDS = 60
@@ -421,7 +424,8 @@ class Watcher:
         self._force_parse: set[str] = set()
         self._forced_this_tick: set[str] = set()  # drained from _force_parse per _tick
         self._queued: dict[str, float] = {}  # pane -> latest input awaiting its own read
-        self._pane_locks: dict[str, threading.Lock] = {}  # one read per pane at a time
+        self._pane_locks: dict[str, threading.RLock] = {}  # one read per pane at a time
+        self._inputs = ThreadPoolExecutor(max_workers=INPUT_WORKERS, thread_name_prefix="input")
         self._wake = asyncio.Event()
         self._evloop: asyncio.AbstractEventLoop | None = None  # set in start()
         # State long-poll: a monotonic version bumped only when the DECK-relevant view
@@ -492,6 +496,7 @@ class Watcher:
     async def stop(self) -> None:
         self._pr_titles.close()
         self._pool.shutdown(wait=False)  # queued panes drain: the tick waits on each
+        self._inputs.shutdown(wait=False)
         if self._task:
             self._task.cancel()
 
@@ -643,12 +648,14 @@ class Watcher:
             queued = pane_id in self._queued
             self._queued[pane_id] = since
         if not queued:
-            timer = threading.Timer(SETTLE_SECONDS, self._reparse_now, (pane_id,))
-            timer.daemon = True  # never holds up shutdown
-            timer.start()
+            try:
+                self._inputs.submit(self._reparse_now, pane_id)
+            except RuntimeError:  # shut down: the keys went out, nothing left to show
+                pass
 
     def _reparse_now(self, pane_id: str) -> None:
         """request_reparse's read: the full pass's per-pane path, published alone."""
+        time.sleep(SETTLE_SECONDS)  # sends meanwhile join this read
         with self._publish_lock:
             since = self._queued.pop(pane_id)
         try:
@@ -909,25 +916,26 @@ class Watcher:
 
     def _finish(self, s: dict, p) -> dict:
         """Merge the per-pane products kept outside the parse into a card for the deck."""
-        s["events_seq"] = self._events_seq.get(s.get("pane_id"), 0)
-        s["prs"] = self._pr_titles.enrich(self._prs.get(s.get("pane_id"), []))
-        if s.get("pane_id") in self._prs:  # retire merged/closed for every consumer
-            self._prs[s["pane_id"]] = list(s["prs"])
-        b = self._boot.get(s.get("pane_id"))
-        if not b:
+        with self._pane_lock(p.id):  # against a read accumulating PRs meanwhile
+            s["events_seq"] = self._events_seq.get(s.get("pane_id"), 0)
+            s["prs"] = self._pr_titles.enrich(self._prs.get(s.get("pane_id"), []))
+            if s.get("pane_id") in self._prs:  # retire merged/closed for every consumer
+                self._prs[s["pane_id"]] = list(s["prs"])
+            b = self._boot.get(s.get("pane_id"))
+            if not b:
+                return s
+            s["session_summary"] = b["summary"]
+            # Retain the fallback even while an explicit title hides it, so clearing
+            # that title on an unchanged screen reveals the semantic name immediately.
+            tool = s.get("identity_tool", s.get("tool"))
+            if tool not in (None, "unknown"):
+                if tool == "shell" or b.get("tool") not in (None, "unknown", tool):
+                    b["name"] = None  # never resurrect it if this tool returns later
+                b["tool"] = tool
+            s["bootstrap_title"] = b["name"]
+            s["bootstrap_tool"] = b.get("tool")
+            _stamp_identity(s, p)
             return s
-        s["session_summary"] = b["summary"]
-        # Retain the fallback even while an explicit title hides it, so clearing
-        # that title on an unchanged screen reveals the semantic name immediately.
-        tool = s.get("identity_tool", s.get("tool"))
-        if tool not in (None, "unknown"):
-            if tool == "shell" or b.get("tool") not in (None, "unknown", tool):
-                b["name"] = None  # never resurrect it if this tool returns later
-            b["tool"] = tool
-        s["bootstrap_title"] = b["name"]
-        s["bootstrap_tool"] = b.get("tool")
-        _stamp_identity(s, p)
-        return s
 
     def _publish_states(self, states: list[dict], *, record_history: bool = True,
                         history_server: str | None = None, unread: set = frozenset()) -> None:
@@ -1174,13 +1182,14 @@ class Watcher:
         """Keep a bounded, most-recently-evidenced set of classifier-confirmed PR work."""
         if not candidates:
             return
-        prs = self._prs.setdefault(pane_id, [])
-        indexed = {(p["repo"].lower(), p["number"]): p for p in prs}
-        for pr in candidates:
-            key = (pr["repo"].lower(), pr["number"])
-            previous = indexed.pop(key, None)
-            indexed[key] = previous or dict(pr)
-        self._prs[pane_id] = list(indexed.values())[-MAX_PRS_PER_PANE:]
+        with self._pane_lock(pane_id):  # the bootstrap's and a read's, against _finish
+            prs = self._prs.setdefault(pane_id, [])
+            indexed = {(p["repo"].lower(), p["number"]): p for p in prs}
+            for pr in candidates:
+                key = (pr["repo"].lower(), pr["number"])
+                previous = indexed.pop(key, None)
+                indexed[key] = previous or dict(pr)
+            self._prs[pane_id] = list(indexed.values())[-MAX_PRS_PER_PANE:]
 
     def label_for(self, pane_id: str) -> str:
         """Last-known human label for a pane (falls back to the id), for out-of-tick
@@ -1449,8 +1458,8 @@ class Watcher:
         with self._pane_lock(pane.id):
             return self._read_pane(pane, since)
 
-    def _pane_lock(self, pane_id: str) -> threading.Lock:
-        return self._pane_locks.setdefault(pane_id, threading.Lock())
+    def _pane_lock(self, pane_id: str) -> threading.RLock:
+        return self._pane_locks.setdefault(pane_id, threading.RLock())
 
     def _read_pane(self, pane, since: float) -> dict:
         # Dim-marked so the parser can tell drafts/suggestions/chrome from output.
