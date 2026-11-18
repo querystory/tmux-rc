@@ -5,12 +5,14 @@ end-to-end case drives a fake digitless No/Yes menu (the shape of Claude Code's
 artifact-delete prompt) in a private tmux server reached only by its own -L socket,
 never $TMUX, and closes it by the pane id it created."""
 
+import json
 import os
 import shutil
 import subprocess
 import sys
 import time
 import uuid
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -332,6 +334,77 @@ def test_a_walk_down_a_counted_picker_is_sent(monkeypatch):
     with monkeypatch.context() as closing:  # the pane closed after it was found
         closing.setattr(tmux, "capture_pane", lambda *a, **k: subprocess.check_output("false"))
         assert send(question["picker"]) == 409
+
+
+
+@pytest.mark.parametrize("alternate_layout", [False, True])
+def test_quoted_rows_distinguish_duplicate_titles(monkeypatch, alternate_layout):
+    sample = Path(__file__).resolve().parents[1] / (
+        "research/eval/samples/235_codex_resume_duplicate_titles.json"
+    )
+    second = json.loads(sample.read_text())["capture"]
+    first = second.replace("  › 2d", "    2d").replace("    2d", "  › 2d", 1)
+    if alternate_layout:
+        first = first.replace("  › ", "  > ").replace("ago      ●", "ago  | saved |")
+        second = second.replace("  › ", "  > ").replace("ago      ●", "ago  | saved |")
+    options = ["Sort garden seeds", "Sort garden seeds", "Repair the greenhouse"]
+
+    def question(screen, rows, selected, quotes=None):
+        if quotes is None:
+            quotes = [line.strip() for line in screen.splitlines() if "ago" in line]
+        read = {"tool": "codex", "question": {"prompt": "Resume a previous session",
+                "answer_style": "cursor", "options": options, "selected": 0}}
+        reread = {"options": rows, "selected": selected, "rows": quotes}
+        calls = iter((read, reread))
+        return classify(CODEX_PANE, screen, lambda *_: next(calls))["question"]
+
+    before = question(first, options, 0)
+    after = question(second, options, 1)
+    assert (before["selected"], after["selected"]) == (0, 1)
+    assert before["picker"] != after["picker"]
+    assert before["picker_layout"] == after["picker_layout"]
+    quotes = [line.strip() for line in second.splitlines() if "ago" in line]
+    assert "picker" not in question(second, options[1:], 0, quotes[1:])  # the reread omitted a row
+    assert "picker" not in question(second, options[::-1], 1)  # the model reordered labels
+    assert "picker" not in question(second, options, 0)  # the model miscounted the cursor
+    assert "picker" not in question(second, options, 1, ["fabricated"] * 3)
+
+    monkeypatch.setattr(tmux, "capture_pane", lambda *a, **k: second)
+    body = server.SendBody(keys="Down", prompt=before["prompt"], picker=before["picker"])
+    readback = server._picker_after(CODEX_PANE.id, body)
+    assert (readback["picker"], readback["layout"], readback["line"]) == (
+        after["picker"], before["picker_layout"], before["picker_line"] + 1,
+    )
+
+
+def test_quoted_picker_rows_preserve_whitespace_inside_labels():
+    prompt = "Resume a previous session"
+    screen = f"{prompt}\n  › Saved | Sow basil\n    Saved | Sow  basil"
+    rows = ["› Saved | Sow basil", "Saved | Sow  basil"]
+
+    def question(options):
+        answers = iter((
+            {"tool": "codex", "question": {"prompt": prompt, "answer_style": "cursor",
+                                           "options": options}},
+            {"options": options, "rows": rows, "selected": 0},
+        ))
+        return classify(CODEX_PANE, screen, lambda *_: next(answers))["question"]
+
+    assert question(["Sow basil", "Sow  basil"]).get("picker")
+    assert "picker" not in question(["Sow  basil", "Sow basil"])
+
+
+def test_unambiguous_highlight_keeps_the_picker_when_other_titles_repeat():
+    screen = ("Resume a previous session\n  › Sort garden seeds\n"
+              "    Water seedlings\n    Water seedlings")
+    response = {"tool": "codex", "question": {
+        "prompt": "Resume a previous session", "answer_style": "cursor",
+        "options": ["Sort garden seeds", "Water seedlings", "Water seedlings"],
+    }}
+    answers = iter([response])  # no reread is needed to ground this highlight
+    question = classify(CODEX_PANE, screen, lambda *_: next(answers))["question"]
+    assert question["selected"] == 0
+    assert question.get("picker")
 
 
 MENU = """
