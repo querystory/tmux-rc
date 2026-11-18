@@ -956,12 +956,6 @@ def _invited(reply: str, view: str) -> bool:
     return False
 
 
-def _above_draft(text: str) -> str:
-    """The ask view above Claude's input box: its unsent draft is the user's words, so it
-    vouches for no offer and no reply the model suggests."""
-    return _below_turn(_ask_view(text), 0)
-
-
 def _one_line(text: str) -> str:
     """Rows as one line: each row's own spacing kept ('a  b' is a command's), a break a space."""
     return " ".join(row.strip() for row in text.splitlines() if row.strip())
@@ -972,19 +966,19 @@ def screen_offers(offers: object, text: str) -> list[str]:
     (_quoted), and a `! command` is one bash reads whole and that does not end in a line
     continuation (which bash -n accepts). Classify's gate, and the watcher's on a screen it
     does not reparse (its fingerprint ignores a duration). What to send, "! " included, is
-    the model's call (_fold_sends). An offer is sent as one line (_one_line). The unsent
-    draft in the input box vouches for nothing. A reply ("delete it" for "I'd delete this
-    job, unless you want to keep it") is the user's words, so it is on the screen word by
-    word rather than whole."""
+    the model's call (_fold_sends). An offer is sent as one line, so a row break the model
+    copied from a wrap is a space. A reply ("delete it" for "I'd delete this job, unless you
+    want to keep it") is the user's words, so it is on the screen word by word rather than
+    whole."""
     listed = offers if isinstance(offers, list) else ()
-    above = _above_draft(text)
+    visible = _ask_view(text)
     whole = [_one_line(o) for o in listed if isinstance(o, str)]
     # A reply is the user's own words for the final message's ask ("merge PR #5144" for
     # "Approvals to merge PR #5385 and PR #5144"), read off one paragraph (_invited). A
     # `! command` the agent wrote without its "!" is on the screen as the command alone.
-    shown = lambda o: _quoted(o, above) or (  # noqa: E731
-        o.startswith("! ") and _quoted(o[2:], above)) or (
-        not o.startswith("!") and _invited(o, above))
+    shown = lambda o: _quoted(o, visible) or (  # noqa: E731
+        o.startswith("! ") and _quoted(o[2:], visible)) or (
+        not o.startswith("!") and _invited(o, visible))
     kept = [o for o in dict.fromkeys(whole)
             if shown(o) and not (o.startswith("! ") and (o.endswith("\\") or not _parses(o[2:])))]
     return [o for o in kept if f"! {o}" not in kept][:3]  # the command, not its plain copy too
