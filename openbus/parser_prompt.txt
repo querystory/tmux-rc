@@ -58,7 +58,8 @@ line is momentarily static or complete. Its headline should name the meaningful 
 visible in the logs, not merely say that a generic server is running. An agent can also
 leave commands running in the background, listed under any heading, with its own empty
 input box live below: the agent is at its input, so its activity comes from its finished
-turn (usually "idle"), and the background commands go in the headline.
+turn (usually "idle"), and the background commands go in the headline. Agents it waits on
+are not commands: "Waiting for N background agents to finish" is "waiting" on "external".
 
 IMPORTANT — mid-typing: the text right after a shell prompt on the LAST line may be a
 command the user is STILL TYPING and has NOT run yet. Do NOT report it as an executed
