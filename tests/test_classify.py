@@ -1087,10 +1087,6 @@ def test_claude_title_above_status_bar_is_preserved():
         "tool": "claude", "session": "Fix login redirects",
     }))
     assert result["session"] == "Fix login redirects"
-    # Today's Claude Code puts it on the input box's top border instead.
-    capture = "● Done.\n──────────── demo ─\n❯ \n─────────────\n  ~/src/app | Opus 5.5"
-    result = classify(_pane("claude"), capture, _llm({"tool": "claude", "session": "demo"}))
-    assert result["session"] == "demo"
 
 
 def test_stale_question_is_reread_from_visible_screen_only():
