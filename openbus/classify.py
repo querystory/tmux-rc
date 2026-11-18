@@ -241,10 +241,10 @@ def _quoted_picker_rows(read: PickerRead, options: list, rows: object, selected:
     first = position.line - selected
     if first < 0:
         return False
-    quotes = [" ".join(row.split()) for row in rows]
+    quotes = [row.strip() for row in rows]
     seen = position.body[first:first + len(rows)]
-    labels = [" ".join(option.split()) for option in options]
-    return ([" ".join(line.split()) for line in seen] == quotes
+    labels = [option.strip() for option in options]
+    return ([line.strip() for line in seen] == quotes
             and all(label in quote for label, quote in zip(labels, quotes, strict=True)))
 
 

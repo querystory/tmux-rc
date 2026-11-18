@@ -407,6 +407,23 @@ def test_quoted_rows_distinguish_duplicate_titles(monkeypatch, alternate_layout)
     )
 
 
+def test_quoted_picker_rows_preserve_whitespace_inside_labels():
+    prompt = "Resume a previous session"
+    screen = f"{prompt}\n  › Saved | Sow basil\n    Saved | Sow  basil"
+    rows = ["› Saved | Sow basil", "Saved | Sow  basil"]
+
+    def question(options):
+        answers = iter((
+            {"tool": "codex", "question": {"prompt": prompt, "answer_style": "cursor",
+                                           "options": options}},
+            {"options": options, "rows": rows, "selected": 0},
+        ))
+        return classify(CODEX_PANE, screen, lambda *_: next(answers))["question"]
+
+    assert question(["Sow basil", "Sow  basil"]).get("picker")
+    assert "picker" not in question(["Sow  basil", "Sow basil"])
+
+
 def test_unambiguous_highlight_keeps_the_picker_when_other_titles_repeat():
     screen = ("Resume a previous session\n  › Sort garden seeds\n"
               "    Water seedlings\n    Water seedlings")
