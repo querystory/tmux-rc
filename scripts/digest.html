@@ -11,8 +11,9 @@ main{overflow-wrap:anywhere;max-width:560px;margin:0 auto;padding:16px 12px 48px
 p{margin:0}
 a{color:var(--accent);text-decoration:none}
 nav{display:flex;gap:2px;padding:3px;border-radius:12px;background:var(--raised);margin-bottom:16px}
-nav a{flex:1;line-height:40px;text-align:center;color:var(--muted);font-size:14px;font-weight:600;border-radius:9px}
-nav a[aria-current]{background:var(--lift);color:var(--fg);box-shadow:0 1px 3px rgb(0 0 0/.14)}
+nav label{flex:1;line-height:40px;text-align:center;color:var(--muted);font-size:14px;font-weight:600;border-radius:9px;cursor:pointer}
+#daily:checked~nav [for=daily],#weekly:checked~nav [for=weekly]{background:var(--lift);color:var(--fg);box-shadow:0 1px 3px rgb(0 0 0/.14)}
+input[name=view],#daily:not(:checked)~.daily,#weekly:not(:checked)~.weekly{display:none}
 .date,.pick,.key,.ch,.act small,.tcard .hd span,.pace .bars div{font-size:13px;color:var(--muted)}
 .date{padding:0 4px 6px}
 .verdict{font-size:18px;line-height:1.38;font-weight:600;margin-bottom:16px;padding:0 4px;text-wrap:balance}
@@ -60,12 +61,13 @@ main>details{padding:8px 4px}
 /* weekly: effort map, theme cards, against last week */
 .tm{display:flex;flex-direction:column;gap:3px;height:230px}
 .tm>div{display:flex;gap:3px;min-height:38px;flex-basis:0}
-.tm>div>div{flex-basis:auto;min-width:0;border-radius:8px;padding:8px;font-size:13px;font-weight:600;line-height:1.25;white-space:nowrap;overflow:hidden;display:flex;align-items:flex-end}
-.tm .s-main{background:var(--g1);color:var(--surface)}
-.tm .s-held{background:var(--g3)}
-.tm .s-open{background:var(--raised)}
-.tm .s-stuck{background:color-mix(in srgb,var(--red) 22%,var(--surface));box-shadow:inset 0 0 0 1.5px var(--red)}
-.tm .s-none{box-shadow:inset 0 0 0 1px var(--line);color:var(--muted);font-weight:400}
+.tm>div>div{flex-basis:auto;min-width:0;border-radius:8px;padding:8px;gap:6px;font-size:13px;font-weight:600;line-height:1.25;white-space:nowrap;overflow:hidden;display:flex;align-items:flex-end;background:var(--raised)}
+.tm .d{margin-bottom:3px;cursor:default}
+.tm .s-main{background:color-mix(in srgb,var(--g2) 30%,var(--surface))}
+.tm .s-held{background:color-mix(in srgb,var(--g2) 13%,var(--surface))}
+.tm .s-stuck{background:color-mix(in srgb,var(--red) 18%,var(--surface))}
+.tm .s-none{background:none;box-shadow:inset 0 0 0 1px var(--line);color:var(--muted);font-weight:400}
+.tm .none{display:none}
 .tcard{padding:16px 0;border-top:1px solid var(--line)}
 .tcard:first-child{border-top:0;padding-top:0}
 .tcard:last-child{padding-bottom:0}
@@ -89,8 +91,11 @@ h4+.vs{border-top:0;padding-top:0}
 .vs p{font-weight:600;line-height:1.3}
 [hidden]{display:none}
 </style>
-<script>// Sandboxed like every scratch page, so the system theme; in <head> for the first paint.
-document.documentElement.classList.toggle("light", !matchMedia("(prefers-color-scheme: dark)").matches);</script>
+<script>// In <head> for the first paint. The app's theme when it frames the page and says so
+// (as it does for scratch_markdown.html), else the system's.
+const root = document.documentElement;
+root.classList.toggle("light", !matchMedia("(prefers-color-scheme: dark)").matches);
+addEventListener("message", (e) => e.source === parent && typeof e.data?.light === "boolean" && root.classList.toggle("light", e.data.light));</script>
 </head><body><main>{body}</main>
 <script>
 // A tapped dot says what that change is, and links to it: numbers stay behind the tap.

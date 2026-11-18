@@ -6,13 +6,13 @@ that has no theme yet. A theme is a piece of work the developer would name in co
 feature, a product area, a cleanup effort. A good page has four to seven broad themes that
 between them hold nearly all the work, landed as much as in flight: what has reached main is
 what a theme's outcome line reports. Put each new item in the existing theme it belongs to,
-or start a theme when several new items share a purpose. Leave out only an item that is routine
+and start a theme only when several new items share a purpose that no existing theme covers. Leave out only an item that is routine
 upkeep with no theme of its own.
 
 Return JSON with:
 - `themes`: every theme on the page. `id` is its permanent handle: an existing theme keeps its
-  id, a new one gets a short lowercase word. `name` is the card's title, the way the developer
-  would say it aloud. `short` is one or two words that label its block in the effort chart.
+  id and its name, which are the developer's own; a new one gets a short lowercase word and a
+  `name`, the card's title, the way the developer would say it aloud. `short` is one or two words that label its block in the effort chart.
   `outcome` is the card's one or two sentences: what someone using this work can now do, then
   what holds the rest up, drawn from the titles and stages of its work. `add` lists the `n` of
   each new item in it.
