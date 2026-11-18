@@ -44,7 +44,7 @@ shaped for the phone and carries only the events new since the last parse.
 | `POST /api/panes/{id}/image` | Attach one image (clipboard paste, falling back to a path) |
 | `POST /api/panes/{id}/click`, `/wheel` | Mouse click and scroll for apps that take them |
 | `POST /api/panes/{id}/fit` | Fit the pane's window width to the phone ([fit width](design/fit-width.md)) |
-| `POST /api/panes/{id}/select` | Focus the pane in tmux on the host |
+| `POST /api/panes/{id}/select` | Record opening the pane and focus it in tmux on the host; `?follow=0` (Settings, Desktop follows phone off) skips the focus, so voice and chat "here" stays tmux's active pane |
 | `POST /api/panes/{id}/rename` | Rename the pane, its session, or both |
 | `POST /api/panes/{id}/close` | Kill the window that contains the pane |
 | `GET`/`POST /api/panes/{id}/expunge` | Preview, then kill the window and delete the agent session's local files ([design](design/expunge.md)) |

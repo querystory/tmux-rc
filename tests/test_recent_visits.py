@@ -54,6 +54,8 @@ def test_opening_a_pane_is_a_visit_and_recent_lists_only_live_ones(tmp_path, mon
     monkeypatch.setitem(server.app.state._state, "history", h)
     monkeypatch.setattr(server.tmux, "server_uid", lambda: "boot:1")
     monkeypatch.setattr(server.tmux, "find_pane", lambda p: SimpleNamespace(id=p, pid=births[p]))
+    focused = []
+    monkeypatch.setattr(server.tmux, "select_pane", focused.append)
     monkeypatch.setattr(server, "_audit", lambda *_a, **_k: None)
     (tmp_path / "s" / "mock").mkdir(parents=True)
     (tmp_path / "s" / "mock" / "index.html").write_text("<title>A mock</title>")
@@ -61,6 +63,8 @@ def test_opening_a_pane_is_a_visit_and_recent_lists_only_live_ones(tmp_path, mon
     client = TestClient(server.app)
     for pane in ("%1", "%3", "%2", "%1"):  # %3 closes after; %1 again is no second row
         assert client.post(f"/api/panes/{pane}/select").status_code == 200
+    assert client.post("/api/panes/%1/select?follow=0").status_code == 200  # a visit, no focus
+    assert focused == ["%1", "%3", "%2", "%1"]
     known["%2"] = "200"  # %2, just launched, was opened before the watcher found it
     h.visit("pane", "boot:1:%2:old", 1e12)  # a recycled id: some other pane than %2 now
     h.visit("pane", "boot:0:%2:200", 1e12)  # an earlier tmux server's %2, the same pid
