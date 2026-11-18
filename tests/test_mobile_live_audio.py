@@ -227,14 +227,19 @@ const navigator = {audioSession, serviceWorker: new EventTarget(), wakeLock: {re
 }}};
 // Cache Storage, where sw.js records a notification tap: by cache name and key.
 const tapped = new Map();
+let midRead = null; // a worker write landing between a match() and its json()
 const caches = {open: async (name) => ({
   match: async (key) => {
     const entry = tapped.get(`${name} ${key}`);
-    return entry && {json: async () => entry};
+    const json = async () => { const write = midRead; midRead = null; write?.(); return entry; };
+    return entry && {json};
   },
-  delete: async (key) => tapped.delete(`${name} ${key}`)})};
-const sandbox = {document, window, navigator, caches, AudioContext: Context, WebSocket: Socket,
-  appendChatMarkdown, renderChatText, since, paneName, sessionOf,
+  put: async (key, response) => tapped.set(`${name} ${key}`, await response.json())})};
+// Whether the recorded tap is still unspent (live.js marks the last one it acted on).
+const unspent = () =>
+  +((tapped.get('chat-tap /__tapped-chat')?.at ?? 0) > (tapped.get('chat-tap /__spent-tap') ?? 0));
+const sandbox = {document, window, navigator, caches, Response, AudioContext: Context,
+  WebSocket: Socket, appendChatMarkdown, renderChatText, since, paneName, sessionOf,
   AudioWorkletNode: class { constructor() {this.port = {};} connect() {} disconnect() {} },
   Audio: class {
     constructor() {this.paused = true; this.pending = initialPlayPending; outputs.push(this);}
@@ -261,7 +266,7 @@ const panes = []; // app.js's pane list
 const live = sandbox.setup({licon: (name) => name, wide, open: (id) => opened.push(id),
   onLink: (url) => links.push(url), panes: () => panes, logos: {claude: '/claude.png'},
   request: async () => { if (!version) throw Error('offline'); return version; }});
-const flush = async () => {for (let i = 0; i < 20; i++) await Promise.resolve();};
+const flush = async () => {for (let i = 0; i < 40; i++) await Promise.resolve();};
 const status = () => document.getElementById('voice-status').textContent;
 """
 
@@ -507,8 +512,9 @@ def test_chat_needs_you_tap_whose_message_was_lost_is_pulled_when_the_page_comes
 (async () => {
   const $ = (id) => document.getElementById(id), dialog = $('voice-dialog');
   // What sw.js records on a tap, `ago` ms back; and the page's reads of it, now and later.
+  let tick = 0; // each tap its own `at`, even within one millisecond
   const record = (chat, ago = 0) =>
-    tapped.set('chat-tap /__tapped-chat', {chat, at: Date.now() - ago});
+    tapped.set('chat-tap /__tapped-chat', {chat, at: Date.now() - ago + ++tick});
   const reads = async () => {
     [...timers].filter((t) => t.name === 'pullTap').forEach((t) => t()); await flush();
   };
@@ -531,10 +537,10 @@ def test_chat_needs_you_tap_whose_message_was_lost_is_pulled_when_the_page_comes
   record('p1', 61000); await back(); // too old: a tap from some other time
   assert.equal(dialog.open, false);
   record('p2'); await back(); // another tab's card: left for that tab
-  assert.equal(dialog.open, false); assert.equal(tapped.size, 1);
+  assert.equal(dialog.open, false); assert.equal(unspent(), 1);
   record('p1'); await back();
   assert.equal(dialog.open, true); assert.equal(actions.scrolled, before + 1);
-  assert.equal(tapped.size, 0); // spent
+  assert.equal(unspent(), 0); // spent
   // Minimized again, a later return to the app leaves it so.
   $('voice-close').onclick(); await back('focus');
   assert.equal(dialog.open, false);
@@ -543,7 +549,7 @@ def test_chat_needs_you_tap_whose_message_was_lost_is_pulled_when_the_page_comes
   const message = Object.assign(new Event('message'), {data: {chat: 'p1'}, ports: []});
   navigator.serviceWorker.dispatchEvent(message); await flush(); await back('pageshow');
   assert.equal(dialog.open, true); assert.equal(actions.scrolled, before + 2);
-  assert.equal(tapped.size, 0);
+  assert.equal(unspent(), 0);
 })().catch((error) => {console.error(error); process.exitCode = 1;});
 """, {"version": "v", "live_enabled": True, "live_models": [{"label": "Sonnet", "text": True}]})
 
@@ -562,7 +568,7 @@ def test_tapped_push_address_opens_once_from_the_message_or_the_record():
   record({open: url, at: 1}); await reads(); // stale: from some other time
   assert.deepEqual(links, []);
   record({open: url, at: Date.now()}); await reads(); // the boot's read
-  assert.deepEqual(links, [url]); assert.equal(tapped.size, 0);
+  assert.deepEqual(links, [url]); assert.equal(unspent(), 0);
   const at = Date.now() + 1;
   record({open: url, at});
   const tell = (data) => navigator.serviceWorker.dispatchEvent(
@@ -580,13 +586,18 @@ def test_tapped_push_address_opens_once_from_the_message_or_the_record():
   // A window not on screen leaves the tap for the one that is.
   record({open: newer, at: at + 2});
   document.hidden = true; await reads(); document.hidden = false;
-  assert.deepEqual(links, [url, url, newer]); assert.equal(tapped.size, 1);
+  assert.deepEqual(links, [url, url, newer]); assert.equal(unspent(), 1);
   // Spending an older tap leaves a newer record the worker wrote meanwhile.
   tell({open: url, at: at + 3}); record({open: newer, at: at + 4}); await flush();
-  assert.equal(tapped.size, 1); await reads();
+  assert.equal(unspent(), 1); await reads();
   assert.deepEqual(links, [url, url, newer, url, newer]);
+  // The worker records a newer tap after a spend's read snapshotted the older one: it stays.
+  record({open: url, at: at + 5}); midRead = () => record({open: newer, at: at + 6});
+  tell({open: url, at: at + 5}); await flush();
+  assert.equal(unspent(), 1); await reads();
+  assert.deepEqual(links, [url, url, newer, url, newer, url, newer]);
   tell({open: url}); // the previous worker's message: no `at`, opened as it always was
-  assert.deepEqual(links, [url, url, newer, url, newer, url]);
+  assert.deepEqual(links, [url, url, newer, url, newer, url, newer, url]);
 })().catch((error) => {console.error(error); process.exitCode = 1;});
 """, {"version": "v", "live_enabled": True, "live_models": [{"label": "Sonnet", "text": True}]})
 

@@ -1,6 +1,6 @@
 // Push-only service worker. Deliberately NO fetch handler and NO asset caching: every app
 // asset continues to come from the network, preserving tmux-rc's no-stale-UI contract. The
-// one cache entry is the last notification tap, for the page to pull (live.js).
+// one cache holds the last notification tap, for the page to pull, and the last it spent (live.js).
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
