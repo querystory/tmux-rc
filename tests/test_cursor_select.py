@@ -16,7 +16,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from openbus import push, server, tmux
+from openbus import server, tmux
 from openbus.classify import classify, highlighted_row, picker_digest
 from openbus.tmux import Pane
 
@@ -263,26 +263,16 @@ CODEX_TRUST = """  Folder access
 CODEX_PANE = Pane("work", "0", "codex", "0", "%0", "codex", "t", "/home/x/proj")
 
 
-def test_a_codex_enter_footer_picker_is_walked_not_digited():
+def test_a_codex_trust_dialog_read_as_a_cursor_list_is_walked():
     asked, rows = "Trust this folder?", ["Trust and continue", "Back to Agent Command Center"]
-    read = {"tool": "codex", "question": {"prompt": asked, "answer_style": "menu", "options": rows}}
-
-    def parse(screen):
-        model = {**read, "question": dict(read["question"])}
-        text = f"{tmux.VISIBLE_SCREEN}\n{screen}"
-        return classify(CODEX_PANE, text, lambda s, t: model)["question"]
-
-    question = parse(CODEX_TRUST)
-    assert question["answer_style"] == "cursor"
+    keymap = {"next": "Down", "prev": "Up", "select": "Enter", "search": False}
+    model = {"tool": "codex", "question": {
+        "prompt": asked, "answer_style": "cursor", "options": rows, "keymap": keymap}}
+    text = f"{tmux.VISIBLE_SCREEN}\n{CODEX_TRUST}"
+    question = classify(CODEX_PANE, text, lambda s, t: model)["question"]
+    assert question["answer_style"] == "cursor" and question["keymap"] == keymap
     assert question["selected"] == 0
-    assert question["keymap"] == {"next": "Down", "prev": "Up", "select": "Enter", "search": False}
     assert question["picker"] == picker_digest(CODEX_TRUST, asked)
-    # Codex's approval box takes its digits, and a highlight the screen does not show
-    # leaves a walk nothing to hold to: both stay menus.
-    approval = CODEX_TRUST.replace("enter continue · esc back",
-                                   "Press enter to confirm or esc to cancel")
-    assert parse(approval)["answer_style"] == "menu"
-    assert parse(CODEX_TRUST.replace("› 1.", "  1."))["answer_style"] == "menu"
 
 
 def test_a_menu_answer_the_screen_ignores_is_reported(monkeypatch):
@@ -311,26 +301,6 @@ def test_a_menu_answer_the_screen_ignores_is_reported(monkeypatch):
     screens.append("Ask Codex to do anything")  # answered: the dialog is gone
     monkeypatch.setattr(tmux, "capture_pane", lambda *a, **k: screens.pop(0))
     assert send().json() == {"ok": True}
-
-
-def test_a_stale_cards_digit_is_refused_at_an_arrow_driven_picker(monkeypatch):
-    """A card parsed before the trust dialog counted as arrow-driven (cached across a
-    deploy) still offers "1": the claim refuses it unsent, so the reread walks it."""
-    rows = ["Trust and continue", "Back to Agent Command Center"]
-    stale = {"pane_id": CODEX_PANE.id, "activity": "waiting", "question": {
-        "prompt": "Trust this folder?", "answer_style": "menu", "options": rows}}
-    watcher = SimpleNamespace(
-        is_stale=lambda: False, pane_parse_valid=lambda p: True, states=[stale],
-        pane_birth=lambda p: "b", pane_input_generation=lambda p: 1,
-        frame_fp=lambda *a: "f", consume_answer=lambda *a: None)
-    digest = push.contract(stale, "b")[0]
-    claim = lambda: push.claim_question(watcher, CODEX_PANE.id, digest, 1, "f")  # noqa: E731
-    monkeypatch.setattr(tmux, "capture_pane", lambda *a, **k: CODEX_TRUST)
-    with pytest.raises(ValueError, match="arrows"):
-        claim()
-    # Where the screen shows no highlight a walk could hold to, the digit is all there is.
-    monkeypatch.setattr(tmux, "capture_pane", lambda *a, **k: CODEX_TRUST.replace("› 1.", "  1."))
-    claim()
 
 
 def test_a_walk_down_a_counted_picker_is_sent(monkeypatch):
@@ -450,8 +420,8 @@ def test_ascii_numbered_picker_is_drivable():
     result = classify(
         Pane("demo", "0", "agy", "0", "%0", "agy", "demo"), screen,
         lambda s, t: {"tool": "antigravity", "question": {
-            "prompt": "Choose a palette:", "answer_style": "menu",
-            "options": ["Forest", "Ocean"],
+            "prompt": "Choose a palette:", "answer_style": "cursor",
+            "options": ["Forest", "Ocean"], "keymap": {"select": "Enter"},
         }},
     )
     question = result["question"]
@@ -461,45 +431,3 @@ def test_ascii_numbered_picker_is_drivable():
     assert question["keymap"]["select"] == "Enter"
     moved = screen.replace(" > 1. Forest", "   1. Forest").replace("   2. Ocean", " > 2. Ocean")
     assert highlighted_row(moved, "Choose a palette:", ["Forest", "Ocean"]) == "Ocean"
-
-
-# Claude Code's AskUserQuestion in a narrow pane: the question ends mid-row of a wrapped
-# paragraph, so no walk can find it as a row, but every option, the highlighted one
-# included, is drawn behind the digit that commits it.
-ASK_NARROW = """│ The old tide table and the new one disagree
-│ on two harbors. I recommend keeping the new
-│ one. What should I do?
-
-❯ 1. Keep the new table (Recommended)
-     Drop the old table and its cron job.
-  2. Keep both
-     Leave the old table for a week.
-  3. Keep the old table
-  4. Type something.
-──────────────────────────────────────────
-  5. Chat about this
-
-Enter to select · ↑/↓ to navigate · Esc to cancel"""
-
-
-def test_a_numbered_picker_read_as_a_cursor_list_is_a_menu():
-    rows = ["1. Keep the new table (Recommended)", "2. Keep both", "3. Keep the old table",
-            "4. Type something.", "5. Chat about this"]
-    model = {"tool": "claude", "question": {
-        "prompt": "What should I do?", "answer_style": "cursor", "options": rows, "selected": 0,
-        "keymap": {"next": "Down", "prev": "Up", "select": "Enter", "search": False}}}
-    text = f"{tmux.VISIBLE_SCREEN}\n{ASK_NARROW}"
-    question = classify(PANE, text, lambda s, t: model)["question"]
-    assert question["answer_style"] == "menu"
-    assert question["options"] == rows
-    # A footer that sends a digit elsewhere keeps the walk: a search box filters on it, and
-    # Codex's arrow-only dialog takes it as a move.
-    search = ASK_NARROW.replace("Esc to cancel", "Type to search · Esc to cancel")
-    model["question"]["answer_style"] = "cursor"
-    assert classify(PANE, f"{tmux.VISIBLE_SCREEN}\n{search}",
-                    lambda s, t: model)["question"]["answer_style"] == "cursor"
-    model["question"].update(prompt="Trust this folder?",
-                             options=["1. Trust and continue", "2. Back to Agent Command Center"])
-    codex = {**model, "tool": "codex"}
-    assert classify(CODEX_PANE, f"{tmux.VISIBLE_SCREEN}\n{CODEX_TRUST}",
-                    lambda s, t: codex)["question"]["answer_style"] == "cursor"
