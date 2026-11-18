@@ -1,0 +1,11 @@
+[Unit]
+Description=tmux-rc digest: the daily and weekly pages on scratch (scripts/digest.py)
+After=network-online.target
+
+[Service]
+Type=oneshot
+# `make install-digest` rewrites this line to the checkout it runs from, as install-units
+# does for the daemon. The script loads that checkout's .env itself.
+WorkingDirectory=%h/src/tmux-rc
+ExecStart=%h/.local/bin/uv run python -m scripts.digest
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin

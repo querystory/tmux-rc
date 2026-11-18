@@ -24,7 +24,7 @@ PROVENANCE = re.compile(r"real (?:capture|pane)|anonymi[sz]ed|saniti[sz]ed", re.
 # The longest invented sample is under 5k; a whole real pane runs to 9k and more.
 CAPTURE_CAP = 6000
 
-FIXTURES = [*SAMPLES, *(ROOT / "research/eval/closing_questions").glob("*.json"),
+FIXTURES = [*SAMPLES, *(ROOT / "research/eval").glob("*/*.json"),
             *(ROOT / "research/samples").glob("*.txt")]
 
 
