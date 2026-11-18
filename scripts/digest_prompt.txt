@@ -5,7 +5,8 @@ The input lists the `themes` already on their page, each with the work in it, an
 that has no theme yet. A theme is a piece of work the developer would name in conversation: a
 feature, a product area, a cleanup effort. A good page has four to seven broad themes that
 between them hold nearly all the work, landed as much as in flight: what has reached main is
-what a theme's outcome line reports. Put each new item in the existing theme it belongs to,
+what a theme's outcome line reports. A theme's `holds`, where it has one, is the developer's own line
+for what belongs in it. Put each new item in the existing theme it belongs to,
 and start a theme only when several new items share a purpose that no existing theme covers. Leave out only an item that is routine
 upkeep with no theme of its own.
 

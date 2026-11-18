@@ -26,8 +26,9 @@ from openbus.scratch_markdown import tokens
 
 DAY = 86400
 HERE = Path(__file__).parent
-# themes.json, the registry, is plain JSON meant to be edited: rename a theme, reword it, or
-# write your own themes with empty members, and the model files work under them.
+# themes.json, the registry, is plain JSON meant to be edited: rename a theme, give it a
+# "holds" line saying what belongs in it, or write your own themes with empty members, and
+# the model files work under them.
 STATE = Path.home() / ".local/share/tmux-rc/digest"
 STAGES = {"main": "on main", "held": "on your machine", "ready": "approved, waiting",
           "open": "in progress", "stuck": "stuck", "dropped": "closed"}
@@ -274,7 +275,7 @@ def lay(reg: dict, facts: dict) -> dict:
         pieces = sorted((live[k] for k in t["members"] if k in live),
                         key=lambda c: (list(STAGES).index(c["stage"]), not c["need"], c["key"]))
         active = [p["stage"] for p in pieces if p["stage"] != "dropped"]
-        rest = [stage for stage in active if stage != "main"]
+        rest = ["open" if stage == "ready" else stage for stage in active if stage != "main"]
         spent = week(t["members"])
         if pieces or spent:
             t["last"] = now
@@ -282,10 +283,12 @@ def lay(reg: dict, facts: dict) -> dict:
             "id": tid, **{k: t[k] for k in ("name", "short", "outcome", "members")},
             "pieces": pieces, "effort": spent, "part": spent / total,
             "share": next(word for least, word in SIZES if spent / total >= least),
-            # On main only when nearly all of it is; else the state of what is outstanding:
-            # stuck before held before in progress.
+            # On main only when nearly all of it is; else the state most of the outstanding
+            # work is in (a tie: stuck, then held, then in progress). One red change among
+            # many is its own red dot, not the theme's word.
+            "holds": t.get("holds", ""),
             "state": "main" if active and len(rest) <= len(active) / 10
-            else next((s for s in ("stuck", "held") if s in rest), "open")})
+            else max(("stuck", "held", "open"), key=lambda s: rest.count(s))})
     themes.sort(key=lambda t: (not any(p["need"] for p in t["pieces"]), -t["effort"]))
     placed = {k for t in themes for k in t["members"]}
     loose = [c for k, c in live.items() if k not in placed]
@@ -334,7 +337,7 @@ def build(facts: dict, reg: dict, ask) -> dict:
     reg.setdefault("themes", {})
     d = lay(reg, facts)
     reply = ask((HERE / "digest_prompt.txt").read_text(), json.dumps({
-        "themes": [{"id": t["id"], "name": t["name"], "outcome": t["outcome"],
+        "themes": [{"id": t["id"], "name": t["name"], "holds": t["holds"], "outcome": t["outcome"],
                     "state": STATES[t["state"]], "share": t["share"],
                     "work": [{k: p[k] for k in ("repo", "title", "stage")} for p in t["pieces"]]}
                    for t in d["themes"]],

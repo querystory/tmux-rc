@@ -108,10 +108,13 @@ def test_theme_identity_is_stable():
 
 def test_pages_keep_change_numbers_behind_a_tap(tmp_path):
     d = base()
-    assert [t["state"] for t in d["themes"]] == ["held", "stuck", "open", "open"]
+    assert [t["state"] for t in d["themes"]] == ["held", "open", "open", "open"]
     landed = {"themes": {"s": {**BASELINE["themes"]["search"], "members": [
         "example-org/tidewatch#88", "example-org/tidewatch#90"]}}}
     assert digest.lay(landed, FACTS)["themes"][0]["state"] == "main"  # only when all of it is
+    landed["themes"]["s"]["members"] += [  # two in progress and one red: not a stuck theme
+        "example-org/tidewatch#91", "example-org/tidewatch#93", "example-org/harbor#423"]
+    assert digest.lay(landed, FACTS)["themes"][0]["state"] == "open"
     spike = {"themes": {"s": dict.fromkeys(("name", "short", "outcome"), "x")
                         | {"members": ["wt:example-org/harbor/reader-spike"]}}}
     assert digest.lay(spike, FACTS)["themes"][0]["state"] == "open"  # effort alone is not stuck
