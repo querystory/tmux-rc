@@ -52,6 +52,9 @@ REPOSITORY_REFRESH_SECONDS = 60.0
 # subprocess per interval (negligible). A true event-driven source (tmux control mode,
 # `tmux -C`) would remove the poll entirely — see docs/design/control-mode-watcher.md.
 FAST_POLL = 0.1
+# Input re-reads its pane this long after the send, so the capture sees the app's redraw
+# rather than the screen the key was typed on (request_reparse).
+SETTLE_SECONDS = 0.3
 # Full-text snapshots per pane (the timeline). Snapshots append on real content change
 # only; each is <=~24KB (200 lines), so 200 of them is ~5MB/pane worst case — memory is
 # cheap and none of this reaches the model, so keep enough to scroll back meaningfully.
@@ -297,6 +300,14 @@ def _activity_ts(pane) -> float | None:
         return None
 
 
+def _latest(new: dict, shown: dict | None) -> dict:
+    """`new`, unless the deck already shows a later read of its pane: an input-driven read
+    (request_reparse) can land while a full pass still holds an older one to publish."""
+    if shown and new.get("updated_at") and shown.get("updated_at", 0) > new["updated_at"]:
+        return shown
+    return new
+
+
 def _server_alive(server: str, current: str) -> bool:
     """Whether another tmux server uid ('<boot_id>:<pid>') may still be running: same
     boot, and its pid exists. A reused pid only keeps a dead server's rows longer."""
@@ -409,6 +420,8 @@ class Watcher:
         # so a submitted answer/keypress re-parses within a capture, not a poll interval.
         self._force_parse: set[str] = set()
         self._forced_this_tick: set[str] = set()  # drained from _force_parse per _tick
+        self._queued: set[str] = set()  # panes with an input-driven read pending
+        self._pane_locks: dict[str, threading.Lock] = {}  # one read per pane at a time
         self._wake = asyncio.Event()
         self._evloop: asyncio.AbstractEventLoop | None = None  # set in start()
         # State long-poll: a monotonic version bumped only when the DECK-relevant view
@@ -615,13 +628,39 @@ class Watcher:
             self._bump_state_if_changed(self.states)
 
     def request_reparse(self, pane_id: str) -> None:
-        """Force an LLM re-parse of `pane_id` on the next tick AND wake the loop now, so
-        input-driven screen changes (a submitted answer, a sent key) reflect on the card
-        within ~one capture instead of a poll interval. Called from the request handler
-        thread; setting an asyncio.Event from another thread is safe via the loop's
-        thread-safe scheduling."""
-        self._force_parse.add(pane_id)
-        self.wake()
+        """Re-parse `pane_id` because input (a submitted answer, a sent key) changed it:
+        on its own thread SETTLE_SECONDS from now, ahead of the full pass, which spends a
+        model call on every changed pane and takes tens of seconds on a big fleet. A pane
+        the deck does not show (just opened or killed), or a watcher not running, forces it
+        into a full tick woken now instead, which discovers or drops it. Called from request
+        handler threads; sends landing before the read starts share it."""
+        since = time.time()
+        if self._evloop is None or all(s.get("pane_id") != pane_id for s in self.states):
+            self._force_parse.add(pane_id)
+            self.wake()
+            return
+        with self._publish_lock:
+            if pane_id in self._queued:
+                return
+            self._queued.add(pane_id)
+        threading.Timer(SETTLE_SECONDS, self._reparse_now, (pane_id, since)).start()
+
+    def _reparse_now(self, pane_id: str, since: float) -> None:
+        """request_reparse's read: the full pass's per-pane path, published alone."""
+        with self._publish_lock:
+            self._queued.discard(pane_id)
+        try:
+            pane = next(p for p in tmux.dedupe_grouped(tmux.list_panes()) if p.id == pane_id)
+            s = self._finish(dict(self._tick_pane(pane, since)), pane)
+        except Exception:  # gone, or tmux failed: the full tick reads it instead
+            logger.info("input-driven read of %s failed", pane_id, exc_info=True)
+            self._force_parse.add(pane_id)
+            self.wake()
+            return
+        with self._publish_lock:
+            self.states = [_latest({**s, "tmux_active": x.get("tmux_active")}, x)
+                           if x.get("pane_id") == pane_id else x for x in self.states]
+            self._bump_state_if_changed(self.states)
 
     def wake(self) -> None:
         """Run a full tick now, re-parsing only what changed on screen: it restamps every
@@ -853,24 +892,7 @@ class Watcher:
         if self.use_llm:
             self._maybe_bootstrap(panes)
         for s, p in zip(states, panes, strict=True):
-            s["events_seq"] = self._events_seq.get(s.get("pane_id"), 0)
-            s["prs"] = self._pr_titles.enrich(self._prs.get(s.get("pane_id"), []))
-            if s.get("pane_id") in self._prs:  # retire merged/closed for every consumer
-                self._prs[s["pane_id"]] = list(s["prs"])
-            b = self._boot.get(s.get("pane_id"))
-            if not b:
-                continue
-            s["session_summary"] = b["summary"]
-            # Retain the fallback even while an explicit title hides it, so clearing
-            # that title on an unchanged screen reveals the semantic name immediately.
-            tool = s.get("identity_tool", s.get("tool"))
-            if tool not in (None, "unknown"):
-                if tool == "shell" or b.get("tool") not in (None, "unknown", tool):
-                    b["name"] = None  # never resurrect it if this tool returns later
-                b["tool"] = tool
-            s["bootstrap_title"] = b["name"]
-            s["bootstrap_tool"] = b.get("tool")
-            _stamp_identity(s, p)
+            self._finish(s, p)
         # Keep tmux's natural order (session/window/pane, as list-panes emits it) —
         # the UI's dock, list, and swipe direction all key off this array order, and
         # it must match the window numbers the user sees in tmux's own status bar.
@@ -883,12 +905,35 @@ class Watcher:
                              history_server=history_server, unread=unread)
         self._gc(alive)
 
+    def _finish(self, s: dict, p) -> dict:
+        """Merge the per-pane products kept outside the parse into a card for the deck."""
+        s["events_seq"] = self._events_seq.get(s.get("pane_id"), 0)
+        s["prs"] = self._pr_titles.enrich(self._prs.get(s.get("pane_id"), []))
+        if s.get("pane_id") in self._prs:  # retire merged/closed for every consumer
+            self._prs[s["pane_id"]] = list(s["prs"])
+        b = self._boot.get(s.get("pane_id"))
+        if not b:
+            return s
+        s["session_summary"] = b["summary"]
+        # Retain the fallback even while an explicit title hides it, so clearing
+        # that title on an unchanged screen reveals the semantic name immediately.
+        tool = s.get("identity_tool", s.get("tool"))
+        if tool not in (None, "unknown"):
+            if tool == "shell" or b.get("tool") not in (None, "unknown", tool):
+                b["name"] = None  # never resurrect it if this tool returns later
+            b["tool"] = tool
+        s["bootstrap_title"] = b["name"]
+        s["bootstrap_tool"] = b.get("tool")
+        _stamp_identity(s, p)
+        return s
+
     def _publish_states(self, states: list[dict], *, record_history: bool = True,
                         history_server: str | None = None, unread: set = frozenset()) -> None:
         # Publish a fresh snapshot so replacing/enriching the next startup result does
         # not mutate the deck already visible to HTTP handlers between version bumps.
         with self._publish_lock:
-            self.states = [dict(s) for s in states]
+            shown = {s.get("pane_id"): s for s in self.states}
+            self.states = [dict(_latest(s, shown.get(s.get("pane_id")))) for s in states]
             self._booted = True
             self._bump_state_if_changed(self.states)
         # Progressive UI publication mixes old and newly parsed pane states. Only
@@ -1394,7 +1439,14 @@ class Watcher:
             )
         return self._state_since[pane_id]
 
-    def _tick_pane(self, pane) -> dict:
+    def _tick_pane(self, pane, since: float = 0.0) -> dict:
+        """One pane's read, the full pass's and request_reparse's alike, which share its
+        buffers and so take turns. `since`: parse even an unchanged screen, unless a parse
+        of a capture taken after then has landed meanwhile (input changed the pane)."""
+        with self._pane_locks.setdefault(pane.id, threading.Lock()):
+            return self._read_pane(pane, since)
+
+    def _read_pane(self, pane, since: float) -> dict:
         # Dim-marked so the parser can tell drafts/suggestions/chrome from output.
         # Snapshots store the marked text too (prior frames must match the current
         # one); snapshot_text() strips the markers at the phone-facing boundary.
@@ -1477,7 +1529,8 @@ class Watcher:
         # never re-parsed on a timer — that was pure duplicate cost (see the parse-cadence
         # note at the top of this module).
         cached = self._state.get(pane.id)
-        forced = pane.id in self._forced_this_tick  # drained snapshot (see _tick)
+        forced = pane.id in self._forced_this_tick or (  # drained snapshot (see _tick)
+            (cached or {}).get("parsed_at", 0) < since)
         # A card checkpointed before frames were kept is read again: a frame taken off
         # today's screen would vouch for a question parsed from an older one.
         # So is an ask whose agent has moved on (a second, identical approval), once per turn
