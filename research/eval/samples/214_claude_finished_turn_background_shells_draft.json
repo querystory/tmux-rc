@@ -1,0 +1,12 @@
+{
+  "description": "Synthetic: Claude Code in a narrow pane after its turn ended. The stamp says it worked for 6m 12s and wraps its '2 shells still running' onto a second row; the last message says the batches continue and it will follow up when they finish, asking nothing. The input box holds an unsent draft. The transcript has closed the turn (turn_live false): idle, no question.",
+  "current_command": "node",
+  "capture": "● The resize script handles all three formats now,\n  so I started the full batch over the 2,400\n  archive photos.\n\n  Ran 2 shell commands\n\n● Both batches are going in the background: the\n  JPEG pass and the slower HEIC pass. Meanwhile\n  I'm writing the size report.\n\n  Ran 3 shell commands\n\n● The report script works on the first 300\n  photos, which shrank by 61% on average. I'll\n  run it on the rest once the batches finish.\n\n  Ran 1 shell command\n\n● The two batches are still going in the\n  background. When they finish, I'll check the\n  outliers by hand and post the report.\n\n✻ Worked for 6m 12s · done 2:47 PM · 2 shells\n  still running\n  new task? /clear … · ✔ Update installed · Res…\n──────────────────────────────────────────────────\n❯ how's it going\n──────────────────────────────────────────────────\n  ~/src/photo-archive on feat/resize-batch…\n  session: +412/-88 lines · 21% ctx · 3h05m…\n  ⏵⏵ auto mode on · 2 shells",
+  "expected": {
+    "tool": "claude",
+    "activity": "idle",
+    "question": null,
+    "headline": "Photo resize batches running in the background; report to follow"
+  },
+  "turn_live": false
+}

@@ -81,6 +81,16 @@ def test_claude_reply_from_the_session_running_under_the_pane(homes):
     assert transcript.last_reply(_pane(str(os.getppid())), "") is None
     # A process under some other pane is not this pane's agent.
     assert transcript.last_reply(_pane("999999999"), "") is None
+    # Two under the pane (one suspended behind the other): which is on screen is unknown.
+    _write(homes / "claude/sessions/1.json", [_registration()])
+    _write(homes / "claude/sessions/2.json", [_registration()])
+    assert transcript._claude_file(_pane(str(os.getppid()))) is None
+    # Once one of them has exited, the other is the pane's again.
+    real = transcript._started
+    with pytest.MonkeyPatch.context() as mp:
+        calls = iter([real(os.getpid()), None])
+        mp.setattr(transcript, "_started", lambda pid: next(calls, real(pid)))
+        assert transcript._claude_file(_pane(str(os.getppid()))) is not None
 
 
 def test_claude_new_user_message_clears_the_reply(homes):
@@ -90,6 +100,37 @@ def test_claude_new_user_message_clears_the_reply(homes):
         _say("user", [{"type": "text", "text": "next"}], promptSource="sdk"),
     ])
     assert transcript.last_reply(_pane(str(os.getppid())), "") is None
+
+
+def test_claude_turn_is_closed_by_its_turn_duration(homes):
+    # The "Worked for" stamp's record closes the turn; bookkeeping after it keeps it closed,
+    # and a new message (a prompt, a task notification) leaves it unknown, as an interrupt
+    # writes no record of its own.
+    _write(homes / "claude/sessions/1.json", [_registration()])
+    pane, path = _pane(str(os.getppid())), homes / f"claude/projects/-x/{SID}.jsonl"
+    _write(path, [_say("user", "go"), _say("assistant", [{"type": "text", "text": "Done."}])])
+    assert transcript.turn_live(pane, "") is None
+    with path.open("a") as f:
+        for e in ({"type": "system", "subtype": "turn_duration"},
+                  {"type": "system", "subtype": "stop_hook_summary"},
+                  _say("assistant", [{"type": "text", "text": "x"}], isSidechain=True)):
+            f.write(json.dumps(e) + "\n")
+    assert transcript.turn_live(pane, "") is False
+    with path.open("a") as f:  # a new turn's first record, still being written
+        f.write('{"type": "user", "mess')
+    assert transcript.turn_live(pane, "") is None
+    with path.open("a") as f:
+        f.write('age": {"role": "user", "content": "<task-notification>x"}}\n')
+    assert transcript.turn_live(pane, "") is None
+    # A Claude run under Codex is not the pane's turn: the thread Codex names is.
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(transcript, "_codex_file", lambda _p, _t: path.with_name("rollout.jsonl"))
+        path.with_name("rollout.jsonl").write_text(
+            json.dumps({"type": "event_msg", "payload": {"type": "task_started"}}) + "\n")
+        assert transcript.turn_live(pane, "") is True
+        mp.setattr(transcript, "_codex_file", lambda _p, _t: None)  # no thread on screen
+        mp.setattr(transcript, "_programs", lambda _pid: {"codex", "claude"})
+        assert transcript.turn_live(pane, "") is None
 
 
 def test_codex_reply_from_the_thread_named_in_the_status_bar(homes, monkeypatch):
@@ -128,35 +169,35 @@ def test_codex_turn_open_from_its_rollout(homes, monkeypatch):
     def event(kind):
         return json.dumps({"type": "event_msg", "payload": {"type": kind}}) + "\n"
     _write(path, [])
-    assert transcript.codex_turn_live(_pane("7"), status) is None  # no turn yet
+    assert transcript.turn_live(_pane("7"), status) is None  # no turn yet
     with path.open("a") as f:
         f.write(event("task_started") + event("item_completed") + '{"cut":')
-    assert transcript.codex_turn_live(_pane("7"), status) is True
+    assert transcript.turn_live(_pane("7"), status) is True
     # Read on from where it stopped: the cut line, finished, counts once it is whole.
     with path.open("a") as f:
         f.write("1}\n" + event("task_complete"))
-    assert transcript.codex_turn_live(_pane("7"), status) is False
+    assert transcript.turn_live(_pane("7"), status) is False
     with path.open("a") as f:
         f.write(event("task_started") + event("turn_aborted"))
-    assert transcript.codex_turn_live(_pane("7"), status) is False
-    assert transcript.codex_turn_live(_pane("7"), "› Ask Codex to do anything") is None
+    assert transcript.turn_live(_pane("7"), status) is False
+    assert transcript.turn_live(_pane("7"), "› Ask Codex to do anything") is None
     # Fit to a phone, the bar is cut to its thread and a clipped model, dimmed.
     with path.open("a") as f:
         f.write(event("task_started"))
     narrow = f"⟪/dim⟫› Ask Codex to do anything\n\n  ⟪/dim⟫{SID} · GPT-6.1-…"
-    assert transcript.codex_turn_live(_pane("7"), narrow) is True
-    assert transcript.codex_turn_live(_pane("7"), f"›\n  {SID} · gpt-6.1-sol high") is True
+    assert transcript.turn_live(_pane("7"), narrow) is True
+    assert transcript.turn_live(_pane("7"), f"›\n  {SID} · gpt-6.1-sol high") is True
     # A model cut to its first letters, or crowded out by a warnings segment, still counts.
-    assert transcript.codex_turn_live(_pane("7"), f"›\n  {SID} · GPT-6-So…") is True
+    assert transcript.turn_live(_pane("7"), f"›\n  {SID} · GPT-6-So…") is True
     warned = f"›\n  ⟪/dim⟫{SID} · GPT…  ⚠ 2 warnings · f2 to view"
-    assert transcript.codex_turn_live(_pane("7"), warned) is True
+    assert transcript.turn_live(_pane("7"), warned) is True
     # A bare id on the bottom row is output naming some other thread, not the bar.
     decoy = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"
     path.with_name(f"rollout-2026-10-09T08-00-00-{decoy}.jsonl").write_text(event("task_started"))
-    assert transcript.codex_turn_live(_pane("7"), f"› ps\n{decoy}") is None
-    assert transcript.codex_turn_live(_pane("7"), f"› ps\n  41 codex resume {decoy}") is None
+    assert transcript.turn_live(_pane("7"), f"› ps\n{decoy}") is None
+    assert transcript.turn_live(_pane("7"), f"› ps\n  41 codex resume {decoy}") is None
     # Copied over by a shorter session whose turn is closed: read afresh, not from the
     # old offset.
     path.unlink()
     path.write_text(event("task_started") + event("task_complete"))
-    assert transcript.codex_turn_live(_pane("7"), status) is False
+    assert transcript.turn_live(_pane("7"), status) is False

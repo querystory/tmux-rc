@@ -69,9 +69,10 @@ def _started(pid: int) -> str | None:
 
 
 @lru_cache(maxsize=256)
-def _claude_session(home: Path, pane_pid: str | None, _registry: tuple) -> tuple | None:
-    """Claude registers each running process in sessions/<pid>.json; the one running
-    under this pane names the session. Answers (pid, start, session id)."""
+def _claude_sessions(home: Path, pane_pid: str | None, _registry: tuple) -> tuple:
+    """Claude registers each running process in sessions/<pid>.json; those running under
+    this pane name its sessions. Answers (pid, start, session id) for each."""
+    found = []
     for reg in (home / "sessions").glob("*.json"):
         try:
             data = json.loads(reg.read_text(encoding="utf-8"))
@@ -83,8 +84,8 @@ def _claude_session(home: Path, pane_pid: str | None, _registry: tuple) -> tuple
         started = _started(pid)
         if (started and pane_pid and int(pane_pid) in tmux.ancestors(pid)
                 and _UUID_RE.fullmatch(sid) and str(data.get("procStart")) == started):
-            return pid, started, sid
-    return None
+            found.append((pid, started, sid))
+    return tuple(found)
 
 
 @lru_cache(maxsize=256)
@@ -112,15 +113,20 @@ def _text(blocks) -> str | None:
     return "\n\n".join(texts) or None
 
 
-def _path(pane: Pane, text: str) -> Path | None:
+def _claude_file(pane: Pane) -> Path | None:
     claude = _home(pane, "claude")
     registry = tuple((p.name, _stamp(p)) for p in sorted((claude / "sessions").glob("*.json")))
-    # Checked afresh: the process can exit (and its pid be reused) and the transcript
-    # appear after its registration, all with the registry unchanged.
-    pid, started, sid = _claude_session(claude, pane.pid, registry) or (0, None, None)
-    return ((sid and _started(pid) == started
-             and next((claude / "projects").glob(f"*/{sid}.jsonl"), None))
-            or _codex_file(pane, text))
+    # Checked afresh: a process can exit (and its pid be reused) and the transcript
+    # appear after its registration, all with the registry unchanged. With several still
+    # running under the pane (one suspended behind another), which is on screen is unknown.
+    live = [sid for pid, started, sid in _claude_sessions(claude, pane.pid, registry)
+            if _started(pid) == started]
+    return (len(live) == 1
+            and next((claude / "projects").glob(f"*/{live[0]}.jsonl"), None)) or None
+
+
+def _path(pane: Pane, text: str) -> Path | None:
+    return _claude_file(pane) or _codex_file(pane, text)
 
 
 def last_reply(pane: Pane, text: str) -> str | None:
@@ -150,14 +156,19 @@ def _turn(path: Path, _stat: tuple) -> str | None:
 _rollout_reads: dict[Path, tuple[int, int, bool | None]] = {}
 
 
-def codex_turn_live(pane: Pane, text: str) -> bool | None:
-    """Whether Codex's rollout has a turn open: its last task_started has no task_complete
-    or turn_aborted after it. Codex hides its "Working" row while a message prints
-    mid-turn, so the screen alone can show a live turn as over. Read incrementally, since
-    one long turn writes megabytes, far past `_TAIL`."""
+def turn_live(pane: Pane, text: str) -> bool | None:
+    """Whether the agent's own transcript has its turn open (True), closed (False), or
+    cannot say (None). Claude's closes with a turn_duration record (the "Worked for" stamp)
+    and is closed while nothing follows it; an interrupt writes none, so a turn after it is
+    None, never True. Codex's is open from task_started to task_complete or turn_aborted:
+    Codex hides its "Working" row while a message prints mid-turn, so the screen alone can
+    show a live turn as over. Its rollout is read incrementally, since one long turn writes
+    megabytes, far past `_TAIL`. A Claude run under Codex is not the pane's turn, so in a
+    Codex pane only its rollout answers."""
     path = _codex_file(pane, text)
     if not path:
-        return None
+        claude = pane.pid and "codex" not in _programs(pane.pid) and _claude_file(pane)
+        return _claude_turn_live(claude, _stamp(claude)) if claude else None
     try:
         with path.open("rb") as f:
             ino, size = (st := os.fstat(f.fileno())).st_ino, st.st_size
@@ -179,6 +190,24 @@ def codex_turn_live(pane: Pane, text: str) -> bool | None:
     except OSError:
         return None
     _rollout_reads[path] = (ino, pos, live)
+    return live
+
+
+@lru_cache(maxsize=256)
+def _claude_turn_live(path: Path, _stat: tuple) -> bool | None:
+    try:
+        with path.open("rb") as f:
+            f.seek(-1, os.SEEK_END)
+            if f.read(1) != b"\n":
+                return None  # a record still being written may be the next turn's
+    except OSError:
+        return None
+    live = None
+    for e in _entries(path):
+        if e.get("type") == "system" and e.get("subtype") == "turn_duration":
+            live = False
+        elif e.get("type") in ("user", "assistant") and not e.get("isSidechain"):
+            live = None
     return live
 
 

@@ -619,7 +619,7 @@ def test_failed_parse_keeps_an_open_codex_turn_running(monkeypatch):
     w, _calls = _harness(monkeypatch, frame)
     live = [False]
     monkeypatch.setattr(W.transcript, "last_reply", lambda pane, text: None)
-    monkeypatch.setattr(W.transcript, "codex_turn_live", lambda pane, text: live[0])
+    monkeypatch.setattr(W.transcript, "turn_live", lambda pane, text: live[0])
     ask = {"answer_style": "menu", "prompt": "Run it?", "options": ["Yes", "No"]}
     seq = [{"activity": "idle", "tool": "codex", "events": [], "headline": "Done"},
            {"activity": "running", "tool": "codex", "events": [], "parse_ok": False},
@@ -649,6 +649,26 @@ def test_failed_parse_keeps_an_open_codex_turn_running(monkeypatch):
         w._forced_this_tick = set()
         state = w._tick_pane(pane)
     assert state["question"] is None and state["activity"] == "running"
+
+
+def test_failed_parse_drops_running_from_a_closed_turn(monkeypatch):
+    """Copilot, #680: a kept card last read running is idle once the transcript has
+    closed the turn, though the read failed."""
+    frame = ["● Working on it.\n✶ Baking… (3s)\n❯ "]
+    w, _calls = _harness(monkeypatch, frame)
+    live = [None]
+    monkeypatch.setattr(W.transcript, "last_reply", lambda pane, text: None)
+    monkeypatch.setattr(W.transcript, "turn_live", lambda pane, text: live[0])
+    seq = [{"activity": "running", "tool": "claude", "events": [], "headline": "Baking"}]
+    failed = {"activity": "running", "tool": "claude", "events": [], "parse_ok": False}
+    monkeypatch.setattr(W, "classify", lambda *_a, **_kw: dict(seq.pop(0) if seq else failed))
+    pane = _Pane(current_command="claude")
+    w._forced_this_tick = set()
+    assert w._tick_pane(pane)["activity"] == "running"
+    live[0] = False
+    frame[0] = "● Done.\n✻ Baked for 9s · 1 shell still running\n❯ "
+    w._forced_this_tick = set()
+    assert w._tick_pane(pane)["activity"] == "idle"
 
 
 def test_failed_parse_still_publishes_the_links_it_read(monkeypatch):

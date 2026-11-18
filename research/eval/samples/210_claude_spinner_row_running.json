@@ -1,0 +1,11 @@
+{
+  "description": "Synthetic: Claude Code mid-turn. The last message says what it is about to check, and the live turn row below it ('✽ Simmering… (48s · ↑ 1.2k tokens · esc to interrupt)') shows the turn still going above an empty input box. The agent is working, so the pane is running with no question.",
+  "current_command": "node",
+  "capture": "● The greenhouse sensor log has gaps every night around 02:00. I'll check whether the logger restarts on the nightly cron before changing the sampling interval.\n\n● Bash(grep -n \"restart\" /var/log/greenhouse/logger.log | tail -5)\n  ⎿  1402: 02:00:01 logger restart requested by cron\n     1403: 02:00:04 logger started, buffer empty\n     … +3 lines (ctrl+o to expand)\n\n● Read(~/src/greenhouse/cron/nightly.sh)\n  ⎿  Read 22 lines\n\n✽ Simmering… (48s · ↑ 1.2k tokens · esc to interrupt)\n\n──────────────────────────────────────────────────────────────────── greenhouse ──\n❯\n────────────────────────────────────────────────────────────────────────────────────\n  ~/src/greenhouse on fix/night-gaps | Opus 5.5\n  session: +0/-0 lines · 9% ctx · 4m · $0.62\n  ⏵⏵ accept edits on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "running",
+    "question": null,
+    "headline": "Tracing nightly gaps in the greenhouse sensor log"
+  }
+}
