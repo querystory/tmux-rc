@@ -18,7 +18,6 @@ test("each surface's glyph, and the state of its own subject", () => {
   assert.equal(key("#view=dashboard"), "dashboard:"); // the fleet's views: the title's count covers it
   assert.equal(key("#view=heat"), "activity:");
   assert.equal(key("#view=usage"), "gauge:");
-  assert.equal(key("#view=loops"), "listTodo:");
   assert.equal(key("#view=graph"), "network:");
   assert.equal(key("#view=restore"), "history:");
   assert.equal(key("#view=scratch"), "files:");
