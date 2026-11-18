@@ -288,7 +288,7 @@ def lay(reg: dict, facts: dict) -> dict:
             # many is its own red dot, not the theme's word.
             "holds": t.get("holds", ""),
             "state": "main" if active and len(rest) <= len(active) / 10
-            else max(("stuck", "held", "open"), key=lambda s: rest.count(s))})
+            else max(("stuck", "held", "open"), key=rest.count) if rest else "open"})
     themes.sort(key=lambda t: (not any(p["need"] for p in t["pieces"]), -t["effort"]))
     placed = {k for t in themes for k in t["members"]}
     loose = [c for k, c in live.items() if k not in placed]
