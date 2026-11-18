@@ -68,6 +68,7 @@ def test_effort_joins_by_tool_paths_not_the_root_branch(tmp_path):
     assert (cuts["account"]["Work"]["d"], cuts["worktree"]["reader"]["d"]) == (60.0, 40.0)
     assert cuts["repo"] == {"r": cuts["effort"]["o/r#5"], "": cuts["effort"][""]}
     assert "wt:o/r/reader" in digest.join(rows, worktrees, [], {})["effort"]  # by repository
+    assert digest.join([], [], [], {})["effort"] == {}  # no transcripts: still a digest
 
 
 def test_cleanup_is_gated_by_code():
