@@ -163,7 +163,8 @@ def join(rows: list[dict], trees: list[dict], changes: list[dict], names: dict) 
     worktree's branch's PR, else to the one PR its session links. Then by account, repo
     and worktree, for the explorer; "" there is effort with no such place."""
     head = {(c["repo"], c["head"]): c["key"] for c in changes}
-    at, out = {w["path"]: w for w in trees}, {}
+    at = {w["path"]: w for w in trees}
+    out = {cut: {} for cut in ("effort", "account", "repo", "worktree")}
     for r in rows:
         w = at.get(r["wt"]) or {}
         home = w or inside(trees, r["cwd"])
@@ -175,7 +176,7 @@ def join(rows: list[dict], trees: list[dict], changes: list[dict], names: dict) 
             "account": names.get(r["acct"], r["acct"]), "worktree": private or name or "",
             "repo": private or (home.get("repo") or "").rpartition("/")[2]}
         for cut, label in labels.items():
-            slot = out.setdefault(cut, {}).setdefault(label, {"d": 0.0, "w": 0.0, "p": 0.0})
+            slot = out[cut].setdefault(label, {"d": 0.0, "w": 0.0, "p": 0.0})
             for k in slot:
                 slot[k] += r[k]
     return out
@@ -203,7 +204,9 @@ def worktrees(cwds: list[str]) -> list[dict]:
                 out.append({"path": path, "common": common, "repo": repo, "oid": fields.get("HEAD"),
                             "branch": fields.get("branch", "").removeprefix("refs/heads/"),
                             "dirty": git("-C", path, "status", "--porcelain") != "",
-                            "active_at": float(git("-C", path, "log", "-g", "-1", "--format=%ct")
+                            # When HEAD last moved: a fresh checkout of an old commit is new.
+                            "active_at": float((git("-C", path, "log", "-g", "-1", "--date=unix",
+                                                    "--format=%gd") or "").partition("{")[2][:-1]
                                                or time.time())})
     return out
 
@@ -242,10 +245,10 @@ def gather(now: float) -> dict:
     since = time.strftime("%Y-%m-%d", time.gmtime(now - 14 * DAY))
     changes = [change(n, now, held(n))
                for n in search(f"is:pr author:@me archived:false updated:>={since}")]
-    for _ in range(3):  # a stack: merged into a branch whose own PR has since reached main
-        landed = {(c["repo"], c["head"]) for c in changes if c["stage"] == "main"}
+    for _ in range(3):  # a stack: merged into a branch whose own PR then reached main
+        landed = {(c["repo"], c["head"]): c["at"] for c in changes if c["stage"] == "main"}
         for c in changes:
-            if c["onto"] and (c["repo"], c["onto"]) in landed:
+            if c["onto"] and c["at"] <= landed.get((c["repo"], c["onto"]), 0):
                 c.update(stage="main", onto="")
     paths = sorted((w["path"] for w in trees if w["common"] != w["path"] + "/.git"),
                    key=len, reverse=True)
@@ -365,10 +368,11 @@ def build(facts: dict, reg: dict, ask) -> dict:
     reply = ask((HERE / "digest_prompt.txt").read_text(), json.dumps({
         "themes": [{**{k: t[k] for k in ("id", "name", "short", "holds", "outcome")},
                     "state": STATES[t["state"]], "share": t["share"],
-                    "work": [{k: p[k] for k in ("repo", "title", "stage")} for p in t["pieces"]]}
+                    "work": [{"repo": hidden(p["repo"]) or p["repo"], "title": p["title"],
+                              "stage": p["stage"]} for p in t["pieces"]]}
                    for t in d["themes"]],
-        "new": [{"n": n, **{k: c[k] for k in ("repo", "title", "about", "stage") if k in c},
-                 "branch": "" if hidden(c.get("repo")) else c.get("head", "")}
+        "new": [{"n": n, **{k: c[k] for k in ("title", "about", "stage") if k in c}, **(
+            {} if hidden(c.get("repo")) else {"repo": c.get("repo"), "branch": c.get("head")})}
                 for n, c in enumerate(d["new"])],
         "needs_you": [{"n": n, **{k: a[k] for k in ("text", "work") if k in a}}
                       for n, a in enumerate(d["actions"])],
@@ -591,6 +595,9 @@ def model():
 def main() -> None:
     ask, usage = model()
     STATE.mkdir(parents=True, exist_ok=True)
+    root = Path(os.environ.get("TMUXRC_SCRATCH_DIR") or STATE.parent / "scratch")
+    for meta in root.glob("digest-*/meta.json"):  # so scratch announces the page when it lands
+        meta.write_text(json.dumps(json.loads(meta.read_text()) | {"updating": "Today's digest"}))
     facts = gather(time.time())
     (STATE / "facts.json").write_text(json.dumps(facts))  # what `make digest-eval DIR=` scores
     registry = STATE / "themes.json"
@@ -599,7 +606,7 @@ def main() -> None:
     for _ in range(1 if any(t.get("members") for t in reg.get("themes", {}).values()) else 2):
         d = build(facts, reg, ask)
     registry.write_text(json.dumps(reg, indent=1))
-    publish(d, Path(os.environ.get("TMUXRC_SCRATCH_DIR") or STATE.parent / "scratch"))
+    publish(d, root)
     print(f'{len(d["themes"])} themes, {len(d["actions"])} need you; model {usage()}')
 
 

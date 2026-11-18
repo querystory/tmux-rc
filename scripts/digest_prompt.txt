@@ -31,7 +31,7 @@ dropped was closed. Take every count and state from the input as given.
 
 Voice: plain and specific, the way one engineer tells another what happened. Use the concrete
 nouns of the work itself, lead with what changed for the person using it, and say what blocks
-it. A verdict is two short sentences, about twenty-five words in all: it heads a phone card. For a library's lending app, a good page reads like this:
+it. A verdict is two short sentences, under twenty words in all: it heads a phone card. For a library's lending app, a good page reads like this:
 - a theme named "Reading without a network", with the outcome "Downloaded books open and
   resume where you stopped, with no network. Highlight sync is finished but conflicts with main."
 - an ask: "Highlight sync needs a rebase"
