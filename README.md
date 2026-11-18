@@ -303,7 +303,6 @@ Loaded from `.env` at startup (real shell env vars still override). See `.env.ex
 | `TMUXRC_SCRATCH_URL` | unset | the URL you open tmux-rc at, plus `/scratch`, advertised with the dir |
 | `TMUXRC_THUMB_BROWSER` | Playwright's bundled headless Chromium | the browser that renders scratch thumbnails; never your own profile |
 | `TMUXRC_HISTORY_DB` | `~/.local/state/tmux-rc/history.sqlite3` | the history database (pane history, usage, layouts for restore) |
-| `TMUXRC_WORKSTREAMS` | unset | `{"name": ["keyword", …]}`: your own grouping of open loops on the dashboard, when nothing better links them |
 | `TMUXRC_AGENT_HISTORY` / `AGENT_HISTORY_DIR` | on `PATH` or `~/.local/bin` / `~/agent-history` | the `agent-history` binary Chat uses to find past conversations, and its index |
 | `TMUXRC_PREFER_IPV4` | `1` | outbound connections prefer IPv4; `0` if your v6 works and v4 does not |
 | `TMUXRC_RELOAD` | `1` from a checkout, `0` installed | restart on source changes (`make dev`); the unit sets `0` |

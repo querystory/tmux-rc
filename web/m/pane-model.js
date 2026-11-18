@@ -155,7 +155,7 @@ export function paneName(pane) {
 // The tab's title (docs/design/tab-icons.md): the Needs-you count, the most specific subject,
 // then the host, the order a narrow tab keeps them in as it cuts from the right. Dialogs
 // (Settings, Chat) sit over a view and leave its title alone.
-const PAGE_TITLES = { heat: "Running by hour", usage: "Plan usage", loops: "Open loops", restore: "Restore", scratch: "Scratch", graph: "Graph" };
+const PAGE_TITLES = { heat: "Running by hour", usage: "Plan usage", restore: "Restore", scratch: "Scratch", graph: "Graph" };
 export function tabTitle({ pane, page, dashboard, filter }, panes, count, host) {
   const open = pane && panes.find((p) => p.pane_id === pane);
   const subject = pane ? (open ? paneName(open) : "Loading pane") : PAGE_TITLES[page] || (dashboard ? "Dashboard" : String(filter) === "attention" ? "Needs you" : "Sessions");
@@ -165,7 +165,7 @@ export function tabTitle({ pane, page, dashboard, filter }, panes, count, host) 
 // app's own mark for the sessions home), and the state of the tab's own subject. A pane shows
 // its own, "done" while it finished with the tab hidden (`away`); the home a dot while anything
 // needs you; a view of the fleet none, the title's count covers it.
-const PAGE_GLYPHS = { heat: "activity", usage: "gauge", loops: "listTodo", restore: "history", scratch: "files", graph: "network" };
+const PAGE_GLYPHS = { heat: "activity", usage: "gauge", restore: "history", scratch: "files", graph: "network" };
 export function tabIconKey({ pane, page, dashboard }, panes, asks, away) {
   const open = pane && panes.find((p) => p.pane_id === pane);
   if (pane) return `terminal:${!open ? "" : asks(open) ? "needs" : isRunning(open) ? "working" : away ? "done" : ""}`;
