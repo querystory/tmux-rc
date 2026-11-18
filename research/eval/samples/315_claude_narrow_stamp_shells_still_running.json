@@ -1,0 +1,11 @@
+{
+  "description": "Synthetic: Claude Code in a 50-column pane after its turn ended. The stamp has a clock time and lists '2 shells still running', wrapped onto a second row, with an update notice under it; the last message says the full run keeps going in the background and asks nothing; the input box shows only a greyed placeholder. Background shells are not the turn: idle, no question.",
+  "current_command": "claude",
+  "capture": "● Compared the two compressors on the first 200\n  photos: the new one saves 18% more space at\n  the same quality, but takes twice as long.\n  With every photo it would take about an hour.\n  I'll check whether a lower effort setting\n  closes the gap.\n\n  Ran 1 shell command\n\n● The full run is still going in the background.\n  When it finishes, I'll check the photos where\n  the two disagree by hand and post the report.\n\n✻ Worked for 8m 39s · done 3:21 AM · 2 shells\n  still running\n  new task? /clear … · ✔ Update installed · Res…\n──────────────────────────────────────────────────\n❯ ⟪placeholder⟫how's it going⟪/placeholder⟫\n──────────────────────────────────────────────────\n  ~/src/photo-archive on bench/compressors…\n  session: +1061/-278 lines · 17% ctx · 13h44m…\n  ⏵⏵ auto mode on · PR #812 · 2 shells",
+  "expected": {
+    "tool": "claude",
+    "activity": "idle",
+    "question": null,
+    "headline": "Full compressor benchmark running in the background; report to follow"
+  }
+}
