@@ -1144,7 +1144,7 @@ async function refreshCached(force) {
   const seq = ++cachedSeq;
   // The accounts with the meters, not after: drawn before them, several accounts' meters
   // stand as one tall grid for a moment before folding into their strip.
-  const [d, w, u] = await Promise.allSettled([fetch("/scratch/digest-daily/summary.json").then((r) => r.ok ? r.json().then(digestHtml) : ""), fetch($("digest-weekly").href, { method: "HEAD" }),
+  const [d, w, u] = await Promise.allSettled([request("/scratch/digest-daily/summary.json").then(digestHtml), fetch($("digest-weekly").href, { method: "HEAD", signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }),
     request(usagePast ? `/api/usage?past=${usagePast}` : "/api/usage"), accounts.refresh()]);
   if (seq !== cachedSeq) return; // a forced fetch overlapped this one: only the latest answers land
   if (d.value) html($("digest-body"), d.value); // unread or unreadable: no card
