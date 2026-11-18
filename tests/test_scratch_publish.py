@@ -15,13 +15,13 @@ BUCKET: dict[str, bytes] = {}
 
 
 class Fake:
-    fail = False
+    fail = 0  # how many uploads succeed before one is refused
 
     def __init__(self, target: str):
         assert target == "gs://bkt/people/ada"
 
     def put(self, key, path):
-        if self.fail:
+        if self.fail and len(BUCKET) >= self.fail:
             raise RuntimeError("403 Forbidden")
         BUCKET[key] = path.read_bytes()
 
@@ -62,8 +62,22 @@ def test_publish_sends_what_changed_and_unpublish_removes_it(root, capsys):
     P.publish(root, "tea notes", WEB_DIR)
     assert BUCKET["tea notes/index.md"] == b"as sent" and BUCKET["tea notes/cup.txt"] == b"white"
     assert "tea notes/leaf.txt" not in BUCKET
+    (root / "tea notes/meta.json").write_text(json.dumps({**_meta(root), "updating": "v2"}))
+    with pytest.raises(SystemExit, match="being updated"):  # half a revision is never sent
+        P.publish(root, "tea notes", WEB_DIR)
     P.cli(["unpublish", "tea notes"], WEB_DIR)
     assert BUCKET == {} and "publish" not in _meta(root)
+    with pytest.raises(SystemExit, match="not published"):  # a job queued before it, too
+        P.publish(root, "tea notes", WEB_DIR)
+
+
+def test_an_archived_folder_unpublishes_too(root, capsys):
+    P.cli(["publish", "tea notes"], WEB_DIR)
+    (root / ".archive").mkdir()
+    (root / "tea notes").rename(root / ".archive/tea notes")
+    P.cli(["unpublish", "tea notes"], WEB_DIR)
+    assert BUCKET == {} and "publish" not in json.loads(
+        (root / ".archive/tea notes/meta.json").read_text())
 
 
 def test_a_ready_page_is_copied_unless_unpublished_or_revising(root, monkeypatch):
@@ -78,16 +92,24 @@ def test_a_ready_page_is_copied_unless_unpublished_or_revising(root, monkeypatch
 
 
 def test_a_failed_copy_is_pushed_and_never_raises(root, monkeypatch):
-    monkeypatch.setattr(Fake, "fail", True)
+    P.cli(["publish", "tea notes"], WEB_DIR)
+    BUCKET.clear()
+    (root / "tea notes/leaf.txt").write_text("oolong")  # one sent, then the other refused
+    (root / "tea notes/cup.txt").write_text("white")
+    monkeypatch.setattr(Fake, "fail", 1)
     told = []
     for job in (lambda: P.publish(root, "tea notes", WEB_DIR),
-                lambda: monkeypatch.delenv("TMUXRC_SCRATCH_PUBLISH") or P.unpublish("tea notes")):
+                lambda: monkeypatch.setenv("TMUXRC_SCRATCH_PUBLISH", "") or P.unpublish("x")):
         P.later(job, "tea notes", told.append)
         for t in threading.enumerate():
             if t.name == "scratch-publish":
                 t.join()
     assert [m["body"][:30] for m in told] == ["403 Forbidden", "set TMUXRC_SCRATCH_PUBLISH (gs"]
-    assert {m["title"] for m in told} == {"Publish failed: tea notes"} and BUCKET == {}
+    assert {m["title"] for m in told} == {"Publish failed: tea notes"}
+    assert len(BUCKET) == 1
+    monkeypatch.setenv("TMUXRC_SCRATCH_PUBLISH", "gs://bkt/people/ada")
+    P.unpublish("tea notes")  # what was sent before the refusal is on record all the same
+    assert BUCKET == {}
 
 
 def test_the_gcs_driver_writes_and_deletes_by_name_and_never_lists(tmp_path, monkeypatch):

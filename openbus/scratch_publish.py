@@ -6,6 +6,7 @@ ready (push.landed: when it sends Ready or Updated). Only what changed since the
 is sent, by a record of what was, so the writer needs no permission to list the bucket."""
 
 import argparse
+import fcntl
 import hashlib
 import logging
 import mimetypes
@@ -19,7 +20,6 @@ from urllib.parse import quote
 from . import accounts, scratch
 
 logger = logging.getLogger(__name__)
-_LOCK = threading.Lock()  # one copy at a time: each reads and rewrites the record
 
 
 class Gcs:
@@ -76,13 +76,20 @@ def url(name: str) -> str:
 def _sync(name: str, out: Path | None) -> None:
     """Make the copy at the target match `out` (None: nothing), sending only what changed."""
     target = _target()[0]
-    with _LOCK:
+    _record().parent.mkdir(parents=True, exist_ok=True)
+    # one copy at a time, the CLI's and the daemon's alike: each reads and rewrites the record
+    with _record().with_suffix(".lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
         record = scratch.load(_record(), {})
         was = record.get(f"{target}/{name}", {})
         now = {f.relative_to(out).as_posix(): hashlib.sha256(f.read_bytes()).hexdigest()
                for f in (out.rglob("*") if out else ()) if f.is_file()}
+        sent = [r for r, digest in now.items() if was.get(r) != digest]
+        # whatever may be sent is on record first (as unknown), so a failure midway leaves
+        # nothing hosted that unpublish cannot find
+        scratch.save(_record(), {**record, f"{target}/{name}": {**was, **dict.fromkeys(sent, "")}})
         driver = DRIVER(target)
-        for rel in [r for r, digest in now.items() if was.get(r) != digest]:
+        for rel in sent:
             driver.put(f"{name}/{rel}", out / rel)
         for rel in was.keys() - now.keys():
             driver.drop(f"{name}/{rel}")
@@ -91,7 +98,11 @@ def _sync(name: str, out: Path | None) -> None:
 
 
 def publish(root: Path, name: str, web: Path) -> str:
-    """Copy the folder's current version to the target; its URL."""
+    """Copy the folder's current version to the target; its URL. Only while it is opted in
+    and not being revised: a job queued before an unpublish or an update copies nothing."""
+    if not (card := scratch.named(root, name)) or not card["publish"] or card["revising"]:
+        raise SystemExit(f"{name} is not published, or is being updated: it is copied once "
+                         "it is ready")
     with tempfile.TemporaryDirectory() as tmp:
         scratch.export(root / name, Path(tmp) / name, web)
         _sync(name, Path(tmp) / name)
@@ -139,11 +150,14 @@ def cli(argv: list[str], web: Path) -> object:
     if not scratch.folder_name(args.name) or (
             args.command == "publish" and not (root / args.name).is_dir()):
         cli.error(f"{args.name} is not a folder of {root}")
-    meta, there = root / args.name / "meta.json", url(args.name)
+    there = url(args.name)
     if args.command == "unpublish":
         unpublish(args.name)
-        scratch.rewrite(meta, root, lambda m: {k: v for k, v in m.items() if k != "publish"})
+        for at in (root, scratch.archive(root)):  # its opt-in goes, archived or not
+            scratch.rewrite(at / args.name / "meta.json", at,
+                            lambda m: {k: v for k, v in m.items() if k != "publish"})
         return sys.stdout.write(f"Unpublished {there}\n")
-    if not scratch.rewrite(meta, root, lambda m: {**m, "publish": there}):
+    if not scratch.rewrite(meta := root / args.name / "meta.json", root,
+                           lambda m: {**m, "publish": there}):
         cli.error(f"{meta} is unreadable")
     return sys.stdout.write(publish(root, args.name, web) + "\n")
