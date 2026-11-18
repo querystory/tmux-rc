@@ -17,8 +17,9 @@ changes across versions and tools):
 - Is the pane actively working (a spinner, a "thinking" word, an elapsed timer,
   streaming output), waiting on the user (a question, or a finished turn whose final
   message asks them to act or decide), or idle at a prompt? A past-tense duration with
-  a clock time marks a finished turn (background work it lists, "1 shell still running",
-  is not the turn), while a live spinner row with a running timer is the turn still going.
+  a clock time marks a finished turn, idle or waiting by its final message, even when the
+  stamp goes on to list shells still running in the background ("· 1 shell still running",
+  however it wraps), while a live spinner row with a running timer is the turn still going.
 - Is the agent COMPACTING — busy summarizing/condensing its own conversation history
   to reclaim context window (a "Compacting conversation…" progress bar, a /compact
   command running, an "auto-compact"/"summarizing previous conversation" indicator)?
@@ -57,7 +58,8 @@ line is momentarily static or complete. Its headline should name the meaningful 
 visible in the logs, not merely say that a generic server is running. An agent can also
 leave commands running in the background, listed under any heading, with its own empty
 input box live below: the agent is at its input, so its activity comes from its finished
-turn (usually "idle"), and the background commands go in the headline.
+turn (usually "idle"), and the background commands go in the headline. Agents it waits on
+are not commands: "Waiting for N background agents to finish" is "waiting" on "external".
 
 IMPORTANT — mid-typing: the text right after a shell prompt on the LAST line may be a
 command the user is STILL TYPING and has NOT run yet. Do NOT report it as an executed
