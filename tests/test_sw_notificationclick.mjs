@@ -90,7 +90,7 @@ test("a chat tap is recorded for the page to pull before any window is focused",
   const start = Date.now();
   await tap("/m", [fakeWindow("https://host/m", { silent: true })], "c1"); // the message is lost
   const { at, ...rest } = recorded;
-  assert.deepEqual(rest, { name: "tap", key: "/__tapped", chat: "c1", focused: false });
+  assert.deepEqual(rest, { name: "chat-tap", key: "/__tapped-chat", chat: "c1", focused: false });
   assert.ok(at >= start && at <= Date.now());
 });
 
@@ -99,7 +99,7 @@ test("a scratch page's tap is recorded for the page to open, even on a cold star
   for (const windows of [[fakeWindow("https://host/m", { silent: true })], []]) {
     await tap(url, windows);
     const { at, ...rest } = recorded;
-    assert.deepEqual(rest, { name: "tap", key: "/__tapped", open: `https://host${url}`, focused: false });
+    assert.deepEqual(rest, { name: "chat-tap", key: "/__tapped-chat", open: `https://host${url}`, focused: false });
   }
 });
 

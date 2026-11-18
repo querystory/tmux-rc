@@ -508,7 +508,7 @@ def test_chat_needs_you_tap_whose_message_was_lost_is_pulled_when_the_page_comes
   const $ = (id) => document.getElementById(id), dialog = $('voice-dialog');
   // What sw.js records on a tap, `ago` ms back; and the page's reads of it, now and later.
   const record = (chat, ago = 0) =>
-    tapped.set('tap /__tapped', {chat, at: Date.now() - ago});
+    tapped.set('chat-tap /__tapped-chat', {chat, at: Date.now() - ago});
   const reads = async () => {
     [...timers].filter((t) => t.name === 'pullTap').forEach((t) => t()); await flush();
   };
@@ -555,20 +555,32 @@ def test_tapped_push_address_opens_once_from_the_message_or_the_record():
     _run_live(r"""
 (async () => {
   const url = 'https://test/m#view=scratch&open=%2Fscratch%2Fdemo%2F';
+  const record = (tap) => tapped.set('chat-tap /__tapped-chat', tap);
   const reads = async () => {
     [...timers].filter((t) => t.name === 'pullTap').forEach((t) => t()); await flush();
   };
-  tapped.set('tap /__tapped', {open: url, at: 1}); await reads(); // stale: from some other time
+  record({open: url, at: 1}); await reads(); // stale: from some other time
   assert.deepEqual(links, []);
-  tapped.set('tap /__tapped', {open: url, at: Date.now()}); await reads(); // the boot's read
+  record({open: url, at: Date.now()}); await reads(); // the boot's read
   assert.deepEqual(links, [url]); assert.equal(tapped.size, 0);
   const at = Date.now() + 1;
-  tapped.set('tap /__tapped', {open: url, at});
-  const message = {data: {open: url, at}, ports: []};
-  navigator.serviceWorker.dispatchEvent(Object.assign(new Event('message'), message));
-  await flush(); tapped.set('tap /__tapped', {open: url, at}); // a read that beat its spend
+  record({open: url, at});
+  const tell = (data) => navigator.serviceWorker.dispatchEvent(
+    Object.assign(new Event('message'), {data, ports: []}));
+  tell({open: url, at});
+  await flush(); // a read that beat its spend:
+  record({open: url, at});
   window.dispatchEvent(new Event('focus')); await reads();
   assert.deepEqual(links, [url, url]);
+  // A read that snapshotted an older tap lands after a newer one opened: not reopened.
+  const newer = 'https://test/m#view=scratch&open=%2Fscratch%2Flater%2F';
+  tell({open: newer, at: at + 1});
+  await flush(); record({open: url, at}); await reads();
+  assert.deepEqual(links, [url, url, newer]);
+  // A window not on screen leaves the tap for the one that is.
+  record({open: newer, at: at + 2});
+  document.hidden = true; await reads(); document.hidden = false;
+  assert.deepEqual(links, [url, url, newer]); assert.equal(tapped.size, 1);
 })().catch((error) => {console.error(error); process.exitCode = 1;});
 """, {"version": "v", "live_enabled": True, "live_models": [{"label": "Sonnet", "text": True}]})
 

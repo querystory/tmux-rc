@@ -55,7 +55,7 @@ self.addEventListener("notificationclick", (event) => {
     // the tap, so the page acts once on it, however both arrive.
     const target = new URL(data.url || "/m", self.location.origin).href;
     const tap = data.chat ? { chat: data.chat, at: Date.now() } : { open: target, at: Date.now() };
-    try { await (await caches.open("tap")).put("/__tapped", new Response(JSON.stringify(tap))); } catch {}
+    try { await (await caches.open("chat-tap")).put("/__tapped-chat", new Response(JSON.stringify(tap))); } catch {}
     const windows = await clients.matchAll({ type: "window", includeUncontrolled: true });
     const apps = windows.filter((client) => {
       try { return new URL(client.url).pathname.startsWith("/m"); } catch { return false; }

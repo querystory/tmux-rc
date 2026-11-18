@@ -18,8 +18,9 @@ const MAX_RECONNECT_TRIES = 5; // Exponential backoff attempts before declaring 
 const TRANSCRIPT_ROWS = 40; // Oldest transcript rows are dropped past this count.
 const FOLLOW_SLACK_PX = 48; // Keep auto-scrolling while the log is within this distance of the bottom.
 const CHAT_MODEL_KEY = "tmuxrc-chat-model"; // Chat's last model, apart from the voice picker's
-// Where sw.js records a notification tap, and how long the page still acts on it.
-const TAP_CACHE = "tap", TAP_KEY = "/__tapped", TAP_FRESH_MS = 60000;
+// Where sw.js records a notification tap (named when it held only chat taps, which a page
+// still running the old live.js under a new worker reads), and how long the page acts on it.
+const TAP_CACHE = "chat-tap", TAP_KEY = "/__tapped-chat", TAP_FRESH_MS = 60000;
 const TAP_READS_MS = [0, 1000, 3000]; // when a page coming back reads it, the worker maybe not yet run
 
 export function setupLiveMode({ request, session, licon, wide, open, onLink = () => {}, report = () => {}, onVersion = () => {}, onChat = () => {}, account = () => "", panes = () => [], logos = {} }) {
@@ -647,9 +648,11 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
   // it is waking: the worker's message, and the tap the worker recorded, pulled whenever the
   // page comes back or boots. A "Chat needs you" tap brings back the chat holding its card,
   // even minimized; only that card's chat answers, and doing it twice is harmless. Any other
-  // tap opens its address (onLink), once: both triggers carry the tap's `at`. A tap is spent
-  // once acted on, so a later return to the app never reopens what was left since. iOS may
-  // show the page before the worker has even run, so each return reads again shortly after.
+  // tap opens its address (onLink) in the window on screen, once, and never one older than a
+  // tap already opened: both triggers carry the tap's `at`, and a slow read can land late. A
+  // tap is spent once acted on, so a later return to the app never reopens what was left
+  // since. iOS may show the page before the worker has even run, so each return reads again
+  // shortly after.
   // A killed page has no chat left to bring back (it lived in the page): that tap does nothing.
   const taps = async () => caches.open(TAP_CACHE);
   const spend = () => taps().then((cache) => cache.delete(TAP_KEY)).catch(() => {});
@@ -660,13 +663,13 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
     spend();
     return true;
   }
-  let followed = null;
-  const follow = ({ open, at }) => { if (at !== followed) { followed = at; spend(); onLink(open); } };
+  let followed = 0;
+  const follow = ({ open, at }) => { if (at > followed) { followed = at; spend(); onLink(open); } };
   async function pullTap() {
     try {
       const tap = await (await (await taps()).match(TAP_KEY))?.json();
       if (!tap || Date.now() - tap.at >= TAP_FRESH_MS) return;
-      if (tap.chat) bringBack(tap.chat); else if (tap.open) follow(tap);
+      if (tap.chat) bringBack(tap.chat); else if (tap.open && !document.hidden) follow(tap);
     } catch { /* no Cache Storage (an insecure context): the message is the only path */ }
   }
   const pullTaps = () => TAP_READS_MS.forEach((ms) => setTimeout(pullTap, ms));
