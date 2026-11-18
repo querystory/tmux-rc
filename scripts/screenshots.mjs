@@ -138,8 +138,8 @@ function openScratch(name) {
 // The website's Fleet graph, close up on the tmux-rc session that only its demo has
 // (TMUXRC_DEMO_GRAPH=1, demo_fleet.py): every label a node carries, readable.
 const GRAPH = [["website-graph", WIDE, "light", "#view=graph", closeUp("tmux-rc")]];
-// Full screen, its neighbours folded, then Jump to the longest-waiting pane (the session's question), which centres
-// it at zoom 1.4; Zoom in twice (x1.35 about the centre) passes 2, where each pane adds its
+// Full screen, its neighbours folded, then Jump to the longest-waiting pane (the session's question), which flies
+// to it; Zoom in twice (x1.35 about the centre) passes 2, where each pane adds its
 // numbers. Then drag the session's hub, panes and sub-agents to the middle of the room the HUD
 // leaves, and tap an empty spot so nothing stays selected (a selection dims the rest).
 function closeUp(session) {
@@ -155,13 +155,16 @@ function closeUp(session) {
     await jump.click();
     await page.locator(".fg-pop .fg-x").click(); // focus() opens the pane's popover
     for (let i = 0; i < 2; i++) await tool("Zoom in");
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))); // the zoom lands on a frame
     const plan = await page.evaluate(([session, id]) => {
-      const nodes = [...document.querySelectorAll(".fg-nodes button")].map((b) => b._n), k = 1.4 * 1.35 ** 2;
-      const hub = nodes.find((n) => n.kind === "group" && n.label === session), at = nodes.find((n) => n.p?.pane_id === id);
+      const nodes = [...document.querySelectorAll(".fg-nodes button")].map((b) => b._n), fb = document.querySelector(".fg-box"), at = nodes.find((n) => n.p?.pane_id === id);
+      // A base from before view() had focus() centre the pane at zoom 1.4.
+      const k = 1.4 * 1.35 ** 2, v = fb.parentElement._g.view?.() || { k, x: fb.clientWidth / 2 - at.tx * k, y: fb.clientHeight / 2 - at.ty * k };
+      const hub = nodes.find((n) => n.kind === "group" && n.label === session);
       const mine = nodes.filter((n) => n === hub || n.up === hub || n.up?.up === hub), xs = mine.map((n) => n.tx), ys = mine.map((n) => n.ty);
       const r = (e) => document.querySelector(e).getBoundingClientRect(), box = r(".fg-box");
       const top = Math.max(r(".fg-lenses").bottom, r(".fg-call").bottom), left = r(".fg-stats").right, bottom = r(".fg-legend").top, right = box.right - 52;
-      const c = { x: box.left + box.width / 2, y: box.top + box.height / 2 }, screen = (x, y) => ({ x: c.x + (x - at.tx) * k, y: c.y + (y - at.ty) * k });
+      const screen = (x, y) => ({ x: box.left + v.x + x * v.k, y: box.top + v.y + y * v.k });
       const from = screen((Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2), to = { x: (left + right) / 2 + 20, y: (top + bottom) / 2 }; // a little right: the left side's words run out leftward
       // The emptiest point of the room once dragged: the farthest from every node.
       const placed = nodes.map((n) => screen(n.tx, n.ty)).map((p) => ({ x: p.x + to.x - from.x, y: p.y + to.y - from.y }));

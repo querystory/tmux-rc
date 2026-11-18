@@ -30,12 +30,15 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.error
 from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
 from dataclasses import replace
 from functools import partial
+from http import HTTPStatus
 from pathlib import Path
 from typing import Annotated, Literal
+from urllib.parse import parse_qs, quote, urlencode
 
 # Load .env BEFORE importing the watcher/llm/telemetry chain — those read config from
 # os.environ at import time (model, GOOGLE_CLOUD_PROJECT, OTEL endpoint). Without this, a
@@ -90,11 +93,13 @@ from . import (  # noqa: E402
     export,
     expunge,
     fit,
+    plan_usage,
     restore,
     scratch,
     scratch_markdown,
     scratch_sidecars,
     telemetry,
+    teleport,
     tmux,
 )
 from .browser_security import BrowserOriginMiddleware  # noqa: E402
@@ -272,6 +277,12 @@ class NewWindowBody(BaseModel):
     session: str
     launcher: str  # label of a configured launcher — never a raw command
     account: str | None = None  # a listed profile's config dir (accounts.py); None = inherit
+
+
+class TeleportBody(BaseModel):
+    cloud: str = Field(max_length=400)  # a claude.ai/code session's link, or its id
+    session: str
+    account: str | None = None  # as in NewWindowBody; None = the session's own
 
 
 class RestoreBody(BaseModel):
@@ -589,9 +600,22 @@ async def no_cache(request, call_next):
     re-downloading app code and chart libraries that did not change. The mount answers
     any token with today's files, so a page from before a deploy fetching under its old
     token gets those bytes as before, uncached: an immutable URL never lies."""
-    resp = await call_next(request)
     # Match paths as StaticFiles resolves them, so /docs//mocks/ can't dodge a policy.
     path = posixpath.normpath("/" + request.url.path.lstrip("/")) + "/"
+    # A browser opening a page of a scratch folder in a tab of its own gets it in the app's
+    # viewer, the app around it (its message bar, its notice when a page lands). Not the
+    # viewer's own Open in browser (?bare), a Markdown page's source (?raw), a save
+    # (?download, a file and no page), nor a frame.
+    # Its address takes no #fragment, so the browser keeps the link's for the app to read.
+    query = request.url.query
+    if (_scratch_dir and request.method == "GET" and path.startswith("/scratch/")
+            and request.url.path.count("/") > 2
+            and request.headers.get("sec-fetch-dest") == "document"
+            and not {"bare", "raw", "download"} & set(parse_qs(query, keep_blank_values=True))):
+        page = quote(request.url.path.removeprefix("/scratch/")) + (f"?{query}" if query else "")
+        resp = RedirectResponse("/m?" + urlencode({"scratch": page}), 303)
+    else:
+        resp = await call_next(request)
     # The version (a scan of web/) is computed only for a hit under /v/, never for the API.
     versioned = path.startswith("/v/") and resp.status_code < 400
     if versioned and path.startswith(f"/v/{_web_version()}/"):
@@ -864,6 +888,7 @@ async def get_state(v: int | None = None):
     up within the fast-poll cadence instead of a fixed 2s interval. Omitting `v` returns
     immediately (unchanged legacy behavior)."""
     w = app.state.watcher
+    push = getattr(app.state, "push", None)
     version = w.state_version()
     # Only long-poll once the watcher has produced an initial state (version > 0).
     # A client that sends ?v=0 before the deck has ever ticked (daemon startup, or the
@@ -904,6 +929,7 @@ async def get_state(v: int | None = None):
         "tmux_running": w.tmux_running,  # False = no server at all (e.g. after a reboot)
         # The machine's name for the app's tab titles (docs/design/tab-icons.md): zero setup.
         "host": os.environ.get("TMUXRC_HOST_NAME") or socket.gethostname().split(".")[0],
+        "scratch": list(push.news) if push else [],  # the pages that landed last (push.py)
         "panes": panes,
     }
 
@@ -1405,9 +1431,74 @@ def _on_account(entry: dict, account: str | None) -> str | list[str] | None:
     return profile and accounts.command(profile["provider"], profile["dir"], entry["command"])
 
 
+@app.post("/api/teleport")
+def teleport_session(body: TeleportBody, request: Request):
+    """Continue a Claude Code cloud session in a new window of `session` (teleport.py).
+    Like a launcher, the request never carries a command: it names a session id, and the
+    argv is built here around the fixed `claude --teleport`."""
+    sid = teleport.session_id(body.cloud)
+    detail = f"session={body.session[:80]!r} cloud={sid or body.cloud[:80]!r}"
+    refuse = partial(_refuse, request, "teleport", detail)
+    _single_pane(refuse, "a teleported session")
+    if not sid:
+        refuse(422, "Paste a claude.ai/code session link or its id.")
+    if not any(p.session == body.session for p in tmux.list_panes()):
+        refuse(404, "session not found")
+    if why := _unavailable("claude", tmux.server_path()):
+        refuse(400, why)
+    profile = accounts.find(body.account, "claude") if body.account else None
+    if body.account and not profile:
+        refuse(404, "unknown account")
+    # One account for the lookup and the launch: what a window there inherits from tmux
+    # (its HOME too, which may not be the daemon's), the chosen profile over it, pinned.
+    env = {**tmux.show_env(), **tmux.show_env(body.session)}
+    if profile:
+        env[accounts.ENV["claude"]] = "" if profile["default"] else profile["dir"]
+    config = plan_usage.home("claude", env)
+    try:
+        info = teleport.describe(teleport.fetch(config, sid, time.time()))
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+        status = getattr(e, "code", None)  # an HTTPError's; the rest never reached claude.ai
+        if status == HTTPStatus.NOT_FOUND:
+            refuse(404, "This account has no cloud session with that id.")
+        if status not in (None, HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN):
+            refuse(502, f"claude.ai answered {status} for that session.")
+        if status is None and isinstance(e, (urllib.error.URLError, TimeoutError)):
+            refuse(502, "claude.ai could not be reached for that session.")
+        # No credentials file, or a token that is expired or refused: Claude Code renews
+        # it when it next runs on this account, and tmux-rc never writes that file.
+        refuse(409, "This Claude account's sign-in could not be used. Open Claude on it "
+                    "once, then try again.")
+    cwd = None
+    if info["repo"]:
+        watcher = getattr(app.state, "watcher", None)
+        open_in = [s.get("cwd") for s in (watcher.states if watcher else [])]
+        cwd = teleport.checkout(
+            info["repo"], [d for d in open_in + agent_history.recent_dirs() if d])
+        if cwd is None:
+            refuse(409, f"No checkout of {info['repo']} was found here. Clone it and open "
+                        "a session in it, then try again.")
+    argv = teleport.command(sid, info)
+    command = accounts.pinned("claude", env.get(accounts.ENV["claude"]), argv)
+    try:
+        pane_id = tmux.new_window(body.session, info["title"][:40] or "teleport", command, cwd)
+    except Exception as e:
+        _audit(request, "teleport", "-", detail, outcome=f"error: {e}"[:80])
+        raise
+    _audit(request, "teleport", pane_id, detail)
+    return {**_opened(pane_id), "repo": info["repo"], "also": info["also"]}
+
+
 def _refuse(request: Request, action: str, detail: str, status: int, why: str, **extra):
     _audit(request, action, "-", detail, outcome=f"rejected: {why}"[:80])
     raise HTTPException(status, {"message": why, **extra} if extra else why)
+
+
+def _single_pane(refuse, what: str):
+    """Single-pane mode publishes only its target, so a new pane could never appear (the
+    history tools are withheld for the same reason: agent_history.offered)."""
+    if os.environ.get("TMUXRC_TARGET"):
+        refuse(409, f"single-pane mode (TMUXRC_TARGET) cannot show {what}")
 
 
 @app.get("/api/accounts")
@@ -1662,14 +1753,8 @@ def new_session(body: NewSessionBody, request: Request):
     detail = (f"session={body.name[:80]!r} cwd={body.cwd[:120]!r} "
               f"launcher={(body.launcher or '')[:80]!r}")
 
-    def refuse(status: int, why: str):
-        _audit(request, "new_session", "-", detail, outcome=f"rejected: {why}"[:80])
-        raise HTTPException(status, why)
-
-    # Single-pane mode publishes only its target, so the new pane could never appear
-    # (the history tools are withheld for the same reason: agent_history.offered).
-    if os.environ.get("TMUXRC_TARGET"):
-        refuse(409, "single-pane mode (TMUXRC_TARGET) cannot show a new session")
+    refuse = partial(_refuse, request, "new_session", detail)
+    _single_pane(refuse, "a new session")
     # tmux silently rewrites ':' and '.' in a session name (they are target syntax), so
     # the session would not be called what was asked for; refuse rather than surprise.
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", body.name):
@@ -1709,17 +1794,19 @@ def new_session(body: NewSessionBody, request: Request):
 
 
 @app.post("/api/panes/{pane_id}/select")
-def select(pane_id: str, request: Request):
-    """Focus this pane in tmux itself — tapping a card on the phone follows on host."""
+def select(pane_id: str, request: Request, follow: bool = True):
+    """The app opened this pane; unless the phone's Desktop follows phone is off (follow=0),
+    tmux focuses it too, so the host follows."""
     if (pane := tmux.find_pane(pane_id)) is None:
         _audit(request, "select_pane", pane_id, outcome="rejected: pane not found")
         raise HTTPException(404, "pane not found")
-    try:
-        tmux.select_pane(pane_id)
-    except Exception as e:
-        _audit(request, "select_pane", pane_id, outcome=f"error: {e}"[:80])
-        raise
-    _audit(request, "select_pane", pane_id)
+    if follow:
+        try:
+            tmux.select_pane(pane_id)
+        except Exception as e:
+            _audit(request, "select_pane", pane_id, outcome=f"error: {e}"[:80])
+            raise
+        _audit(request, "select_pane", pane_id)
     # The app selects the pane it opens: a visit, keyed as History keys a pane, so a recycled
     # id (or one after a reboot) is some other pane; by its own pid, which the watcher may not
     # know yet (a pane just launched).
@@ -2341,10 +2428,7 @@ if DOCS_MOUNTED:
 # Only an explicitly configured dir is served — there is no default — because whatever
 # lands in it is published to everyone the tunnel admits. Mocks worth keeping belong in
 # docs-site/static/mocks/ instead, which ships with the docs at /docs/mocks/.
-_scratch_dir = os.environ.get("TMUXRC_SCRATCH_DIR")
-# Absolute: panes get it as their env, and the gallery's find takes "-draft" for an option.
-_scratch_dir = os.path.realpath(_scratch_dir) if _scratch_dir and Path(_scratch_dir).is_dir() \
-    else None
+_scratch_dir = scratch.configured()
 if _scratch_dir:
     def _who() -> tuple:
         """What scratch needs to say who made a folder: the panes, their accounts, the app's
