@@ -5,8 +5,8 @@ import vm from "node:vm";
 
 const source = readFileSync(new URL("../web/sw.js", import.meta.url), "utf8");
 
-// The tap a chat push recorded for the page to pull (live.js), and whether any window had
-// been focused by then.
+// The tap recorded for the page to pull (live.js), and whether any window had been focused
+// by then.
 let recorded;
 
 // Runs sw.js against fake windows and taps a notification for `url` (a chat push also names
@@ -58,7 +58,9 @@ const fakeWindow = (url, { navigate = async () => {}, holds, silent, gone } = {}
 test("an open app is told which pane to open and focused, never navigated", async () => {
   const app = fakeWindow("https://host/m#pane=%251");
   const opened = await tap("/m#pane=%257&from=push", [fakeWindow("https://host/docs/"), app]);
-  assert.deepEqual(app.posted, [{ open: "https://host/m#pane=%257&from=push" }]);
+  const [{ at, ...message }] = app.posted;
+  assert.deepEqual(message, { open: "https://host/m#pane=%257&from=push" });
+  assert.equal(at, recorded.at); // the tap it recorded, so the page opens it once
   assert.deepEqual(app.navigated, []);
   assert.equal(app.focused, 1);
   assert.deepEqual(opened, []);
@@ -88,10 +90,17 @@ test("a chat tap is recorded for the page to pull before any window is focused",
   const start = Date.now();
   await tap("/m", [fakeWindow("https://host/m", { silent: true })], "c1"); // the message is lost
   const { at, ...rest } = recorded;
-  assert.deepEqual(rest, { name: "chat-tap", key: "/__tapped-chat", chat: "c1", focused: false });
+  assert.deepEqual(rest, { name: "tap", key: "/__tapped", chat: "c1", focused: false });
   assert.ok(at >= start && at <= Date.now());
-  await tap("/m", [fakeWindow("https://host/m")]); // a pane's push records nothing
-  assert.equal(recorded, undefined);
+});
+
+test("a scratch page's tap is recorded for the page to open, even on a cold start", async () => {
+  const url = "/m#view=scratch&open=%2Fscratch%2Fdemo%2F";
+  for (const windows of [[fakeWindow("https://host/m", { silent: true })], []]) {
+    await tap(url, windows);
+    const { at, ...rest } = recorded;
+    assert.deepEqual(rest, { name: "tap", key: "/__tapped", open: `https://host${url}`, focused: false });
+  }
 });
 
 test("with several app windows, only the one holding the card is focused", async () => {

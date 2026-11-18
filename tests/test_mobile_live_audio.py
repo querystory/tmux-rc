@@ -225,7 +225,7 @@ const navigator = {audioSession, serviceWorker: new EventTarget(), wakeLock: {re
   const stream = {getTracks: () => [track], getAudioTracks: () => [track]};
   streams.push(stream); return stream;
 }}};
-// Cache Storage, where sw.js records a "Chat needs you" tap: by cache name and key.
+// Cache Storage, where sw.js records a notification tap: by cache name and key.
 const tapped = new Map();
 const caches = {open: async (name) => ({
   match: async (key) => {
@@ -256,9 +256,10 @@ vm.runInNewContext(source + '\nglobalThis.setup = setupLiveMode; globalThis.Comp
 const version = JSON.parse(process.env.LIVE_VERSION || 'null');
 const wide = Object.assign(new EventTarget(), {matches: false}); // app.js's WIDE query
 const opened = []; // panes app.js was asked to navigate to
+const links = []; // addresses app.js was asked to open (a tapped push's)
 const panes = []; // app.js's pane list
 const live = sandbox.setup({licon: (name) => name, wide, open: (id) => opened.push(id),
-  panes: () => panes, logos: {claude: '/claude.png'},
+  onLink: (url) => links.push(url), panes: () => panes, logos: {claude: '/claude.png'},
   request: async () => { if (!version) throw Error('offline'); return version; }});
 const flush = async () => {for (let i = 0; i < 20; i++) await Promise.resolve();};
 const status = () => document.getElementById('voice-status').textContent;
@@ -507,7 +508,7 @@ def test_chat_needs_you_tap_whose_message_was_lost_is_pulled_when_the_page_comes
   const $ = (id) => document.getElementById(id), dialog = $('voice-dialog');
   // What sw.js records on a tap, `ago` ms back; and the page's reads of it, now and later.
   const record = (chat, ago = 0) =>
-    tapped.set('chat-tap /__tapped-chat', {chat, at: Date.now() - ago});
+    tapped.set('tap /__tapped', {chat, at: Date.now() - ago});
   const reads = async () => {
     [...timers].filter((t) => t.name === 'pullTap').forEach((t) => t()); await flush();
   };
@@ -543,6 +544,31 @@ def test_chat_needs_you_tap_whose_message_was_lost_is_pulled_when_the_page_comes
   navigator.serviceWorker.dispatchEvent(message); await flush(); await back('pageshow');
   assert.equal(dialog.open, true); assert.equal(actions.scrolled, before + 2);
   assert.equal(tapped.size, 0);
+})().catch((error) => {console.error(error); process.exitCode = 1;});
+""", {"version": "v", "live_enabled": True, "live_models": [{"label": "Sonnet", "text": True}]})
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_tapped_push_address_opens_once_from_the_message_or_the_record():
+    """A scratch page's tap: a booting page (cold start) or one whose message was lost opens
+    it from the record; when both arrive, the tap opens once and is spent."""
+    _run_live(r"""
+(async () => {
+  const url = 'https://test/m#view=scratch&open=%2Fscratch%2Fdemo%2F';
+  const reads = async () => {
+    [...timers].filter((t) => t.name === 'pullTap').forEach((t) => t()); await flush();
+  };
+  tapped.set('tap /__tapped', {open: url, at: 1}); await reads(); // stale: from some other time
+  assert.deepEqual(links, []);
+  tapped.set('tap /__tapped', {open: url, at: Date.now()}); await reads(); // the boot's read
+  assert.deepEqual(links, [url]); assert.equal(tapped.size, 0);
+  const at = Date.now() + 1;
+  tapped.set('tap /__tapped', {open: url, at});
+  const message = {data: {open: url, at}, ports: []};
+  navigator.serviceWorker.dispatchEvent(Object.assign(new Event('message'), message));
+  await flush(); tapped.set('tap /__tapped', {open: url, at}); // a read that beat its spend
+  window.dispatchEvent(new Event('focus')); await reads();
+  assert.deepEqual(links, [url, url]);
 })().catch((error) => {console.error(error); process.exitCode = 1;});
 """, {"version": "v", "live_enabled": True, "live_models": [{"label": "Sonnet", "text": True}]})
 

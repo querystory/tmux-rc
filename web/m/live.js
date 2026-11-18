@@ -18,11 +18,11 @@ const MAX_RECONNECT_TRIES = 5; // Exponential backoff attempts before declaring 
 const TRANSCRIPT_ROWS = 40; // Oldest transcript rows are dropped past this count.
 const FOLLOW_SLACK_PX = 48; // Keep auto-scrolling while the log is within this distance of the bottom.
 const CHAT_MODEL_KEY = "tmuxrc-chat-model"; // Chat's last model, apart from the voice picker's
-// Where sw.js records a "Chat needs you" tap, and how long the page still acts on it.
-const TAP_CACHE = "chat-tap", TAP_KEY = "/__tapped-chat", TAP_FRESH_MS = 60000;
+// Where sw.js records a notification tap, and how long the page still acts on it.
+const TAP_CACHE = "tap", TAP_KEY = "/__tapped", TAP_FRESH_MS = 60000;
 const TAP_READS_MS = [0, 1000, 3000]; // when a page coming back reads it, the worker maybe not yet run
 
-export function setupLiveMode({ request, session, licon, wide, open, report = () => {}, onVersion = () => {}, onChat = () => {}, account = () => "", panes = () => [], logos = {} }) {
+export function setupLiveMode({ request, session, licon, wide, open, onLink = () => {}, report = () => {}, onVersion = () => {}, onChat = () => {}, account = () => "", panes = () => [], logos = {} }) {
   const $ = (id) => document.getElementById(id);
   const mic = licon("mic"), dialog = $("voice-dialog"), log = $("voice-log");
   $("live-mode").innerHTML = $("voice-mute").innerHTML = mic;
@@ -643,30 +643,36 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     if (!document.hidden) { wake(); pullTaps(); }
     if (run) { resumeAudio(run); keepAwake(run); viewing(); }
   });
-  // A "Chat needs you" tap (sw.js) brings back the chat holding its card, even minimized;
-  // only that card's chat answers. Doing it twice is harmless, so it has two triggers: the
-  // worker's message, and the tap the worker recorded, pulled whenever the page comes back,
-  // since iOS can lose a message to the page it is waking. A tap is spent once acted on,
-  // so a later return to the app never reopens a chat minimized again since. iOS may show
-  // the page before the worker has even run, so each return reads again shortly after. A
-  // killed page has no chat left to bring back (it lived in the page): its boot does nothing.
+  // A notification tap (sw.js) has two triggers, since iOS can lose a message to the page
+  // it is waking: the worker's message, and the tap the worker recorded, pulled whenever the
+  // page comes back or boots. A "Chat needs you" tap brings back the chat holding its card,
+  // even minimized; only that card's chat answers, and doing it twice is harmless. Any other
+  // tap opens its address (onLink), once: both triggers carry the tap's `at`. A tap is spent
+  // once acted on, so a later return to the app never reopens what was left since. iOS may
+  // show the page before the worker has even run, so each return reads again shortly after.
+  // A killed page has no chat left to bring back (it lived in the page): that tap does nothing.
   const taps = async () => caches.open(TAP_CACHE);
+  const spend = () => taps().then((cache) => cache.delete(TAP_KEY)).catch(() => {});
   function bringBack(id) {
     const card = run?.proposals.get(id);
     if (!card) return false;
     show(); card.actions.scrollIntoView?.({ block: "nearest" });
-    taps().then((cache) => cache.delete(TAP_KEY)).catch(() => {});
+    spend();
     return true;
   }
+  let followed = null;
+  const follow = ({ open, at }) => { if (at !== followed) { followed = at; spend(); onLink(open); } };
   async function pullTap() {
     try {
       const tap = await (await (await taps()).match(TAP_KEY))?.json();
-      if (tap && Date.now() - tap.at < TAP_FRESH_MS) bringBack(tap.chat);
+      if (!tap || Date.now() - tap.at >= TAP_FRESH_MS) return;
+      if (tap.chat) bringBack(tap.chat); else if (tap.open) follow(tap);
     } catch { /* no Cache Storage (an insecure context): the message is the only path */ }
   }
   const pullTaps = () => TAP_READS_MS.forEach((ms) => setTimeout(pullTap, ms));
   navigator.serviceWorker?.addEventListener("message", ({ data, ports }) => {
     if (data?.chat) ports[0]?.postMessage(bringBack(data.chat));
+    else if (data?.open) follow(data);
   });
   window.addEventListener("focus", pullTaps);
   paint(); capabilities(); pullTaps();
