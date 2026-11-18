@@ -97,12 +97,17 @@ def _sync(name: str, out: Path | None) -> None:
         scratch.save(_record(), {k: v for k, v in record.items() if v})
 
 
+def _indexed(card: dict | None) -> bool:
+    return bool(card) and card["href"].endswith("/")  # its page is its index
+
+
 def publish(root: Path, name: str, web: Path) -> str:
     """Copy the folder's current version to the target; its URL. Only while it is opted in
     and not being revised: a job queued before an unpublish or an update copies nothing."""
-    if not (card := scratch.named(root, name)) or not card["publish"] or card["revising"]:
-        raise SystemExit(f"{name} is not published, or is being updated: it is copied once "
-                         "it is ready")
+    if not _indexed(card := scratch.named(root, name)) or not card["publish"] or card[
+            "revising"]:
+        raise SystemExit(f"{name} is not published, has no index, or is being updated: it "
+                         "is copied once it is ready")
     with tempfile.TemporaryDirectory() as tmp:
         scratch.export(root / name, Path(tmp) / name, web)
         _sync(name, Path(tmp) / name)
@@ -147,9 +152,9 @@ def cli(argv: list[str], web: Path) -> object:
     if args.command == "export":
         return scratch.export(args.folder, args.out, web)
     root = Path(scratch.configured() or cli.error("TMUXRC_SCRATCH_DIR is not a folder"))
-    if not scratch.folder_name(args.name) or (
-            args.command == "publish" and not (root / args.name).is_dir()):
-        cli.error(f"{args.name} is not a folder of {root}")
+    if not scratch.folder_name(args.name) or (args.command == "publish" and not _indexed(
+            scratch.named(root, args.name))):  # served at its URL: name/
+        cli.error(f"{args.name} is not a folder of {root} with an index.html or index.md")
     there = url(args.name)
     if args.command == "unpublish":
         unpublish(args.name)

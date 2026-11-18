@@ -71,6 +71,13 @@ def test_publish_sends_what_changed_and_unpublish_removes_it(root, capsys):
         P.publish(root, "tea notes", WEB_DIR)
 
 
+def test_only_a_folder_with_an_index_is_published(root):
+    (root / "tea notes/index.md").rename(root / "tea notes/report.md")
+    with pytest.raises(SystemExit):  # its URL, the folder's, would open nothing
+        P.cli(["publish", "tea notes"], WEB_DIR)
+    assert BUCKET == {} and "publish" not in _meta(root)
+
+
 def test_an_archived_folder_unpublishes_too(root, capsys):
     P.cli(["publish", "tea notes"], WEB_DIR)
     (root / ".archive").mkdir()
