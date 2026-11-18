@@ -19,7 +19,8 @@ wrong, each found by doing it:
 
 ## What it does
 
-The New session sheet has one more row: paste a session's link or id, press Teleport.
+Paste a session link or id in the New session sheet to enable Teleport. Its outlined
+button keeps Start visually prominent and prevents an empty tap from going anywhere.
 With several Claude accounts the account step comes first, as for a launcher, because a
 cloud session belongs to one account. The daemon then:
 

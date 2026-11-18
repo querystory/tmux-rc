@@ -12,8 +12,13 @@ test("another session cancels a pending account step", { skip: !demo && "no Play
     const page = await api.open(demo.WIDE, "dark");
     await page.evaluate(() => document.getElementById("new-window").click());
     await page.waitForSelector("#launch-dialog .acct-picker", { state: "attached" });
+    const teleport = page.locator("#teleport-go");
+    assert.equal(await teleport.isDisabled(), true);
+    await page.fill("#teleport-id", "   ");
+    assert.equal(await teleport.isDisabled(), true);
     await page.fill("#teleport-id", "session_01ExampleSeedPlanner");
-    await page.evaluate(() => document.getElementById("teleport-go").click());
+    assert.equal(await teleport.isEnabled(), true);
+    await page.press("#teleport-id", "Enter");
     const shown = () => page.evaluate(() => ({ agents: !document.getElementById("launch-choices").hidden,
       step: !document.querySelector("#launch-dialog .acct-picker").hidden }));
     assert.deepEqual(await shown(), { agents: false, step: true });
