@@ -1043,6 +1043,8 @@ def test_a_page_being_updated_notifies_once_its_mark_is_gone(tmp_path, monkeypat
     service.landed()
     assert len(sender.payloads) == 3  # a mark caught half-written still waits for its page
     meta.write_text('{"title": "Mock", "updating": "v7"}')
+    os.utime(meta, (200, 200))  # in the very tick its page was last written:
+    os.utime(root / "page" / "report.html", (200, 200))  # no sign of a write since
     service.landed()
     meta.write_text('{"title": "Mock"}')
     service.landed()
