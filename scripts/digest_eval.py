@@ -1,6 +1,7 @@
 """Score a model-written digest against a hand-written baseline of the same facts.
 
-    python -m scripts.digest_eval DIR    # DIR holds facts.json and baseline.json
+    python -m scripts.digest_eval DIR    # DIR holds facts.json and baseline.json, and
+                                         # optionally the themes.json the model starts from
 
 The table is the design's (docs/design/digest.md): unsafe advice fails the run, the rest
 loses points. Code checks grouping, states, needs and the surface; a person still reads the
@@ -71,7 +72,9 @@ def main(folder: Path) -> None:
     facts, baseline = (json.loads((folder / name).read_text())
                        for name in ("facts.json", "baseline.json"))
     base = {**baseline, **digest.lay(baseline, facts)}
-    llm, reg, start = digest.model(), {}, time.time()
+    seed = folder / "themes.json"  # optional: the registry the model starts from
+    llm, start = digest.model(), time.time()
+    reg = json.loads(seed.read_text()) if seed.exists() else {}
     first, model = (digest.build(facts, reg, lambda system, text: llm.classify_text(
         system, text, kind="digest")) for _ in range(2))
     result = score(model, base, first)

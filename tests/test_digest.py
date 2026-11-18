@@ -93,7 +93,8 @@ def test_theme_identity_is_stable():
     assert [a["text"] for a in d["actions"][:2]] == [  # the model's words, else the rule's
         "Highlight sync needs a rebase", "Reminders can merge"]
     assert "solo" not in reg["themes"]  # one change is not a theme, and it was already placed
-    assert reg["themes"]["search"]["name"] == "Finding books"  # a rename keeps the id
+    assert reg["themes"]["search"]["name"] == "Catalogue search"  # the registry's name stays
+    assert reg["themes"]["search"]["outcome"] == "Renamed."  # the outcome is the model's
     assert "example-org/harbor#425" in reg["themes"]["search"]["members"]
     assert digest.sentences("The build is ready. See ui today", {"ui"}) == ["The build is ready"]
     again = digest.build(FACTS, reg, lambda system, text: None)  # the model is down

@@ -26,7 +26,9 @@ from openbus.scratch_markdown import tokens
 
 DAY = 86400
 HERE = Path(__file__).parent
-STATE = Path.home() / ".local/share/tmux-rc/digest"  # the theme registry and the last facts
+# themes.json, the registry, is plain JSON meant to be edited: rename a theme, reword it, or
+# write your own themes with empty members, and the model files work under them.
+STATE = Path.home() / ".local/share/tmux-rc/digest"
 STAGES = {"main": "on main", "held": "on your machine", "ready": "approved, waiting",
           "open": "in progress", "stuck": "stuck", "dropped": "closed"}
 STATES = {"stuck": "Stuck", "held": "Live on your machine, not on main",
@@ -319,8 +321,9 @@ def lay(reg: dict, facts: dict) -> dict:
 
 def build(facts: dict, reg: dict, ask) -> dict:
     """One model call, folded into the registry under its identity rules: a placed change
-    stays put, a new theme needs two changes, a rename keeps its id, and a theme with nothing
-    in it for two weeks retires. `ask(system, text)` returns the model's JSON, or None."""
+    stays put, a new theme needs two changes, a theme keeps its id and its name, and a theme
+    with nothing in it for two weeks retires. `ask(system, text)` returns the model's JSON,
+    or None."""
     reg.setdefault("themes", {})
     d = lay(reg, facts)
     reply = ask((HERE / "digest_prompt.txt").read_text(), json.dumps({
@@ -347,7 +350,9 @@ def build(facts: dict, reg: dict, ask) -> dict:
                 t["id"] not in reg["themes"] and (len(add) < 2 or not all(words.values()))):
             continue
         theme = reg["themes"].setdefault(t["id"], {"members": [], "last": facts["now"]})
-        theme.update({k: v for k, v in words.items() if v})
+        # A theme's name is the registry's: the model names a new theme once, and a name
+        # edited in the file stays. Its outcome line is rewritten each run.
+        theme.update({k: v for k, v in words.items() if v and (k == "outcome" or k not in theme)})
         theme["members"] += add
         placed.update(add)
     reg["asks"] = {d["actions"][a["n"]]["key"]: ". ".join(sentences(a.get("text"), repos))
@@ -509,8 +514,8 @@ def main() -> None:
     (STATE / "facts.json").write_text(json.dumps(facts))  # what `make digest-eval DIR=` scores
     registry = STATE / "themes.json"
     reg = json.loads(registry.read_text()) if registry.exists() else {}
-    # An empty registry takes two calls: one to form the themes, one to write about them.
-    for _ in range(1 if reg.get("themes") else 2):
+    # With nothing placed yet it takes two calls: one to file the work, one to write about it.
+    for _ in range(1 if any(t["members"] for t in reg.get("themes", {}).values()) else 2):
         d = build(facts, reg, lambda system, text: llm.classify_text(system, text, kind="digest"))
     registry.write_text(json.dumps(reg, indent=1))
     publish(d, Path(os.environ.get("TMUXRC_SCRATCH_DIR") or STATE.parent / "scratch"))

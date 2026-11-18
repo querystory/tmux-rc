@@ -31,11 +31,17 @@ dropped before the page is written.
 ## Why themes keep their identity
 
 A page that reshuffles its cards every morning cannot be skimmed. Themes live in a small
-registry beside the daemon's other state. Each morning the model sees the registry and
-only the work that has no theme yet, so a change, once placed, stays put. A rename keeps
-the theme's id, a new theme needs two changes, and a theme with nothing in it for two
-weeks retires. An empty registry takes two calls on its first morning, one to form the
-themes and one to write about them; every later run is one.
+registry, `~/.local/share/tmux-rc/digest/themes.json`. Each morning the model sees the
+registry and only the work that has no theme yet, so a change, once placed, stays put. A
+new theme needs two changes, and a theme with nothing in it for two weeks retires. Until
+work has been placed a run takes two calls, one to file the work and one to write about
+it; every later run is one.
+
+The registry is plain JSON meant to be edited, because the themes are the reader's own
+projects and a model splits work by technical area when left alone. A name changed in
+the file stays: the model names a theme once, when it creates it, and afterwards rewrites
+only its outcome line. Themes written by hand with no members are filled by the model,
+which is the best way to start: it files work under the names you already use.
 
 ## Why effort is joined by tool calls
 
