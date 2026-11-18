@@ -11,7 +11,7 @@ _RE_FUNCS = {
 BASELINE = {
     "accounts.py": 3,
     "agent_move.py": 1,
-    "classify.py": 96,
+    "classify.py": 95,
     "expunge.py": 5,
     "fit.py": 1,
     "gpt_live.py": 1,
