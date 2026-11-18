@@ -485,9 +485,8 @@ def _session_chrome(text: str) -> list[str]:
 def _session_evidence(text: str) -> str:
     titles = []
     for line in _session_chrome(text):
-        match = re.match(r"^\s*[─━]+\s+(\S.*?)[\s─━]*$", line)
-        if match:
-            titles.append(match.group(1))
+        if line.lstrip().startswith(("─", "━")):  # a titled rule, as _session_chrome kept it
+            titles.append(line.strip().strip("─━").strip())
             continue
         if models := _codex_model_segments(line):
             segments = [segment.strip() for segment in line.split("·")]
