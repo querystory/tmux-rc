@@ -1014,11 +1014,12 @@ def test_a_page_being_updated_notifies_once_its_mark_is_gone(tmp_path, monkeypat
     (root / "page" / "report.html").unlink()  # first seen mid-rewrite, pending
     (root / "page" / "report.pdf").write_text("pdf")
     meta.write_text('{"title": "Mock", "updating": "v3"}')
+    os.utime(meta, ns=(2, 2))
     service.landed()
     meta.write_text('{"title": "Mock"}')
     os.utime(meta, ns=(3, 3))
     service.landed()
-    os.utime(root / "page" / "report.pdf", (0, 0))  # the minute has passed
+    os.utime(root / "page" / "report.pdf", (100, 100))  # the minute has passed
     service.landed()
     assert [p["title"] for p in sender.payloads] == ["Updated: page", "Updated: Mock"]
     # A folder replaced under its name mid-revision: the old one's wait goes with it.
@@ -1028,6 +1029,15 @@ def test_a_page_being_updated_notifies_once_its_mark_is_gone(tmp_path, monkeypat
     (root / "new" / "report.html").write_text("page")
     shutil.rmtree(root / "page")
     (root / "new").rename(root / "page")
+    service.landed()
+    assert service._waiting == {} and len(sender.payloads) == 2
+    # A mark that comes and goes with the page untouched (a script tagging every folder its
+    # glob matched) is no update: only meta.json changed.
+    meta = root / "page" / "meta.json"
+    meta.write_text('{"title": "Mock", "updating": "v5"}')
+    service.landed()
+    meta.write_text('{"title": "Mock"}')
+    service.landed()
     service.landed()
     assert service._waiting == {} and len(sender.payloads) == 2
 
