@@ -589,7 +589,9 @@ def model():
     from openbus import live_providers, llm
     for card in (m.rates for m in live_providers.models() if m.model == name):
         llm._IN_PER_M, llm._OUT_PER_M = card.text_in, card.text_out  # noqa: SLF001 - its rates
-    return (lambda system, text: llm.classify_text(system, text, kind="digest")), llm.usage_totals
+    effort = os.environ.get("TMUXRC_DIGEST_THINKING", "low") or None  # "" for its default
+    return (lambda system, text: llm.classify_text(system, text, kind="digest", thinking=effort),
+            llm.usage_totals)
 
 
 def main() -> None:

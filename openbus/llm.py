@@ -339,12 +339,14 @@ def classify_text(
     pane_uid: str = "",
     pane_label: str = "",
     kind: str = "parse",
+    thinking: str | None = None,
 ) -> dict | None:
     """Send pane text (and optionally a rendered screenshot) to Flash Lite and get
     structured JSON back. Returns the parsed dict, or None on any failure (caller falls
     back). `image_png` is wired for the future image-input mode; text-only by default.
     `changed` (a real content-change parse vs a heartbeat re-parse) and the pane's stable
-    `pane_uid`/`pane_label` are passed straight through to the benchmark telemetry."""
+    `pane_uid`/`pane_label` are passed straight through to the benchmark telemetry.
+    `thinking` caps a thinking model's effort ("low", "medium"); None leaves its default."""
     wait, t0 = _admit()
     if wait > 0:
         # Rate-limited: skip the call entirely (no tokens burned, no telemetry — nothing
@@ -368,6 +370,7 @@ def classify_text(
                 system_instruction=system,
                 response_mime_type="application/json",
                 temperature=0.0,
+                thinking_config=thinking and types.ThinkingConfig(thinking_level=thinking),
             ),
         )
         result = _parse_json(resp.text)
