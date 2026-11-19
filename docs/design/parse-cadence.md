@@ -66,6 +66,15 @@ So the fix is a removal: parse on a real content change versus the last parse, o
 the card promptly even before the screen visibly settles). No timer. An unchanged screen
 is never re-parsed. This is strictly less code and strictly less spend.
 
+A forced reparse does not wait its turn in the full pass. That pass spends a model call on
+every pane whose screen moved, so on a fleet of a hundred busy panes it runs ten to twenty
+seconds, and a tap that waited for it (and for the pass already under way) left its
+spinner turning that long. Input instead re-reads its own pane on a thread of its own, a
+fraction of a second after the send so the capture shows the app's redraw, through the same
+per-pane path the pass uses. The two take turns on a pane rather than duplicating its
+bookkeeping, and the deck keeps whichever read of a pane is newer, so a pass that read the
+pane before the tap cannot publish the old card over the new one.
+
 Measured live after the change: duplicate rate on active panes fell from ~84% to
 0–15%, and the residual is genuine content change, not repeats (see below).
 

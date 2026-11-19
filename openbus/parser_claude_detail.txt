@@ -11,6 +11,8 @@ file/diff stat like "app.js +18 -8"), one selected, with "N more above/below" ma
 It may also show a task/TODO checklist, and — when it has delegated work — a block of
 spawned background sub-agent rows near the bottom ("general-purpose  <task>  Nm  ↓Nk
 tokens"). Ignore editor/multiplexer chrome that isn't the agent's own state (vim's
-"-- INSERT --", tmux's mode footer). A lapsed sign-in ends its turn on a notice to run
+"-- INSERT --", tmux's mode footer). Its own notices beside the input box ("✔ Update
+installed · /restart to apply") are chrome too: report the agent's work, not the notice, and read the turn from the
+lines above it. A lapsed sign-in ends its turn on a notice to run
 /login: until the user does, nothing else can run, so the pane waits on them.
 

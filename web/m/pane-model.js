@@ -22,14 +22,19 @@ export const PARKED_IDLE_SECS = 600;
 const ACTIVITIES = ["running", "waiting", "idle", "compacting", "quota_blocked", "unknown"];
 const actOf = (pane) => ACTIVITIES.includes(pane.activity) ? pane.activity : "unknown";
 export const needsYou = (pane) => pane.activity === "waiting" && pane.waiting_on !== "external";
+// Its own turn is over but the subagents it started are still at work: busy, as a pane
+// waiting on them is (a coordinator idle at its prompt with background agents running).
+const delegating = (pane) => actOf(pane) === "idle" && subagentCount(pane) > 0;
+// What the pane is shown doing: such a pane reads as the external wait it is.
+const shownAct = (pane) => delegating(pane) ? "waiting" : actOf(pane);
 // A quota-blocked pane resumes by itself at its reset time, so the label says when.
-export const activityLabel = (pane) => pane.ending || (needsYou(pane) ? "Needs you" : actOf(pane) === "quota_blocked" ? ["Quota blocked", pane.resets && `resets ${pane.resets}`].filter(Boolean).join(" · ") : ({ running: "Running", waiting: "Working", idle: "Idle", compacting: "Compacting", unknown: "Unknown" }[actOf(pane)]));
+export const activityLabel = (pane) => pane.ending || (needsYou(pane) ? "Needs you" : actOf(pane) === "quota_blocked" ? ["Quota blocked", pane.resets && `resets ${pane.resets}`].filter(Boolean).join(" · ") : ({ running: "Running", waiting: "Working", idle: "Idle", compacting: "Compacting", unknown: "Unknown" }[shownAct(pane)]));
 // A pane whose window this page is closing (app.js sets pane.ending while the request runs):
 // greyed under a spinner, and inert, so no answer or action on it can be sent meanwhile.
 export const markEnding = (node, pane) => { node.inert = !!pane?.ending; node.classList.toggle("ending", !!pane?.ending); };
 // "waiting" on something external (a tool, a subagent) is shown as running: the pane is
 // busy, it just isn't our turn.
-export const activityClass = (pane) => pane.activity === "waiting" && !needsYou(pane) ? "running" : actOf(pane);
+export const activityClass = (pane) => shownAct(pane) === "waiting" && !needsYou(pane) ? "running" : actOf(pane);
 export const isRunning = (pane) => ["running", "compacting"].includes(activityClass(pane));
 // A tool whose working motion is its own animated image rather than a CSS transform. It is
 // swapped in as the src because SMIL in a CSS content:url() image does not reliably animate;
