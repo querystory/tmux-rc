@@ -465,6 +465,9 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
 .voice-warn { color: var(--amber); }
 /* What a card or a typed line does to a pane: the pane as its row shows it, keys as keycaps,
    typed text quoted in italics under the line. */
+/* A pane named on a card is a link to it: inline text, underlined to say so. */
+.voice-pane { display: inline; min-height: 0; padding: 0; border-radius: 0; text-align: start; text-decoration: underline dotted var(--muted); text-underline-offset: 3px; }
+.voice-pane:hover { text-decoration-color: currentColor; }
 .voice-pane img { width: 1em; height: 1em; margin-right: 4px; vertical-align: -0.12em; object-fit: contain; }
 .voice-pane > span, .voice-act blockquote > span { color: var(--muted); font-style: normal; }
 .voice-act kbd { font: inherit; font-style: normal; white-space: nowrap; font-size: 0.85em; padding: 0 5px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; background: var(--surface); }
