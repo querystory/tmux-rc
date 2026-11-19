@@ -362,7 +362,10 @@ dialog::backdrop { background: #0008; opacity: var(--drag, 1); } /* fades as the
 .choice-list strong { display: block; font-size: 16px; font-weight: 550; }
 .choice-list small { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; }
 #voice-max, #voice-close { margin-left: auto; }
-#voice-max { display: none; } /* docked only (wide, below) */
+/* Docked only (wide, below), and drawn before minimize though it comes last: a sheet's
+   heading leads with its close button, which a phone's drag-to-dismiss clicks (app.js). */
+#voice-max { display: none; order: -1; }
+#voice-switch, #voice-title { order: -2; }
 .dialog-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 dialog label { display: block; margin: 16px 0 6px; font-size: 13px; color: var(--muted); }
 dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48px; border: 1px solid var(--line); border-radius: 6px; padding: 10px; background: var(--bg); font-size: 16px; }
@@ -576,12 +579,12 @@ dialog select, dialog input:not([type="checkbox"]) { width: 100%; min-height: 48
   #voice-dialog:not(:modal) .dialog-heading { min-height: var(--bar); } /* level with the pane heading */
   #voice-dialog:not(:modal) .sheet-handle { display: none; }
   #voice-dialog:not(:modal) #voice-log { flex: 1; max-height: none; }
-  #voice-dialog:not(:modal) #voice-max { display: inline-flex; }
-  #voice-dialog:not(:modal) #voice-close { margin-left: 0; }
+  #voice-dialog:not(:modal, .beside) #voice-max { display: inline-flex; }
+  #voice-dialog:not(:modal, .beside) #voice-close { margin-left: 0; }
   /* Full screen: the chat takes the work column (the pane or dashboard is hidden behind
      it, and back on exit), its conversation kept to a readable measure down the middle. */
-  #voice-dialog.max:not(:modal) { grid-column: 2; grid-row: 3 / -1; width: auto; border-left: 0; padding-inline: max(16px, calc(50% - 440px)); }
-  #app:has(#voice-dialog.max[open]:not(:modal)) > :is(#detail, #landing) { display: none; }
+  #voice-dialog.max:not(:modal, .beside) { grid-column: 2; grid-row: 3 / -1; width: auto; border-left: 0; padding-inline: max(16px, calc(50% - 440px)); }
+  #app:has(#voice-dialog.max[open]:not(:modal, .beside)) > :is(#detail, #landing) { display: none; }
   /* Docking slides in from the right edge, so you see where it went: once, as it docks (not
      while beside the sidebar, before anything has started). */
   @media (prefers-reduced-motion: no-preference) { #voice-dialog:not(:modal, .beside) { animation: dock-in .2s ease-out; } }

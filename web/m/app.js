@@ -328,7 +328,9 @@ const hashFor = (id = null, nextView = "summary", acct = accounts.key()) => {
 const plainClick = (e) => !(e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey); // a modified click opens a tab
 const inApp = (go) => (e) => { if (!plainClick(e)) return; e.preventDefault(); go(); };
 // A pane's row (either layout's) or rail icon, as its link.
-const paneLink = (a, id) => { a.href = `#${hashFor(id)}`; a.onclick = inApp(() => navigate(id)); };
+const paneLink = (a, id) => { a.href = `#${hashFor(id)}`; a.onclick = inApp(() => { leaveChatFull(); navigate(id); }); };
+// A full-screen chat (live.js) covers the work column: going somewhere, even the pane under it, leaves it.
+const leaveChatFull = () => $("voice-dialog").classList.contains("max") && $("voice-max").click();
 // Every user-driven move goes through here: the URL is written first, then the view is
 // routed synchronously (pushState/replaceState fire no hashchange). Back/Forward and edits
 // by hand reach route() through hashchange instead. Never call this from a poll.
@@ -405,7 +407,7 @@ function route() {
   if (state.q !== $("search").value.trim()) $("search").value = state.q; // a reload, a link or Back: typing writes the URL, not this
   if (accounts.follow(state.acct)) paintUsage(); // the strip and meters are filtered too
   if (page !== wasPage) { $("dash-page").replaceChildren(); $("dash-page")._signature = null; } // each view builds afresh
-  if ((changed || page !== wasPage) && $("voice-dialog").classList.contains("max")) $("voice-max").click(); // a full-screen chat would cover where the user went
+  if (changed || page !== wasPage || state.compose || state.draft) leaveChatFull(); // a push or draft link asks for the pane
   // The viewer shows the URL's page (a link, a reload, a "Ready" push, Forward), and only on Scratch:
   // Back, a push or Safari's swipe off it closes the viewer.
   const opening = page === "scratch" && scratchUrl(state.open, location.href);
@@ -477,7 +479,7 @@ function updateRow(button, pane) {
   html(button.querySelector(".row-acct"), accounts.badge(pane.pane_id));
   text(button.querySelector(".row-details"), [pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
 }
-const renderSidebar = setupSidebar({ licon, reconcile, text, html, renderItems, logos: LOGOS, navigate, paneLink, notice, badge: accounts.badge,
+const renderSidebar = setupSidebar({ licon, reconcile, text, html, renderItems, logos: LOGOS, navigate, paneLink, leaveChatFull, notice, badge: accounts.badge,
   active: () => active, wide: () => WIDE.matches, sending: () => sending, answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, compose, offers: (p) => offersOf(p).filter(isCommand), copy: copyText, linkPair,
   setFilter: (value) => { filter = value; stayPut(); }, setAgents: scope.pick,
   setSession: scope.pickSession, clearAll: clearFilters, outside: (p) => outside.has(p.pane_id), sort: () => sort, setSort, repaint: () => renderList() });
