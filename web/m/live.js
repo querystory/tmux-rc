@@ -258,11 +258,14 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
     const tag = event.target.closest?.(".voice-pane[data-pane]");
     if (tag) go(tag.dataset.pane, +tag.dataset.at);
   });
-  // This turn's reply, if it has one yet, and an Open button under it, once per pane.
-  const turnReply = () => [...log.children].findLast((row) => row.dataset.role === "model" && !row.dataset.done);
+  // This turn's replies (a delivery between two splits it), the last one if it has one yet,
+  // and an Open button under it, once per pane in the whole turn.
+  const turnReplies = () => [...log.children].filter((row) => row.dataset.role === "model" && !row.dataset.done);
+  const turnReply = () => turnReplies().at(-1);
   function chip(row, pane_id, label) {
-    const holder = row.querySelector(".voice-open") || row.appendChild(Object.assign(document.createElement("div"), { className: "voice-open" }));
-    return [...holder.children].find((button) => button.dataset.pane === pane_id) || holder.appendChild(openButton(pane_id, `Open ${label}`));
+    const offered = turnReplies().flatMap((reply) => [...reply.querySelector(".voice-open")?.children || []]);
+    const holder = () => row.querySelector(".voice-open") || row.appendChild(Object.assign(document.createElement("div"), { className: "voice-open" }));
+    return offered.find((button) => button.dataset.pane === pane_id) || holder().appendChild(openButton(pane_id, `Open ${label}`));
   }
   // open_pane: the button goes under this turn's reply, in the same bubble, whether it lands
   // before the text (the usual order) or after. `auto` (a resume the user just tapped Send

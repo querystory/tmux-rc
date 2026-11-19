@@ -653,9 +653,12 @@ def test_a_pane_the_chat_messaged_opens_from_its_card_and_the_reply():
   say({type: 'transcript', role: 'model', text: 'Asking the api pane.'});
   const typed = {type: 'typed', label: 'api', pane_id: '%1', text: 'ls', payload: 'ls'};
   say(typed); say(typed);
+  say({type: 'transcript', role: 'model', text: 'Asked again.'}); say(typed); // a split reply
   say({type: 'open_pane', pane_id: '%1', label: 'api'}); // after the card: the same button
   const reply = log.children.find((row) => row.dataset.role === 'model');
-  assert.deepEqual(log.children.map((row) => row.dataset.role), ['model', 'typed', 'typed']);
+  assert.deepEqual(log.children.map((row) => row.dataset.role),
+    ['model', 'typed', 'typed', 'model', 'typed']);
+  assert.equal(log.children[3].children.length, 2); // heading and text, no second button
   assert.deepEqual(reply.lastChild.children.map((b) => b.textContent), ['Open api']);
   reply.lastChild.lastChild.onclick();
   const tag = {dataset: {pane: '%1', at: '1'}};
