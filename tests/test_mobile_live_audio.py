@@ -643,44 +643,48 @@ def test_open_buttons_sit_under_the_reply_in_one_bubble():
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
 def test_a_pane_the_chat_messaged_opens_from_its_card_and_the_reply():
     """The pane on a "Sent to terminal" card is a tap target, and the turn's reply offers
-    an Open button for each pane it messaged, once, as open_pane does."""
+    an Open button for each pane the turn messaged, once, whatever order its rows came in."""
     _run_live(r"""
 (async () => {
   const log = document.getElementById('voice-log');
   await live.refresh();
   document.getElementById('chat').onclick(); await flush();
   const say = (message) => sockets[0].onmessage({data: JSON.stringify(message)});
-  say({type: 'transcript', role: 'model', text: 'Asking the api pane.'});
-  const typed = {type: 'typed', label: 'api', pane_id: '%1', text: 'ls', payload: 'ls'};
-  say(typed); say(typed);
-  say({type: 'transcript', role: 'model', text: 'Asked again.'}); say(typed); // a split reply
-  say({type: 'open_pane', pane_id: '%1', label: 'api'}); // after the card: the same button
-  const reply = log.children.find((row) => row.dataset.role === 'model');
+  const send = (text) => {
+    sandbox.Composer.prototype.segments = () => [{text}];
+    document.getElementById('voice-compose').onsubmit({preventDefault() {}});
+  };
+  const typed = (pane_id, label) => say({type: 'typed', label, pane_id, text: 'ls', payload: 'ls'});
+  const reply = (text) => say({type: 'transcript', role: 'model', text});
+  const last = () => log.children.findLast((row) => row.dataset.role === 'model');
+  const buttons = () => last().lastChild.children.map((b) => b.textContent);
+  say({type: 'status', status: 'listening'});
+  // Deliveries ahead of the text, two to one pane, one splitting the reply, and an open_pane.
+  send('check both'); typed('%1', 'api'); typed('%2', 'web');
+  reply('Asked both.'); typed('%1', 'api'); reply('Waiting.');
+  say({type: 'open_pane', pane_id: '%1', label: 'api'});
+  say({type: 'turn_complete'});
   assert.deepEqual(log.children.map((row) => row.dataset.role),
-    ['model', 'typed', 'typed', 'model', 'typed']);
-  assert.equal(log.children[3].children.length, 2); // heading and text, no second button
-  assert.deepEqual(reply.lastChild.children.map((b) => b.textContent), ['Open api']);
-  reply.lastChild.lastChild.onclick();
+    ['typed', 'typed', 'model', 'typed', 'model']);
+  assert.equal(log.children[2].children.length, 2); // heading and text: the buttons go last
+  assert.deepEqual(buttons(), ['Open api', 'Open web']);
+  last().lastChild.firstChild.onclick();
   const tag = {dataset: {pane: '%1', at: '1'}};
   const click = new Event('click');
   const closest = (s) => s === '.voice-pane[data-pane]' ? tag : null;
   Object.defineProperty(click, 'target', {value: {closest}});
   log.dispatchEvent(click);
   assert.deepEqual(opened, ['%1', '%1']);
-  // A turn that is over keeps its buttons; a later delivery's goes under its own reply,
-  // even one that lands before the reply's text.
-  say({type: 'turn_complete'});
-  say({type: 'typed', label: 'web', pane_id: '%2', text: 'ls', payload: 'ls'});
-  assert.equal(reply.lastChild.children.length, 1);
-  say({type: 'transcript', role: 'model', text: 'Cut off.'}); say(typed);
-  const cut = log.children.at(-2);
-  assert.deepEqual(cut.children.map((c) => c.className || c.textContent),
-    ['Assistant', '', 'voice-open']);
-  // So does one a dropped connection cut off: the next turn's button gets its own reply.
-  say({type: 'status', status: 'reconnecting'});
-  say({type: 'open_pane', pane_id: '%1', label: 'api'});
-  assert.deepEqual(cut.lastChild.children.map((b) => b.textContent), ['Open web', 'Open api']);
-  assert.deepEqual(log.children.at(-1).lastChild.children.map((b) => b.textContent), ['Open api']);
+  // A delivery out of any turn (a parked card approved) is its card alone; the next turn's
+  // reply gets its own button.
+  typed('%1', 'api');
+  send('again'); reply('Again.'); typed('%1', 'api'); say({type: 'turn_complete'});
+  assert.deepEqual(buttons(), ['Open api']);
+  // A dropped connection ends the turn: what it delivered offers nothing to the next.
+  send('more'); typed('%2', 'web');
+  say({type: 'status', status: 'reconnecting'}); say({type: 'status', status: 'listening'});
+  send('next'); reply('Next.'); say({type: 'turn_complete'});
+  assert.equal(last().children.length, 2);
 })().catch(error => {console.error(error); process.exitCode = 1;});
 """, {"version": "v", "live_enabled": True, "live_models": [{"label": "Sonnet", "text": True}]})
 
@@ -716,8 +720,7 @@ def test_chat_shows_a_working_row_until_each_turn_is_answered():
   panes.push({pane_id: '%1', title: 'work', session: 'api', tool: 'claude'});
   say({type: 'typed', label: 'api:1', pane_id: '%1', submitted: true, text: 'ls',
        payload: 'ls'});
-  // The turn's reply offers the pane, ahead of its text.
-  assert.deepEqual(roles(), ['user', 'propose', 'typed', 'model', 'typing']);
+  assert.deepEqual(roles(), ['user', 'propose', 'typed', 'typing']);
   const typed = document.getElementById('voice-log').children
     .find((row) => row.dataset.role === 'typed').lastChild.innerHTML;
   assert.equal(typed.replace(/ data-at="\d+"/, ''), '<div class="voice-act">Typed into '
@@ -730,7 +733,7 @@ def test_chat_shows_a_working_row_until_each_turn_is_answered():
   assert.deepEqual(roles(), ['user', 'propose', 'typed', 'model', 'typing']);
   // A name the daemon used is bold before the pane list has it (a pane just opened).
   assert.match(document.getElementById('voice-log').children
-    .find((row) => row.dataset.role === 'model').children[1].innerHTML, /<strong>api:1<\/strong>/);
+    .find((row) => row.dataset.role === 'model').lastChild.innerHTML, /<strong>api:1<\/strong>/);
   assert.equal(bubble.classList.contains('working'), true);
   say({type: 'turn_complete'});
   assert.deepEqual(roles(), ['user', 'propose', 'typed', 'model']);

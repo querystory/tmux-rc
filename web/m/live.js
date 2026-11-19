@@ -339,7 +339,7 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
   const finish = () => [...log.children].forEach((row) => { row.dataset.done = "true"; });
   // A dropped connection takes the daemon's queued turns with it, and so ends the turn under
   // way; ending the chat, its cards too.
-  function drop(current) { current.turns = 0; finish(); badge(); }
+  function drop(current) { current.turns = 0; current.delivered.clear(); finish(); badge(); }
   function expire(current) {
     [...current.proposals.keys()].forEach((id) => settle(current, id, "Expired"));
     drop(current);
@@ -521,14 +521,18 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
         audioStatus(current);
       } else if (message.type === "transcript") add(message.role, message.text, message.new_segment, "images" in message ? current.thumbs.shift() : []);
       else if (message.type === "turn_complete") {
-        finish();
+        // The reply offers each pane the turn messaged, once its rows are all in, so the
+        // buttons sit under its text whatever order the deliveries and the text came in.
+        for (const [pane_id, label] of current.delivered) chip(turnReply() || add("model", ""), pane_id, label);
+        current.delivered.clear(); finish();
         current.turns = Math.max(0, current.turns - 1); badge(); // a queued turn may follow
       }
       else if (message.type === "typed") {
         heard.add(message.label);
         add("typed", `${message.label}: ${message.text}`).lastChild.innerHTML = drawn(message)
           ? action({ ...message, enter: message.submitted }, true) : `${paneTag(message.pane_id, message.label)}: ${esc(message.text)}`;
-        offer(message); // the turn's reply offers the pane it messaged, as open_pane does
+        // A delivery out of any turn (a parked card approved after a reconnect) is its card alone.
+        if (current.turns || !current.text) current.delivered.set(message.pane_id, message.label);
       }
       else if (message.type === "error") {
         // A refused turn gets no answer; any other error ends the session's turns.
@@ -563,7 +567,7 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
   }
   async function start() {
     const token = ++sequence;
-    const current = { model: $("voice-model").value, text: mode === "text", proposals: new Map(), sending: new Map(), thumbs: [], pending: [], turns: 0, nodes: [], queued: new Set(), playAt: 0, tries: 0, up: false, listening: false, muted: false };
+    const current = { model: $("voice-model").value, text: mode === "text", proposals: new Map(), sending: new Map(), delivered: new Map(), thumbs: [], pending: [], turns: 0, nodes: [], queued: new Set(), playAt: 0, tries: 0, up: false, listening: false, muted: false };
     run = current; dialog.classList.remove("beside"); log.replaceChildren(); heard.clear(); status(current.text ? "Connecting..." : "Connecting microphone..."); paint();
     if (current.text) {
       $("voice-switch").value = current.model;
