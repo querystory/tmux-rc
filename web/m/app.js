@@ -328,7 +328,9 @@ const hashFor = (id = null, nextView = "summary", acct = accounts.key()) => {
 const plainClick = (e) => !(e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey); // a modified click opens a tab
 const inApp = (go) => (e) => { if (!plainClick(e)) return; e.preventDefault(); go(); };
 // A pane's row (either layout's) or rail icon, as its link.
-const paneLink = (a, id) => { a.href = `#${hashFor(id)}`; a.onclick = inApp(() => navigate(id)); };
+const paneLink = (a, id) => { a.href = `#${hashFor(id)}`; a.onclick = inApp(() => { leaveChatFull(); navigate(id); }); };
+// A full-screen chat (live.js) covers the work column: going somewhere, even the pane under it, leaves it.
+const leaveChatFull = () => $("voice-dialog").classList.contains("max") && $("voice-max").click();
 // Every user-driven move goes through here: the URL is written first, then the view is
 // routed synchronously (pushState/replaceState fire no hashchange). Back/Forward and edits
 // by hand reach route() through hashchange instead. Never call this from a poll.
@@ -405,7 +407,7 @@ function route() {
   if (state.q !== $("search").value.trim()) $("search").value = state.q; // a reload, a link or Back: typing writes the URL, not this
   if (accounts.follow(state.acct)) paintUsage(); // the strip and meters are filtered too
   if (page !== wasPage) { $("dash-page").replaceChildren(); $("dash-page")._signature = null; } // each view builds afresh
-  if ((changed || page !== wasPage) && $("voice-dialog").classList.contains("max")) $("voice-max").click(); // a full-screen chat would cover where the user went
+  if (changed || page !== wasPage) leaveChatFull();
   // The viewer shows the URL's page (a link, a reload, a "Ready" push, Forward), and only on Scratch:
   // Back, a push or Safari's swipe off it closes the viewer.
   const opening = page === "scratch" && scratchUrl(state.open, location.href);
