@@ -641,6 +641,38 @@ def test_open_buttons_sit_under_the_reply_in_one_bubble():
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_a_pane_the_chat_messaged_opens_from_its_card_and_the_reply():
+    """The pane on a "Sent to terminal" card is a tap target, and the turn's reply offers
+    an Open button for each pane it messaged, once, as open_pane does."""
+    _run_live(r"""
+(async () => {
+  const log = document.getElementById('voice-log');
+  await live.refresh();
+  document.getElementById('chat').onclick(); await flush();
+  const say = (message) => sockets[0].onmessage({data: JSON.stringify(message)});
+  say({type: 'transcript', role: 'model', text: 'Asking the api pane.'});
+  const typed = {type: 'typed', label: 'api', pane_id: '%1', text: 'ls', payload: 'ls'};
+  say(typed); say(typed);
+  say({type: 'open_pane', pane_id: '%1', label: 'api'}); // after the card: the same button
+  const reply = log.children.find((row) => row.dataset.role === 'model');
+  assert.deepEqual(log.children.map((row) => row.dataset.role), ['model', 'typed', 'typed']);
+  assert.deepEqual(reply.lastChild.children.map((b) => b.textContent), ['Open api']);
+  reply.lastChild.lastChild.onclick();
+  const tag = {dataset: {pane: '%1', at: '1'}};
+  const click = new Event('click');
+  const closest = (s) => s === '.voice-pane[data-pane]' ? tag : null;
+  Object.defineProperty(click, 'target', {value: {closest}});
+  log.dispatchEvent(click);
+  assert.deepEqual(opened, ['%1', '%1']);
+  // A turn that is over keeps its buttons; a later delivery adds none to it.
+  say({type: 'turn_complete'});
+  say({type: 'typed', label: 'web', pane_id: '%2', text: 'ls', payload: 'ls'});
+  assert.equal(reply.lastChild.children.length, 1);
+})().catch(error => {console.error(error); process.exitCode = 1;});
+""", {"version": "v", "live_enabled": True, "live_models": [{"label": "Sonnet", "text": True}]})
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
 def test_chat_shows_a_working_row_until_each_turn_is_answered():
     _run_live(r"""
 (async () => {
@@ -674,8 +706,9 @@ def test_chat_shows_a_working_row_until_each_turn_is_answered():
   assert.deepEqual(roles(), ['user', 'propose', 'typed', 'typing']);
   const typed = document.getElementById('voice-log').children
     .find((row) => row.dataset.role === 'typed').lastChild.innerHTML;
-  assert.equal(typed, '<div class="voice-act">Typed into <span class="voice-pane">'
-    + '<img src="/claude.png" alt="claude"><strong>work</strong><span> · api</span></span>'
+  assert.equal(typed.replace(/ data-at="\d+"/, ''), '<div class="voice-act">Typed into '
+    + '<button type="button" class="voice-pane" data-pane="%1" title="Open">'
+    + '<img src="/claude.png" alt="claude"><strong>work</strong><span> · api</span></button>'
     + '<blockquote>ls <kbd>⏎ Enter</kbd></blockquote></div>');
   assert.match(bubble.title, /new messages, responding/);
   // A reply can come ahead of more work in the same turn: the row stays until it completes.

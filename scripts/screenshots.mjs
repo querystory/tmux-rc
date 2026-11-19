@@ -69,6 +69,7 @@ const SHOTS = [
   ["mobile-expunge", PHONE, "light", "#pane=%259", confirmExpunge],
   ["mobile-shell-menu", PHONE, "dark", "#pane=%256", (page) => page.click("#pane-menu-button")],
   ["mobile-chat-open", PHONE, "light", "", chat("Let's go back to window 1", "#voice-log .voice-open button")],
+  ["mobile-chat-typed", PHONE, "light", "", chat("Ask e2e triage to rerun it headed", "#voice-log .typed .voice-pane")],
   ["mobile-chat-consent", PHONE, "light", "", chat("Tell e2e triage to rerun it headed", "#voice-log .propose .open")],
   ["mobile-chat-resume", PHONE, "light", "", chat("Resume the checkout session")],
   ["mobile-chat-minimized", PHONE, "light", "", async (page) => { await chat("Which panes need me?")(page); await page.click("#voice-close"); }],

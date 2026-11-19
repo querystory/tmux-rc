@@ -245,21 +245,34 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
     row.append(actions); current.proposals.set(id, { row, actions, card }); badge();
     actions.scrollIntoView?.({ block: "nearest" }); // a card waiting on the user is never left clipped
   }
-  // A button to a pane, going exactly where its row in the list goes (the caller's
-  // navigate). A phone minimizes the sheet on the way, a docked panel stays put, out of full screen.
+  // Going to a pane from the chat, exactly where its row in the list goes (the caller's
+  // navigate). A phone minimizes the sheet on the way, a docked panel stays put, out of full screen. `at`: when
+  // the way there was offered, as one offered moments ago may name a window state lacks yet.
+  function go(pane_id, at) { if (!docked()) hide(); else if (dialog.classList.contains("max")) $("voice-max").click(); open(pane_id, at); }
   function openButton(pane_id, label) {
     const button = document.createElement("button"); button.type = "button"; button.className = "open";
     button.textContent = label; button.insertAdjacentHTML("beforeend", licon("chevron", 16));
-    const at = Date.now(); // a button offered moments ago may name a window state lacks yet
-    button.onclick = () => { if (!docked()) hide(); else if (dialog.classList.contains("max")) $("voice-max").click(); open(pane_id, at); };
+    button.dataset.pane = pane_id;
+    const at = Date.now();
+    button.onclick = () => go(pane_id, at);
     return button;
+  }
+  // A pane named on a card (paneTag) opens it too.
+  log.addEventListener("click", (event) => {
+    const tag = event.target.closest?.(".voice-pane[data-pane]");
+    if (tag) go(tag.dataset.pane, +tag.dataset.at);
+  });
+  // This turn's reply, if it has one yet, and an Open button under it, once per pane.
+  const turnReply = () => [...log.children].findLast((row) => row.dataset.role === "model" && !row.dataset.done);
+  function chip(row, pane_id, label) {
+    const holder = row.querySelector(".voice-open") || row.appendChild(Object.assign(document.createElement("div"), { className: "voice-open" }));
+    return [...holder.children].find((button) => button.dataset.pane === pane_id) || holder.appendChild(openButton(pane_id, `Open ${label}`));
   }
   // open_pane: the button goes under this turn's reply, in the same bubble, whether it lands
   // before the text (the usual order) or after. `auto` (a resume the user just tapped Send
   // on) also takes that path at once.
   function offer({ pane_id, label, auto }) {
-    const button = openButton(pane_id, `Open ${label}`), row = add("model", "");
-    (row.querySelector(".voice-open") || row.appendChild(Object.assign(document.createElement("div"), { className: "voice-open" }))).append(button);
+    const button = chip(turnReply() || add("model", ""), pane_id, label);
     if (auto) button.click();
   }
   // A pane as its sidebar row shows it, never by tmux id: its tool's logo, its name, its
@@ -271,9 +284,11 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
   // `window`: the daemon's " · window N" for a pane another one reads the same as (live._pane_name).
   function paneTag(id, label, window = "") {
     const pane = panes().find((p) => p.pane_id === id);
-    if (!pane) return `<strong>${esc(label || id)}</strong>${esc(window)}`;
-    const logo = Object.hasOwn(logos, pane.tool) ? logos[pane.tool] : "/tmux-logomark.svg";
-    return `<span class="voice-pane"><img src="${logo}" alt="${esc(pane.tool || "tmux")}"><strong>${esc(paneName(pane))}</strong>${sessionOf(pane) ? `<span> · ${esc(sessionOf(pane))}</span>` : ""}${window && `<span>${esc(window)}</span>`}</span>`;
+    const logo = pane && (Object.hasOwn(logos, pane.tool) ? logos[pane.tool] : "/tmux-logomark.svg");
+    const name = pane ? `<img src="${logo}" alt="${esc(pane.tool || "tmux")}"><strong>${esc(paneName(pane))}</strong>${sessionOf(pane) ? `<span> · ${esc(sessionOf(pane))}</span>` : ""}`
+      : `<strong>${esc(label || id)}</strong>`;
+    // A button: tapping the pane opens it (the log's click handler).
+    return `<button type="button" class="voice-pane" data-pane="${esc(id)}" data-at="${Date.now()}" title="Open">${name}${window && `<span>${esc(window)}</span>`}</button>`;
   }
   // What a card or a typed line does to a pane, drawn rather than told: the verb, the pane,
   // a key as a keycap, typed text quoted under it. `done`: it happened (past tense). The
@@ -511,6 +526,8 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
         heard.add(message.label);
         add("typed", `${message.label}: ${message.text}`).lastChild.innerHTML = drawn(message)
           ? action({ ...message, enter: message.submitted }, true) : `${paneTag(message.pane_id, message.label)}: ${esc(message.text)}`;
+        const reply = turnReply(); // offers the pane it messaged, as open_pane does
+        if (reply) chip(reply, message.pane_id, message.label);
       }
       else if (message.type === "error") {
         // A refused turn gets no answer; any other error ends the session's turns.
