@@ -532,8 +532,7 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
         heard.add(message.label);
         add("typed", `${message.label}: ${message.text}`).lastChild.innerHTML = drawn(message)
           ? action({ ...message, enter: message.submitted }, true) : `${paneTag(message.pane_id, message.label)}: ${esc(message.text)}`;
-        const reply = turnReply(); // offers the pane it messaged, as open_pane does
-        if (reply) chip(reply, message.pane_id, message.label);
+        offer(message); // the turn's reply offers the pane it messaged, as open_pane does
       }
       else if (message.type === "error") {
         // A refused turn gets no answer; any other error ends the session's turns.
