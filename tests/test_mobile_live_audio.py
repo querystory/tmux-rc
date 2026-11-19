@@ -667,16 +667,19 @@ def test_a_pane_the_chat_messaged_opens_from_its_card_and_the_reply():
   Object.defineProperty(click, 'target', {value: {closest}});
   log.dispatchEvent(click);
   assert.deepEqual(opened, ['%1', '%1']);
-  // A turn that is over keeps its buttons; a later delivery adds none to it.
+  // A turn that is over keeps its buttons; a later delivery's goes under its own reply,
+  // even one that lands before the reply's text.
   say({type: 'turn_complete'});
   say({type: 'typed', label: 'web', pane_id: '%2', text: 'ls', payload: 'ls'});
   assert.equal(reply.lastChild.children.length, 1);
-  // So does one a dropped connection cut off: the next turn's button gets its own reply.
   say({type: 'transcript', role: 'model', text: 'Cut off.'}); say(typed);
   const cut = log.children.at(-2);
+  assert.deepEqual(cut.children.map((c) => c.className || c.textContent),
+    ['Assistant', '', 'voice-open']);
+  // So does one a dropped connection cut off: the next turn's button gets its own reply.
   say({type: 'status', status: 'reconnecting'});
   say({type: 'open_pane', pane_id: '%1', label: 'api'});
-  assert.equal(cut.lastChild.children.length, 1);
+  assert.deepEqual(cut.lastChild.children.map((b) => b.textContent), ['Open web', 'Open api']);
   assert.deepEqual(log.children.at(-1).lastChild.children.map((b) => b.textContent), ['Open api']);
 })().catch(error => {console.error(error); process.exitCode = 1;});
 """, {"version": "v", "live_enabled": True, "live_models": [{"label": "Sonnet", "text": True}]})
@@ -713,7 +716,8 @@ def test_chat_shows_a_working_row_until_each_turn_is_answered():
   panes.push({pane_id: '%1', title: 'work', session: 'api', tool: 'claude'});
   say({type: 'typed', label: 'api:1', pane_id: '%1', submitted: true, text: 'ls',
        payload: 'ls'});
-  assert.deepEqual(roles(), ['user', 'propose', 'typed', 'typing']);
+  // The turn's reply offers the pane, ahead of its text.
+  assert.deepEqual(roles(), ['user', 'propose', 'typed', 'model', 'typing']);
   const typed = document.getElementById('voice-log').children
     .find((row) => row.dataset.role === 'typed').lastChild.innerHTML;
   assert.equal(typed.replace(/ data-at="\d+"/, ''), '<div class="voice-act">Typed into '
@@ -726,7 +730,7 @@ def test_chat_shows_a_working_row_until_each_turn_is_answered():
   assert.deepEqual(roles(), ['user', 'propose', 'typed', 'model', 'typing']);
   // A name the daemon used is bold before the pane list has it (a pane just opened).
   assert.match(document.getElementById('voice-log').children
-    .find((row) => row.dataset.role === 'model').lastChild.innerHTML, /<strong>api:1<\/strong>/);
+    .find((row) => row.dataset.role === 'model').children[1].innerHTML, /<strong>api:1<\/strong>/);
   assert.equal(bubble.classList.contains('working'), true);
   say({type: 'turn_complete'});
   assert.deepEqual(roles(), ['user', 'propose', 'typed', 'model']);
