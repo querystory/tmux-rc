@@ -42,6 +42,7 @@ const SHOTS = [
   ["wide-usage-detail", WIDE, "dark", "#view=usage"],
   ["wide-usage-7d", WIDE, "light", "#view=usage", pickRange("7d")],
   ["wide-chat", WIDE, "light", "#pane=%259", chat("Which panes need me?")],
+  ["wide-chat-full", WIDE, "light", "#pane=%259", async (page) => { await chat("Which panes need me?")(page); await page.click("#voice-max"); }],
   ["wide-subagents", WIDE, "dark", "#pane=%259", showSubagents],
   ["wide-open-loops", WIDE, "dark", "#view=loops", showLoops],
   ["wide-sessions", WIDE, "light", "#view=dashboard", reach(".atlas-multiples")],

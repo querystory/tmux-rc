@@ -8,6 +8,12 @@ test("assistant replies render emphasis, headings, lists, tables and code", () =
   assert.ok(html.includes("&lt;tag&gt;"));
 });
 
+test("a single newline is a line break, and a turn's later reply still starts a block", () => {
+  assert.equal(renderChatMarkdown("Asked it.\nIt is reading the notes."), "<p>Asked it.<br>\nIt is reading the notes.</p>\n");
+  // live_chat joins a turn's replies with a blank line, so a list after the first is a list.
+  assert.ok(renderChatMarkdown("I'll check.\n\n- one\n- two").includes("<li>one</li>"));
+});
+
 test("pane names stand out: whole words, longest first, never inside a tag or an entity", () => {
   const names = ["e2e", "e2e triage", "Fable session monitor", "amp", "a.b", "", "R&D <x>"];
   const html = renderChatMarkdown("Pressing Enter in fable session monitor, [e2e triage](https://e2e.example) & e2e2 a-b R&D <x>", names);

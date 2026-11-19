@@ -18,6 +18,7 @@ const MAX_RECONNECT_TRIES = 5; // Exponential backoff attempts before declaring 
 const TRANSCRIPT_ROWS = 40; // Oldest transcript rows are dropped past this count.
 const FOLLOW_SLACK_PX = 48; // Keep auto-scrolling while the log is within this distance of the bottom.
 const CHAT_MODEL_KEY = "tmuxrc-chat-model"; // Chat's last model, apart from the voice picker's
+const MAX_KEY = "tmuxrc-chat-max"; // the docked chat in full screen
 // Where sw.js records a notification tap (named when it held only chat taps, which a page
 // still running the old live.js under a new worker reads), where the page marks each tap it
 // acted on, and how long the page acts on one.
@@ -56,6 +57,10 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
     // Closing the sheet mid-conversation only minimizes it: say so, and show the bubble.
     $("voice-close").innerHTML = licon(run ? "minus" : "x");
     $("voice-close").title = $("voice-close").ariaLabel = run ? `Minimize ${title}` : "Close panel";
+    const max = dialog.classList.contains("max");
+    $("voice-max").innerHTML = licon(max ? "minimize" : "fullscreen");
+    $("voice-max").title = $("voice-max").ariaLabel = max ? "Exit full screen" : "Full screen";
+    $("voice-max").setAttribute("aria-pressed", max);
     paintStarters();
     badge();
   }
@@ -616,6 +621,13 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
     run.pending.push(...pending); // a first turn queued for the old model goes to the new one
   };
   $("voice-close").onclick = hide;
+  // Docked, the chat can take the work column instead, and stays that way next time.
+  dialog.classList.toggle("max", saved(MAX_KEY) === "1");
+  $("voice-max").onclick = () => {
+    const max = dialog.classList.toggle("max");
+    try { localStorage.setItem(MAX_KEY, max ? "1" : "0"); } catch {}
+    paint();
+  };
   dialog.addEventListener("cancel", minimize); // Escape, modal only
   // Docked, Escape is no close request, so take it here: only from inside the panel.
   dialog.addEventListener("keydown", (event) => { if (event.key === "Escape" && docked()) hide(); });
