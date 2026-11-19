@@ -18,7 +18,6 @@ const MAX_RECONNECT_TRIES = 5; // Exponential backoff attempts before declaring 
 const TRANSCRIPT_ROWS = 40; // Oldest transcript rows are dropped past this count.
 const FOLLOW_SLACK_PX = 48; // Keep auto-scrolling while the log is within this distance of the bottom.
 const CHAT_MODEL_KEY = "tmuxrc-chat-model"; // Chat's last model, apart from the voice picker's
-const MAX_KEY = "tmuxrc-chat-max"; // the docked chat in full screen
 // Where sw.js records a notification tap (named when it held only chat taps, which a page
 // still running the old live.js under a new worker reads), where the page marks each tap it
 // acted on, and how long the page acts on one.
@@ -247,12 +246,12 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
     actions.scrollIntoView?.({ block: "nearest" }); // a card waiting on the user is never left clipped
   }
   // A button to a pane, going exactly where its row in the list goes (the caller's
-  // navigate). A phone minimizes the sheet on the way, a docked panel stays put.
+  // navigate). A phone minimizes the sheet on the way, a docked panel stays put, out of full screen.
   function openButton(pane_id, label) {
     const button = document.createElement("button"); button.type = "button"; button.className = "open";
     button.textContent = label; button.insertAdjacentHTML("beforeend", licon("chevron", 16));
     const at = Date.now(); // a button offered moments ago may name a window state lacks yet
-    button.onclick = () => { if (!docked()) hide(); open(pane_id, at); };
+    button.onclick = () => { if (!docked()) hide(); else if (dialog.classList.contains("max")) $("voice-max").click(); open(pane_id, at); };
     return button;
   }
   // open_pane: the button goes under this turn's reply, in the same bubble, whether it lands
@@ -621,13 +620,8 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
     run.pending.push(...pending); // a first turn queued for the old model goes to the new one
   };
   $("voice-close").onclick = hide;
-  // Docked, the chat can take the work column instead, and stays that way next time.
-  dialog.classList.toggle("max", saved(MAX_KEY) === "1");
-  $("voice-max").onclick = () => {
-    const max = dialog.classList.toggle("max");
-    try { localStorage.setItem(MAX_KEY, max ? "1" : "0"); } catch {}
-    paint();
-  };
+  // Docked, the chat can take the work column instead (app.js route() leaves it for a pane).
+  $("voice-max").onclick = () => { dialog.classList.toggle("max"); paint(); };
   dialog.addEventListener("cancel", minimize); // Escape, modal only
   // Docked, Escape is no close request, so take it here: only from inside the panel.
   dialog.addEventListener("keydown", (event) => { if (event.key === "Escape" && docked()) hide(); });
