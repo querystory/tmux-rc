@@ -671,6 +671,13 @@ def test_a_pane_the_chat_messaged_opens_from_its_card_and_the_reply():
   say({type: 'turn_complete'});
   say({type: 'typed', label: 'web', pane_id: '%2', text: 'ls', payload: 'ls'});
   assert.equal(reply.lastChild.children.length, 1);
+  // So does one a dropped connection cut off: the next turn's button gets its own reply.
+  say({type: 'transcript', role: 'model', text: 'Cut off.'}); say(typed);
+  const cut = log.children.at(-2);
+  say({type: 'status', status: 'reconnecting'});
+  say({type: 'open_pane', pane_id: '%1', label: 'api'});
+  assert.equal(cut.lastChild.children.length, 1);
+  assert.deepEqual(log.children.at(-1).lastChild.children.map((b) => b.textContent), ['Open api']);
 })().catch(error => {console.error(error); process.exitCode = 1;});
 """, {"version": "v", "live_enabled": True, "live_models": [{"label": "Sonnet", "text": True}]})
 

@@ -339,8 +339,11 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
     clearTimeout(current.retry); try { current.ws.close(); } catch {}
     connect(current);
   }
-  // A dropped connection takes the daemon's queued turns with it; ending the chat, its cards too.
-  function drop(current) { current.turns = 0; badge(); }
+  // A finished turn's rows grow no more, nor take the next turn's Open buttons.
+  const finish = () => [...log.children].forEach((row) => { row.dataset.done = "true"; });
+  // A dropped connection takes the daemon's queued turns with it, and so ends the turn under
+  // way; ending the chat, its cards too.
+  function drop(current) { current.turns = 0; finish(); badge(); }
   function expire(current) {
     [...current.proposals.keys()].forEach((id) => settle(current, id, "Expired"));
     drop(current);
@@ -522,7 +525,7 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
         audioStatus(current);
       } else if (message.type === "transcript") add(message.role, message.text, message.new_segment, "images" in message ? current.thumbs.shift() : []);
       else if (message.type === "turn_complete") {
-        [...log.children].forEach((row) => { row.dataset.done = "true"; });
+        finish();
         current.turns = Math.max(0, current.turns - 1); badge(); // a queued turn may follow
       }
       else if (message.type === "typed") {
