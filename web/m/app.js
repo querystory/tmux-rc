@@ -407,7 +407,7 @@ function route() {
   if (state.q !== $("search").value.trim()) $("search").value = state.q; // a reload, a link or Back: typing writes the URL, not this
   if (accounts.follow(state.acct)) paintUsage(); // the strip and meters are filtered too
   if (page !== wasPage) { $("dash-page").replaceChildren(); $("dash-page")._signature = null; } // each view builds afresh
-  if (changed || page !== wasPage) leaveChatFull();
+  if (changed || page !== wasPage || state.compose || state.draft) leaveChatFull(); // a push or draft link asks for the pane
   // The viewer shows the URL's page (a link, a reload, a "Ready" push, Forward), and only on Scratch:
   // Back, a push or Safari's swipe off it closes the viewer.
   const opening = page === "scratch" && scratchUrl(state.open, location.href);
