@@ -3138,10 +3138,13 @@ const moveSheet = (other) => async () => {
 $("move-pane").onclick = moveSheet(false);
 $("move-agent").onclick = moveSheet(true);
 window.addEventListener("hashchange", route);
-// A push tapped while the app is open: sw.js names the address to show, and it is routed
-// here like any move. pushState, not location.hash, so the bare-list "/m" routes too.
-const openLink = (url) => { history.pushState(null, "", url); route(); };
-navigator.serviceWorker?.addEventListener("message", ({ data }) => { if (data?.open) openLink(data.open); });
+// An address to show, routed like any move: a news notice's Open, or a tapped push (sw.js,
+// through live.js). Pushed, not set on location.hash, so the bare-list "/m" routes too; the
+// screen already showing (a cold start opened at it) is replaced, as navigate() would.
+const openLink = (url) => {
+  const how = historyMode(location.hash, new URL(url, location.href).hash);
+  history[`${how}State`](how === "replace" ? history.state : null, "", url); route();
+};
 // Pages that landed (push.py's news in /api/state), each told once: a notice with Open and the
 // Recent pages read again. A notification is the push's alone, so a device that turned them
 // off gets none, and two tabs never show one twice. A first state's news is old.
@@ -3175,7 +3178,7 @@ setupPush($("push"), notice, licon("bell"));
 // /api/state; a stale one whose pane has since closed takes the normal gone-pane path.
 const openOffered = (id, at) => !panes.some((p) => p.pane_id === id) && awaitingLaunch({ id, at }, id)
   ? openLaunched(id, at) : navigate(id);
-const live = setupLiveMode({ request, session: liveSession, licon, wide: WIDE, open: openOffered, report: reportError, onVersion: observeVersion, onChat: () => renderList(), account: accounts.consent, panes: () => panes, logos: LOGOS });
+const live = setupLiveMode({ request, session: liveSession, licon, wide: WIDE, open: openOffered, onLink: openLink, report: reportError, onVersion: observeVersion, onChat: () => renderList(), account: accounts.consent, panes: () => panes, logos: LOGOS });
 // Wide, the top bar's Chat and Voice open New session on that tab, beside the sidebar; nothing
 // starts or docks until something is asked. A conversation already running is just brought back.
 for (const [id, kind] of [["chat", "chat"], ["live-mode", "voice"]]) {
