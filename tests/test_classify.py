@@ -2412,3 +2412,37 @@ def test_a_startup_banner_with_no_turn_under_it_is_fresh():
                 r = classify(_pane(tool), f"{VISIBLE_SCREEN}\n{shown}",
                              _llm({"tool": tool, "activity": "idle", **said}))
                 assert (r.get("fresh"), r.get("resumable")) == want, (tool, said, shown)
+
+
+def test_a_second_look_asks_only_when_set_and_holds_its_ask_to_the_screen(monkeypatch):
+    """TMUXRC_SECOND_LOOK_MODEL names the model that takes a second look at a finished
+    turn the parse read as idle; its question must be on screen, and one look per screen."""
+    classify_mod._looks.clear()
+    ask = "Tell me who should review it and I'll add them."
+    screen = _auto_screen(f"PR #7 is up.\n\n  {ask}").replace("auto mode", "accept edits")
+    looks = []
+
+    def llm(system, text, model=None):
+        if model is None:
+            return {"tool": "claude", "activity": "idle"}
+        looks.append((model, text))
+        return {"asks": True, "question": quoted, "offers": []}
+    quoted = ask
+    assert classify(_pane("claude"), screen, llm)["activity"] == "idle" and not looks  # off
+    monkeypatch.setenv("TMUXRC_SECOND_LOOK_MODEL", "look-model")
+    for _ in range(2):
+        result = classify(_pane("claude"), screen, llm)
+        assert result["question"] == {"prompt": ask, "answer_style": "text"}
+        assert result["activity"] == "waiting" and result["waiting_on"] == "user"
+    assert [m for m, _ in looks] == ["look-model"]  # cached per screen
+    classify_mod._looks.clear()
+    quoted = "Shall I merge it?"  # not on screen: no ask
+    assert classify(_pane("claude"), screen, llm)["activity"] == "idle"
+    classify_mod._looks.clear()
+    looks.clear()
+    quoted = ask  # a turn the chrome shows live is no idle one: no look
+    live = screen.replace("✻ Baked for 16s", "✻ Baking… (16s · esc to interrupt)")
+    assert classify(_pane("claude"), live, llm)["activity"] == "running" and not looks
+    # A bash-mode command below the turn spent its ask: no look.
+    spent = screen.replace("✻ Baked for 16s\n", "✻ Baked for 16s\n\n! make tea\n")
+    assert "question" not in classify(_pane("claude"), spent, llm) and not looks

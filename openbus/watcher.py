@@ -29,6 +29,7 @@ from .classify import (
     prompt_gone,
     question_rows,
     screen_offers,
+    second_look_model,
 )
 from .history import AGENT_TOOLS, pane_key
 from .llm import backing_off, classify_text, summarize_events
@@ -1216,8 +1217,10 @@ class Watcher:
         normalized screen can't tell "sleep 10s" from "sleep 20s", and an answer token
         must, yet output still streaming above the menu must not make it look stale."""
         rows = question_rows(question, text) if isinstance(question, dict) else ""
+        look = second_look_model()  # a card read with or without the second look differs
         return hashlib.sha256(
-            f"{CARD_VERSION}:{self.use_llm}\n{rows or _fingerprint(text)}".encode()).hexdigest()
+            f"{CARD_VERSION}:{self.use_llm}{look and f':{look}'}\n{rows or _fingerprint(text)}"
+            .encode()).hexdigest()
 
     def pane_input_generation(self, pane_id: str) -> int:
         """Monotonic token changed immediately after accepted pane input."""

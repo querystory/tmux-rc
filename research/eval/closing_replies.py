@@ -109,7 +109,8 @@ def _run_one(s: Sample, model: str, replies: bool, takes_replies_fn: bool) -> di
     pane = Pane(session="eval", window_index="0", window_name="eval", pane_index="0",
                 id="%0", current_command=s.current_command, title=s.name)
     kw = {"replies_fn": (lambda sy, t: _call(model, sy, t, "replies")) if replies else None}
-    result = classify_fn(pane, s.capture, llm_fn=lambda sy, t: _call(model, sy, t, "parse"),
+    parse = lambda sy, t, model=model, **_: _call(model, sy, t, "parse")  # noqa: E731
+    result = classify_fn(pane, s.capture, llm_fn=parse,
                          prior=list(s.prior), repository=s.repository,
                          **(kw if takes_replies_fn else {}))
     parses = [c["json"] for c in _tl.calls if c["kind"] == "parse" and isinstance(c["json"], dict)]
@@ -132,8 +133,8 @@ def run(args: argparse.Namespace) -> None:
     _client()  # build before the threads race to
     with ThreadPoolExecutor(args.workers) as pool:
         for i in range(args.runs):
-            if hasattr(C, "_replies"):
-                C._replies.clear()  # one call per question per RUN, not per process
+            for cache in ("_replies", "_looks"):  # one call per question or screen per RUN
+                getattr(C, cache, {}).clear()
             jobs = [(s, "closing") for s in samples] + [(s, "existing") for s in existing]
             outs = pool.map(lambda j: _run_one(j[0], args.model, not args.no_replies, takes), jobs)
             for (s, corpus), o in zip(jobs, outs, strict=True):

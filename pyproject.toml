@@ -51,6 +51,7 @@ packages = ["openbus"]
 "openbus/parser_omp.txt" = "openbus/parser_omp.txt"
 "openbus/live_prompt.txt" = "openbus/live_prompt.txt"
 "openbus/bootstrap_prompt.txt" = "openbus/bootstrap_prompt.txt"
+"openbus/second_look_prompt.txt" = "openbus/second_look_prompt.txt"
 # The phone UI lives at the repo root (web/) so the dev flow serves it in place, but the
 # server also needs it when tmux-rc is installed as a wheel (e.g. `uvx --from git+ssh://…
 # tmux-rc`). Bundle it inside the package as openbus/web/; server.py prefers the repo-root

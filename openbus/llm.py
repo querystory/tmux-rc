@@ -44,6 +44,11 @@ _MODEL = os.environ.get("TMUXRC_GEMINI_MODEL", "gemini-3.1-flash-lite")
 # this daemon ever reported was ~2.5x under reality. Cached input bills at 10% of list.
 _IN_PER_M = float(os.environ.get("TMUXRC_IN_PER_M", "0.25"))
 _OUT_PER_M = float(os.environ.get("TMUXRC_OUT_PER_M", "1.50"))
+# Any other model a call names (TMUXRC_SECOND_LOOK_MODEL): Google's pricing page lists no
+# gemini-3.5-flash, so these default to the nearest Flash it lists (3.6/3.8 Flash, through
+# 2026-12-31; they double on 2027-01-01).
+_OTHER_PER_M = (float(os.environ.get("TMUXRC_OTHER_IN_PER_M", "0.75")),
+                float(os.environ.get("TMUXRC_OTHER_OUT_PER_M", "3.75")))
 
 # Durable per-call metrics log (JSONL): one line per LLM call with tokens/cost/latency,
 # so "add it all up / averages" is a real query (and the seed for QueryStory
@@ -265,7 +270,7 @@ def backing_off() -> bool:
     return _backoff_remaining() > 0
 
 
-def _handle_llm_error(e: Exception, t0: float | None = None) -> str:
+def _handle_llm_error(e: Exception, t0: float | None = None, other_model: bool = False) -> str:
     """Log an LLM failure at the right fidelity and return a short user-facing message.
 
     Known OPERATIONAL failures — quota (429), expired auth, timeouts, malformed model
@@ -274,9 +279,16 @@ def _handle_llm_error(e: Exception, t0: float | None = None) -> str:
     dozens of 40-line tracebacks into the daemon output). Unknown failures keep
     exc_info so real bugs stay debuggable.
     An operational failure also arms the shared backoff so the watcher stops hammering
-    Vertex while the condition persists; `t0` is when the failed call started."""
+    Vertex while the condition persists; `t0` is when the failed call started. A 429 or a
+    timeout on an `other_model` (one the parse does not use) is that model's own quota or
+    pace, so it leaves the parse's calls running; expired auth still stops them all."""
     msg, t0 = str(e), time.time() if t0 is None else t0
-    if getattr(e, "code", None) == 429 or "RESOURCE_EXHAUSTED" in msg or " 429 " in msg:
+    if other_model and (getattr(e, "code", None) == 429 or "RESOURCE_EXHAUSTED" in msg
+                        or " 429 " in msg or "timeout" in msg.lower()
+                        or "Timeout" in type(e).__name__):
+        short = f"second model failed: {msg[:80]}"
+        logger.warning("LLM %s", short)
+    elif getattr(e, "code", None) == 429 or "RESOURCE_EXHAUSTED" in msg or " 429 " in msg:
         delay = _arm_backoff("rate limited (429)", t0)
         short = f"rate limited (429) — backing off {delay:.0f}s"
         logger.warning("LLM %s", short)
@@ -339,6 +351,7 @@ def classify_text(
     pane_uid: str = "",
     pane_label: str = "",
     kind: str = "parse",
+    model: str = _MODEL,
 ) -> dict | None:
     """Send pane text (and optionally a rendered screenshot) to Flash Lite and get
     structured JSON back. Returns the parsed dict, or None on any failure (caller falls
@@ -362,7 +375,7 @@ def classify_text(
         if image_png is not None:
             parts.append(types.Part.from_bytes(data=image_png, mime_type="image/png"))
         resp = _generate(
-            model=_MODEL,
+            model=model,
             contents=parts,
             config=types.GenerateContentConfig(
                 system_instruction=system,
@@ -374,10 +387,10 @@ def classify_text(
         # Trace the tail we sent and what came back — grep /tmp/tmux-rc-llm.log.
         _trace.info("IN%s [%s]: %r", "+img" if image_png else "", who, text[-500:])
         _trace.info("OUT: %s", json.dumps(result))
-        _record(resp)  # tokens/cost/latency → metrics jsonl + running totals
+        _record(resp, model)  # tokens/cost/latency → metrics jsonl + running totals
         _emit(
             text, result, time.time() - t0, resp, changed, pane_uid, pane_label, None,
-            kind,
+            kind, model,
         )  # OTLP benchmark record
         # Healthy again; forget the failure streak and its reason. Unless it began after
         # this call did: with panes read in parallel, a call already in flight must not
@@ -392,13 +405,13 @@ def classify_text(
         # Remember WHY (last_error → UI shows "LLM unavailable: <reason>" instead of
         # silently degrading to a blank heuristic card). _handle_llm_error picks the log
         # fidelity and arms the shared backoff.
-        msg = _handle_llm_error(e, t0)
+        msg = _handle_llm_error(e, t0, other_model=model != _MODEL)
         last_error["msg"] = msg[:200]
         _totals["errors"] += 1
         _metrics.info(json.dumps({"ts": time.time(), "error": msg[:120]}))
         _emit(
             text, None, time.time() - t0, None, changed, pane_uid, pane_label, msg,
-            kind,
+            kind, model,
         )  # record the failure too
         return None
 
@@ -430,24 +443,27 @@ def one_sentence(prompt: str) -> str | None:
         return None
 
 
-def _tokens_cost(resp) -> tuple[int, int, int, float]:
+def _tokens_cost(resp, model: str = _MODEL) -> tuple[int, int, int, float]:
     """(in_tokens, cached_tokens, out_tokens, cost) off a Gemini response — one source of
     truth for how usage comes off the wire, shared by _record (running totals) and _emit
     (telemetry). prompt_token_count INCLUDES cached tokens, which bill at 10% of list —
-    cost must subtract them or a cache hit looks as expensive as a miss."""
+    cost must subtract them or a cache hit looks as expensive as a miss. Thinking tokens
+    bill as output."""
     u = getattr(resp, "usage_metadata", None)
     in_tok = getattr(u, "prompt_token_count", 0) or 0
     cached = getattr(u, "cached_content_token_count", 0) or 0
-    out_tok = getattr(u, "candidates_token_count", 0) or 0
-    cost = ((in_tok - cached) + cached * 0.1) / 1e6 * _IN_PER_M + out_tok / 1e6 * _OUT_PER_M
+    out_tok = (getattr(u, "candidates_token_count", 0) or 0) + (
+        getattr(u, "thoughts_token_count", 0) or 0)
+    in_rate, out_rate = (_IN_PER_M, _OUT_PER_M) if model == _MODEL else _OTHER_PER_M
+    cost = ((in_tok - cached) + cached * 0.1) / 1e6 * in_rate + out_tok / 1e6 * out_rate
     return in_tok, cached, out_tok, cost
 
 
-def _record(resp) -> None:
+def _record(resp, model: str = _MODEL) -> None:
     """Update running totals and append a metrics line. Best-effort — metering must
     never break a parse."""
     try:
-        in_tok, cached, out_tok, cost = _tokens_cost(resp)
+        in_tok, cached, out_tok, cost = _tokens_cost(resp, model)
         _totals["calls"] += 1
         _totals["in_tokens"] += in_tok
         _totals["out_tokens"] += out_tok
@@ -477,16 +493,17 @@ def _emit(
     pane_label: str,
     error: str | None,
     kind: str = "parse",
+    model: str = _MODEL,
 ) -> None:
     """Adapt a Gemini call to the OTLP benchmark record. Best-effort. TTFT isn't exposed
     by the non-streaming google-genai call, so it's left None here (a streaming provider
     path can fill it)."""
     try:
         in_tok, cached, out_tok, cost = (
-            _tokens_cost(resp) if resp is not None else (0, 0, 0, 0.0)
+            _tokens_cost(resp, model) if resp is not None else (0, 0, 0, 0.0)
         )
         emit_parse(
-            model=_MODEL,
+            model=model,
             provider=provider(),
             pane_uid=pane_uid,
             pane_label=pane_label,

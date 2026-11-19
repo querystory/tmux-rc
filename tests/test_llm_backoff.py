@@ -138,7 +138,7 @@ def test_a_call_in_flight_does_not_lift_a_brake_armed_after_it_started(monkeypat
 
     monkeypatch.setattr(L, "_client", lambda: types.SimpleNamespace(
         models=types.SimpleNamespace(generate_content=generate)))
-    monkeypatch.setattr(L, "_record", lambda resp: None)
+    monkeypatch.setattr(L, "_record", lambda *a: None)
     monkeypatch.setattr(L, "_emit", lambda *a, **k: None)
     try:
         assert L.classify_text("system", "text") == {}
@@ -167,7 +167,7 @@ def test_a_brake_armed_while_a_call_is_admitted_stays_on(monkeypatch):
     monkeypatch.setattr(L, "_backoff_remaining", remaining)
     monkeypatch.setattr(L, "_client", lambda: types.SimpleNamespace(models=types.SimpleNamespace(
         generate_content=lambda **_k: types.SimpleNamespace(text="{}", usage_metadata=None))))
-    monkeypatch.setattr(L, "_record", lambda resp: None)
+    monkeypatch.setattr(L, "_record", lambda *a: None)
     monkeypatch.setattr(L, "_emit", lambda *a, **k: None)
     try:
         L.classify_text("s", "t")
@@ -203,7 +203,7 @@ def test_lifting_the_brake_waits_for_one_being_armed(monkeypatch):
     _clear()
     monkeypatch.setattr(L, "_client", lambda: types.SimpleNamespace(models=types.SimpleNamespace(
         generate_content=lambda **_k: types.SimpleNamespace(text="{}", usage_metadata=None))))
-    monkeypatch.setattr(L, "_record", lambda resp: None)
+    monkeypatch.setattr(L, "_record", lambda *a: None)
     monkeypatch.setattr(L, "_emit", lambda *a, **k: None)
     done = threading.Event()
     with L._backoff_lock:
@@ -211,3 +211,23 @@ def test_lifting_the_brake_waits_for_one_being_armed(monkeypatch):
         assert not done.wait(0.3), "the reset ran without the lock"
     assert done.wait(5)
     _clear()
+
+
+def test_a_named_model_is_priced_at_its_own_rates_with_its_thinking():
+    usage = types.SimpleNamespace(prompt_token_count=1_000_000, cached_content_token_count=0,
+                                  candidates_token_count=100_000, thoughts_token_count=900_000)
+    resp = types.SimpleNamespace(usage_metadata=usage)
+    assert L._tokens_cost(resp, "another-model") == (
+        1_000_000, 0, 1_000_000, L._OTHER_PER_M[0] + L._OTHER_PER_M[1])
+    assert L._tokens_cost(resp)[3] == L._IN_PER_M + L._OUT_PER_M
+
+
+def test_a_second_models_429_or_timeout_leaves_the_parse_running():
+    exc = type("ClientError", (Exception,), {"code": 429})("429 RESOURCE_EXHAUSTED")
+    L._backoff.update(delay=0.0, until=0.0)
+    for failure in (exc, TimeoutError("Vertex request timed out")):
+        L._handle_llm_error(failure, other_model=True)
+        assert L._admit()[0] == 0  # still admitted
+    L._handle_llm_error(exc)
+    assert L._admit()[0] > 0
+    L._backoff.update(delay=0.0, until=0.0)

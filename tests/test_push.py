@@ -1186,3 +1186,9 @@ def test_a_screen_s_turn_is_the_same_under_any_card_version_or_width(monkeypatch
     assert _turn(None, box("sleep 10s")) != _turn(None, box("sleep 20s"))
     assert _turn(None, box("ls a b")) != _turn(None, box("ls ab"))
     assert _turn("t1", box("ls")) == "t1"  # the transcript, when there is one
+
+
+def test_a_card_read_with_the_second_look_is_its_own_frame(monkeypatch):
+    plain = Watcher().frame_fp("❯ ")
+    monkeypatch.setenv("TMUXRC_SECOND_LOOK_MODEL", "look-model")
+    assert Watcher().frame_fp("❯ ") != plain
