@@ -1,0 +1,15 @@
+{
+  "description": "Synthetic: a finished auto-mode turn ends a long report with two things for the user and \"Tell me who and I'll add them\" about a reviewer; the user has typed an answer in the input box but not sent it. The ask stands (the draft is unsent): waiting on the user, and the draft is no offer.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ finish the goals editor\n\n● The goals editor is done (PR #87):\n\n  - Saving: Settings and this page save goals through one shared hook.\n  - Copilot: its third pass found no open issues, so I'm not asking again.\n  - Checks: 412 tests pass and CI is green on the final commit.\n\n  Two things need you:\n  - Copilot thread: I replied on it, but resolving it was blocked, so it's still open for you to resolve.\n  - The staging token is no longer in ~/.lantern.env; staging access may need a fresh login.\n\n  It still needs a human reviewer. Tell me who and I'll add them.\n\n✻ Churned for 44m 36s · done 7:55 AM\n────────────────────────────────────────────────────────────────────────────────────────────────────\n❯ add rosa as reviewer\n────────────────────────────────────────────────────────────────────────────────────────────────────\n  ~/src/fernway/lantern on main | Opus 5.5 | dev@example.com | telemetry: •stats\n  session: +12/-3 lines · 14% ctx · 40h02m · $6.10   |  history: 41 prompts · 30 tools\n  ⏵⏵ auto mode on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "optional": true,
+      "answer_style": "text"
+    },
+    "headline": "Goals editor PR #87 is done and needs a reviewer named"
+  }
+}

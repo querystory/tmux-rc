@@ -244,7 +244,8 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
                               "options", "ask", "picker_layout")  # ask: only its absence
                   if isinstance(want_q, dict) and k in want_q and (k != "ask" or not want_q[k]))
     cq, eq = _shape(candidate.get("question"), extra), _shape(want_q, extra)
-    if cq != eq:
+    # `optional`: a handoff's Send it is the ask, so the model may quote it as a question or not.
+    if cq != eq and not (cq is None and isinstance(want_q, dict) and want_q.get("optional")):
         diffs.append(f"question: got {cq!r} want {eq!r}")
     # Model-written reply buttons vary in wording: a sample opts in to "accept first, decline
     # second" with `reply_buttons`, instead of pinning text; false pins that there are none.

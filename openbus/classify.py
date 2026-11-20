@@ -25,8 +25,6 @@ from pathlib import Path
 from typing import NamedTuple
 
 from .tmux import (
-    DIM_CLOSE,
-    DIM_OPEN,
     INTERPRETERS,
     OMP_TITLE_RE,
     PLACEHOLDER_CLOSE,
@@ -65,58 +63,25 @@ _CHECKLIST_LINE_RE = re.compile(
     r"(?im)^[ \t│├└─|+*-]*(?:(?P<done>☑|✓|✔|\uf14a|\[[x✓]\])|☐|\uf096|\[[ •]\])"
     r"[ \t]*(?P<text>\S.*)$",
 )
-_OPENCODE_RUNNING_RE = re.compile(
-    # OpenCode 1.18's spinner is ■/⬝ blocks, or "[⋯]" with animations off; a first Esc
-    # press turns the label into "esc again to interrupt".
-    r"^[ \t]*(?:[▰▱▮▯■⬝□▪▫█▓▒░]+|\[⋯\])[ \t]+esc[ \t]+(?:again[ \t]+to[ \t]+)?interrupt[ \t]*$",
-    re.IGNORECASE | re.MULTILINE,
-)
 _CLAUDE_TURN_RE = re.compile(
     # Claude Code's turn status row: a live spinner ("✶ Befuddling… (1m 7s · ↓ 2k tokens)")
-    # or the finished stamp ("✻ Worked for 40s · done 4:47 AM · 1 shell still running").
+    # or the finished stamp ("✻ Worked for 40s · done 4:47 AM · 1 shell still running", a
+    # long turn's "for 3d 13h 15m").
     # A stamp's trailing shell/monitor count is background work, not the agent's turn, and
     # a bar after it is the frame Claude Code draws down the right of its transcript.
     r"^[ \t]*[·✢✳✶✻✽][ \t]+[A-Z][\w' -]*?"
-    r"(?:(?P<live>…[ \t]*\((?:\d+[hms]|esc to interrupt))| for \d+[hms][\dhms ]*(?:[·│]|$))",
+    r"(?:(?P<live>…[ \t]*\((?:\d+[hms]|esc to interrupt))| for \d+[dhms][\dhms ]*(?:[·│]|$))",
     re.MULTILINE,
 )
-# Codex's live status row: "Working (2m 32s • esc to interrupt)", and the same row while its
-# own reviewer weighs an approval: "Reviewing approval request (17m 00s • esc to interrupt)".
-# Unindented, its elapsed time, and nothing under it but its own detail rows (└ the command,
-# ↳ a queued message) above the input row. Codex hides it while a menu waits on the user,
-# so under it nothing is asking.
-_CODEX_LIVE_RE = re.compile(
-    r"^(?:• )?\w[^\n(]*\(\d+[hms](?: \d+[hms])* • esc to interrupt\).*"
-    r"(?=(?:\n(?:[ \t]+[└↳⌥].*|[ \t]*))*\n[ \t]*›)", re.MULTILINE)
-# A provider error that aborted the turn, per tool: Codex's "■ Selected model is at
-# capacity…" (not its "■ Conversation interrupted"), Claude Code's "⎿ API Error: 529 …".
-_TURN_ERROR_RE = {
-    "codex": re.compile(r"^[ \t]*■[ \t]+(?!.*\binterrupted\b)(?P<text>.*\S)", re.MULTILINE),
-    "claude": re.compile(r"^[ \t]*⎿[ \t]*(?P<text>API Error\b.*\S)", re.MULTILINE),
-}
 # A prompt row, bare or inside Claude's box ("│ ❯ …"); with text after it, the user typed.
 _PROMPT_ROW = f"^[ \\t│]*[{PROMPT_GLYPHS}]"
 # Codex's live composer: a › row with no transcript cell ("• …") under it. An earlier
 # turn's row is always followed by Codex's reply to it, and a shell's ❯ is no composer.
 _CODEX_COMPOSER_RE = re.compile(r"^[ \t]*›(?![\s\S]*^• )", re.MULTILINE)
 _USER_ROW_RE = re.compile(_PROMPT_ROW + "[ \\xa0]*[^\\s│]", re.MULTILINE)
-# Claude Code's bash mode echoes a command typed after "!" (no prompt glyph) and runs it
-# without starting a turn, so below a finished turn it is the user acting on that turn.
-_BASH_ROW_RE = re.compile(r"^[ \t│]*! +\S", re.MULTILINE)
 # Claude's input box: its top rule (flat, or framed from a ╭ corner), then its prompt row
 # (❯, or "!" in bash mode).
 _INPUT_BOX_RE = re.compile(r"^[ \t]*╭?[─━]{3,}.*\n[ \t│]*[❯!]", re.MULTILINE)
-
-
-def _spent(visible: str, turn: re.Match | None) -> bool:
-    """Whether a command run in bash mode below Claude's finished turn spent what that turn
-    asked or offered (a sent offer above all), however the command is doing. Not once a ❯
-    row with text follows (a newer prompt, or a dialog's cursor row); the input box's
-    unsent draft is neither."""
-    if not turn or turn["live"]:
-        return False
-    after = _below_turn(visible, turn.end())
-    return bool(_BASH_ROW_RE.search(after)) and not _USER_ROW_RE.search(after)
 
 
 def _below_turn(visible: str, end: int) -> str:
@@ -405,10 +370,6 @@ def _checklist_text(text: str) -> str:
     return " ".join(text.split()).casefold()
 
 
-def _opencode_running(text: str) -> bool:
-    """Recognize OpenCode's live interrupt row, not an older row in scrollback."""
-    last = next((line for line in reversed(text.splitlines()) if line.strip()), "")
-    return _OPENCODE_RUNNING_RE.fullmatch(last) is not None
 
 
 # The production parser prompt lives in parser_prompt.txt (a load-bearing ~120-line
@@ -576,8 +537,9 @@ def _occurrences(prompt: str, visible: str, *, row: bool = False) -> list[re.Mat
     # A wrapped prompt's rows may each carry a frame or quote bar (│ …), skipped too. Each
     # alternative needs its own bar, so no two ever match one gap: overlapping ones
     # backtrack exponentially on a long wrapped near-miss.
-    words = (r"(?:[ \t]*\n[ \t]*[│┃╎][ \t]*|[ \t]*[│┃╎][ \t]*\n[ \t]*(?:[│┃╎][ \t]*)?|\s+)"
-             .join(map(re.escape, prompt.split())))
+    # A list's bullet starting a row is skipped too: a quote of the list's rows may drop it.
+    words = (r"(?:[ \t]*\n[ \t]*[│┃╎][ \t]*|[ \t]*[│┃╎][ \t]*\n[ \t]*(?:[│┃╎][ \t]*)?"
+             r"|[ \t]*\n[ \t]*[-•][ \t]+|\s+)".join(map(re.escape, prompt.split())))
     if row:
         words = (rf"^[ \t│┃╎]*(?:⌕[ \t]*)?{words}(?:[ \t]*{_LIVE_COUNT})?"
                  r"(?=[ \t│┃╎]*$|(?<=[?.!])[ \t]+\S)")
@@ -626,7 +588,7 @@ def _ask_view(text: str) -> str:
     if re.search(bullet, _AGENT_LIST_RE.sub("", visible)):
         return visible
     *_, start = [None, *re.finditer(bullet, plain := _visible(history) if mark else "")]
-    message = plain[start.end():] if start else ""  # from its first word, as _final_message reads
+    message = plain[start.end():] if start else ""  # from its first word
     if not message or _USER_ROW_RE.search(message):
         return visible
     # The boundary sat between two rows: joined without the blank row it would leave, so
@@ -656,17 +618,12 @@ def _supported_question(question, text: str, tool, pane: Pane) -> bool:
     if tool == "shell" and _answered_prompt(question, visible):
         return False
     # The user's own turn or draft (a ❯/› row) or a gutter-numbered file line is not the
-    # agent asking; a live spinner below the text means the agent is working again; and a
-    # finished turn's question followed by typed input has been answered.
+    # agent asking.
     idle_box = _EMPTY_INPUT_RE.search(visible)
     row = found and visible.rfind("\n", 0, found.start()) + 1
     return found is not None and not (
         (idle_box and found.start() > idle_box.start())
         or _NOT_ASKING_ROW_RE.match(visible[row:])
-        or any(turn["live"] or _USER_ROW_RE.search(_below_turn(visible, turn.end()))
-               for turn in (_CLAUDE_TURN_RE.finditer(visible, found.end())
-                            if tool == "claude" else ()))
-        or (tool == "codex" and _CODEX_LIVE_RE.search(visible, row))  # the prompt's own row too
     )
 
 
@@ -924,7 +881,7 @@ def _restate(question: dict, replies_fn) -> str | None:
 
 
 _CONTEXT_ENTRY_RE = re.compile(r"(?i)\(?\d+%\s*(?:ctx|context)\b.*")
-_LIST_ITEM_RE = re.compile(r"[-*•]\s+|\d+[.)]\s+")
+_BULLET_RE = re.compile(r"^[-•]\s+")  # not "*": a wrapped row may begin with a glob
 # A box's side bars, a block quote's left bar (Claude Code draws "▎"), and the bar Claude
 # Code draws down the right of its transcript.
 _FRAME_BARS_RE = re.compile(r"(?m)^[ \t]*[│┃▎▍▌][ \t]?|[ \t]*[│┃][ \t]*$")
@@ -933,43 +890,10 @@ _LINK_TARGET_RE = re.compile(
     r"\[((?:[^][\n]|\[[^][\n]*\])*)\]\((?:[^()\s]|\([^()\s]*\))*\)")
 
 
-def _one_line(text: str) -> str:
-    """Rows as one line: each row's own spacing kept ('a  b' is a command's), a break a space."""
-    return " ".join(row.strip() for row in text.splitlines() if row.strip())
-
-
-def _final_paragraph(message: str) -> str:
-    """The message's last paragraph as one line: terminal wrapping splits a long question
-    across rows. Reading back from the end it stops at a blank row, and at a list item (kept
-    when it is the last row or the rows after it are its indented continuation)."""
-    rows: list[str] = []
-    for row in reversed(message.splitlines()):
-        text = row.strip()
-        if not text:
-            if rows:
-                break
-            continue
-        if _LIST_ITEM_RE.match(text):
-            indent = len(row) - len(row.lstrip())
-            if not rows or len(rows[-1]) - len(rows[-1].lstrip()) > indent:
-                rows.append(row)  # the item itself, or the one the wrapped rows continue
-            break
-        rows.append(row)
-    return _one_line("\n".join(reversed(rows)))
-
-
-def _final_message(visible: str, tool: str) -> str | None:
-    """A finished turn's final assistant message, up to its stamp or through the provider
-    error that stopped it, or None while it runs. Anything typed after: the user acted."""
-    error_re = _TURN_ERROR_RE[tool]
-    turns = _CLAUDE_TURN_RE.finditer(visible) if tool == "claude" else ()
-    stop = max([*turns, *error_re.finditer(visible)], key=re.Match.start, default=None)
-    if stop is None or stop.groupdict().get("live") or _USER_ROW_RE.search(visible, stop.end()):
-        return None
-    end = stop.end() if stop.re is error_re else stop.start()
-    # The turn's final assistant message, without the bars framing its rows: a bar left on
-    # a blank row joins paragraphs, and one after a "?" hides that the row asks.
-    return _FRAME_BARS_RE.sub("", visible[:end].rsplit("\n● ", 1)[-1])
+def _card_line(text: str) -> str:
+    """Rows as the card's one-line heading: terminal wraps joined, a list's bullets dropped
+    (its numbers are labels the replies may name, so they stay)."""
+    return " ".join(_BULLET_RE.sub("", row.strip()) for row in text.splitlines() if row.strip())
 
 
 @lru_cache(maxsize=256)
@@ -1030,6 +954,11 @@ def _invited(reply: str, view: str) -> bool:
     return False
 
 
+def _one_line(text: str) -> str:
+    """Rows as one line: each row's own spacing kept ('a  b' is a command's), a break a space."""
+    return " ".join(row.strip() for row in text.splitlines() if row.strip())
+
+
 def screen_offers(offers: object, text: str) -> list[str]:
     """The model's offers that hold up on `text`, three at most: each is on the screen
     (_quoted), and a `! command` is one bash reads whole and that does not end in a line
@@ -1053,46 +982,6 @@ def screen_offers(offers: object, text: str) -> list[str]:
     return [o for o in kept if f"! {o}" not in kept][:3]  # the command, not its plain copy too
 
 
-def _final_ask(visible: str, tool: str, message: str, offers: list[str], waiting: bool = False,
-               ) -> dict | None:
-    """What a finished turn leaves blocked on the user: a provider error to retry, or in
-    auto mode (where the agent stops only when it needs the user) a closing question or a
-    `! command` handed over to run on a row of its own, or anything the message offers, or
-    (`waiting`: the model read the turn as waiting on the user without quoting its ask) the
-    closing paragraph, so the wait has something to answer."""
-    lines = [line.strip() for line in message.splitlines() if line.strip()]
-    if not lines:
-        return None
-    if error := _TURN_ERROR_RE[tool].match(lines[-1]):
-        return {"prompt": error["text"], "answer_style": "text", "options": ["try again"]}
-    if "auto mode" not in (m[1] for m in _CLAUDE_MODE_RE.finditer(visible)):
-        return None
-    # An offered command ending the message hands it over, its own "?" or wrapped rows and
-    # all: read on the whole last paragraph (a wrapped "* glob" row is no list item there).
-    blocks = re.split(r"\n\s*\n", message.strip())
-    paragraphs = [" ".join(p.split()) for p in blocks]
-    # An offer as a whole word or command: "push" is not offered by "unpushed".
-    offered = "|".join(rf"(?<!\w){re.escape(' '.join(o.split()))}(?!\w)" for o in offers)
-    paragraph = paragraphs[-1]
-    if not (offered and re.search(rf"(?:{offered})\Z", paragraph)):
-        closing = _final_paragraph(message)
-        if closing.rstrip("*_\"'`)").endswith("?"):
-            return {"prompt": closing, "answer_style": "text"}
-        # An offer elsewhere (a command, a reply asked for): the paragraph holding it.
-        paragraph = next((p for p in reversed(paragraphs)
-                          if offered and re.search(offered, p)), None)
-        if paragraph is None:
-            # A `! command` row hands over its whole paragraph (a narrow pane wraps the
-            # command over several rows) with the one leading into it.
-            handoff = next((i for i in reversed(range(len(blocks)))
-                            if _BASH_ROW_RE.search(blocks[i])), None)
-            if handoff is None:  # the closing paragraph the model read as waiting on the user
-                return {"prompt": closing, "answer_style": "text"} if waiting else None
-            paragraph = _one_line("\n".join(blocks[max(handoff - 1, 0):handoff + 1]))
-    # Not a question: no reply buttons, since "Yes, proceed" typed back runs nothing.
-    return {"prompt": paragraph, "answer_style": "text", "options": []}
-
-
 def _clean_options(raw: object, *prompts: str) -> list[str]:
     """Suggested replies as buttons: strings only, short, deduped, printable (an option is
     typed into the agent's input box), none that just repeat a prompt. Callers cap the count."""
@@ -1105,29 +994,32 @@ def _clean_options(raw: object, *prompts: str) -> list[str]:
     return list(picks.values())
 
 
-def _same_question(model_q: object, ask: dict) -> dict:
-    """The parser's own question when the deterministic ask that replaces it is the same
-    question (one prompt contains the other), else {}: its suggested replies and the rows
-    it cites are kept."""
-    if not isinstance(model_q, dict) or model_q.get("answer_style", "text") != "text":
-        return {}
-    old, new = str(model_q.get("prompt", "")).strip(), ask["prompt"]
-    return model_q if old and (
-        old.casefold() in new.casefold() or new.casefold() in old.casefold()) else {}
-
-
 # What kind of question it is, and so what the buttons are, is the model's call: one small
 # request per distinct question, seeing only the question text. It lives here, not in the
 # parser prompt. Empty means open-ended: no buttons, the free-text box is always there.
 _REPLIES_SYSTEM = (
     "The coding agent just asked the user the question below. Reply as JSON "
-    '{"options": [...]} with reply buttons for it: short (under 8 words), distinct, each a '
-    "complete reply the user could type. Use an EMPTY list when the question is open-ended "
+    '{"options": [...]} with at most three reply buttons for it: short (under 8 words), '
+    "distinct, each a complete reply the user could type. Use an EMPTY list when the "
+    "question is open-ended "
     "(what, which, how, a choice between alternatives, a request for content). For a "
-    "yes/no question give the natural accept and decline. If it bundles several steps, "
-    'add between them one "Yes, but check with me before <step>" per step, naming only '
-    "steps the question names. The first option accepts; the last declines."
+    "yes/no question give the natural accept and decline. If one question bundles several "
+    'steps, add between them a "Yes, but check with me before <step>", naming a step the '
+    'question names. A list of several asks is answered as a whole ("Yes to all"). The '
+    "first option accepts; the last declines."
 )
+def _beside(options: list[str], offers: list[str]) -> tuple[list[str], list[str]]:
+    """Generated reply buttons and the agent's offers, cut so the card draws three replies at
+    most: the accept and decline a push shows, then the offered replies (one among the
+    options is drawn once), then the rest of the options. Commands are no reply, and stay."""
+    def drawn(options: list[str]) -> list[str]:  # the offered replies drawn beside options
+        said = {o.strip().casefold() for o in options}
+        return [o for o in offers if not o.startswith("! ") and o.strip().casefold() not in said]
+    options = options[:max(2, 3 - len(drawn(options)))]
+    beside = drawn(options)
+    return options, [o for o in offers if o not in beside or o in beside[:3 - len(options)]]
+
+
 _replies: dict[str, list[str]] = {}  # by question text: one call per question, not per tick
 
 
@@ -1145,7 +1037,7 @@ def _reply_options(prompt: str, replies_fn) -> list[str]:
             if len(got) != 1 and (got or not reply["options"]):  # lone or all-junk: unusable
                 if len(_replies) > 256:
                     _replies.clear()
-                _replies[prompt] = got[:4]
+                _replies[prompt] = got[:3]
     return _replies.get(prompt, [])
 
 
@@ -1340,111 +1232,18 @@ def _fold_sends(result: dict) -> None:
 _AGENT_TOOLS = frozenset(_PROCESS_TOOLS.values())
 
 
-# Each agent's composer, where what the user types goes, found by its geometry on the
-# marker-free screen. Claude Code and Codex: the last ❯/› row, with no draft row under it
-# (a blank row or a rule comes next). Gemini CLI and Antigravity: the ╭…╰ box holding a
-# "> " row. OpenCode: the "┃" rows above its "╹━━━" rule, the last its mode and model
-# ("┃  Build · Claude Opus 5.5 · …").
-_PROMPT_LINE_RE = re.compile(f"^[ \\t│]*[{PROMPT_GLYPHS}]")
-_RULE_LINE_RE = re.compile(r"^[ \t]*(?:[─━]{3,}|╰)")
-_GEMINI_INPUT_RE = re.compile(r"^[ \t]*│[ \t]*>")
-_VIM_NORMAL_RE = re.compile(r"\[NORMAL\]")
-# Codex's footer under its composer: a context readout ("100% context left", "Context 0%
-# used"), or its shortcuts hint alone.
-_CODEX_FOOTER_RE = re.compile(
-    r"(?i)\b\d+% context (?:left|used)\b|\bcontext \d+% (?:left|used)\b|^[ \t]*\? for shortcuts")
-# A dim run, which tmux marks across rows as one: a hint goes on greyed on the next row.
-_DIM_SPAN_RE = re.compile(f"{DIM_OPEN}([\\s\\S]*?)(?:{DIM_CLOSE}|\\Z)")
-
-
-def _empty_composer(text: str, tool: str) -> bool:
-    """Whether the agent's composer is proven empty, a greyed hint aside: a command typed
-    into it then goes out alone, where after a draft it would send both as one prompt.
-    Rows are found on the screen without its markers and read on one whose dim text (a
-    hint, a dim border) is blanked in place, so both keep the same rows and columns. An
-    agent whose composer this cannot find whole is never proven empty."""
-    screen = text.rsplit(VISIBLE_SCREEN, 1)[-1]
-    screen = _unsuggested(screen)
-    shown = strip_dim(screen).split("\n")
-    typed = _DIM_SPAN_RE.sub(lambda m: re.sub(r"[^\n]", " ", m[1]), screen)
-    typed = typed.replace(DIM_CLOSE, "").split("\n")
-    last = lambda rows, pattern: next(  # noqa: E731
-        (i for i in reversed(range(len(rows))) if pattern.match(rows[i])), None)
-    if tool in ("claude", "codex"):
-        row = last(shown, _PROMPT_LINE_RE)
-        if row is None or typed[row].strip(" \t\xa0│").lstrip(PROMPT_GLYPHS).strip(" \t\xa0│"):
-            return False
-        # Every row a draft could reach, blank-led ones included: Claude's down to its box's
-        # bottom rule (none found, not proven), Codex's to the screen's end bar its footer.
-        rows = range(row + 1, len(shown))
-        if tool == "claude":
-            end = next((i for i in rows if _RULE_LINE_RE.match(shown[i])), None)
-            return end is not None and not any(
-                typed[i].strip(" \t\xa0│") for i in range(row + 1, end))
-        # Codex's footer is one row, after a blank one: a draft's words that read like it
-        # ("how context used is calculated") have no percentage, and a second row is text.
-        text = [i for i in rows if typed[i].strip(" \t\xa0│")]
-        return not text or (len(text) == 1 and text[0] > row + 1
-                            and bool(_CODEX_FOOTER_RE.search(shown[text[0]])))
-    if tool in ("gemini", "antigravity"):
-        row = last(shown, _GEMINI_INPUT_RE)
-        # In vim mode's NORMAL a typed "/resume" is keystrokes for the editor, not text.
-        if row is None or any(_VIM_NORMAL_RE.search(r) for r in shown[row:]):
-            return False
-        top = next((i for i in range(row - 1, -1, -1) if shown[i].lstrip().startswith("╭")), None)
-        bottom = next((i for i in range(row + 1, len(shown)) if shown[i].lstrip().startswith("╰")),
-                      None)
-        if top is None or bottom is None:
-            return False
-        rows = [typed[i].strip(" \t│") for i in range(top + 1, bottom)]
-        rows[row - top - 1] = rows[row - top - 1].removeprefix(">")
-        return not any(r.strip(" \t│") for r in rows)
-    if tool == "opencode":
-        end = last(shown, re.compile(r"^[ \t]*╹━"))
-        start = end
-        while start and shown[start - 1].lstrip().startswith("┃"):
-            start -= 1
-        if end is None or end - start < 1:
-            return False
-        return not any(typed[i].strip(" \t┃") for i in range(start, end - 1))  # last: footer
-    return False
-
-
-# Startup banners the model misses as a welcome screen (Codex's bare header, Gemini CLI's
-# version line, drawn again after sign-in), and what any turn leaves under them: a reply
-# (Codex's "• ", Gemini's "✦ ") or the user's echoed prompt (Gemini's "> …"; Codex's is a ›
-# row, which _USER_ROW_RE catches). A banner with neither is a session not begun.
-_BANNER_RE = {"codex": re.compile(r"^[ \t]*>_ OpenAI Codex \(v", re.MULTILINE),
-              "gemini": re.compile(r"^[ \t]*Gemini CLI v\d", re.MULTILINE)}
-_TURN_LEFT_RE = {"codex": re.compile(r"^• ", re.MULTILINE),
-                 "gemini": re.compile(r"^[ \t]*(?:✦|> \S)", re.MULTILINE)}
-
-
-def _ground_fresh(result: dict, text: str, visible: str) -> None:
-    """Keep the model's "fresh" (an agent at its welcome screen, no conversation yet), or
-    read it off a startup banner (_BANNER_RE), only where nothing on screen contradicts
-    it: an idle agent with nothing asked, no turn left on screen (_TURN_LEFT_RE, Claude's
-    stamp), and no prompt row with text (Claude Code's and Codex's, sent or drafted). Its
-    recent sessions must each be on screen, as everything else the card shows is.
-    "resumable" is the card's Resume and its sessions: only over an empty composer
-    (_empty_composer), since Resume types the agent's command into it."""
+def _ground_fresh(result: dict, visible: str) -> None:
+    """Keep the model's "fresh" (an agent at its welcome screen with an empty input box, no
+    conversation yet) where its own other fields agree: a known agent, idle, nothing asked.
+    "resumable" is the card's Resume and its sessions, offered wherever the session is fresh;
+    each recent session must be on screen, as everything else the card shows is."""
     fresh, recent = result.pop("fresh", None), result.pop("recent_sessions", None)
-    result.pop("resumable", None)  # only the composer check below may say so
-    tool = result.get("tool")
-    # A turn under the banner rules out the model's "fresh" as much as the banner's.
-    turned = tool in _TURN_LEFT_RE and _TURN_LEFT_RE[tool].search(visible)
-    fresh = not turned and (fresh is True or bool(
-        tool in _BANNER_RE and _BANNER_RE[tool].search(visible)))
-    if not (fresh is True and tool in _AGENT_TOOLS
+    result.pop("resumable", None)
+    if not (fresh is True and result.get("tool") in _AGENT_TOOLS
             and result.get("activity") == "idle"
-            and not any(result.get(k) for k in ("question", "rewind", "offers"))
-            and not _CLAUDE_TURN_RE.search(visible)
-            and not _USER_ROW_RE.search(visible)):
+            and not any(result.get(k) for k in ("question", "rewind", "offers"))):
         return
-    result["fresh"] = True
-    if not _empty_composer(text, tool):
-        return
-    result["resumable"] = True
+    result["fresh"] = result["resumable"] = True
     shown = " ".join(visible.split()).casefold()
     titles = [" ".join(t.split()) for t in recent if isinstance(t, str)] if isinstance(
         recent, list) else []
@@ -1469,7 +1268,7 @@ def classify(
     = events already reported (so the model doesn't repeat them). `prev_activity` is the
     pane's last classified activity, held onto when the parse fails (see below). `reply`
     is the agent's last message from its transcript, whose code blocks become copyables;
-    `turn_live` whether Codex's rollout has a turn open (transcript.codex_turn_live).
+    `turn_live` whether Codex's rollout has its turn open (transcript.turn_live).
     Returns the model's JSON with pane_id/label merged in; on no/failed LLM a minimal
     heuristic dict."""
     visible = _visible(text)
@@ -1560,9 +1359,6 @@ def classify(
         result["tasks"] = validated
     if result.get("tasks") == []:
         result.pop("tasks")
-    # Apply authoritative live chrome AFTER a bounded retry can replace activity.
-    if result.get("tool") == "opencode" and _opencode_running(text):
-        result["activity"] = "running"
     # omp's title is its run state (title-generator.ts), and the title is itself a read,
     # so it stands even after a failed parse. "π >": the turn is over, so job rows still on
     # screen are finished history, and so are its workers (any omp still tracks stay
@@ -1588,67 +1384,28 @@ def classify(
     elif state and result.get("activity") != "compacting":
         result["activity"] = "running"
         result.pop("parse_ok", None)
-    # Claude's turn is read on the ask view: a long final message, its stamp and a bash
-    # row that spent it may all sit above the viewport (tmux.VIEWPORT_ROWS).
-    view = _ask_view(text) if result.get("tool") == "claude" else visible
-    *_, turn = [None, *_CLAUDE_TURN_RE.finditer(view)]
-    # Either row is itself a read of the screen, so it stands even after a failed parse.
-    spent = result.get("tool") == "claude" and _spent(view, turn)
-    if spent:
-        # A quota notice under that row stands, when this read (not a carried one) saw it.
-        if result.get("activity") != "quota_blocked" or "parse_ok" in result:
-            result["activity"] = "idle"
-        result.pop("question", None)
-        result.pop("parse_ok", None)
-    elif result.get("tool") == "claude" and turn:
-        if turn["live"] and result.get("activity") in (None, "idle", "unknown"):
-            result["activity"] = "running"
-            result.pop("parse_ok", None)
-        elif (not turn["live"] and result.get("activity") == "running"
-              and not _USER_ROW_RE.search(view, turn.end())):  # no newer turn began
-            result["activity"] = "idle"  # The turn is over; background shells don't count.
-            result.pop("parse_ok", None)
-    # Codex's live row is a read too: a user wait with no question under it, or an ask the
-    # re-read could not place, is its turn running. A finished turn's "idle" stands.
-    if (result.get("tool") == "codex" and result.get("activity") in ("waiting", "unknown", None)
-            and not result.get("question") and result.get("waiting_on") != "external"
-            and _CODEX_LIVE_RE.search(visible)):
-        result["activity"] = "running"
-        result.pop("parse_ok", None)
-    # So is a turn Codex's own rollout has open: its "Working" row hides while a message
+    # A turn Codex's own rollout has open is running: its "Working" row hides while a message
     # prints mid-turn, which reads as a finished turn on screen. A failed parse stays one,
     # to be retried: the open turn may be waiting on an approval the parse missed.
     if (result.get("tool") == "codex" and turn_live and not result.get("question")
             and result.get("activity") in ("idle", "unknown", None)):
         result["activity"] = "running"
-    # Each agent's own turn chrome only: a shell or Claude printing "■ Build failed" is not
-    # a Codex error, and Claude chrome quoted inside Codex is not Codex's turn.
-    # The finished turn's own chrome is authoritative over any model question: nothing was
-    # typed after it, so a live menu (whose ❯/› rows would count as typed) is ruled out.
-    tool = result.get("tool")
-    blocked = result.get("activity") == "quota_blocked"  # its ask already dropped (_unblocked_ask)
-    over = spent or blocked
-    # Claude's final message is read on the ask view: a long one begins above the viewport.
-    final = not over and tool in _TURN_ERROR_RE and _final_message(view, tool)
+    # After the turn chrome above has had its say: a turn it shows live is no idle one.
+    over = result.get("activity") == "quota_blocked"  # its ask already dropped
     if (offers := screen_offers(result.pop("offers", None), text)) and not over:
         result["offers"] = offers = [_from_reply(offer, reply) for offer in offers]
-    # The model's own read of this screen (not an activity carried over a failed parse) that
-    # the turn waits on the user, where no question of its own survived grounding.
-    waiting = ("parse_ok" not in result and not result.get("question")
-               and result.get("activity") == "waiting" and result.get("waiting_on") != "external")
-    if final and (ask := _final_ask(visible, tool, final, offers, waiting)):
-        if ask.get("options") == ["try again"]:
-            result["headline"] = ask["prompt"]  # A stopped provider error outranks old progress.
-        own = _same_question(result.get("question"), ask)
-        if "options" not in ask and (
-            options := _clean_options(own.get("options"), str(own.get("prompt", "")).strip(),
-                                      ask["prompt"])[:4]
-            or _reply_options(ask["prompt"], replies_fn)
-        ):
-            ask["options"] = options
-        ask.update({k: own[k] for k in ("items", "subject", "link") if k in own})
-        result["question"] = ask
-        result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.
+    # An agent's text question the model gave no replies for gets its buttons from their own
+    # call; not a shell's (its program reads its own input, "y" rather than "Yes"), nor a
+    # handed-over `! command`, whose Send it runs it ("Yes" typed back runs nothing).
+    question = result.get("question")
+    if (isinstance(question, dict) and question.get("answer_style", "text") == "text"
+            and not question.get("options") and not over and result.get("tool") != "shell"
+            and not any(o.startswith("! ") for o in offers)
+            and (asked := _question_prompt(question))
+            and (options := _reply_options(asked.strip(), replies_fn))):
+        question["options"], kept = _beside(options, offers)
+        if offers:
+            result["offers"] = kept
     if result.get("tool") == "claude" and _tabbed_panel_open(visible):
         # Authoritative over the model, a failed parse included: the screen is a settings
         # panel, so nothing is asked. Only a turn the model saw still running stays running
@@ -1690,7 +1447,7 @@ def classify(
         items = question.pop("items", None)
         view = _ask_view(text) if result.get("tool") == "claude" else visible
         if isinstance(items, list) and (quoted := [i for i in items if _quoted(i, view)]):
-            question["items"] = quoted
+            question["items"] = [_card_line(i) for i in quoted]
         if not _quoted(question.get("subject"), view):
             question.pop("subject", None)
         # A question with no style is answered as text (models.py).
@@ -1906,7 +1663,7 @@ def classify(
         result["working_prs"] = working_prs
     else:
         result.pop("working_prs", None)
-    _ground_fresh(result, text, visible)
+    _ground_fresh(result, visible)
     result["pane_id"] = pane.id
     # Prefer the agent's own session name (read from the pane by the LLM, e.g.
     # "tmux-rc-dev") over the tmux-derived label — it's what the user recognizes.

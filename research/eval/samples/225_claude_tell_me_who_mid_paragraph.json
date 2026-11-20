@@ -1,0 +1,15 @@
+{
+  "description": "Synthetic: a finished auto-mode turn opened a PR and, mid-paragraph with more sentences after it, asks the user who should review it. Waiting on the user for that reply.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ go ahead and open it\n\n  Created PR #212, ran 1 shell command\n\n● The design note is up as PR #212. It's the note and its index entry; nothing changed since the draft you read,\n  and the docs build passes.\n\n  I haven't added any reviewers. Tell me who should review it and I'll add them. Merging still waits for your OK,\n  as before.\n\n✻ Baked for 30s · done 6:36 AM\n────────────────────────────────────────────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────────────────────────────────────────────\n  ~/src/fernway/lantern on main | Opus 5.5 | dev@example.com | telemetry: •stats\n  session: +12/-3 lines · 14% ctx · 40h02m · $6.10   |  history: 41 prompts · 30 tools\n  ⏵⏵ auto mode on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "optional": true,
+      "answer_style": "text"
+    },
+    "headline": "Asking who should review the design note PR #212"
+  }
+}

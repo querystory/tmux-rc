@@ -61,14 +61,6 @@ def test_a_quota_blocked_pane_keeps_nothing_from_the_turn_before():
         r = classify(_pane("claude"), screen, lambda *_a, _q=answers, **_k: _q.pop(0))
         assert (r["activity"], r.get("resets"), r.get("question"), answers) == (
             "quota_blocked", "2:10pm", None, [])
-    # A bash-mode command run under that turn spent its ask, but the notice below the
-    # command is the screen's end: the quota read stands over the spent row's "idle".
-    spent = screen.replace("\n\n❯\n", "\n\n! gh pr merge 7 --squash\n\n❯\n")
-    r = classify(_pane("claude"), spent, _llm(read))
-    assert (r["activity"], r.get("resets"), r.get("question")) == ("quota_blocked", "2:10pm", None)
-    # A failed read only carries quota_blocked over: the spent row's "idle" wins then.
-    assert classify(_pane("claude"), spent, _llm(None), prev_activity="quota_blocked")[
-        "activity"] == "idle"
 
 
 def test_offers_are_the_models_text_held_to_the_screen():
@@ -236,14 +228,6 @@ def test_opencode_standalone_checkboxes_own_their_line_and_done_state():
     assert r["tasks"] == [{"text": "Ship it", "done": True}, tasks[1]]
 
 
-def test_opencode_interrupt_spinner_forces_running():
-    r = classify(
-        _pane(cmd="opencode"),
-        "┃  Build · Claude Opus 5.5 · Amazon Bedrock\n▰▰▰▰▰▰ esc interrupt",
-        _llm({"tool": "claude", "activity": "idle", "model": "Claude Opus 5.5"}),
-    )
-    assert r["tool"] == "opencode"
-    assert r["activity"] == "running"
 
 
 @pytest.mark.parametrize(("cmd", "title", "tool"), [
@@ -1000,18 +984,6 @@ def test_returned_shell_prompt_overrides_old_agent_identity_and_actions():
     assert not any(key in result for key in ("session", "question", "rewind", "waiting_on"))
 
 
-def test_visible_opencode_spinner_wins_over_stale_question_retry():
-    calls = []
-    def read(_prompt, text):
-        calls.append(text)
-        if len(calls) == 1:
-            return {"tool": "opencode", "question": {"prompt": "Old approval?"}}
-        return {"tool": "opencode", "activity": "idle"}
-    capture = "Old approval?\n\x1e[visible screen]\x1f\n■⬝ esc interrupt"
-    result = classify(_pane("opencode"), capture, read)
-    assert len(calls) == 2
-    assert "question" not in result
-    assert result["activity"] == "running"
 
 
 def test_failed_question_retry_does_not_retire_the_screen():
@@ -1408,7 +1380,7 @@ def test_widget_ask_is_restated_once_per_widget():
     assert len(calls) == 7
 
 
-def test_users_own_turn_under_a_live_spinner_is_not_a_question():
+def test_users_own_turn_is_not_a_question():
     capture = _sample("54_claude_user_turn_is_not_question")
     user_turn = "should we do that yet or wait a bit longer?"
     calls = []
@@ -1418,89 +1390,30 @@ def test_users_own_turn_under_a_live_spinner_is_not_a_question():
     result = classify(_pane("claude"), capture, read)
     assert len(calls) == 2  # rejected, then re-read once
     assert "question" not in result and "waiting_on" not in result
-    assert result["activity"] == "running"  # the live spinner is authoritative
-    assert "parse_ok" not in result  # so the watcher accepts it over the stale card
-    # Either signal alone rejects it: the ❯ row, or a live spinner below agent text.
-    agent_text = "\x1e[visible screen]\x1f\n● Push now?\n\n✶ Pushing… (3s · esc to interrupt)"
-    # Claude chrome quoted in another tool's pane says nothing about that tool's question.
-    push = _llm({"question": {"prompt": "Push now?"}})
-    codex = classify(_pane("codex"), f"{agent_text}\n\n› ", push)
-    assert codex["question"]["prompt"] == "Push now?"
-    for screen, prompt in ((capture.split("· Befuddling")[0], user_turn),
-                           (agent_text, "Push now?")):
-        result = classify(_pane("claude"), screen, _llm({
-            "tool": "claude", "activity": "idle", "question": {"prompt": prompt}}))
-        assert "question" not in result
+    result = classify(_pane("claude"), capture.split("· Befuddling")[0], _llm({
+        "tool": "claude", "activity": "idle", "question": {"prompt": user_turn}}))
+    assert "question" not in result
 
 
-def test_finished_turn_blocked_on_the_user_is_a_text_wait():
-    cases = {
-        "55_claude_turn_ends_with_user_handoff": "The PRD's local fix is committed",
-        "56_claude_turn_ends_with_decision": "- Live text mode prototype: should I start it",
-        "57_codex_turn_aborted_by_provider_error": "Selected model is at capacity.",
-    }
-    for name, prompt in cases.items():
-        # The model's "running" (background shells/monitors) and "idle" both lose.
-        tool = name.split("_")[1]
-        result = classify(_pane("node"), _sample(name), _llm({"tool": tool, "activity": "running"}))
-        assert result["question"]["prompt"].startswith(prompt)
-        assert result["question"]["answer_style"] == "text"
-        assert result["activity"] == "waiting" and result["waiting_on"] == "user"
-    assert result["question"]["options"] == ["try again"]
-
-
-def test_handoff_in_a_barred_transcript_is_the_agents_words_with_no_buttons():
-    # Claude Code's right-hand bar must not join paragraphs or hide a closing "?", and a
-    # `! command` handed over is not a question: typed-back "Yes, proceed" runs nothing.
-    screen = _sample("100_claude_handoff_beside_suggested_command")
-    replies = lambda _s, _q: {"options": ["Yes, proceed", "No, cancel"]}  # noqa: E731
-    model = {"tool": "claude", "question": {"prompt": "! gh pr merge 812", "options": ["Yes"]}}
-    bare = screen.replace("✻ Worked for 29s · done 1:58 PM ", "✻ Baked for 16s" + " " * 16)
-    for shown in (screen, bare):  # the stamp's "· done …" is optional
-        q = classify(_pane("claude"), shown, _llm(model), replies_fn=replies)["question"]
-        assert q == {"answer_style": "text", "options": [], "prompt": (
-            "The quickest way is to run it yourself with the ! prefix, so it runs here in this "
-            "session: ! gh pr update-branch 812 && gh pr merge 812 --squash --auto")}
-    asking = screen.replace("#815 is still waiting on its Copilot review.", "Shall I watch CI?")
-    q = classify(_pane("claude"), asking, _llm({}), replies_fn=replies)["question"]
-    assert q["prompt"].endswith("Shall I watch CI?")
-    assert q["options"] == ["Yes, proceed", "No, cancel"]
-
-
-def test_wrapped_handoff_is_read_whole_with_its_lead_in():
-    # A narrow pane wraps a handed-over `! command` over several rows. Offered, it is one
-    # Send it; not offered, the handoff is still the whole command with the paragraph that
-    # leads into it, never its first row glued to the row above.
+def test_wrapped_handoff_is_offered_whole():
+    # A narrow pane wraps a handed-over `! command` over several rows: offered, it is one
+    # Send it.
     command = ("! u=dana; for k in $(acme iam list-keys --user $u --output text); do acme iam "
                "delete-key --user $u --key-id $k; done; acme iam delete-user --user $u")
     lead = "Run it with the ! prefix, since the classifier blocks me from deleting it:"
     rows = textwrap.wrap(command, 46, break_long_words=False, break_on_hyphens=False)
     screen = _auto_screen(f"{lead}\n\n  " + "\n  ".join(rows) + "\n\n  Tell me when it's done.")
     result = classify(_pane("claude"), screen, _llm({"offers": [command]}))
-    assert result["offers"] == [command] and result["question"]["prompt"] == command
-    result = classify(_pane("claude"), screen, _llm({}))
-    assert "offers" not in result and result["waiting_on"] == "user"
-    assert result["question"] == {"prompt": f"{lead} {command}", "answer_style": "text",
-                                  "options": []}
-    spaced = _auto_screen("Run this yourself:\n\n  ! printf '%s' 'a  b'")  # its own spacing
-    assert classify(_pane("claude"), spaced, _llm({}))["question"]["prompt"] == (
-        "Run this yourself: ! printf '%s' 'a  b'")
+    assert result["offers"] == [command]
 
 
-def test_a_turn_read_as_waiting_asks_with_its_closing_paragraph():
-    # The model reads the finished turn as waiting on the user but quotes no ask, and its
-    # offer is the greyed suggestion in the empty box (nobody's words): the closing paragraph
-    # is the ask, with reply buttons, and the suggestion is no offer. Read idle, nothing asks.
+def test_a_greyed_suggestion_is_no_offer_and_the_models_question_stands():
+    # The greyed suggestion in the empty box is nobody's words: no offer.
     closing = "The commit is still local, waiting for your go-ahead to push."
     screen = _auto_screen(f"The old user is deleted.\n\n  {closing}").replace(
         "\n❯\n", "\n❯ ⟪placeholder⟫push it⟪/placeholder⟫\n")
-    replies = lambda _s, _q: {"options": ["Push it", "Hold off"]}  # noqa: E731
     model = {"activity": "waiting", "waiting_on": "user", "offers": ["push it"]}
-    result = classify(_pane("claude"), screen, _llm(model), replies_fn=replies)
-    assert "offers" not in result and result["waiting_on"] == "user"
-    assert result["question"] == {"prompt": closing, "answer_style": "text",
-                                  "options": ["Push it", "Hold off"]}
-    assert "question" not in classify(_pane("claude"), screen, _llm({"activity": "idle"}))
+    assert "offers" not in classify(_pane("claude"), screen, _llm(model))
     # A question the model quoted stands over the closing report; a failed parse carrying
     # the last card's "waiting" forward reads nothing off the screen, and is still retried.
     asked = "Tell me which region to deploy to."
@@ -1522,71 +1435,18 @@ def test_status_entries_drop_what_has_its_own_chip():
     assert kept["status_entries"] == ["16% ctx", "$4.96"]  # no field holds them
 
 
-def test_finished_turn_is_not_blocked_once_answered_or_outside_auto_mode():
+def test_a_draft_answers_nothing():
     decision = _sample("56_claude_turn_ends_with_decision")
-    error = _sample("57_codex_turn_aborted_by_provider_error")
-    for tool, screen in (
-        ("claude", decision.replace("auto mode on", "accept edits on")),  # an optional offer
-        ("claude", decision.replace("\n❯\n", "\n❯ yes start it\n")),  # already answered
-        ("codex", error.replace("⟪placeholder⟫Ask Codex to do anything⟪/placeholder⟫",
-                                "try again")),
-        ("codex", error.replace("■ Selected model is at capacity. Please try a different model.",
-                                "■ Conversation interrupted - tell the model what to do.")),
-    ):
-        result = classify(_pane(tool), screen, _llm({"activity": "idle"}))
-        assert "question" not in result
-    assert classify(_pane("claude"), decision.replace("auto mode on", "plan mode on"), _llm({
-        "tool": "claude", "activity": "running"}))["activity"] == "idle"  # the turn is over
-    # A boxed or indented prompt row with text counts as typed, but the input box's
-    # unsent draft answers nothing: the finished turn's question stands (cf. _spent).
-    insert = decision.replace("⏵⏵ auto mode on", "-- INSERT -- ⏵⏵ auto mode on")
-    assert classify(_pane("claude"), insert, _llm({}))["question"]["answer_style"] == "text"
     prose = decision.replace("✻ Worked for 40s", "* Wait for 2s").replace("✻ Cooked", "* Cooked")
     assert classify(_pane("claude"), prose, _llm({"activity": "running"}))["activity"] == "running"
-    quoted = decision.replace("auto mode on", "accept edits on").replace(
-        "Still open:", "● The footer says ⏵⏵ auto mode on when enabled.\n  Still open:")
-    assert "question" not in classify(_pane("claude"), quoted, _llm({}))
     newer = decision.replace("\n❯\n", "\n❯ run tests\n\n● Running tests\n")
     assert classify(_pane("claude"), newer, _llm({"activity": "running"}))["activity"] == "running"
-    empty_box = decision.replace("\n❯\n", "\n│ ❯                │\n")
-    assert classify(_pane("claude"), empty_box, _llm({}))["question"]["answer_style"] == "text"
+    # The input box's unsent draft answers nothing: the model's question stands.
     for row in ("│ ❯ yes start it │", "  ❯ yes start it"):
         drafted = decision.replace("\n❯\n", f"\n{row}\n")
         ask = "should I start it in the background"
         result = classify(_pane("claude"), drafted, _llm({"question": {"prompt": ask}}))
         assert result["question"]["prompt"] == ask and result["activity"] == "waiting"
-    failed = classify(_pane("claude"), decision.replace("auto mode on", "plan mode on"),
-                      lambda _s, _t: None, prev_activity="running")
-    assert failed["activity"] == "idle" and "parse_ok" not in failed
-
-
-def test_claude_api_error_ending_the_turn_offers_a_retry():
-    screen = ("\x1e[visible screen]\x1f\n● Fixing the parser.\n"
-              "  ⎿  API Error: 529 overloaded_error\n\n❯\n  ~/src/app · Opus 5.5")
-    result = classify(_pane("claude"), screen, _llm({"tool": "claude", "activity": "idle"}))
-    assert result["question"] == {"prompt": "API Error: 529 overloaded_error",
-                                  "answer_style": "text", "options": ["try again"]}
-    # Deterministic chrome is a read of the screen even when the model call failed.
-    assert classify(_pane("claude"), screen, lambda _s, _t: None)["question"] == result["question"]
-    assert "parse_ok" not in classify(_pane("claude"), screen, lambda _s, _t: None)
-    stale = classify(_pane("claude"), screen, _llm({"question": {"prompt": "Fixing the parser."}}))
-    assert stale["question"]["options"] == ["try again"]  # the error ended the turn after it
-    menu = {"prompt": "Close them?", "answer_style": "menu", "options": ["Yes", "No"]}
-    decision = classify(_pane("claude"), _sample("56_claude_turn_ends_with_decision"),
-                        _llm({"question": menu}))
-    assert decision["question"]["answer_style"] == "text"
-    only_command = ("\x1e[visible screen]\x1f\n● ! git push\n✻ Worked for 3s\n❯\n"
-                    "⏵⏵ auto mode on")
-    assert classify(_pane("claude"), only_command, _llm({}))["question"]["prompt"] == "! git push"
-    bare = classify(_pane("claude"), screen.replace("  ⎿  API Error: 529", "API Error handling"),
-                    _llm({}))
-    assert "question" not in bare  # only the ⎿ result marker is provider-error chrome
-    shell = classify(_pane("bash"), "■ Build failed\nuser@host:~$ ", _llm({"activity": "idle"}))
-    assert "question" not in shell and shell["activity"] == "idle"
-    # Another tool's chrome is output, not this pane's turn.
-    claude = classify(_pane("claude"), "● Ran make\n■ Build failed\n\n❯", _llm({}))
-    codex = classify(_pane("codex"), screen.replace("  ⎿  ", "✻ Worked for 3s\n"), _llm({}))
-    assert "question" not in claude and "question" not in codex
 
 
 def test_codex_text_question_without_a_composer_is_not_typed(monkeypatch):
@@ -1694,11 +1554,6 @@ def test_a_finished_turns_ask_may_start_above_the_viewport():
              f"{VISIBLE_SCREEN}\n\n\n❯\n  ⏵⏵ auto mode on")
     result = classify(_pane("claude"), above, _llm({"offers": ["merge PR #41", "merge PR #42"]}))
     assert result["offers"] == ["merge PR #41", "merge PR #42"] and result["activity"] == "waiting"
-    # A turn spent by a bash row above the viewport is spent, its offer gone.
-    spent = ("● Run it yourself: ! make check\n✻ Baked for 3s\n! make check\nok\n"
-             f"{VISIBLE_SCREEN}\n\n\n❯\n  ⏵⏵ auto mode on")
-    result = classify(_pane("claude"), spent, _llm({"offers": ["! make check"]}))
-    assert result["activity"] == "idle" and "offers" not in result
     # A stamp above the viewport and a newer submitted message below it: still running.
     newer_turn = (f"● Done with the docs.\n✻ Baked for 3s\n{VISIBLE_SCREEN}\n❯ now the tests\n\n"
                   "● Running the tests\n\n❯\n  ⏵⏵ auto mode on")
@@ -1722,36 +1577,14 @@ def test_an_offer_the_model_returns_is_a_user_wait():
     assert classify(_pane("claude"), screen, _llm({"activity": "idle"}))["activity"] == "idle"
 
 
-def test_a_sent_offer_is_spent():
-    """Sending a `! command` runs it in Claude's bash mode, under the same final message:
-    the "!" row below the finished turn is the user acting, so whatever the model reads
-    there (still waiting, the hand-over asked again), nothing is asked or offered again."""
+def test_an_unsent_draft_keeps_the_handed_over_offer():
+    # The input box's draft, a "!" one too, is not part of the final message.
     handed = _auto_screen("Run it yourself:\n\n  ! make deploy")
-    sent = handed.replace("\n\n❯", "\n\n! make deploy\n  ⎿  Waiting for approval…\n\n❯")
-    ask = {"prompt": "Run it yourself: ! make deploy", "answer_style": "text"}
-    for read in ({"activity": "running"}, {"activity": "waiting", "question": ask}):
-        result = classify(_pane("claude"), sent, _llm({"tool": "claude", **read,
-                                                       "offers": ["! make deploy"]}))
-        assert (result["activity"], result.get("waiting_on"), result.get("question"),
-                result.get("offers"), result.get("parse_ok", True)) == (
-            "idle", None, None, None, True)
-    # A newer prompt's permission dialog below the sent command is a real ask.
-    dialog = sent.replace("\n\n❯", "\n\n❯ deploy it\n\n Bash command\n   make deploy\n"
-                          " Do you want to proceed?\n ❯ 1. Yes\n   2. No\n")
-    menu = {"prompt": "Do you want to proceed?", "answer_style": "menu", "options": ["Yes", "No"]}
-    asked = classify(_pane("claude"), dialog, _llm({"tool": "claude", "activity": "waiting",
-                                                    "question": menu}))
-    assert (asked["activity"], asked["question"]["prompt"]) == ("waiting", menu["prompt"])
-    # The input box's unsent draft is not sent: a "!" one spends nothing, and a ❯ one
-    # typed after the send brings nothing back.
     rule = "\n" + "─" * 40 + "\n"
     framed = handed.replace("\n\n❯\n", f"\n╭{'─' * 40}╮\n│ ! make deploy │\n╰{'─' * 40}╯\n")
     for boxed in (handed.replace("\n\n❯\n", rule + "! make deploy" + rule), framed):
         assert classify(_pane("claude"), boxed, _llm({"tool": "claude", "offers": [
             "! make deploy"]}))["offers"] == ["! make deploy"]
-    drafted = sent.replace("\n\n❯\n", rule + "❯ check the result" + rule)
-    assert "offers" not in classify(_pane("claude"), drafted, _llm({"tool": "claude", "offers": [
-        "! make deploy"]}))
     # Not yet sent, with no duration stamp to end the turn: the offer stands.
     unstamped = handed.replace("✻ Baked for 16s\n", "")
     assert classify(_pane("claude"), unstamped, _llm({"tool": "claude", "offers": [
@@ -1796,13 +1629,6 @@ def test_offers_stop_at_three():
     offers = [f"! make t{i}" for i in range(5)]
     assert classify(_pane("claude"), _auto_screen(shown), _llm({"offers": offers}))[
         "offers"] == offers[:3]
-
-
-def test_codex_capacity_error_offers_a_retry():
-    screen = ('\x1e[visible screen]\x1f\n• Ran cat notes.txt\n  └ Say "merge all" now.\n'
-              "■ Selected model is at capacity. Please try a different model.\n\n› ")
-    result = classify(_pane("codex"), screen, _llm({}))
-    assert result["question"]["options"] == ["try again"]
 
 
 def test_items_and_subject_the_model_cites_must_be_on_screen():
@@ -1864,7 +1690,6 @@ def test_bare_command_after_a_colon_ending_its_paragraph_is_offered():
     one = 'Run this yourself: ! echo "send-it test $(date +%T)"'
     result = classify(_pane("claude"), _auto_screen(one), _llm({"offers": [one[19:]]}))
     assert result["offers"] == ['! echo "send-it test $(date +%T)"']
-    assert result["question"] == {"prompt": one, "answer_style": "text", "options": []}
     command = ("! export PYTHONPATH=/tmp/demo/lib P=demo-app; source ~/.config/demo/api.env && "
                'printf %s "$DEMO_API_KEY" | gcloud secrets create demo-key --project "$P" '
                '--data-file=- && gcloud run deploy demo-app --project "$P" --region us-east1')
@@ -1874,43 +1699,19 @@ def test_bare_command_after_a_colon_ending_its_paragraph_is_offered():
         rows.append(" ".join(words[:9]))
         words = words[9:]
     result = classify(_pane("claude"), _auto_screen("\n  ".join(rows)), _llm({"offers": [command]}))
-    assert result["offers"] == [command] and result["question"]["options"] == []
-    assert result["question"]["prompt"] == reply.split("\n\n")[1]  # a user-wait, not a question
+    assert result["offers"] == [command]
     glob = "Run this yourself: ! cp * /tmp/backup"  # a wrap before a glob is no list item
     result = classify(_pane("claude"), _auto_screen(glob.replace(" * ", "\n  * ")),
                       _llm({"offers": [glob[19:]]}))
-    assert result["offers"] == ["! cp * /tmp/backup"] and result["question"]["prompt"] == glob
+    assert result["offers"] == ["! cp * /tmp/backup"]
     spaced = "Run this yourself: ! printf '%s' 'a  b'"  # its own spacing, as the screen shows
     result = classify(_pane("claude"), _auto_screen(spaced), _llm({"offers": [spaced[19:]]}))
-    assert result["offers"] == ["! printf '%s' 'a  b'"] and result["question"]["options"] == []
+    assert result["offers"] == ["! printf '%s' 'a  b'"]
     for reply, shown in (('Run this yourself: ! echo "Ready?"',) * 2,  # its own "?"
                          ("Run this yourself: ! echo hello world",  # wrapped onto a "! " row
                           "Run this yourself:\n  ! echo hello\n  world")):
         result = classify(_pane("claude"), _auto_screen(shown), _llm({"offers": [reply[19:]]}))
-        assert result["question"] == {"prompt": reply, "answer_style": "text", "options": []}
-
-def test_an_offer_mid_message_asks_with_the_paragraph_holding_it():
-    ask = 'Say "push" and I will request reviews.'
-    screen = _auto_screen(f"{ask}\n\n  The branches are still unpushed.")
-    result = classify(_pane("claude"), screen, _llm({"offers": ["push"]}))
-    assert result["question"] == {"prompt": ask, "answer_style": "text", "options": []}
-
-
-@pytest.mark.parametrize("message", [
-    "Done.\n  Should I send this to\n  Copilot, then merge\n  after approval?",
-    ("Done.\n\n  - first item\n  - second item\n\n  Should I send this to\n"
-     "  Copilot, then merge after approval?"),
-    ("Done.\n  - item one. Should I send this to\n"
-     "    Copilot, then merge after approval?"),
-    "Done.\n  **Should I send this to Copilot, then merge after approval?**",
-])
-def test_wrapped_closing_question_is_read_whole(message):
-    result = classify(_pane("claude"), _auto_screen(message), _llm({"tool": "claude"}))
-    prompt = result["question"]["prompt"]
-    assert "Should I send this to Copilot, then merge after approval?" in prompt
-    assert "first item" not in prompt
-    assert "options" not in result["question"]  # no replies_fn: no buttons
-
+        assert result["offers"] == [reply[19:]]
 
 @pytest.fixture
 def replies():
@@ -1932,6 +1733,7 @@ ASK = "Should I send it to Copilot, then merge?"
 
 
 def _ask(replies_fn, model_q=None, message=ASK):
+    model_q = model_q or {"prompt": message, "answer_style": "text"}
     result = classify(_pane("claude"), _auto_screen(message),
                       _llm({"tool": "claude", "question": model_q}), replies_fn=replies_fn)
     return result["question"]
@@ -1956,22 +1758,61 @@ def test_open_ended_or_failed_replies_show_no_buttons(replies):
     assert len(calls) == 5  # ... so the cached empty answer stood
 
 
-def test_model_options_for_the_same_question_skip_the_extra_call(replies):
+def test_the_models_own_options_skip_the_extra_call(replies):
     make, calls = replies
-    own = {"prompt": ASK.lower(), "options": ["go", "wait"]}
+    own = {"prompt": ASK, "options": ["go", "wait"]}
     assert _ask(make({"options": ["x", "y"]}), own)["options"] == ["go", "wait"]
-    other = {"prompt": "Pick a color", "options": ["red"]}
-    assert _ask(make({"options": ["Yes", "No"]}), other)["options"] == ["Yes", "No"]
-    assert calls == [ASK]
+    assert calls == []
     # Numbered options are replies too.
     choice = {"prompt": "Which backend?", "options": ["1. PostgreSQL", "2. Redis"]}
     assert _ask(make({}), choice, "Which backend?")["options"] == choice["options"]
 
 
+def test_a_handed_over_command_gets_no_reply_buttons(replies):
+    make, calls = replies
+    ask = "Run it yourself: ! make tea"
+    model = {"question": {"prompt": ask, "answer_style": "text"}, "offers": ["! make tea"]}
+    out = classify(_pane("claude"), _auto_screen(ask), _llm(model), replies_fn=make({}))
+    assert out["offers"] == ["! make tea"] and "options" not in out["question"] and not calls
+    shell = classify(_pane("bash"), "Continue? [y/N] ", _llm({
+        "tool": "shell", "question": {"prompt": "Continue?", "answer_style": "text"}}),
+        replies_fn=make({"options": ["Yes", "No"]}))
+    assert "options" not in shell["question"] and not calls  # a shell reads its own input
+
+
+def test_reply_buttons_fill_only_what_the_offered_replies_leave(replies):
+    make, _ = replies
+    read = lambda *offers: _llm({"question": {"prompt": ASK}, "offers": list(offers)})  # noqa: E731
+    # The agent's offered reply stays; the extra call's buttons fill what it leaves, the
+    # accept and decline kept. One among them is drawn once, so it takes no button of its own.
+    for options, shown in ((["Yes", "Wait", "No"], ["Yes", "No"]),
+                           (["Yes", "Merge", "No"], ["Yes", "No", "Merge"])):
+        classify_mod._replies.clear()
+        result = classify(_pane("claude"), _auto_screen(ASK), read("merge"),
+                          replies_fn=make({"options": options}))
+        assert (result["question"]["options"], result["offers"]) == (shown, ["merge"])
+    # Two offered replies beside an accept and decline: the first fills the third button.
+    classify_mod._replies.clear()
+    screen = _auto_screen("Say merge to merge it, or deploy to ship it. " + ASK)
+    result = classify(_pane("claude"), screen, read("merge", "deploy"),
+                      replies_fn=make({"options": ["Yes", "No"]}))
+    assert (result["question"]["options"], result["offers"]) == (["Yes", "No"], ["merge"])
+    # An offer among the options cut away is drawn again, and counts.
+    classify_mod._replies.clear()
+    result = classify(_pane("claude"), screen, read("merge", "deploy"),
+                      replies_fn=make({"options": ["Yes", "Merge", "No"]}))
+    assert (result["question"]["options"], result["offers"]) == (["Yes", "No"], ["merge"])
+    four = {"prompt": ASK, "options": ["Yes, all", "Check a", "Check b", "No"]}  # the model's own
+    model = _llm({"offers": ["merge"], "question": four})
+    result = classify(_pane("claude"), _auto_screen(ASK), model)
+    assert (result["question"]["options"], result["offers"]) == (four["options"], ["merge"])
+    assert classify_mod._card_line("  - swap `a  b`\n    for `a b`?") == "swap `a  b` for `a b`?"
+
+
 def test_decline_survives_the_cap_and_a_lone_option_is_unusable(replies):
     make, calls = replies
     five = {"options": ["Yes, all", "Check a", "Check b", "Check c", "No"]}
-    assert _ask(make(five))["options"] == ["Yes, all", "No", "Check a", "Check b"]
+    assert _ask(make(five))["options"] == ["Yes, all", "No", "Check a"]
     assert "options" not in _ask(make({"options": ["Yes"]}), message="Should I stop?")
     assert "options" not in _ask(make({"options": ["Yes"]}), message="Should I stop?")
     assert "options" not in _ask(make({"options": ["\x1b", ""]}), message="Should I stop?")
@@ -1981,14 +1822,7 @@ def test_decline_survives_the_cap_and_a_lone_option_is_unusable(replies):
 def test_reply_options_are_sanitized(replies):
     make, _ = replies
     raw = ["Yes", "yes", "ok\x1b[A", "no\n", "x" * 61, 7, ASK, "Maybe", "Later", "Never", "No"]
-    assert _ask(make({"options": raw}))["options"] == ["Yes", "No", "Maybe", "Later"]
-
-
-def test_provider_error_retry_is_deterministic(replies):
-    make, calls = replies
-    screen = ("\x1e[visible screen]\x1f\n● Fixing.\n  ⎿  API Error: 529 overloaded_error\n\n❯\n")
-    out = classify(_pane("claude"), screen, _llm({}), replies_fn=make({"options": ["a", "b"]}))
-    assert out["question"]["options"] == ["try again"] and not calls
+    assert _ask(make({"options": raw}))["options"] == ["Yes", "No", "Maybe"]
 
 
 def test_transcript_code_blocks_beat_the_models_retyping():
@@ -2151,45 +1985,6 @@ Enter to select · Tab/Arrow keys to navigate · Esc to cancel"""
     assert "question" in result
 
 
-def test_codex_reviewing_its_own_approval_is_working():
-    # Codex's live row stands under the ask its reviewer is weighing: no user wait, either way
-    # the model reads it, and a failed re-read still lands on the row's own "running".
-    capture = _sample("100_codex_reviewing_approval_is_working")
-    asked = {"tool": "codex", "activity": "waiting",
-             "question": {"prompt": "Reviewing approval request", "answer_style": "text"}}
-    for read in (asked, {"tool": "codex", "activity": "waiting"}):
-        result = classify(_pane("node"), capture, _llm(read))
-        assert result["activity"] == "running" and "question" not in result
-        assert "waiting_on" not in result and "parse_ok" not in result
-    # Codex's real approval menu draws no live row, and a wait on other agents stands.
-    menu = _sample("06_codex_permission_box")
-    ask = {"prompt": "Would you like to run the following command?", "answer_style": "menu"}
-    result = classify(_pane("node"), menu, _llm(
-        {"tool": "codex", "activity": "waiting", "question": ask}))
-    assert result["activity"] == "waiting" and result["question"]
-    result = classify(_pane("node"), capture, _llm(
-        {"tool": "codex", "activity": "waiting", "waiting_on": "external"}))
-    assert result["waiting_on"] == "external"
-
-
-def test_codex_live_row_is_only_its_status_row():
-    # Text shaped like the row is not it: without a timer, in a transcript block, or quoted
-    # above more output instead of standing over the input row.
-    ask = {"prompt": "Would you like to run the following command?", "answer_style": "menu"}
-    menu = _sample("06_codex_permission_box")
-    for quote in ("Documentation example (esc to interrupt)",
-                  "Documentation example (2s • esc to interrupt)",
-                  "  └ Working (2s • esc to interrupt)"):
-        screen = menu.replace("  1. Yes", f"{quote}\n  1. Yes")
-        result = classify(_pane("node"), screen, _llm(
-            {"tool": "codex", "activity": "waiting", "question": ask}))
-        assert result["activity"] == "waiting" and result["question"], quote
-    # A finished reply shaped like the row, right above the input row: the read stands.
-    done = "\x1e[visible screen]\x1f\n• Documentation example (2s • esc to interrupt)\n\n› "
-    assert classify(_pane("node"), done, _llm({"tool": "codex", "activity": "idle"}))[
-        "activity"] == "idle"
-
-
 def test_codex_turn_open_in_its_rollout_is_running():
     # Codex hides its live row while a message prints mid-turn; its rollout still has the
     # turn open. A question it asks, and a turn the rollout has closed, keep the read.
@@ -2288,65 +2083,16 @@ def test_a_new_session_reads_fresh_with_the_sessions_it_lists():
     r = classify(_pane("claude"), _NEW_SESSION, _llm(read))
     assert (r["fresh"], r["resumable"], r["recent_sessions"]) == (
         True, True, ["Tidy the garden planner"])
-    # A draft led by blank rows inside the box: still fresh, but Resume would send it.
-    blank_led = _NEW_SESSION.replace("❯ \n", "❯ \n\n  plan the beds\n")
-    r = classify(_pane("claude"), blank_led, _llm(read))
-    assert (r["fresh"], r.get("resumable")) == (True, None)
 
 
-def test_fresh_is_dropped_once_anything_happened():
+def test_fresh_stands_only_where_the_models_other_fields_agree():
     read = {"tool": "claude", "activity": "idle", "fresh": True,
             "recent_sessions": ["Tidy the garden planner"]}
-    sent = _NEW_SESSION.replace("\n\n", "\n\n❯ plan the beds\n\n● Done.\n\n✻ Worked for 4s\n\n", 1)
-    # A draft too: Resume's typed command would land after it, and both would be sent.
-    draft = _NEW_SESSION.replace("❯ ", "❯ plan the beds")
-    for screen, extra in ((sent, {}), (draft, {}), (_NEW_SESSION, {"activity": "running"}),
-                          (_NEW_SESSION, {"tool": "shell"})):
-        r = classify(_pane("claude" if not extra.get("tool") else "bash"), screen,
+    for extra in ({"activity": "running"}, {"tool": "shell"},
+                  {"fresh": None, "resumable": True}):
+        r = classify(_pane("bash" if extra.get("tool") else "claude"), _NEW_SESSION,
                      _llm({**read, **extra}))
-        assert "fresh" not in r and "recent_sessions" not in r
-
-
-def test_resume_is_offered_only_over_an_empty_composer():
-    # Resume types the agent's command into its composer: after a draft both would be sent.
-    read = {"activity": "idle", "fresh": True, "recent_sessions": ["Sort the seed list"]}
-    dim = lambda t: f"{tmux.DIM_OPEN}{t}{tmux.DIM_CLOSE}"  # noqa: E731
-    gemini = "  Recent: Sort the seed list\n╭────────╮\n│ > {} │\n╰────────╯\n  ~/src  gemini-pro"
-    opencode = ("  Recent: Sort the seed list\n┃\n┃  {}\n┃\n┃  Build · Model X · Provider\n"
-                "╹━━━━━━━━\n ~/src   ctrl+p commands")
-    normal = gemini.replace("gemini-pro", "[NORMAL] gemini-pro")
-    cases = [("gemini", gemini, dim("Type your message"), True),
-             ("gemini", normal, "", False),  # vim NORMAL mode: typed keys are editor commands
-             ("gemini", gemini, "water the beds", False),
-             ("opencode", opencode, "", True),
-             ("opencode", opencode, dim('Ask anything... "Fix a TODO"'), True),
-             ("opencode", opencode, "water the beds", False),
-             ("omp", "  Recent: Sort the seed list\n > ", "", False),  # its composer is unread
-             # A Gemini draft on the box's second row, under an empty "> " row.
-             ("gemini", gemini.replace("│ > {} │", "│ > │\n│   water the beds │"), "", False),
-             # A dim box and hint, the hint's dim run carried on from the row above it.
-             ("gemini", gemini.replace("╭────────╮\n│ > {} │", dim("╭────────╮\n│") + " > "
-                                       + tmux.DIM_OPEN + "Type a message\n│"), "", True),
-             ("opencode", opencode.replace("┃", dim("┃")), "", True),
-             ("opencode", opencode.replace("┃", dim("┃")), "water the beds", False),
-             ("codex", "  Recent: Sort the seed list\n› \n  second line\n\n  ? for shortcuts", "",
-              False),  # a multi-line draft whose first row is empty
-             ("codex", "  Recent: Sort the seed list\n› \n\n  ? for shortcuts", "", True),
-             # A draft led by blank rows: its text sits further down than the next row.
-             ("codex", ("  Recent: Sort the seed list\n› \n\n  water the beds\n\n"
-                        "  ? for shortcuts"), "", False),
-             # A draft whose words read like the footer is no footer.
-             ("codex", ("  Recent: Sort the seed list\n› \n\n  Explain how context used is "
-                        "calculated"), "", False),
-             ("codex", ("  Recent: Sort the seed list\n› \n  Explain how context used is "
-                        "calculated\n\n  100% context left · ? for shortcuts"), "", False)]
-    for tool, screen, draft, resumable in cases:
-        # The model's own "resumable" is no evidence: only the composer check sets it.
-        model = {**read, "tool": tool, "resumable": True}
-        r = classify(_pane(tool), screen.replace("{}", draft), _llm(model))
-        assert r["fresh"] is True, (tool, draft)
-        assert (r.get("resumable"), r.get("recent_sessions")) == (
-            (True, ["Sort the seed list"]) if resumable else (None, None)), (tool, draft)
+        assert not {"fresh", "resumable", "recent_sessions"} & r.keys(), extra
 
 
 def test_a_corrective_read_decides_fresh():
@@ -2360,31 +2106,3 @@ def test_a_corrective_read_decides_fresh():
         r = classify(_pane("claude"), f"{VISIBLE_SCREEN}\n{_NEW_SESSION}",
                      lambda *_a, _r=reads, **_k: _r.pop(0))
         assert (r.get("fresh"), reads) == (fresh, [])
-
-
-def test_a_startup_banner_with_no_turn_under_it_is_fresh():
-    # Newer startup screens the model does not read as a welcome, invented: Codex's bare
-    # banner over a › composer holding only its placeholder; Gemini's banner drawn twice
-    # (before and after sign-in) over its box holding only its greyed vim-mode hint. The
-    # banner makes them fresh, with Resume; a typed prompt drops Resume, and a turn under
-    # the banner (a reply, or Codex's sent › row) drops fresh too.
-    codex = ("  >_ OpenAI Codex (v0.169.0)\n     ~/src/tide-charts\n\n  Ask about the tides.\n\n"
-             f"› {tmux.PLACEHOLDER_OPEN}Ask Codex to do anything{tmux.PLACEHOLDER_CLOSE}\n\n"
-             "  gpt-6-codex medium · Context 100% left · Context 0% used")
-    gemini = (" Gemini CLI v0.68.0\n Waiting for authentication...\n Gemini CLI v0.68.0\n"
-              " Signed in with Google /auth\n Plan: Free tier\n╭──────────────╮\n"
-              f"│ > {tmux.DIM_OPEN}Press 'Esc' for NORMAL mode.{tmux.DIM_CLOSE} │\n"
-              "╰──────────────╯\n [INSERT]\n ~/src/recipe-scaler  main  quota 0% used")
-    composer = {"codex": codex.split("\n")[5], "gemini": gemini.split("\n")[6]}
-    typed = {"codex": "› slice it", "gemini": "│ > slice it │"}
-    turn = {"codex": "› chart the tides\n\n• Charted.\n\n", "gemini": " > scale it\n\n ✦ Scaled.\n"}
-    for tool, screen in (("codex", codex), ("gemini", gemini)):
-        draft = screen.replace(composer[tool], typed[tool])
-        ran = screen.replace(composer[tool], turn[tool] + composer[tool])
-        for shown, want in ((screen, (True, True)), (draft, ((tool == "gemini") or None, None)),
-                            (ran, (None, None))):
-            # The model's own "fresh" is held to the same turn evidence as the banner.
-            for said in ({}, {"fresh": True}):
-                r = classify(_pane(tool), f"{VISIBLE_SCREEN}\n{shown}",
-                             _llm({"tool": tool, "activity": "idle", **said}))
-                assert (r.get("fresh"), r.get("resumable")) == want, (tool, said, shown)
