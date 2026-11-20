@@ -539,10 +539,7 @@ async def lifespan(app: FastAPI):
     app.state.watcher.start()
     _advertise_scratch()
     app.state.push = PushManager(app.state.watcher, scratch=_scratch_dir and Path(_scratch_dir),
-                                 shoot=lambda item: (scratch_sidecars.queue(
-                                     Path(_scratch_dir), WEB_DIR, [item], use_llm),
-                                     scratch_publish.ready(Path(_scratch_dir), item, WEB_DIR,
-                                                           app.state.push.sender.send)))
+                                 shoot=lambda item: (_sidecars([item]), _republish(item)))
     app.state.push.start()
     app.state.usage = PlanUsage(app.state.history, profiles=accounts.metered)
     app.state.worktrees = Worktrees()
@@ -2437,6 +2434,15 @@ if _scratch_dir:
         return (states, accounts.report(states, watcher.pane_birth)["profiles"],
                 WEB_DIR / "m" / "style.css", lambda entry: live.running_pane(entry, watcher))
 
+    def _republish(item: dict) -> None:
+        scratch_publish.ready(Path(_scratch_dir), item["name"], WEB_DIR, app.state.push.sender.send)
+
+    def _sidecars(listed: list[dict]) -> None:
+        """Queue the listed folders' missing thumbnails and descriptions; a published one is
+        copied again once they are made, so its copy has the new thumbnail."""
+        scratch_sidecars.queue(Path(_scratch_dir), WEB_DIR, listed,
+                               getattr(app.state.watcher, "use_llm", False), then=_republish)
+
     @app.get("/api/panes/{pane_id}/scratch")
     def pane_scratch(pane_id: str) -> list[dict]:
         """The scratch pages this pane's session made, for its overview's Links."""
@@ -2456,24 +2462,31 @@ if _scratch_dir:
                                              archived=archived is not None)
             return Response(None, 204) if seen == scratch.tag(listed) else Response(
                 _PIXEL, media_type="image/gif")
-        use_llm = getattr(app.state.watcher, "use_llm", False)
         return HTMLResponse(await asyncio.to_thread(lambda: scratch.page(
-            Path(_scratch_dir), *_who(),
-            lambda listed: scratch_sidecars.queue(Path(_scratch_dir), WEB_DIR, listed, use_llm),
+            Path(_scratch_dir), *_who(), _sidecars,
             "/docs/scratch/" if DOCS_MOUNTED else scratch.DOCS,
-            archived=archived is not None)))
+            archived=archived is not None, publishing=scratch_publish.configured())))
 
     _PIXEL = bytes.fromhex("47494638396101000100000000002c00000000010001000002024401003b")
 
     class ScratchBody(BaseModel):
-        action: Literal["archive", "unarchive", "delete"]
+        action: Literal["archive", "unarchive", "delete", "publish", "unpublish"]
         names: list[str]
 
     @app.post("/api/scratch")
     def scratch_act(body: ScratchBody, request: Request) -> dict:
-        """Archive, unarchive or delete (from the archive) the gallery's selected folders."""
+        """Archive, unarchive, delete (from the archive), publish or unpublish the gallery's
+        selected folders."""
+        publishing = body.action.endswith("publish")
+        if publishing and not scratch_publish.configured():
+            raise HTTPException(400, "publishing is not set up: TMUXRC_SCRATCH_PUBLISH")
         try:
             root = Path(_scratch_dir)
+            if publishing:
+                done = scratch_publish.act(root, body.action, body.names, WEB_DIR,
+                                           app.state.push.sender.send)
+                _audit(request, f"scratch_{body.action}", "-", ",".join(done))
+                return {"done": done}
             published = lambda r, n: (scratch.named(r, n) or {}).get("publish")  # noqa: E731
             # deleted, a published folder's copy goes too, unless a live one of its name has it
             gone = {n for n in body.names if body.action == "delete" and published(
@@ -2481,7 +2494,7 @@ if _scratch_dir:
             done = scratch.act(root, body.action, body.names)
             scratch_sidecars.forget(done)
             for name in gone.intersection(done):
-                scratch_publish.later(lambda n=name: scratch_publish.unpublish(n), name,
+                scratch_publish.later(lambda n=name: scratch_publish.unpublish(root, n), name,
                                       app.state.push.sender.send)
         except (ValueError, PermissionError) as e:
             raise HTTPException(400, str(e)) from e

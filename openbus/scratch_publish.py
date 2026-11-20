@@ -3,7 +3,8 @@ publish <folder>` opts it in, writing its published URL into its meta.json as "p
 and copies scratch.export's static version of it to the TMUXRC_SCRATCH_PUBLISH prefix,
 served at TMUXRC_SCRATCH_PUBLISH_URL. The daemon copies it again each time its page is
 ready (push.landed: when it sends Ready or Updated). Only what changed since the last copy
-is sent, by a record of what was, so the writer needs no permission to list the bucket."""
+is sent, by a record of what was, so the writer needs no permission to list the bucket.
+An index.html at the prefix lists what is published, while anything is."""
 
 import argparse
 import fcntl
@@ -14,6 +15,7 @@ import os
 import sys
 import tempfile
 import threading
+from html import escape
 from pathlib import Path
 from urllib.parse import quote
 
@@ -65,6 +67,13 @@ def _target() -> tuple[str, str]:
     return target.rstrip("/"), base.rstrip("/")
 
 
+def configured() -> bool:
+    try:
+        return bool(_target())
+    except SystemExit:
+        return False
+
+
 def _record() -> Path:
     return accounts.store_path().with_name("published.json")  # {prefix/folder: {file: sha256}}
 
@@ -73,17 +82,39 @@ def url(name: str) -> str:
     return f"{_target()[1]}/{quote(name)}/"
 
 
-def _sync(name: str, out: Path | None) -> None:
-    """Make the copy at the target match `out` (None: nothing), sending only what changed."""
+def _index(root: Path, names: list[str]) -> bytes:
+    """The publish root's page: each published folder's title and description, from the
+    folder (live or archived) opted in at its URL, else just its name."""
+    def card(name: str) -> str:
+        i = next((c for at in (root, scratch.archive(root)) if (c := scratch.named(at, name))
+                  and c["publish"] == url(name)), {})
+        return (f'<li><a href="{quote(name)}/">{escape(i.get("title", name))}</a>'
+                f'<p>{escape(i.get("description", ""))}</p></li>')
+    return ('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-'
+            'width, initial-scale=1"><title>Published</title><style>body{max-width:720px;'
+            'margin:auto;padding:16px;font:16px/1.5 system-ui,sans-serif}li{margin-bottom:12px}'
+            f'p{{margin:0;opacity:.7}}</style><h1>Published</h1><ul>{"".join(map(card, names))}'
+            '</ul>').encode()
+
+
+def _sync(root: Path, name: str, web: Path | None) -> None:
+    """Make the copy at the target match the folder's export now (`web` None: nothing),
+    sending only what changed, and the index what is then published."""
     target = _target()[0]
     _record().parent.mkdir(parents=True, exist_ok=True)
-    # one copy at a time, the CLI's and the daemon's alike: each reads and rewrites the record
-    with _record().with_suffix(".lock").open("a") as lock:
+    # one copy at a time, the CLI's and the daemon's alike: each reads and rewrites the record,
+    # and exports under the lock, so an older snapshot never lands over a newer one
+    with _record().with_suffix(".lock").open("a") as lock, tempfile.TemporaryDirectory() as tmp:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        card = scratch.named(root, name)  # a job superseded (opted out, or in again) does nothing
+        if not (_copyable(card) if web else not (card and card["publish"])):
+            return
+        if web:
+            scratch.export(root / name, out := Path(tmp) / name, web)
         record = scratch.load(_record(), {})
         was = record.get(f"{target}/{name}", {})
         now = {f.relative_to(out).as_posix(): hashlib.sha256(f.read_bytes()).hexdigest()
-               for f in (out.rglob("*") if out else ()) if f.is_file()}
+               for f in (out.rglob("*") if web else ()) if f.is_file()}
         sent = [r for r, digest in now.items() if was.get(r) != digest]
         # whatever may be sent is on record first (as unknown), so a failure midway leaves
         # nothing hosted that unpublish cannot find
@@ -94,28 +125,95 @@ def _sync(name: str, out: Path | None) -> None:
         for rel in was.keys() - now.keys():
             driver.drop(f"{name}/{rel}")
         record[f"{target}/{name}"] = now
+        names = sorted(k.removeprefix(f"{target}/") for k, v in record.items()
+                       if v and k.startswith(f"{target}/"))
+        page = _index(root, names) if names else b""
+        digest = hashlib.sha256(page).hexdigest() if page else None
+        if not page or (record.get(target) or {}).get("index.html") != digest:
+            (index := Path(tmp) / "index.html").write_bytes(page)
+            if page:
+                driver.put("index.html", index)
+            else:
+                driver.drop("index.html")
+            record[target] = {"index.html": digest} if page else {}
         scratch.save(_record(), {k: v for k, v in record.items() if v})
 
 
 def _indexed(card: dict | None) -> bool:
-    return bool(card) and not card["pending"] and card["href"].endswith("/")  # it has one
+    return bool(card) and not card["pending"] and card["href"].endswith("/") and not card[
+        "page"].is_symlink()  # it has one, which export copies
+
+
+def _copyable(card: dict | None) -> bool:
+    """Opted in, with its index, and not being revised."""
+    return _indexed(card) and bool(card["publish"]) and not card["revising"]
 
 
 def publish(root: Path, name: str, web: Path) -> str:
     """Copy the folder's current version to the target; its URL. Only while it is opted in
     and not being revised: a job queued before an unpublish or an update copies nothing."""
-    if not _indexed(card := scratch.named(root, name)) or not card["publish"] or card[
-            "revising"]:
+    if not _copyable(card := scratch.named(root, name)):
         raise SystemExit(f"{name} is not published, has no index, or is being updated: it "
                          "is copied once it is ready")
-    with tempfile.TemporaryDirectory() as tmp:
-        scratch.export(root / name, Path(tmp) / name, web)
-        _sync(name, Path(tmp) / name)
+    try:
+        _sync(root, name, web)
+    except (Exception, SystemExit) as e:
+        _failed(root, name, card["inode"], str(e)[:300])
+        raise
+    _failed(root, name, card["inode"], None)
     return url(name)
 
 
-def unpublish(name: str) -> None:
-    _sync(name, None)
+def _failed(root: Path, name: str, inode: int, why: str | None) -> None:
+    """Keep why the last copy failed in meta.json as "publish_failed", for its card: the
+    folder copied (`inode`), never one archived or replaced meanwhile."""
+    scratch.rewrite(root / name / "meta.json", root, lambda m: None if m.get(
+        "publish_failed") == why else {**_without(m, "publish_failed"),
+                                       **({"publish_failed": why} if why else {})}, inode)
+
+
+def _without(meta: dict, *fields: str) -> dict:
+    return {k: v for k, v in meta.items() if k not in fields}
+
+
+def unpublish(root: Path, name: str) -> None:
+    _sync(root, name, None)
+
+
+def opt(root: Path, name: str, on: bool) -> str:
+    """Opt folder `name` in ("publish": its URL, in its meta.json) or out, archived or not;
+    that URL. Only a folder with an index is opted in: it is served at name/."""
+    there = url(name)
+    if why := _refused(root, name, on):
+        raise ValueError(why)
+    if on and not scratch.rewrite(meta := root / name / "meta.json", root,
+                                  lambda m: {**m, "publish": there}):
+        raise ValueError(f"{meta} is unreadable")
+    for at in () if on else (root, scratch.archive(root)):
+        scratch.rewrite(at / name / "meta.json", at, lambda m: _without(
+            m, "publish", "publish_failed") if {"publish", "publish_failed"} & m.keys() else None)
+        if (scratch.named(at, name) or {}).get("publish"):
+            raise ValueError(f"{at / name / 'meta.json'} could not be rewritten")
+    return there
+
+
+def _refused(root: Path, name: str, on: bool) -> str | None:
+    if not scratch.folder_name(name) or (on and not _indexed(scratch.named(root, name))):
+        return f"{name} is not a folder of {root} with an index.html or index.md"
+    return None
+
+
+def act(root: Path, action: str, names: list[str], web: Path, tell) -> list[str]:
+    """The gallery's Publish or Unpublish (`action`): each folder opted in or out at once,
+    its copy made or removed in the background; none of them if any is refused."""
+    publishing = action == "publish"
+    if whys := [w for n in names if (w := _refused(root, n, publishing))]:
+        raise ValueError("; ".join(whys))
+    for name in names:
+        opt(root, name, publishing)
+        later(lambda n=name: publish(root, n, web) if publishing else unpublish(root, n),
+              name, tell)
+    return names
 
 
 def later(job, name: str, tell) -> None:
@@ -131,10 +229,11 @@ def later(job, name: str, tell) -> None:
     threading.Thread(target=run, daemon=True, name="scratch-publish").start()
 
 
-def ready(root: Path, item: dict, web: Path, tell) -> None:
-    """A page landed (push.landed): copy it again if it is published and not being revised."""
-    if item.get("publish") and not item["revising"]:
-        later(lambda: publish(root, item["name"], web), item["name"], tell)
+def ready(root: Path, name: str, web: Path, tell) -> None:
+    """A page landed (push.landed), or its thumbnail did: copy it again if it is published
+    and not being revised."""
+    if _copyable(scratch.named(root, name)):
+        later(lambda: publish(root, name, web), name, tell)
 
 
 def cli(argv: list[str], web: Path) -> object:
@@ -152,17 +251,11 @@ def cli(argv: list[str], web: Path) -> object:
     if args.command == "export":
         return scratch.export(args.folder, args.out, web)
     root = Path(scratch.configured() or cli.error("TMUXRC_SCRATCH_DIR is not a folder"))
-    if not scratch.folder_name(args.name) or (args.command == "publish" and not _indexed(
-            scratch.named(root, args.name))):  # served at its URL: name/
-        cli.error(f"{args.name} is not a folder of {root} with an index.html or index.md")
-    there = url(args.name)
+    try:
+        there = opt(root, args.name, args.command == "publish")
+    except ValueError as e:
+        cli.error(str(e))
     if args.command == "unpublish":
-        unpublish(args.name)
-        for at in (root, scratch.archive(root)):  # its opt-in goes, archived or not
-            scratch.rewrite(at / args.name / "meta.json", at,
-                            lambda m: {k: v for k, v in m.items() if k != "publish"})
+        unpublish(root, args.name)
         return sys.stdout.write(f"Unpublished {there}\n")
-    if not scratch.rewrite(meta := root / args.name / "meta.json", root,
-                           lambda m: {**m, "publish": there}):
-        cli.error(f"{meta} is unreadable")
     return sys.stdout.write(publish(root, args.name, web) + "\n")

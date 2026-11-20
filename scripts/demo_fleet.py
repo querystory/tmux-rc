@@ -636,6 +636,11 @@ release-notes-draft|190,190|%19|-|Merged PRs since v0.14, grouped by area.
 digest-daily|540,540|%19|Daily digest|What moved yesterday, and what needs you.
 cost-breakdown|1500,1380|%77|Monthly cost breakdown|Compute, storage and egress by team.
 latency-heatmap|4400,4300|%18|-|p50 and p99 by endpoint over the long-input bench."""
+# Published copies (scratch_publish): one served, one whose last copy failed.
+SCRATCH_PUBLISHED = {
+    "cost-breakdown": {"publish": "https://example-org.github.io/scratch/cost-breakdown/"},
+    "latency-heatmap": {"publish": "https://example-org.github.io/scratch/latency-heatmap/",
+                        "publish_failed": "403 Forbidden"}}
 SCRATCH_WRITERS = {"cost-breakdown": {"harness": "claude", "session_id": "demo-cost",
                                       "source": "~/.claude/projects/ops/demo-cost.jsonl",
                                       "title": "Billing export analysis"},
@@ -779,7 +784,8 @@ def seed_scratch(root) -> None:
             (folder / "meta.json").write_text(json.dumps({
                 "title": "" if title == "-" else title, "description": description,
                 "pane": pane, "created": datetime.fromtimestamp(created, UTC).isoformat(),
-                **dict(zip(["updating"], updating, strict=False))}))
+                **dict(zip(["updating"], updating, strict=False)),
+                **SCRATCH_PUBLISHED.get(name, {})}))
             scratch_sidecars.shoot(f"{url}/{name}/", folder / "thumb.webp", root)
             for path in folder.iterdir():
                 os.utime(path, (created, changed if path.suffix != ".json" else created))

@@ -125,7 +125,10 @@ def test_pages_keep_change_numbers_behind_a_tap(tmp_path):
     assert [a["text"] for a in d["actions"]] == [
         "Offline reading needs a rebase", "Reminders can merge", "Search ranking",
         "A teammate asks for your review"]
+    (tmp_path / "digest-daily").mkdir()  # published (scratch_publish): it stays opted in
+    (tmp_path / "digest-daily/meta.json").write_text('{"publish": "https://x.example/d/"}')
     digest.publish(d, tmp_path)
+    assert json.loads((tmp_path / "digest-daily/meta.json").read_text())["publish"]
     for name in ("digest-daily", "digest-weekly"):
         page = (tmp_path / name / "index.html").read_text()
         body = page[page.index("<main>"):]

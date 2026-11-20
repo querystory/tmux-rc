@@ -64,6 +64,10 @@ p { margin: 0; overflow-wrap: anywhere; }
 .tool { padding: 0; font: inherit; color: var(--muted); background: none; border: 0; }
 .where { color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
 .muted { color: var(--muted); font-size: 13px; }
+/* Its published copy: a link out, and why the last copy failed. */
+.pub, .pub a { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 13px; color: var(--accent); }
+.pub svg { flex: none; }
+.pub.failed { color: var(--red); }
 /* Select, then Archive (Restore and Delete in the archive): a bar over the cards, a tick on each. */
 .act, #bar button { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 12px; font: inherit; font-size: 14px; color: var(--fg); text-decoration: none; background: var(--raised); border: 0; border-radius: 8px; cursor: pointer; }
 #bar { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex-basis: 100%; margin: 0 -16px 12px; padding: 10px 12px; background: var(--surface); border-bottom: 1px solid var(--line); }
@@ -72,6 +76,8 @@ p { margin: 0; overflow-wrap: anywhere; }
 #bar button:disabled { opacity: .5; cursor: default; }
 #bar [data-act="delete"] { color: var(--bg); background: var(--red); }
 .archived #bar [data-act="archive"], :root:not(.archived) #bar :is([data-act="unarchive"], [data-act="delete"]), .selecting #select { display: none; }
+/* Publish and Unpublish, where publishing is configured (scratch_publish), for live folders. */
+:root:is(.archived, :not(.publishing)) #bar [data-act$="publish"] { display: none; }
 .selecting article { position: relative; cursor: pointer; user-select: none; }
 .selecting article::after { content: ""; position: absolute; top: 20px; left: 20px; width: 26px; height: 26px; background: rgb(0 0 0 / .45); border: 2px solid #fff; border-radius: 50%; box-shadow: 0 1px 3px rgb(0 0 0 / .4); }
 .selecting article.picked { outline: 2px solid var(--accent); outline-offset: -1px; }
@@ -93,7 +99,7 @@ a { color: var(--accent); }
 // Sandboxed like every /scratch/ page, so no localStorage: the system theme.
 document.documentElement.classList.toggle("light", !matchMedia("(prefers-color-scheme: dark)").matches);</script></head><body><main>
 <header><h1>Scratch</h1><input type="search" placeholder="Filter Scratch" aria-label="Filter"><button type="button" class="act" id="select" data-icon="select" title="Select"><span>Select</span></button><a class="act" id="shelf" href="?archived" target="_self" data-icon="archive" title="Archived"><span>Archived</span></a><span class="seg" role="group" aria-label="View"><button type="button" data-view="grid" aria-label="Grid" title="Grid"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg><span>Grid</span></button><button type="button" data-view="list" aria-label="List" title="List"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h.01M3 12h.01M3 18h.01M8 6h13M8 12h13M8 18h13"/></svg><span>List</span></button></span><a href="DOCS_URL">About</a><a href="/m/">tmux-rc</a></header>
-<div id="bar" hidden><button type="button" id="cancel" data-icon="x" aria-label="Cancel" title="Cancel"></button><b id="count"></b><button type="button" id="all">All</button><button type="button" data-act="archive" data-icon="archive">Archive</button><button type="button" data-act="unarchive" data-icon="restore">Restore</button><button type="button" data-act="delete" data-icon="trash">Delete</button></div>
+<div id="bar" hidden><button type="button" id="cancel" data-icon="x" aria-label="Cancel" title="Cancel"></button><b id="count"></b><button type="button" id="all">All</button><button type="button" data-act="archive" data-icon="archive">Archive</button><button type="button" data-act="unarchive" data-icon="restore">Restore</button><button type="button" data-act="delete" data-icon="trash">Delete</button><button type="button" data-act="publish" data-icon="upload">Publish</button><button type="button" data-act="unpublish" data-icon="cloudoff">Unpublish</button></div>
 <p id="from" hidden><button type="button" aria-label="Show every pane's pages">From this pane <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button><span></span></p>
 <section id="cards"><!--cards--></section>
 <section id="empty" hidden>
@@ -137,13 +143,17 @@ const ICONS = { select: '<path d="M21 10.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 
   archive: '<rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8M10 12h4"/>',
   restore: '<rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h2M20 8v11a2 2 0 0 1-2 2h-2M9 15l3-3 3 3M12 12v9"/>',
   trash: '<path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6M14 11v6"/>',
-  back: '<path d="m12 19-7-7 7-7M19 12H5"/>', x: '<path d="M18 6 6 18M6 6l12 12"/>' };
+  back: '<path d="m12 19-7-7 7-7M19 12H5"/>', x: '<path d="M18 6 6 18M6 6l12 12"/>',
+  upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>',
+  cloudoff: '<path d="m2 2 20 20M5.782 5.782A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.307-.193M21.532 16.5A4.5 4.5 0 0 0 17.5 10h-1.79A7.008 7.008 0 0 0 10 5.07"/>',
+  globe: '<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20"/>',
+  alert: '<circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>' };
 const shelf = document.getElementById("shelf");
 if (archived) { shelf.href = "./"; shelf.dataset.icon = "back"; shelf.title = shelf.firstChild.textContent = "Scratch";
   document.querySelector("h1").textContent = "Archived"; box.placeholder = "Filter archived"; }
 for (const el of document.querySelectorAll("[data-icon]")) el.insertAdjacentHTML("afterbegin",
   `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[el.dataset.icon]}</svg>`);
-// Select, then Archive, Restore or Delete. The app does the deed (the sandbox can't), so outside
+// Select, then Archive, Restore, Delete, Publish or Unpublish. The app does the deed (the sandbox can't), so outside
 // it Select opens the app's Scratch, where Delete asks first and Archive offers an Undo.
 const bar = document.getElementById("bar"), picked = () => [...document.querySelectorAll("article.picked")];
 let busy = false; // a batch sent and not yet answered: no second one
