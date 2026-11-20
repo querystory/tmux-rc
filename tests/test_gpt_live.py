@@ -422,6 +422,19 @@ def test_provider_errors_expose_only_sanitized_code(error, expected):
     assert not s.ws.sent
 
 
+@pytest.mark.parametrize("debug", [False, True])
+def test_provider_error_journal_names_the_field_and_quotes_only_under_debug(
+        monkeypatch, caplog, debug):
+    monkeypatch.setattr(G.telemetry, "QSDEBUG", debug)
+    error = {"type": "invalid_request_error", "code": "invalid_value",
+             "param": "session.audio", "message": "private terminal context"}
+    s = session([{"type": "error", "error": error}])
+    with pytest.raises(G.ProviderError):
+        asyncio.run(s.receive())
+    assert "session.audio" in caplog.text
+    assert ("private terminal context" in caplog.text) is debug
+
+
 def test_startup_error_preserves_code(monkeypatch):
     class Connection(Wire):
         async def __aenter__(self):

@@ -21,7 +21,7 @@ from types import SimpleNamespace
 
 import websockets
 
-from . import live, live_providers
+from . import live, live_providers, telemetry
 
 MODEL = "gpt-live-1"
 LABEL = "GPT-Live 1"
@@ -320,10 +320,16 @@ class Session:
             if kind == "session.closed":  # unasked: close() reads its own
                 raise ProviderError({"code": "session_closed_by_provider"})
             if kind == "error":
-                # Error messages may quote context: the journal gets the provider's own
-                # words (the only way to diagnose an invalid_request_error), the browser
-                # only the code.
-                logger.warning("[live] GPT-Live error: %.500s", json.dumps(event.get("error")))
+                # Error messages may quote context, so the browser gets only the code.
+                # The journal also gets the fields that name what was rejected (enough
+                # to diagnose an invalid_request_error), and the message only under the
+                # same TMUXRC_QSDEBUG gate as transcripts.
+                error = event.get("error")
+                error = error if isinstance(error, dict) else {}
+                shown = ("type", "code", "param", "event_id",
+                         *(("message",) if telemetry.QSDEBUG else ()))
+                logger.warning("[live] GPT-Live error: %.500s",
+                               json.dumps({k: error.get(k) for k in shown}))
                 raise ProviderError(event)
             if kind == "session.output_audio.delta":
                 # Live streams continuous audio; it has no Realtime speech-start /
