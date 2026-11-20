@@ -562,7 +562,8 @@ def publish(d: dict, root: Path) -> None:
     for name, (_, title, verdict, _) in views.items():
         folder = root / f"digest-{name}"
         folder.mkdir(parents=True, exist_ok=True)
-        published = {k: v for k, v in load(folder / "meta.json", {}).items() if k == "publish"}
+        published = {k: v for k, v in load(folder / "meta.json", {}).items()
+                     if k in ("publish", "publish_failed")}
         (folder / "meta.json").write_text(json.dumps({  # its opt-in kept (scratch_publish)
             "title": title, "description": verdict.split(". ")[0], **published,
             "pane": os.environ.get("TMUX_PANE", ""), "created": when.isoformat("T", "seconds")}))

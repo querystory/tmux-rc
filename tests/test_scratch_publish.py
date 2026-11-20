@@ -72,6 +72,12 @@ def test_publish_sends_what_changed_and_unpublish_removes_it(root, capsys):
 
 
 def test_only_a_folder_with_an_index_is_published(root):
+    (root / "tea notes/index.md").rename(root / "tea notes/page.md")
+    (root / "tea notes/index.md").symlink_to("page.md")  # one export leaves out
+    with pytest.raises(SystemExit):
+        P.cli(["publish", "tea notes"], WEB_DIR)
+    (root / "tea notes/index.md").unlink()
+    (root / "tea notes/page.md").rename(root / "tea notes/index.md")
     (root / "tea notes/index.md").rename(root / "tea notes/report.md")
     with pytest.raises(SystemExit):  # its URL, the folder's, would open nothing
         P.cli(["publish", "tea notes"], WEB_DIR)
@@ -93,13 +99,14 @@ def test_an_archived_folder_unpublishes_too(root, capsys):
 
 def test_a_copy_started_before_an_unpublish_sends_nothing(root, monkeypatch):
     P.cli(["publish", "tea notes"], WEB_DIR)
-    export = P.scratch.export
+    P.cli(["unpublish", "tea notes"], WEB_DIR)
+    (root / "tea notes/meta.json").write_text(json.dumps({**_meta(root), "publish": "x"}))
+    flock = P.fcntl.flock
 
-    def unpublished_meanwhile(*args):  # Unpublish lands while this copy is exported
-        export(*args)
-        P.cli(["unpublish", "tea notes"], WEB_DIR)
-    monkeypatch.setattr(P.scratch, "export", unpublished_meanwhile)
-    (root / "tea notes/cup.txt").write_text("white")
+    def unpublished_meanwhile(*args):  # Unpublish lands while this copy waits for the lock
+        P.opt(root, "tea notes", on=False)
+        flock(*args)
+    monkeypatch.setattr(P.fcntl, "flock", unpublished_meanwhile)
     P.publish(root, "tea notes", WEB_DIR)  # not opted in by the time it would copy: nothing
     assert BUCKET == {}
 

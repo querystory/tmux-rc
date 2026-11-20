@@ -97,21 +97,24 @@ def _index(root: Path, names: list[str]) -> bytes:
             '</ul>').encode()
 
 
-def _sync(root: Path, name: str, out: Path | None) -> None:
-    """Make the copy at the target match `out` (None: nothing), sending only what changed,
-    and the index what is then published."""
+def _sync(root: Path, name: str, web: Path | None) -> None:
+    """Make the copy at the target match the folder's export now (`web` None: nothing),
+    sending only what changed, and the index what is then published."""
     target = _target()[0]
     _record().parent.mkdir(parents=True, exist_ok=True)
-    # one copy at a time, the CLI's and the daemon's alike: each reads and rewrites the record
-    with _record().with_suffix(".lock").open("a") as lock:
+    # one copy at a time, the CLI's and the daemon's alike: each reads and rewrites the record,
+    # and exports under the lock, so an older snapshot never lands over a newer one
+    with _record().with_suffix(".lock").open("a") as lock, tempfile.TemporaryDirectory() as tmp:
         fcntl.flock(lock, fcntl.LOCK_EX)
         card = scratch.named(root, name)  # a job superseded (opted out, or in again) does nothing
-        if not (_copyable(card) if out else not (card and card["publish"])):
+        if not (_copyable(card) if web else not (card and card["publish"])):
             return
+        if web:
+            scratch.export(root / name, out := Path(tmp) / name, web)
         record = scratch.load(_record(), {})
         was = record.get(f"{target}/{name}", {})
         now = {f.relative_to(out).as_posix(): hashlib.sha256(f.read_bytes()).hexdigest()
-               for f in (out.rglob("*") if out else ()) if f.is_file()}
+               for f in (out.rglob("*") if web else ()) if f.is_file()}
         sent = [r for r, digest in now.items() if was.get(r) != digest]
         # whatever may be sent is on record first (as unknown), so a failure midway leaves
         # nothing hosted that unpublish cannot find
@@ -127,18 +130,18 @@ def _sync(root: Path, name: str, out: Path | None) -> None:
         page = _index(root, names) if names else b""
         digest = hashlib.sha256(page).hexdigest() if page else None
         if not page or (record.get(target) or {}).get("index.html") != digest:
-            with tempfile.TemporaryDirectory() as tmp:
-                (index := Path(tmp) / "index.html").write_bytes(page)
-                if page:
-                    driver.put("index.html", index)
-                else:
-                    driver.drop("index.html")
+            (index := Path(tmp) / "index.html").write_bytes(page)
+            if page:
+                driver.put("index.html", index)
+            else:
+                driver.drop("index.html")
             record[target] = {"index.html": digest} if page else {}
         scratch.save(_record(), {k: v for k, v in record.items() if v})
 
 
 def _indexed(card: dict | None) -> bool:
-    return bool(card) and not card["pending"] and card["href"].endswith("/")  # it has one
+    return bool(card) and not card["pending"] and card["href"].endswith("/") and not card[
+        "page"].is_symlink()  # it has one, which export copies
 
 
 def _copyable(card: dict | None) -> bool:
@@ -153,9 +156,7 @@ def publish(root: Path, name: str, web: Path) -> str:
         raise SystemExit(f"{name} is not published, has no index, or is being updated: it "
                          "is copied once it is ready")
     try:
-        with tempfile.TemporaryDirectory() as tmp:
-            scratch.export(root / name, Path(tmp) / name, web)
-            _sync(root, name, Path(tmp) / name)
+        _sync(root, name, web)
     except (Exception, SystemExit) as e:
         _failed(root, name, str(e)[:300])
         raise
