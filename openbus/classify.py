@@ -265,11 +265,10 @@ def picker_read(text: str, prompt: str) -> PickerRead | None:
     widget = visible[top:]
     position = None
     if row:
-        # Neither the cursor nor the heading's live count, which both redraw with a move.
-        cursor, heading = row.start("cursor") - top, live[0].end() - top
-        layout = (_LIVE_COUNT_RE.sub("", widget[:heading]) + widget[heading:cursor] + " "
-                  + widget[cursor + 1:])
-        body_start = live[0].end()
+        # The rows under the prompt row, cursor blanked: both it and a heading's live count
+        # redraw with a move. The prompt row is matched above, and the digest holds sends.
+        body_start, cursor = live[0].end(), row.start("cursor")
+        layout = visible[body_start:cursor] + " " + visible[cursor + 1:]
         line = visible.count("\n", body_start, row.start())
         position = PickerPosition(hashlib.sha256(layout.encode()).hexdigest(),
                                   line, visible[body_start:live[1]].split("\n"))
