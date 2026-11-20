@@ -42,6 +42,22 @@ theme once, when it creates it, and afterwards rewrites only its outcome line. A
 written by hand, even as just a name, is filled by the model, and may carry a `holds`
 line saying what belongs in it, which the model reads and never writes.
 
+## Why the pages draw at most seven themes
+
+Seven is what a phone shows without becoming a list to scroll, and a model asked for "four
+to seven" still starts an eighth. So the limit is a rule on the page, not a plea in the
+prompt. With more than seven themes at work, the pages draw the first six and fold the rest
+into one card, "Everything else", whose outcome line is the folded themes' own lines and
+whose state and share are the same rules over their combined work. The order is the page's
+own: themes that need the user first, then by effort, so what is folded is the smallest
+work that asks nothing.
+
+Only the drawing is folded. The registry keeps every theme, and the model still sees and
+writes each one, so a folded theme that grows comes back as its own card with its name and
+members intact. Refusing the model's eighth theme was rejected: its work would sit in no
+theme and so nowhere on the page. Merging themes in the registry was rejected too: that
+file is the user's, and a merge cannot be undone when the small theme grows.
+
 ## Why effort is joined by tool calls
 
 Agents work in a worktree through `git -C` while their session sits at the repository
@@ -66,7 +82,9 @@ place, taking its theme from the message the viewer posts.
 
 Each run also writes `summary.json` beside the daily page for the dashboard's card: the
 verdict, up to three asks with links, each theme's name, state and share, and the plan's
-pace. It is cut from the digest the page is drawn from, so the two cannot disagree.
+pace. It is cut from the digest the page is drawn from, so the two cannot disagree. The
+card gives the verdict three lines: the model is told the length that fits, and the card
+cuts a longer one there, because the daily page a tap away has it whole.
 
 ## Scoring a model against a hand-written digest
 
