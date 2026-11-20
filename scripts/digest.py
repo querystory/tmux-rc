@@ -22,6 +22,7 @@ from dotenv import load_dotenv
 from openbus.config import dotenv_path
 from openbus.pr_titles import run_gh
 from openbus.repository import github_repository
+from openbus.scratch import load
 from openbus.scratch_markdown import tokens
 
 DAY = 86400
@@ -561,8 +562,10 @@ def publish(d: dict, root: Path) -> None:
     for name, (_, title, verdict, _) in views.items():
         folder = root / f"digest-{name}"
         folder.mkdir(parents=True, exist_ok=True)
-        (folder / "meta.json").write_text(json.dumps({
-            "title": title, "description": verdict.split(". ")[0],
+        published = {k: v for k, v in load(folder / "meta.json", {}).items()
+                     if k in ("publish", "publish_failed")}
+        (folder / "meta.json").write_text(json.dumps({  # its opt-in kept (scratch_publish)
+            "title": title, "description": verdict.split(". ")[0], **published,
             "pane": os.environ.get("TMUX_PANE", ""), "created": when.isoformat("T", "seconds")}))
         picks = "".join(f'<input type="radio" name="view" id="{v}"{" checked" * (v == name)}>'
                         for v in views)

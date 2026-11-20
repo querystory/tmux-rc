@@ -92,6 +92,18 @@ old, now = c.get(f"/scratch/?seen={before}"), c.get(f"/scratch/?seen={tag()}")
 print(int(old.headers["content-type"] == "image/gif" and now.status_code == 204))
 print(int(act("delete", "viewed").json() == {"done": ["viewed"]}),
       c.get("/scratch/viewed/").status_code)
+# Publish and Unpublish: refused until publishing is set up, which the gallery then offers;
+# only a folder with its page, and its card links the copy (scratch_publish's tests copy it)
+os.environ["TMUXRC_SCRATCH_PUBLISH"] = ""
+print(act("publish", "sub").status_code, int('class="publishing"' in c.get("/scratch/").text))
+os.environ.update(TMUXRC_SCRATCH_PUBLISH="gs://b/p", TMUXRC_SCRATCH_PUBLISH_URL="https://pub.example")
+server.scratch_publish.later = lambda job, name, tell: None
+server.app.state.push = SimpleNamespace(sender=SimpleNamespace(send=None))
+g = act("publish", "sub").json() == {"done": ["sub"]} and c.get("/scratch/").text
+print(int('class="publishing"' in g and 'href="https://pub.example/sub/"' in g),
+      act("publish", "wip").status_code,
+      int(act("unpublish", "sub").json() == {"done": ["sub"]}
+          and "pub.example" not in c.get("/scratch/").text))
 # The placeholder asks by image whether to reload: a 1px-wide answer while it is unchanged,
 # 2px once it changed or its page landed (never a navigation on a failed ask: client side).
 if server._scratch_dir:
@@ -178,7 +190,7 @@ def test_scratch_serves_only_inside_the_configured_dir(tmp_path):
     # The placeholder marks itself apart from the page, and a plain 404 scans no accounts.
     assert _probe({"TMUXRC_SCRATCH_DIR": str(scratch)}, tmp_path) == [
         200, 404, 404, 200, 307, 200, 404, 404, 404, 202, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-        1, 1, 1, 200, 200, 202, 200, 202, 202, 400, 1, 1, 1, 404, 2, 1, 2,
+        1, 1, 1, 200, 200, 202, 200, 202, 202, 400, 1, 1, 1, 404, 400, 0, 1, 400, 1, 2, 1, 2,
         1, 1, 1, 1, 1, 1, 2, 2, 1, 1]
 
 
