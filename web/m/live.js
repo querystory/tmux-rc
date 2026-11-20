@@ -440,7 +440,11 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
     let pending = new Float32Array(0);
     current.clearPending = () => { pending = new Float32Array(0); };
     tap.port.onmessage = ({ data }) => {
-      if (run !== current || !current.listening || (current.muted && !current.frameMs) || current.ws?.readyState !== WebSocket.OPEN || current.ws.bufferedAmount > MAX_SOCKET_BACKLOG) { pending = new Float32Array(0); return; }
+      const live = run === current && current.listening && !(current.muted && !current.frameMs);
+      if (!live || current.ws?.readyState !== WebSocket.OPEN || current.ws.bufferedAmount > MAX_SOCKET_BACKLOG) {
+        if (live) current.lost = (current.lost || 0) + pending.length + data.length; // told to the server's recording
+        pending = new Float32Array(0); return;
+      }
       const joined = new Float32Array(pending.length + data.length);
       joined.set(pending);
       // A worklet message captured before the toggle can arrive after mute.
@@ -463,7 +467,8 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
       const bytes = new Uint8Array(pcm.buffer);
       let binary = "";
       for (let i = 0; i < bytes.length; i += CHAR_CHUNK) binary += String.fromCharCode(...bytes.subarray(i, i + CHAR_CHUNK));
-      current.ws.send(JSON.stringify({ action: "audio", data: btoa(binary) }));
+      current.ws.send(JSON.stringify({ action: "audio", data: btoa(binary), lost_ms: Math.round((current.lost || 0) * 1000 / rate) }));
+      current.lost = 0;
     };
     source.connect(tap); tap.connect(mute); mute.connect(current.destination);
     current.nodes = [source, tap, mute];
