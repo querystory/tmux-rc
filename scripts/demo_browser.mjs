@@ -51,7 +51,8 @@ export function pace(socket, frames) {
 }
 
 // A canned Live Mode socket: a window named is offered with an Open button (open_pane), a
-// "tell" or a "Resume..." waits on a consent card, anything else gets the same summary.
+// "tell" or a "Resume..." waits on a consent card, an "Ask" is typed into a pane, anything
+// else gets the same summary.
 function stubChat(socket) {
   socket.send(JSON.stringify({ type: "status", status: "listening" }));
   socket.onMessage((raw) => {
@@ -63,6 +64,8 @@ function stubChat(socket) {
         last_active: "2026-06-10T09:12:00Z", id: "5f3a9c1e" } }]
       : /^Tell/.test(text) ? [{ type: "propose", id: "p1", pane_id: "%9",
         text: "Send to e2e triage · claude in ci: From the user (via text): rerun it headed" }, done]
+      : /^Ask/.test(text) ? [{ type: "transcript", role: "model", text: "Asking **e2e triage** to rerun it headed." },
+        { type: "typed", pane_id: "%9", label: "e2e triage · claude in ci", text: "rerun it headed", payload: "rerun it headed", submitted: true }, done]
       : /window/.test(text) ? [{ type: "open_pane", pane_id: "%9", label: "e2e triage · claude in ci" }, // before the text, as live
         { type: "transcript", role: "model", text: "**e2e triage** is rerunning checkout.spec with tracing on." }, done]
       : [{ type: "transcript", role: "model", text:
