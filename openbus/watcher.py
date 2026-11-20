@@ -20,10 +20,9 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import partial
 
-from . import fit, tmux, transcript
+from . import fit, tmux, transcript, workers
 from .classify import (
     _OMP_CTX_RE,
-    _OPENCODE_RUNNING_RE,
     bootstrap,
     classify,
     prompt_gone,
@@ -161,7 +160,7 @@ _VOLATILE_RE = re.compile(
     rf"|(?<= > )S[\d.]+(?={_OMP_ROW})|(?<=\d )\(\+\d+\.\d+\)(?={_OMP_ROW})|{_OMP_BAR}[─╎┃\d.KM]*"
     r"|· \d+ 🛠 · \d+ req · [\d.]+%/[\d.]+[KM]"
     rf"|^ ?\S(?= [\dhms ]+ > {_OMP_ROW})"
-    r"|[⏳✳✻✶✷✽❋⣾⣽⣻⢿⡿⣟⣯⣷◐◓◑◒]"  # spinner glyphs
+    r"|[⏳✳✻✶✷✽❋⣾⣽⣻⢿⡿⣟⣯⣷◐◓◑◒▰▱■⬝]"  # spinner glyphs (OpenCode's blocks too)
     # (Codex's moving "sparkle" animation needs more than deletion — see _SPARKLE_RE.)
     # trailing whitespace, outside the group so one run has one quantifier, and only from
     # the run's start: a padded row's every space would otherwise rescan it to the end
@@ -215,9 +214,6 @@ def _fingerprint(text: str) -> str:
     collapsing spacing globally would erase the indentation that distinguishes one
     screen from another (a diff, a tree, nested output)."""
     text = text.rsplit(tmux.VISIBLE_SCREEN, 1)[-1]
-    # Share the exact line matcher with classify(): anything decisive enough to force
-    # running is normalized here, and nothing else can accidentally become invisible.
-    text = _OPENCODE_RUNNING_RE.sub("[opencode-active]", text)
     text = _VOLATILE_RE.sub("", text)
     lines = text.split("\n")
     anchors = [i for i, ln in enumerate(lines) if _CODEX_INPUT_RE.match(ln)]
@@ -331,6 +327,10 @@ class Watcher:
 
     def __init__(self, target: str | None, use_llm: bool = True, history=None):
         self.history = history
+        worker_path = os.environ.get("TMUXRC_WORKER_SNAPSHOT")
+        self._worker_reader = workers.Reader(worker_path) if worker_path else None
+        self.workers: list[dict] = []
+        self.worker_source: dict | None = None
         self.target = target
         # A one-pane watch list sees one pane, and must never replace a server's snapshot.
         self._recorder = Recorder(history) if history and not target else None
@@ -446,6 +446,15 @@ class Watcher:
         """Monotonic version of the deck-relevant view; bumped only when it changes.
         The /api/state long-poll returns as soon as this passes the client's version."""
         return self._state_version
+
+    def snapshot(self) -> tuple[int, list[dict], list[dict], dict | None]:
+        """One publication, taken whole: its version, a copy of each pane, the reported
+        workers, and their source's status (None when no worker source is configured).
+        Copies, so a later in-place update (the fast tmux_active flip) cannot reach them."""
+        with self._publish_lock:
+            return (self._state_version, [dict(s) for s in self.states],
+                    [dict(w) for w in self.workers],
+                    None if self.worker_source is None else dict(self.worker_source))
 
     # ASYNC109 is suppressed below. The rule wants the caller to wrap this in a cancel
     # scope instead, but that changes the contract: this returns the current version on
@@ -835,7 +844,7 @@ class Watcher:
                 s["tmux_active"] = p.id == focused
                 _stamp_identity(s, p)
                 states.append(s)
-            self._publish_states(states, record_history=False)
+            self._publish_states(states, record_history=False, history_server=history_server)
         # Drain the forced-reparse requests for THIS pass in one atomic swap, so a
         # request that arrives mid-tick (handler thread) is never lost to a check-then-
         # discard race in _tick_pane — it either makes this snapshot or stays queued in
@@ -892,7 +901,7 @@ class Watcher:
             if prepublish:
                 s["tmux_active"] = p.id == focused
                 s["events_seq"] = self._events_seq.get(p.id, 0)
-                self._publish_states(states, record_history=False)
+                self._publish_states(states, record_history=False, history_server=history_server)
         # Mark the pane tmux currently has focused, so the phone can default its
         # selection to the pane the user is actually on (not just the top-sorted one).
         focused = tmux.active_pane_id()
@@ -945,9 +954,31 @@ class Watcher:
                         history_server: str | None = None, unread: set = frozenset()) -> None:
         # Publish a fresh snapshot so replacing/enriching the next startup result does
         # not mutate the deck already visible to HTTP handlers between version bumps.
+        published, reported, source = states, [], None
+        worker_sessions, workers_observed = None, False
+        if self._worker_reader is not None:
+            now = time.time()
+            source = {"status": self._worker_reader.read(now)}
+            server = history_server
+            if server is None:
+                try:
+                    server = tmux.server_uid(strict=True)
+                except (OSError, subprocess.CalledProcessError):
+                    pass
+            if self._worker_reader.snapshot is not None:
+                published, reported = workers.reconcile(
+                    self._worker_reader.snapshot, states, server, now)
+                # Stale known workers retain Unknown states. An empty (or pane-only)
+                # stale roster cannot establish zero background workers for its session.
+                sessions = {p.get("session", "") for p in published if p.get("worker_source")}
+                known = {w["session"] for w in reported if not w.get("pane_id")}
+                stale = workers.is_stale(self._worker_reader.snapshot, now)
+                worker_sessions = sorted(sessions - known)
+                workers_observed = not stale or not worker_sessions
         with self._publish_lock:
-            shown = {s.get("pane_id"): s for s in self.states}
-            self.states = [dict(_latest(s, shown.get(s.get("pane_id")))) for s in states]
+            self.workers, self.worker_source = reported, source
+            shown = {s["pane_id"]: s for s in self.states if s.get("pane_id")}
+            self.states = [dict(_latest(s, shown.get(s.get("pane_id")))) for s in published]
             self._booted = True
             self._bump_state_if_changed(self.states)
         # Progressive UI publication mixes old and newly parsed pane states. Only
@@ -965,7 +996,12 @@ class Watcher:
                 # workers are the old card's too, so none of them count as observed.
                 self.history.record([{**s, "activity": "unknown", "subagents": [], "agents": 0}
                                      if s.get("pane_id") in unread else s
-                                     for s in self.states], current, births=self._birth)
+                                     for s in self.states], current, births=self._birth,
+                                    **({"workers": self.workers,
+                                        "workers_observed": workers_observed,
+                                        "worker_sessions": worker_sessions,
+                                       }
+                                       if self._worker_reader else {}))
             else:
                 self._collection_failed = True
 
@@ -1035,6 +1071,7 @@ class Watcher:
                 s.get("session"), s.get("window_index"), s.get("window_name"),
                 s.get("label"), s.get("title"), s.get("name"), s.get("cwd"),
                 s.get("activity"), s.get("tool"), s.get("events_seq"),
+                s.get("worker_source"),  # an empty roster still replaces parsed worker counts
                 s.get("secret"),  # the composer mode: a tty change with an unchanged screen
                 tuple((p.get("repo"), p.get("number"), p.get("title"))
                       for p in (s.get("prs") or [])),
@@ -1052,7 +1089,7 @@ class Watcher:
     def _bump_state_if_changed(self, states: list[dict]) -> None:
         # tmux_running is in the fingerprint: an empty deck whose server stops (or starts)
         # changes nothing else, and the phone would hold a stale empty state for a poll.
-        fp = (self.tmux_running, self._deck_fp(states))
+        fp = (self.tmux_running, self._deck_fp(states), repr(self.workers), self.worker_source)
         if fp == self._state_fp:
             return
         self._state_fp = fp
@@ -1217,7 +1254,8 @@ class Watcher:
         must, yet output still streaming above the menu must not make it look stale."""
         rows = question_rows(question, text) if isinstance(question, dict) else ""
         return hashlib.sha256(
-            f"{CARD_VERSION}:{self.use_llm}\n{rows or _fingerprint(text)}".encode()).hexdigest()
+            f"{CARD_VERSION}:{self.use_llm}\n{rows or _fingerprint(text)}"
+            .encode()).hexdigest()
 
     def pane_input_generation(self, pane_id: str) -> int:
         """Monotonic token changed immediately after accepted pane input."""
@@ -1521,7 +1559,7 @@ class Watcher:
             self._parse_fails.pop(pane.id, None)  # the retry budget is per SCREEN
         # The agent's transcript can land after its screen settles; a reply or turn end
         # the last parse didn't have re-reads the card even though the screen is unchanged.
-        told = transcript.last_reply(pane, text), transcript.codex_turn_live(pane, text)
+        told = transcript.last_reply(pane, text), transcript.turn_live(pane, text)
         said = transcript.turn(pane, text)  # before the parse: what it reads, not after
         changed = not hold and (fp != self._prev_fp.get(pane.id)  # differs from the last parse
                                 # A restored card has no parsed reply: the first seen stands

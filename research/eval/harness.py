@@ -187,7 +187,7 @@ def _shape(field: dict | list | None, extra: tuple[str, ...] = ()) -> object:
         return None
     if isinstance(field, dict):
         vals = tuple(_keymap(field.get(k)) if k == "keymap" else _labels(field.get(k))
-                     if k == "items" else bool(field.get(k)) if k == "subject"
+                     if k == "items" else bool(field.get(k)) if k in {"subject", "picker_layout"}
                      else field.get(k) for k in extra)
         return ("present", field.get("answer_style"), *vals)
     return ("present", None) if field else None
@@ -241,7 +241,7 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
     # question — presence + answer_style, plus whichever cursor/context fields the sample pins
     want_q = expected.get("question")
     extra = tuple(k for k in ("selected", "keymap", "context", "items", "subject",
-                              "options", "ask")  # ask: only its absence
+                              "options", "ask", "picker_layout")  # ask: only its absence
                   if isinstance(want_q, dict) and k in want_q and (k != "ask" or not want_q[k]))
     cq, eq = _shape(candidate.get("question"), extra), _shape(want_q, extra)
     if cq != eq:
