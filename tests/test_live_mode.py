@@ -1149,6 +1149,16 @@ def test_meter_emits_per_turn_and_folds_into_totals(monkeypatch):
     assert folded == {"in_tokens": 200, "out_tokens": 80, "cost": m.usage.cost()}
 
 
+def test_screen_tail_is_plain_text():
+    """The chat model quotes its screen text back to the user, so our style markers and
+    the greyed input suggestion never reach it."""
+    w = _Watcher()
+    w.snapshots = {"%1": [{"id": "s", "ts": 1.0, "text": (
+        "history above\n" + L.tmux.VISIBLE_SCREEN + "Built the index.\n"
+        "⟪dim⟫✻ Baked for 3s⟪/dim⟫\n❯ ⟪placeholder⟫plan the picnic⟪/placeholder⟫")}]}
+    assert L._screen_tail(w, "%1") == "Built the index.\n✻ Baked for 3s\n❯"
+
+
 def test_connect_snapshot_screen_budget():
     """A big fleet must not blow the session's setup limit: the connect snapshot's
     screen text is bounded fleet-wide (the real 24-pane deck hit ~36k tokens and
@@ -1172,13 +1182,10 @@ def test_connect_snapshot_screen_budget():
     # Every pane keeps its digest block, budget or not.
     for i in range(30):
         assert f"headline-{i}" in ctx
-    # Total screen payload is bounded: budget, plus at most one tail of overshoot,
-    # plus a marker token per tail — tail_marked() may prefix ⟪dim⟫/⟪placeholder⟫ to
-    # reopen a marked run, so a tail can exceed SCREEN_TAIL_CHARS by a token's width.
+    # Total screen payload is bounded: budget, plus at most one tail of overshoot.
     screens = ctx.count("screen:\n")
     assert screens < 30, "budget did not drop any screens"
-    MARKER_SLACK = 32 * 30  # generous per-pane allowance for reopen tokens
-    assert len(ctx) <= L.SCREEN_BUDGET_CHARS + L.SCREEN_TAIL_CHARS + 30 * 400 + MARKER_SLACK
+    assert len(ctx) <= L.SCREEN_BUDGET_CHARS + L.SCREEN_TAIL_CHARS + 30 * 400
     # Priority: the ACTIVE pane always keeps its screen, however it sorts in digest
     # order; the longest-idle pane is the first to lose its own.
     active_block = ctx.split('## "p29 ')[1]
