@@ -619,7 +619,7 @@ def test_failed_parse_keeps_an_open_codex_turn_running(monkeypatch):
     w, _calls = _harness(monkeypatch, frame)
     live = [False]
     monkeypatch.setattr(W.transcript, "last_reply", lambda pane, text: None)
-    monkeypatch.setattr(W.transcript, "codex_turn_live", lambda pane, text: live[0])
+    monkeypatch.setattr(W.transcript, "turn_live", lambda pane, text: live[0])
     ask = {"answer_style": "menu", "prompt": "Run it?", "options": ["Yes", "No"]}
     seq = [{"activity": "idle", "tool": "codex", "events": [], "headline": "Done"},
            {"activity": "running", "tool": "codex", "events": [], "parse_ok": False},
