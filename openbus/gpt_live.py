@@ -15,6 +15,7 @@ import logging
 import math
 import os
 import re
+import time
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
@@ -39,6 +40,11 @@ ENTRY = live_providers.LiveModel(
 BACKEND = "gpt-5.6-luna"
 URL = "wss://api.openai.com/v1/live/sessions"
 logger = logging.getLogger(__name__)
+# GPT-Live is full duplex on its own clock and rejects mic audio that arrives faster than
+# real time (input_audio_rate_limit_exceeded). A tunnel or phone stall delivers its queued
+# frames in one burst; stale speech is no use to a live conversation, so past this much
+# lead the burst is dropped rather than ending the session.
+AUDIO_LEAD_S = 0.5
 
 VOICE_PROMPT = """You are the voice of the user's tmux terminal session.
 Speak naturally and concisely, usually one or two sentences. Refer to windows by
@@ -196,6 +202,8 @@ class Session:
         self.pane_hints = {}
         self.last_context = {}
         self.context_lock = asyncio.Lock()
+        self.audio_until = 0.0  # monotonic time the audio sent so far plays out at
+        self.dropping = False
 
     async def send(self, event):
         await self.ws.send(json.dumps(event))
@@ -205,13 +213,18 @@ class Session:
         # negotiates that rate directly (output comes back at it too), so unlike the
         # Realtime adapter there is nothing to resample — only an odd-length frame to
         # drop, which would otherwise cut a sample in half.
-        if not self.closing and pcm16k and len(pcm16k) % 2 == 0:
-            await self.send(
-                {
-                    "type": "session.input_audio.append",
-                    "audio": base64.b64encode(pcm16k).decode(),
-                }
-            )
+        if self.closing or not pcm16k or len(pcm16k) % 2:
+            return
+        now = time.monotonic()
+        until = max(self.audio_until, now) + len(pcm16k) / 32000  # 16 kHz x 2 bytes
+        if until > now + AUDIO_LEAD_S:
+            if not self.dropping:
+                logger.info("[live] GPT-Live: mic audio ahead of real time; dropping a burst")
+            self.dropping = True
+            return
+        self.audio_until, self.dropping = until, False
+        await self.send({"type": "session.input_audio.append",
+                         "audio": base64.b64encode(pcm16k).decode()})
 
     # The voice frontend takes no images, but the Responses backend does ("Add images and
     # visual context" in the live-delegation guide), and it is where typed turns go.
@@ -307,7 +320,10 @@ class Session:
             if kind == "session.closed":  # unasked: close() reads its own
                 raise ProviderError({"code": "session_closed_by_provider"})
             if kind == "error":
-                # Error messages may quote context; expose codes, not arbitrary content.
+                # Error messages may quote context: the journal gets the provider's own
+                # words (the only way to diagnose an invalid_request_error), the browser
+                # only the code.
+                logger.warning("[live] GPT-Live error: %.500s", json.dumps(event.get("error")))
                 raise ProviderError(event)
             if kind == "session.output_audio.delta":
                 # Live streams continuous audio; it has no Realtime speech-start /
@@ -365,8 +381,9 @@ class Session:
                                             "no pending terminal actions were run."),
                             }
                         )
-                    # These are backend completions, not spoken turn boundaries.
-                    self.meter._emit(final=False)  # noqa: SLF001 - shared Live adapter internals
+                    # Live has no spoken turn boundary, so a backend completion counts as
+                    # the turn: otherwise every session audits turns=0 however much it did.
+                    self.meter.end_turn()
 
         # Normal WebSocket EOF is a dropped Live session too. Never silently report a stop.
         raise ProviderError({"code": "connection_closed_without_session_closed"})

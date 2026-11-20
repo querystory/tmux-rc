@@ -115,6 +115,23 @@ def test_shared_audio_forwarder_reaches_the_adapter():
     assert base64.b64decode(s.ws.sent[0]["audio"]) == b"\x01\x02\x03\x04"
 
 
+def test_mic_audio_never_runs_ahead_of_real_time(monkeypatch):
+    """GPT-Live ends the session (input_audio_rate_limit_exceeded) when mic audio arrives
+    faster than real time, which is what a tunnel stall's backlog does when it lands at
+    once. Up to AUDIO_LEAD_S of a burst goes through; the rest is dropped, and real time
+    passing lets audio through again."""
+    clock = [100.0]
+    monkeypatch.setattr(G.time, "monotonic", lambda: clock[0])
+    s = session()
+    frame = b"\0" * 1280  # 40 ms at 16 kHz PCM16
+    for _ in range(50):  # two seconds of audio in one instant
+        asyncio.run(s.send_audio(frame))
+    assert len(s.ws.sent) == int(G.AUDIO_LEAD_S / 0.04)
+    clock[0] += 1.0
+    asyncio.run(s.send_audio(frame))
+    assert len(s.ws.sent) == int(G.AUDIO_LEAD_S / 0.04) + 1
+
+
 def test_typed_turn_goes_to_the_backend():
     """GPT-Live's frontend takes no text, so a typed turn is a backend user item and a
     continue; the frontend then voices the result like any other."""
@@ -234,6 +251,7 @@ def test_completed_calls_survive_empty_response_output_and_all_results_precede_c
     ]
     assert json.loads(s.ws.sent[1]["item"]["output"])["status"] == "rejected"
     assert not any(m["type"] == "turn_complete" for m in s.browser.messages)
+    assert s.meter.turns == 1  # the audit counts what the session did, not turns=0
 
 
 @pytest.mark.parametrize("terminal", ["response.failed", "response.incomplete"])
