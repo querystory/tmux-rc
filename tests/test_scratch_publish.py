@@ -135,7 +135,7 @@ def test_a_failed_copy_is_pushed_and_never_raises(root, monkeypatch):
     monkeypatch.setattr(Fake, "fail", 0)
     P.publish(root, "tea notes", WEB_DIR)  # copied at last: the failure goes
     assert "publish_failed" not in _meta(root)
-    P.unpublish(root, "tea notes")  # what was sent before the refusal is on record all the same
+    P.cli(["unpublish", "tea notes"], WEB_DIR)  # what was sent before a refusal is on record
     assert BUCKET == {}
 
 
@@ -166,7 +166,9 @@ def test_the_index_lists_what_is_published_while_anything_is(root):
     P.cli(["publish", "tea notes"], WEB_DIR)
     assert '<a href="rye/">Rye</a>' in BUCKET["index.html"].decode()  # the opted-in one's
     P.unpublish(root, "rye")
-    P.unpublish(root, "tea notes")
+    P.unpublish(root, "tea notes")  # still opted in: an older Unpublish job removes nothing
+    assert "tea notes/index.md" in BUCKET
+    P.cli(["unpublish", "tea notes"], WEB_DIR)
     assert BUCKET == {}
 
 

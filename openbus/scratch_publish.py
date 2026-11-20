@@ -105,7 +105,8 @@ def _sync(root: Path, name: str, out: Path | None) -> None:
     # one copy at a time, the CLI's and the daemon's alike: each reads and rewrites the record
     with _record().with_suffix(".lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        if out and not _copyable(scratch.named(root, name)):  # unpublished or revised since
+        card = scratch.named(root, name)  # a job superseded (opted out, or in again) does nothing
+        if not (_copyable(card) if out else not (card and card["publish"])):
             return
         record = scratch.load(_record(), {})
         was = record.get(f"{target}/{name}", {})
@@ -125,7 +126,7 @@ def _sync(root: Path, name: str, out: Path | None) -> None:
                        if v and k.startswith(f"{target}/"))
         page = _index(root, names) if names else b""
         digest = hashlib.sha256(page).hexdigest() if page else None
-        if (record.get(target) or {}).get("index.html") != digest:
+        if not page or (record.get(target) or {}).get("index.html") != digest:
             with tempfile.TemporaryDirectory() as tmp:
                 (index := Path(tmp) / "index.html").write_bytes(page)
                 if page:
@@ -189,6 +190,8 @@ def opt(root: Path, name: str, on: bool) -> str:
     for at in () if on else (root, scratch.archive(root)):
         scratch.rewrite(at / name / "meta.json", at, lambda m: _without(
             m, "publish", "publish_failed") if {"publish", "publish_failed"} & m.keys() else None)
+        if (scratch.named(at, name) or {}).get("publish"):
+            raise ValueError(f"{at / name / 'meta.json'} could not be rewritten")
     return there
 
 
