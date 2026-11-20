@@ -41,7 +41,9 @@
 // A digit names a row, not an ask: a stale "1" would approve whatever prompt replaced
 // the one on the card. So a menu answer carries its question's fingerprint (`fp`, from
 // /api/state), and the server refuses it once the pane holds a different question.
+// A "key" notice ("r retry  f fork") takes the option's own key from `keys`, the same way.
 export function answerBody(q, opt, i) {
+  if (q.answer_style === "key") return q.keys?.[i] ? { keys: q.keys[i], enter: false, literal: true, question: q.fp } : null;
   if (q.answer_style !== "menu") return { keys: opt, enter: true, literal: true };
   return i < 9 ? { keys: String(i + 1), enter: false, literal: true, question: q.fp } : null;
 }

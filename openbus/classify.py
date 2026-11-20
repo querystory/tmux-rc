@@ -1625,7 +1625,10 @@ def classify(
     # the turn waits on the user, where no question of its own survived grounding.
     waiting = ("parse_ok" not in result and not result.get("question")
                and result.get("activity") == "waiting" and result.get("waiting_on") != "external")
-    if final and (ask := _final_ask(visible, tool, final, offers, waiting)):
+    # A key notice the model read below the turn (grounded above) takes the next key, so
+    # no typed ask for the turn above it can be answered.
+    keyed = isinstance(q := result.get("question"), dict) and q.get("answer_style") == "key"
+    if final and not keyed and (ask := _final_ask(visible, tool, final, offers, waiting)):
         if ask.get("options") == ["try again"]:
             result["headline"] = ask["prompt"]  # A stopped provider error outranks old progress.
         own = _same_question(result.get("question"), ask)
@@ -1713,6 +1716,16 @@ def classify(
             # without buttons the user types exactly what the screen asks for.
             style = question["answer_style"] = "text"
             question.pop("options", None)
+        # A key answer sends exactly one key per option, so each must be one key.
+        keys, options = question.get("keys"), question.get("options")
+        if style == "key" and not (isinstance(keys, list) and isinstance(options, list)
+                                   and len(keys) == len(options) > 0 and all(
+                                       isinstance(k, str) and len(k) == 1 and k.isprintable()
+                                       and not k.isspace() for k in keys)):
+            style = question["answer_style"] = "text"
+            question.pop("options", None)
+        if style != "key":
+            question.pop("keys", None)
         # Numbered menus only: a cursor picker is a plain choice, never an approval.
         if context := style == "menu" and asked and _widget_text(asked, visible):
             question["context"] = context

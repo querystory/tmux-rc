@@ -108,7 +108,7 @@ from .history import History, default_path, pane_key  # noqa: E402
 from .host_security import TrustedHostMiddleware  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
 from .plan_usage import ENV, PlanUsage, canonical  # noqa: E402
-from .push import PushManager, claim_question, contract, pane_input  # noqa: E402
+from .push import ONE_KEY, PushManager, claim_question, contract, pane_input  # noqa: E402
 from .watcher import Watcher, _fingerprint  # noqa: E402
 from .worktrees import Worktrees  # noqa: E402
 
@@ -901,10 +901,10 @@ async def get_state(v: int | None = None):
     # three, and /send refuses it once the pane holds a different ask, has taken input
     # since (a double tap, a second client, a refetch before the reparse lands), or shows
     # a different screen (advanced from the keyboard, its parse not yet published).
-    # Menu questions only: no other answer sends it, and a changed fp would re-enable an
+    # One-key questions only: no other answer sends it, and a changed fp would re-enable an
     # answered text card's buttons (app.js pendingAnswers) before its reply has landed.
     for s in panes:
-        if isinstance(s.get("question"), dict) and s["question"].get("answer_style") == "menu":
+        if isinstance(s.get("question"), dict) and s["question"].get("answer_style") in ONE_KEY:
             fp = ":".join((contract(s, s.get("birth"))[0],
                            str(s.get("input_generation", 0)), s.get("frame", "")))
             s["question"] = {**s["question"], "fp": fp}
@@ -1186,9 +1186,9 @@ def send(pane_id: str, body: SendBody, request: Request):
             outcome="rejected: pane not found",
         )
         raise HTTPException(404, "pane not found")
-    # A menu digit means nothing on its own: the "1" that said Yes to one ask says Yes to
-    # whatever replaced it. So a menu answer names its question, claimed under the send
-    # lock exactly as a push action is.
+    # A menu digit (or a key-style key) means nothing on its own: the "1" that said Yes to
+    # one ask says Yes to whatever replaced it. So a one-key answer names its question,
+    # claimed under the send lock exactly as a push action is.
     w, fp = app.state.watcher, body.question
     birth = w.pane_birth(pane.id) if fp else None  # the incarnation the question names
 
