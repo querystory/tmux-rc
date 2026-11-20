@@ -55,7 +55,8 @@ def test_effort_joins_by_tool_paths_not_the_root_branch(tmp_path):
     project = tmp_path / "projects/p"
     project.mkdir(parents=True)
     (project / "a.jsonl").write_text(turn(1, "git -C /w/wt/reader status") + "\n" + turn(2, "ls"))
-    (project / "b.jsonl").write_text(turn(3, "ls /w/repo /w/wt/reader-old"))  # another's name
+    (project / "b.jsonl").write_text(turn(  # others' names
+        3, "ls /w/repo /w/wt/reader-old /w/wt/reader+old /old/w/wt/reader"))
     for f in project.iterdir():
         os.utime(f, (NOW, NOW))
     rows = digest.spend([str(tmp_path)], ["/w/wt/reader"], NOW)
@@ -153,19 +154,22 @@ def test_pages_draw_at_most_seven_themes():
     as one, and the smallest keeps its card because it needs the user."""
     change = {**FACTS["changes"][0], "stage": "open", "need": "", "at": NOW}
     facts = {**FACTS, "effort": {f"o/r#{n}": {"d": 0, "w": 9 - n, "p": 0} for n in range(9)},
-             "changes": [{**change, "key": f"o/r#{n}", "need": "rebase" * (n == 8)}
+             "changes": [{**change, "key": f"o/r#{n}", "need": "rebase" * (n > 6)}
                          for n in range(9)]}
     reg = {"themes": {f"t{n}": {"name": f"Theme {n}", "outcome": f"Outcome {n}.",
                                 "members": [f"o/r#{n}"]} for n in range(9)}}
     d = digest.lay(reg, facts)
-    assert [t["id"] for t in d["drawn"]] == ["t8", "t0", "t1", "t2", "t3", "t4", ""]
+    assert [t["id"] for t in d["drawn"]] == ["t7", "t8", "t0", "t1", "t2", "t3", ""]
+    asking = {**facts, "changes": [{**c, "need": "rebase"} for c in facts["changes"]]}
+    assert [a["theme"] for a in digest.lay(reg, asking)["actions"][:9]] == [  # a folded theme's
+        "t0", "t1", "t2", "t3", "t4", "t5", "", "", ""]  # ask is the shared card's
     rest = d["drawn"][-1]
     assert (rest["name"], rest["outcome"]) == (
-        "Everything else", "Outcome 5. Outcome 6. Outcome 7.")
-    assert len(rest["pieces"]) == 3 and rest["effort"] == 4 + 3 + 2
+        "Everything else", "Outcome 4. Outcome 5. Outcome 6.")
+    assert len(rest["pieces"]) == 3 and rest["effort"] == 5 + 4 + 3
     assert len(d["themes"]) == 9 and sum(t["effort"] for t in d["drawn"]) == 45  # nothing lost
-    del reg["themes"]["t7"], reg["themes"]["t6"]  # seven fit: none is folded
-    assert [t["name"] for t in digest.lay(reg, facts)["drawn"]][-1] == "Theme 5"
+    del reg["themes"]["t5"], reg["themes"]["t6"]  # seven fit: none is folded
+    assert [t["name"] for t in digest.lay(reg, facts)["drawn"]][-1] == "Theme 4"
 
 
 def test_scorer_fails_unsafe_advice_and_counts_regrouping():
