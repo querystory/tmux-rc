@@ -134,7 +134,9 @@ class _Chat:
                 self._restored, *self._context, text, focus])), images)
             self._restored = ""
             self._context.clear()
-            sep = ""  # both clients join a turn's model transcripts verbatim
+            # Both clients join a turn's model transcripts verbatim, and render them as
+            # Markdown: a paragraph break keeps a later reply's list or heading a block.
+            sep = ""
             acted = asked = False
             for step in range(STEPS):
                 last = step == STEPS - 1
@@ -165,7 +167,7 @@ class _Chat:
                     self._model(reply or _DONE)  # closed, like a failed turn
                 if reply:
                     yield Event("transcript", role="model", text=sep + reply)
-                    sep = " "
+                    sep = "\n\n"
                 if not calls:
                     break
                 acted = True
