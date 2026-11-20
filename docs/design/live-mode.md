@@ -98,9 +98,9 @@ inherited" below.
   windowed-sinc downsampler to 16 kHz (`web/m/resample.js`) → Float32→Int16 PCM frames.
   The low-pass matters: plain interpolation folds everything above 8 kHz (sibilants,
   room noise) back into the speech band, and resampling each frame on its own warps it
-  and clicks at every frame edge, both of which cost the recogniser accuracy. Frames go base64 over the WebSocket. A gain-0 node keeps
-  the graph
-  alive without echoing the mic to the speakers. Playback of the model's voice is the
+  and clicks at every frame edge, both of which cost the recogniser accuracy. Frames go
+  base64 over the WebSocket. A gain-0 node keeps the graph alive without echoing the mic
+  to the speakers. Playback of the model's voice is the
   reverse: base64 24 kHz PCM chunks → queued `AudioBufferSourceNode`s.
 - **Daemon** (`openbus/live.py`): accepts the WS, builds the system prompt from live
   watcher state, opens the chosen model through the provider seam
