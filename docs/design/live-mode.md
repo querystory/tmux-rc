@@ -41,9 +41,9 @@ The existing browser → daemon WebSocket path remains. GPT-Live negotiates 16 k
 in both directions; audio messages carry their playback rate, and the server requests
 40 ms microphone batches. Muting the mobile mic disables the capture track but keeps
 silent audio flowing, so the Live clock and backend speech continue. The daemon also holds
-audio to that clock: a stalled tunnel or phone delivers its backlog in one burst, and Live
-ends the session over audio arriving faster than real time, so a burst past half a second
-of lead is dropped (stale speech is no use to a live conversation). There is no VAD
+audio to that clock: the tunnel delivers the phone's frames in bursts, and Live ends the
+session over audio arriving faster than real time, so a burst past a second of lead is
+paced out at real time. It is never dropped: dropping routine bursts garbled the speech. There is no VAD
 commit, response trigger for audio, or invented spoken-turn completion. Transcript
 timestamps provide display-only gap grouping; overlapping fragments never run tools.
 

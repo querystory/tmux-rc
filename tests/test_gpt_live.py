@@ -115,21 +115,29 @@ def test_shared_audio_forwarder_reaches_the_adapter():
     assert base64.b64decode(s.ws.sent[0]["audio"]) == b"\x01\x02\x03\x04"
 
 
-def test_mic_audio_never_runs_ahead_of_real_time(monkeypatch):
+def test_mic_audio_is_paced_to_real_time_never_dropped(monkeypatch):
     """GPT-Live ends the session (input_audio_rate_limit_exceeded) when mic audio arrives
-    faster than real time, which is what a tunnel stall's backlog does when it lands at
-    once. Up to AUDIO_LEAD_S of a burst goes through; the rest is dropped, and real time
-    passing lets audio through again."""
-    clock = [100.0]
+    faster than real time, and the tunnel delivers the phone's frames in bursts. Up to
+    AUDIO_LEAD_S of a burst goes straight through; the rest waits for real time to catch
+    up. Every frame is sent: dropping them garbled what the user said."""
+    clock, waits = [100.0], []
+
+    async def sleep(seconds):
+        waits.append(seconds)
+        clock[0] += seconds
+
     monkeypatch.setattr(G.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(G.asyncio, "sleep", sleep)
     s = session()
     frame = b"\0" * 1280  # 40 ms at 16 kHz PCM16
-    for _ in range(50):  # two seconds of audio in one instant
-        asyncio.run(s.send_audio(frame))
-    assert len(s.ws.sent) == int(G.AUDIO_LEAD_S / 0.04)
-    clock[0] += 1.0
-    asyncio.run(s.send_audio(frame))
-    assert len(s.ws.sent) == int(G.AUDIO_LEAD_S / 0.04) + 1
+
+    async def burst():
+        for _ in range(50):  # two seconds of audio in one instant
+            await s.send_audio(frame)
+
+    asyncio.run(burst())
+    assert len(s.ws.sent) == 50
+    assert sum(waits) == pytest.approx(2 - G.AUDIO_LEAD_S)  # never ahead by more
 
 
 def test_typed_turn_goes_to_the_backend():

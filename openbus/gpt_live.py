@@ -41,10 +41,11 @@ BACKEND = "gpt-5.6-luna"
 URL = "wss://api.openai.com/v1/live/sessions"
 logger = logging.getLogger(__name__)
 # GPT-Live is full duplex on its own clock and rejects mic audio that arrives faster than
-# real time (input_audio_rate_limit_exceeded). A tunnel or phone stall delivers its queued
-# frames in one burst; stale speech is no use to a live conversation, so past this much
-# lead the burst is dropped rather than ending the session.
-AUDIO_LEAD_S = 0.5
+# real time (input_audio_rate_limit_exceeded). The phone's frames reach the daemon in
+# bursts through the tunnel, so past this much lead the rest of a burst is paced out at
+# real time instead of forwarded at once. Paced, not dropped: dropping frames from routine
+# bursts left the transcript unintelligible.
+AUDIO_LEAD_S = 1.0
 
 VOICE_PROMPT = """You are the voice of the user's tmux terminal session.
 Speak naturally and concisely, usually one or two sentences. Refer to windows by
@@ -203,7 +204,6 @@ class Session:
         self.last_context = {}
         self.context_lock = asyncio.Lock()
         self.audio_until = 0.0  # monotonic time the audio sent so far plays out at
-        self.dropping = False
 
     async def send(self, event):
         await self.ws.send(json.dumps(event))
@@ -217,12 +217,9 @@ class Session:
             return
         now = time.monotonic()
         until = max(self.audio_until, now) + len(pcm16k) / 32000  # 16 kHz x 2 bytes
-        if until > now + AUDIO_LEAD_S:
-            if not self.dropping:
-                logger.info("[live] GPT-Live: mic audio ahead of real time; dropping a burst")
-            self.dropping = True
-            return
-        self.audio_until, self.dropping = until, False
+        self.audio_until = until
+        if until > now + AUDIO_LEAD_S:  # a burst: hold it to real time, never drop speech
+            await asyncio.sleep(until - AUDIO_LEAD_S - now)
         await self.send({"type": "session.input_audio.append",
                          "audio": base64.b64encode(pcm16k).decode()})
 
