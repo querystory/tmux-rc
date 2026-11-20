@@ -1,0 +1,12 @@
+{
+  "description": "Same situation as 250 with the section worded differently: background shell jobs are still the host's own work, not subagents, whatever the heading says.",
+  "current_command": "node",
+  "capture": "OpenAI Codex\nModel: gpt-6-sol\n\n\u2022 Kicked off the fixture regeneration in the background; it takes a few minutes.\n\nWorked for 9s\n\nShell jobs (1):\n  job 1: python scripts/regen_fixtures.py --all (running, 1m 12s)\n\n\u203a Ask Codex to do anything\n\n~/src/orchard-api \u00b7 gpt-6-sol medium \u00b7 71% context left",
+  "expected": {
+    "tool": "codex",
+    "activity": "idle",
+    "agents": 0,
+    "subagent_states": [],
+    "headline": "Fixture regeneration running in background; ready for input"
+  }
+}

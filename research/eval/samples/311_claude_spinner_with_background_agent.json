@@ -1,0 +1,14 @@
+{
+  "description": "Synthetic: Claude Code mid-turn, a live spinner row with a running timer and token count above its empty input box, while one background agent is listed in the panel below. The turn itself is going: running.",
+  "current_command": "node",
+  "capture": "● The pantry-sync agent is checking the offline\n  queue, so meanwhile I'm reading the merge code\n  for the conflict it reported.\n\n  Read 3 files, searched for 2 patterns\n\n● The conflict comes from two devices editing the\n  same shopping list. I'm writing the fix now.\n\n✶ Reconciling… (3m 12s · ↓ 8.1k tokens)\n──────────────────────────────────────────────────\n❯ \n──────────────────────────────────────────────────\n  ~/src/recipe-box on fix/list-merge | Opus 5.5\n  session: +184/-22 lines · 27% ctx · 2h40m…\n  ⏵⏵ auto mode on · 1 shell\n\n  ● main\n  ◯ general-purpose     6m 2s · ↓ 22.3k tokens",
+  "expected": {
+    "tool": "claude",
+    "activity": "running",
+    "question": null,
+    "subagent_states": [
+      "running"
+    ],
+    "headline": "Writing the fix for a shopping-list merge conflict between devices"
+  }
+}
