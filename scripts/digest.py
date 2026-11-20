@@ -44,6 +44,7 @@ headRefName headRefOid baseRefName bodyText
 repository { nameWithOwner defaultBranchRef { name } }
 commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
 reviews(first: 40) { nodes { author { login } } }"""
+CAP = 7  # the themes a page draws; past it the smallest share one card (docs/design/digest.md)
 FALLBACK = "The model could not be reached, so this page has no summary. The pictures are current."
 
 
@@ -137,7 +138,9 @@ def spend(dirs: list[str], paths: list[str], now: float) -> list[dict]:
                     used = json.dumps([cwd, *(
                         b.get("input") for b in msg.get("content") or []
                         if isinstance(b, dict) and b.get("type") == "tool_use")])
-                    votes.update([p for p in paths if p in used][:1])
+                    # A whole name: /wt/reader is not named by /wt/reader-old, since removed.
+                    votes.update([p for p in paths if any(
+                        not (t[0].isalnum() or t[0] in "-_.") for t in used.split(p)[1:])][:1])
                     usage, ago = msg.get("usage"), now - ts(r.get("timestamp"))
                     call = msg.get("id") or r.get("requestId")
                     if usage and call not in seen and ago < 14 * DAY:
@@ -290,18 +293,14 @@ def lay(reg: dict, facts: dict) -> dict:
     total = week(effort) or 1
     # The week's work, and whatever still waits on the user however long it has sat.
     live = {c["key"]: c for c in facts["changes"] if c["at"] >= now - 7 * DAY or c["need"]}
-    themes = []
-    for tid, t in reg["themes"].items():
-        # Written by hand, a theme may be just its name.
-        t.update({"members": [], "last": now, "outcome": "", "short": t["name"]} | t)
+
+    def theme(tid, t):
         pieces = sorted((live[k] for k in t["members"] if k in live),
                         key=lambda c: (list(STAGES).index(c["stage"]), not c["need"], c["key"]))
         active = [p["stage"] for p in pieces if p["stage"] != "dropped"]
         rest = ["open" if stage == "ready" else stage for stage in active if stage != "main"]
         spent = week(t["members"])
-        if pieces or spent:
-            t["last"] = now
-        themes.append({
+        return {
             "id": tid, **{k: t[k] for k in ("name", "short", "outcome", "members")},
             "pieces": pieces, "effort": spent, "part": spent / total,
             "day": week(t["members"], "d"),
@@ -311,8 +310,23 @@ def lay(reg: dict, facts: dict) -> dict:
             # many is its own red dot, not the theme's word.
             "holds": t.get("holds", ""),
             "state": "main" if active and len(rest) <= len(active) / 10 and "held" not in rest
-            else max(("stuck", "held", "open"), key=rest.count) if rest else "open"})
+            else max(("stuck", "held", "open"), key=rest.count) if rest else "open"}
+
+    themes = []
+    for tid, t in reg["themes"].items():
+        # Written by hand, a theme may be just its name.
+        t.update({"members": [], "last": now, "outcome": "", "short": t["name"]} | t)
+        themes.append(theme(tid, t))
+        if themes[-1]["pieces"] or themes[-1]["effort"]:
+            t["last"] = now
     themes.sort(key=lambda t: (not any(p["need"] for p in t["pieces"]), -t["effort"]))
+    # What the pages draw: at most CAP. Past it, the smallest that need nothing share a card.
+    drawn = [t for t in themes if t["pieces"] or t["effort"]]
+    if tail := drawn[CAP - 1:] if len(drawn) > CAP else []:
+        drawn[CAP - 1:] = [theme("", {
+            "name": "Everything else", "short": "Everything else",
+            "outcome": " ".join(t["outcome"] for t in tail),
+            "members": [k for t in tail for k in t["members"]]})]
     placed = {k for t in themes for k in t["members"]}
     loose = [c for k, c in live.items() if k not in placed]
     # A rebase is one ask for a theme's whole stack; each change that can merge is its own.
@@ -342,12 +356,12 @@ def lay(reg: dict, facts: dict) -> dict:
     weeks[monday(now - 7 * DAY)] = figures(sum(e["p"] for e in effort.values()), landed(7, 14))
     weeks[monday(now)] = figures(total, landed(0, 7))
     # The same effort four ways, for yesterday and the week: [label, yesterday, week].
-    cuts = {"Theme": [*([t["name"], t["day"], t["effort"]] for t in themes),
+    cuts = {"Theme": [*([t["name"], t["day"], t["effort"]] for t in drawn),
                       ["", week([""], "d"), week([""])]],
             **{cut.title(): [[label, e["d"], e["d"] + e["w"]] for label, e in rows.items()]
                for cut in ("account", "repo", "worktree") if (rows := facts.get(cut))}}
-    return {"now": now, "themes": themes, "actions": actions, "coordination": week([""]),
-            "cuts": cuts,
+    return {"now": now, "themes": themes, "drawn": drawn, "actions": actions,
+            "coordination": week([""]), "cuts": cuts,
             "landed": sum(c["moved"] for c in landed(0, 7)), "weeks": weeks,
             "usage": facts["usage"], "cleanup": facts["cleanup"],
             "pace": ("Running hot" if any(u["projected"] >= 100 for u in facts["usage"])
@@ -416,9 +430,10 @@ def shown(p: dict) -> str:
 
 def dot(p: dict, quiet: bool = False) -> str:
     dim = quiet and not p["moved"] and not p["need"]
-    return (f'<button class="d {p["stage"]}{" need" * bool(p["need"])}{" quiet" * dim}" '
-            f'data-t="{shown(p)}" data-s="{STAGES[p["stage"]]}" data-u="{html.escape(p["url"])}" '
-            f'aria-label="{STAGES[p["stage"]]}"></button>')
+    title, stage, need = shown(p), STAGES[p["stage"]], bool(p["need"])
+    return (f'<button class="d {p["stage"]}{" need" * need}{" quiet" * dim}" data-t="{title}" '
+            f'data-s="{stage}" data-u="{html.escape(p["url"])}" '
+            f'aria-label="{title}: {stage}{", needs you" * need}"></button>')
 
 
 def button(a: dict, quiet: bool = True) -> str:
@@ -440,7 +455,7 @@ def daily(d: dict) -> str:
     columns = {"In progress": ("open", "ready", "stuck"), "Your machine": ("held",),
                "Landed": ("main",)}
     lanes = "".join(f'<div class="ch">{name}</div>' for name in columns)
-    for t in d["themes"]:
+    for t in d["drawn"]:
         cells = [[p for p in t["pieces"] if p["stage"] in stages and (p["moved"] or s != "Landed")]
                  for s, stages in columns.items()]
         if any(cells):
@@ -456,7 +471,8 @@ def daily(d: dict) -> str:
         f'{min(u["projected"], 100)}%"></i><i style="width:{u["pct"]}%"></i><i class="tick" '
         f'style="left:{u["pace"]:.0f}%"></i></span></div>' for u in d["usage"])
     spare = "".join(f"<li>{html.escape(Path(p).name)}</li>" for p in d["cleanup"])
-    return (panel("Where everything stands", f'<div class="lanes">{lanes}</div><p class="pick">'
+    return (panel("Where everything stands", f'<div class="lanes">{lanes}</div>'
+                  '<p class="pick" aria-live="polite">'
                   "Bright dots moved yesterday. Tap one to see what it is.</p>"
                   + key('<span><i class="d held need"></i>&nbsp;needs you</span>'))
             + panel("Needs you", "".join(acts) or '<p class="pick">Nothing is waiting on you.</p>')
@@ -479,7 +495,7 @@ def spark(v: list[float]) -> str:
 
 def weekly(d: dict) -> str:
     """The themes are the page: block size is effort, colour is state, one card per theme."""
-    blocks = sorted([(t["effort"], t["state"], t["short"]) for t in d["themes"] if t["effort"]]
+    blocks = sorted([(t["effort"], t["state"], t["short"]) for t in d["drawn"] if t["effort"]]
                     + [(d["coordination"], "none", "Coordination")], reverse=True)
     tm = "".join(f'<div style="flex-grow:{sum(b[0] for b in row)}">' + "".join(
         f'<div class="s-{state}" style="flex-grow:{spent}"><i class="d {state}"></i>'
@@ -490,12 +506,12 @@ def weekly(d: dict) -> str:
         f'<div class="tcard"><div class="hd"><h5>{html.escape(t["name"])}</h5><span>{t["share"]}'
         f'</span></div><div class="state s-{t["state"]}">{STATES[t["state"]]}</div>'
         f'<p>{html.escape(t["outcome"])}</p><div class="dots">{"".join(map(dot, t["pieces"]))}'
-        '</div><p class="pick" hidden></p><div class="foot"><details><summary>See the changes'
-        "</summary>" + "".join(
+        '</div><p class="pick" aria-live="polite" hidden></p><div class="foot"><details>'
+        "<summary>See the changes</summary>" + "".join(
             f'<a href="{html.escape(p["url"])}" target="_blank" rel="noopener">'
             f'<i class="d {p["stage"]}"></i>{shown(p)}</a>' for p in t["pieces"])
         + "</details>" + "".join([button(a) for a in d["actions"] if a.get("theme") == t["id"]][:1])
-        + "</div></div>" for t in d["themes"] if t["pieces"] or t["effort"])
+        + "</div></div>" for t in d["drawn"])
     versus = ""
     for field, fewer, more, good, what in (
             ("per", "Cheaper per change", "Dearer per change", "↓", "effort for each one landed"),
@@ -574,7 +590,7 @@ def publish(d: dict, root: Path) -> None:
         "needs_you": [{"text": a["text"], "href": a["url"]} for a in d["actions"][:3]],
         "more": len(d["actions"][3:]),
         "themes": [{"name": t["name"], "state": STATES[t["state"]], "share": round(t["part"], 3)}
-                   for t in d["themes"] if t["pieces"] or t["effort"]]}))
+                   for t in d["drawn"]]}))
 
 
 def model():
@@ -611,7 +627,7 @@ def main() -> None:
         d = build(facts, reg, ask)
     registry.write_text(json.dumps(reg, indent=1))
     publish(d, root)
-    print(f'{len(d["themes"])} themes, {len(d["actions"])} need you; model {usage()}')
+    print(f'{len(d["drawn"])} themes, {len(d["actions"])} need you; model {usage()}')
 
 
 if __name__ == "__main__":
