@@ -26,7 +26,7 @@ class Element {
 function harness({ filter = [], q = "" } = {}) {
   const navigated = [], made = [];
   const ctx = { sort: () => "updated", outside: () => false, asks: () => false, active: () => null, logos: {}, html() {}, badge: () => "" };
-  const sandbox = { formatHash, PAGES, filter, scope: { tools: [] }, accounts: { key: () => [] }, $: () => ({ value: q }), navigate: (id) => navigated.push(id),
+  const sandbox = { formatHash, PAGES, filter, scope: { tools: [] }, accounts: { key: () => [] }, $: () => ({ value: q, classList: { contains: () => false } }), navigate: (id) => navigated.push(id),
     licon: () => "", document: { createElement: (tag) => new Element(tag) }, ctx, addAnswers() {}, root: {}, groups: () => [{ panes: [{ pane_id: "%7" }] }],
     reconcile: (root, items, key, make, update) => items.forEach((p) => { const node = make(); update(node, p); made.push(node); }),
     markEnding() {}, subagentCount: () => 0, sessionOf: () => "", paneName: () => "", isRunning: () => false, markWorking() {} };

@@ -13,7 +13,7 @@ natural next step. The same user said the short per-pane overview "is not workin
 them, which is the perception half of the same gap: the cards say what each pane is doing,
 not what the person needs to do about it.
 
-An **operator** is a standing agent that watches the fleet (Needs you, open loops, stalled
+An **operator** is a standing agent that watches the fleet (Needs you, stalled
 and idle panes, finished work) and moves it along: it answers routine prompts within a
 policy the user set, nudges stalled panes, hands finished work to the review and merge
 flows, and escalates everything else to the human as a short digest.
@@ -25,9 +25,6 @@ flows, and escalates everything else to the human as a short digest.
   ([live-mode](live-mode.md)). The operator runs while nobody is talking to it; that is the
   whole point, and also why its consent model has to be different rather than a card per
   keystroke.
-- **Open loops is a passive list.** It finds what stopped and names the one action that
-  unsticks each row ([open-loops](open-loops.md)), then waits for a tap. The operator is the
-  thing that reads that list, takes the actions it is allowed to, and asks about the rest.
 - **The control session routes the user's requests** ([control-session-routing](control-session-routing.md)).
   The operator originates work from fleet state. They may end up as one session with two
   charters (open question below), but the charters stay distinct: control acts because the
@@ -69,9 +66,7 @@ typed.
 All perception already exists; the operator adds none.
 
 - **Watcher state:** each pane's activity, question and its fingerprint, idle summary, and
-  the finished transition once issue #187 lands (a pane that finished and asked in prose
-  is the case open loops cannot see today).
-- **Open loops:** the Waiting, Moving and Dropped lanes, with each row's owning panes.
+  the finished transition once issue #187 lands.
 - **Plan usage:** the projection, not the percentage. A nudge spends the agent's plan, so
   no nudges go to an account projected to run out before its reset, and the digest says
   so instead ([plan-usage](plan-usage.md)).
@@ -107,8 +102,8 @@ All perception already exists; the operator adds none.
   the operator then answers is a loop. Cross-agent connect's hop limit and per-pane rate
   limits (a prerequisite for phase 3, above) apply with the operator as sender; past a few autonomous actions on one pane in an
   hour it falls back to Suggest for that pane and says so.
-- **Cost.** A pass runs when one of its inputs changes (the watcher's version, an open
-  loops refresh, a plan usage poll) or when an age threshold it reported falls due
+- **Cost.** A pass runs when one of its inputs changes (the watcher's version, a plan usage
+  poll) or when an age threshold it reported falls due
   ("idle for an hour"), debounced so a busy minute is one pass. Those caches refresh on
   their own cadence without touching the watcher, so the watcher alone would leave a newly
   mergeable PR or a usage reset out of the digest. The model is called only when the
@@ -124,7 +119,7 @@ All perception already exists; the operator adds none.
 ## Phased plan
 
 1. **Digest only.** A daemon-side pass, triggered by state changes, that joins Needs you,
-   open loops, idle and finished panes and the usage projection into a ranked list: one
+   idle and finished panes and the usage projection into a ranked list: one
    line per item saying what it is waiting for, why it matters, and the one action that
    unsticks it. Shown atop Needs you and the dashboard, pushed (coalesced, as above) when it
    gains something no pane alert covers, answerable in Chat. No actions, so no new risk; it is also the cheapest test of
