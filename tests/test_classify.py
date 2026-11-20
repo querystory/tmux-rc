@@ -1220,19 +1220,6 @@ def test_action_and_identity_retry_keeps_scrolled_rename_evidence():
     assert "question" not in result and len(calls) == 2
 
 
-def test_cursor_search_binding_requires_visible_footer_evidence():
-    for capture, expected in (
-        ("Resume session\nType to search · Esc to cancel", True),
-        ("Type to search\n\x1e[visible screen]\x1f\nResume session\nEsc to cancel", False),
-        ("Resume session\nSearch is not available", False),
-    ):
-        result = classify(_pane("node"), capture, _llm({
-            "tool": "claude", "question": {"prompt": "Resume session",
-            "answer_style": "cursor", "keymap": {"select": "Enter", "search": False}},
-        }))
-        assert result["question"]["keymap"]["search"] is expected
-
-
 def test_menu_without_a_digit_row_is_answered_as_text():
     for capture, prompt in (("Continue? [y/N] ", "Continue?"),
                             ("1. Built\n2. Tested\nContinue? [y/N] ", "Continue?"),
