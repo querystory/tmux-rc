@@ -32,7 +32,7 @@ KEEP = 30  # newest sessions kept...
 MAX_BYTES = 2 << 30  # ...within this many bytes, pruned when a session starts
 BACKLOG = 2000  # queued writes (~80 s of 40 ms frames) before a stuck disk drops the rest
 _active: set[Path] = set()  # folders still being written: never pruned
-_claim = threading.Lock()  # a prune and a new folder's claim, one start at a time
+_claiming = threading.Lock()  # a prune and a new folder's claim, one start at a time
 
 
 def root() -> Path:
@@ -41,18 +41,34 @@ def root() -> Path:
 
 
 class Recorder:
-    """One session's recording. Without a folder (off, or failed) every call is a no-op."""
+    """One session's recording. Without a session (off) every call is a no-op. Even the
+    folder is claimed on the recorder's thread, so starting one never waits on the disk."""
 
-    def __init__(self, folder: Path | None = None) -> None:
-        self.folder = folder
+    def __init__(self, session: str | None = None) -> None:
+        self.folder: Path | None = None
         self.t0 = time.monotonic()
         self._files: dict = {}
         self._queue: queue.Queue = queue.Queue()
         self._overflowed = False
         self.thread = threading.Thread(target=self._drain, name="live-record", daemon=True)
-        if folder:
-            _active.add(folder)
+        if session is not None:
             self.thread.start()
+            self._put(lambda: self._claim(session))
+
+    def _claim(self, session: str) -> None:
+        """Prune, then take the next free folder, one recorder at a time so neither can
+        prune the other's new folder or pick the same name."""
+        base = root()
+        base.mkdir(mode=0o700, parents=True, exist_ok=True)
+        stem = f"{time.strftime('%Y%m%d-%H%M%S')}-{session[:8]}"
+        with _claiming:
+            _prune(base)
+            n = 1
+            while (folder := base / f"{stem}-{n}").exists():
+                n += 1
+            folder.mkdir(mode=0o700)
+            _active.add(folder)
+            self.folder = folder
 
     def _drain(self) -> None:
         while (fn := self._queue.get()) is not None:
@@ -134,24 +150,10 @@ def _prune(base: Path) -> None:
 
 
 def start(session: str, model) -> Recorder:
-    """A recorder for a new voice session (blocking: call it off the event loop)."""
+    """A recorder for a new voice session, or a no-op one with TMUXRC_LIVE_RECORD=0."""
     if os.environ.get("TMUXRC_LIVE_RECORD", "1") == "0":
         return Recorder()
-    try:
-        base = root()
-        base.mkdir(mode=0o700, parents=True, exist_ok=True)
-        stem = f"{time.strftime('%Y%m%d-%H%M%S')}-{session[:8]}"
-        with _claim:
-            _prune(base)
-            n = 1
-            while (folder := base / f"{stem}-{n}").exists():
-                n += 1
-            folder.mkdir(mode=0o700)
-            _active.add(folder)
-    except Exception:  # no recording is no reason to refuse the session
-        logger.warning("[live] cannot record this session", exc_info=True)
-        return Recorder()
-    rec = Recorder(folder)
+    rec = Recorder(session)
     rec.event("start", session=session, label=model.label, model=model.model,
               provider=model.backend, mic_rate=MIC_RATE)
     return rec

@@ -28,6 +28,13 @@ def tone(ms: int, rate: int = 16000) -> bytes:
     return struct.pack(f"<{n}h", *(int(8000 * math.sin(i / 10)) for i in range(n)))
 
 
+def settle(rec):
+    """Wait for every write queued so far, the folder's claim first among them."""
+    flushed = threading.Event()
+    rec._put(flushed.set)
+    flushed.wait()
+
+
 def done(rec):
     rec.close()
     rec.thread.join()
@@ -133,14 +140,17 @@ def test_old_sessions_are_pruned_by_count_and_size(state, monkeypatch):
 def test_a_session_still_recording_is_never_pruned(state, monkeypatch):
     monkeypatch.setattr(live_record, "KEEP", 1)
     first = live_record.start("one", gpt_live.ENTRY)
+    settle(first)
     done(live_record.start("two", gpt_live.ENTRY))
     assert first.folder.exists()
     done(first)
 
 
-def test_a_failing_disk_never_breaks_the_session(state, caplog):
-    rec = live_record.Recorder(state / "missing")
-    rec.mic(tone(40))  # cannot open: logged once, then every write is a no-op
+def test_a_failing_disk_never_breaks_the_session(state, caplog, monkeypatch):
+    state.parent.mkdir(parents=True)
+    state.write_text("")  # a file where the recordings go: no folder can be made
+    rec = live_record.start("s1", gpt_live.ENTRY)
+    rec.mic(tone(40))  # logged once, then every write is a no-op
     rec.event("end")
     done(rec)
     rec.mic(tone(40))  # after the end too
@@ -150,7 +160,7 @@ def test_a_failing_disk_never_breaks_the_session(state, caplog):
 
 def test_a_stuck_disk_drops_writes_instead_of_queueing_forever(state, monkeypatch, caplog):
     monkeypatch.setattr(live_record, "BACKLOG", 3)
-    rec = live_record.Recorder(state)
+    rec = live_record.Recorder("s1")
     gate = threading.Event()
     rec._put(gate.wait)  # the disk hangs on the first write
     for _ in range(10):
@@ -162,14 +172,9 @@ def test_a_stuck_disk_drops_writes_instead_of_queueing_forever(state, monkeypatc
 
 def test_sessions_starting_together_each_get_a_folder_none_prunes(state, monkeypatch):
     monkeypatch.setattr(live_record, "KEEP", 2)
-    recs = []
-    def go():
-        recs.append(live_record.start("same", gpt_live.ENTRY))
-    threads = [threading.Thread(target=go) for _ in range(8)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
+    recs = [live_record.start("same", gpt_live.ENTRY) for _ in range(8)]  # 8 threads racing
+    for r in recs:
+        settle(r)
     assert len({r.folder for r in recs}) == 8
     assert all(r.folder.exists() for r in recs)
     for r in recs:

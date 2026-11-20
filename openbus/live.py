@@ -1639,7 +1639,7 @@ async def live_mode(websocket: WebSocket) -> None:
     meter.push = getattr(websocket.app.state, "push", None)
     _audit(meter, "live_session", detail="start", mode="text" if text else "voice")
     if not text:
-        meter.rec = await asyncio.to_thread(live_record.start, session_id, model)
+        meter.rec = live_record.start(session_id, model)
     outcome, reason = "ok", "stop"
     try:
         await _connect(meter, viewing=websocket.query_params.get("viewing") != "0",  # finally
