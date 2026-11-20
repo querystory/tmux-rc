@@ -1,0 +1,10 @@
+{
+  "description": "Claude Code idle in a narrow (50-column) pane drawn with horizontal rules instead of a rounded box, under a tips line and a 'done' summary. The long branch name cuts the status line off before its model slot, so no model is on screen. The card must show no model rather than an invented one (\"Claude 3.5 Sonnet\", \"Opus\").",
+  "current_command": "node",
+  "capture": "  The invoice export now pads short rows, and the\n  CSV test covers the empty-total case. CI is\n  green on the branch.\n\n✻ Simmered for 1m 12s · done 4:41 PM\n  new task? /clear … · ✔ Update installed · Res…\n──────────────────────────────────────────────────\n❯ \n──────────────────────────────────────────────────\n  ~/src/acme/ledger-web on fix/invoice-export-pa…\n  session: +42/-7 lines · 12% ctx · 96h17m · $3…\n  ⏵⏵ auto mode on · PR #318",
+  "expected": {
+    "tool": "claude",
+    "activity": "idle",
+    "model": null
+  }
+}
