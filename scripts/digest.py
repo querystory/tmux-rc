@@ -116,6 +116,9 @@ def spend(dirs: list[str], paths: list[str], now: float) -> list[dict]:
     tool calls name (`paths`: those that are not a root, longest first). Its git-branch field
     is never read: a session sits at the repo root, so that is the root's branch."""
     rows, seen = [], set()  # a session moved between accounts keeps a copy of its calls
+    # A whole path: /wt/reader is not named by /wt/reader-old, since removed, nor by
+    # /old/wt/reader.
+    whole = [(p, re.compile(rf"(?<![\w.+-]){re.escape(p)}(?![\w.+-])")) for p in paths]
     for d in dirs:
         for f in [*Path(d, "projects").glob("*/*.jsonl"),
                   *Path(d, "projects").glob("*/*/subagents/*.jsonl")]:
@@ -139,10 +142,7 @@ def spend(dirs: list[str], paths: list[str], now: float) -> list[dict]:
                     used = re.sub(r"\\[nrt]", " ", json.dumps([cwd, *(  # a line break is a gap
                         b.get("input") for b in msg.get("content") or []
                         if isinstance(b, dict) and b.get("type") == "tool_use")]))
-                    # A whole path: /wt/reader is not named by /wt/reader-old, since removed,
-                    # nor by /old/wt/reader.
-                    votes.update([p for p in paths if re.search(
-                        rf"(?<![\w.+-]){re.escape(p)}(?![\w.+-])", used)][:1])
+                    votes.update([p for p, rx in whole if p in used and rx.search(used)][:1])
                     usage, ago = msg.get("usage"), now - ts(r.get("timestamp"))
                     call = msg.get("id") or r.get("requestId")
                     if usage and call not in seen and ago < 14 * DAY:
