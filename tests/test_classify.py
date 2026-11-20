@@ -7,7 +7,7 @@ import pytest
 
 from openbus import classify as classify_mod
 from openbus import tmux
-from openbus.classify import VISIBLE_SCREEN, bootstrap, classify
+from openbus.classify import VISIBLE_SCREEN, _unsuggested, bootstrap, classify
 from openbus.tmux import Pane
 
 
@@ -193,6 +193,25 @@ def test_payload_leads_with_foreground_process():
     classify(_pane(cmd="python3"), "some screen", llm)
     first_line = seen["text"].splitlines()[0]
     assert "foreground process" in first_line and "python3" in first_line
+
+
+def test_payload_leaves_out_the_input_box_suggestion():
+    # The greyed suggestion is nobody's words: the model sees that one is shown, not what
+    # it says, in the current frame and the earlier ones alike.
+    seen = {}
+    box = f"● Done.\n{VISIBLE_SCREEN}\n❯ ⟪placeholder⟫restart the jobs⟪/placeholder⟫"
+    classify(_pane("claude"), box, lambda _s, text: seen.update(text=text) or {},
+             prior=[box])
+    assert "restart the jobs" not in seen["text"] and seen["text"].count("● Done.") == 2
+    assert seen["text"].count("❯ ⟪placeholder⟫⟪/placeholder⟫") == 2
+
+
+def test_an_unmatched_placeholder_marker_keeps_the_rest_of_the_capture():
+    # A literal opener printed by a program is no suggestion: the frames after it stay.
+    text = f'PLACEHOLDER_OPEN = "⟪placeholder⟫"\n{VISIBLE_SCREEN}\n● Ship it?'
+    assert _unsuggested(text) == text
+    # An opener among a suggestion's words is one of them: none of the words survive.
+    assert _unsuggested("❯ ⟪placeholder⟫explain the ⟪placeholder⟫ mark⟪/placeholder⟫") == "❯ "
 
 
 def test_no_llm_skips_prompt_composition(monkeypatch):
@@ -1131,6 +1150,10 @@ def test_claude_title_above_status_bar_is_preserved():
         "tool": "claude", "session": "Fix login redirects",
     }))
     assert result["session"] == "Fix login redirects"
+    # Today's Claude Code puts it on the input box's top border instead.
+    capture = "● Done.\n──────────── demo ─\n❯ \n─────────────\n  ~/src/app | Opus 5.5"
+    result = classify(_pane("claude"), capture, _llm({"tool": "claude", "session": "demo"}))
+    assert result["session"] == "demo"
 
 
 def test_stale_question_is_reread_from_visible_screen_only():
