@@ -152,23 +152,24 @@ def _copyable(card: dict | None) -> bool:
 def publish(root: Path, name: str, web: Path) -> str:
     """Copy the folder's current version to the target; its URL. Only while it is opted in
     and not being revised: a job queued before an unpublish or an update copies nothing."""
-    if not _copyable(scratch.named(root, name)):
+    if not _copyable(card := scratch.named(root, name)):
         raise SystemExit(f"{name} is not published, has no index, or is being updated: it "
                          "is copied once it is ready")
     try:
         _sync(root, name, web)
     except (Exception, SystemExit) as e:
-        _failed(root, name, str(e)[:300])
+        _failed(root, name, card["inode"], str(e)[:300])
         raise
-    _failed(root, name, None)
+    _failed(root, name, card["inode"], None)
     return url(name)
 
 
-def _failed(root: Path, name: str, why: str | None) -> None:
-    """Keep why the last copy failed in meta.json as "publish_failed", for its card."""
+def _failed(root: Path, name: str, inode: int, why: str | None) -> None:
+    """Keep why the last copy failed in meta.json as "publish_failed", for its card: the
+    folder copied (`inode`), never one archived or replaced meanwhile."""
     scratch.rewrite(root / name / "meta.json", root, lambda m: None if m.get(
         "publish_failed") == why else {**_without(m, "publish_failed"),
-                                       **({"publish_failed": why} if why else {})})
+                                       **({"publish_failed": why} if why else {})}, inode)
 
 
 def _without(meta: dict, *fields: str) -> dict:
