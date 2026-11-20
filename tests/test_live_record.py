@@ -158,3 +158,19 @@ def test_a_stuck_disk_drops_writes_instead_of_queueing_forever(state, monkeypatc
     gate.set()
     rec.thread.join()
     assert "fell behind" in caplog.text
+
+
+def test_sessions_starting_together_each_get_a_folder_none_prunes(state, monkeypatch):
+    monkeypatch.setattr(live_record, "KEEP", 2)
+    recs = []
+    def go():
+        recs.append(live_record.start("same", gpt_live.ENTRY))
+    threads = [threading.Thread(target=go) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len({r.folder for r in recs}) == 8
+    assert all(r.folder.exists() for r in recs)
+    for r in recs:
+        done(r)

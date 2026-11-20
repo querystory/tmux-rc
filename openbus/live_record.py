@@ -32,6 +32,7 @@ KEEP = 30  # newest sessions kept...
 MAX_BYTES = 2 << 30  # ...within this many bytes, pruned when a session starts
 BACKLOG = 2000  # queued writes (~80 s of 40 ms frames) before a stuck disk drops the rest
 _active: set[Path] = set()  # folders still being written: never pruned
+_claim = threading.Lock()  # a prune and a new folder's claim, one start at a time
 
 
 def root() -> Path:
@@ -67,12 +68,12 @@ class Recorder:
     def _finish(self) -> None:
         """Flush and finish every file (wave patches its header here)."""
         files, self._files = self._files or {}, None
-        _active.discard(self.folder)
         for f in files.values():
             try:
                 f.close()
             except Exception:  # close the rest regardless
                 logger.warning("[live] closing a recording failed", exc_info=True)
+        _active.discard(self.folder)  # only now may a prune take it
 
     def _put(self, fn) -> None:
         if not self.thread.is_alive() or self._overflowed:
@@ -139,15 +140,14 @@ def start(session: str, model) -> Recorder:
     try:
         base = root()
         base.mkdir(mode=0o700, parents=True, exist_ok=True)
-        _prune(base)
         stem = f"{time.strftime('%Y%m%d-%H%M%S')}-{session[:8]}"
-        for n in range(1, 100):  # mkdir is the claim: two sessions racing get one each
-            folder = base / f"{stem}-{n}"
-            try:
-                folder.mkdir(mode=0o700)
-                break
-            except FileExistsError:
-                continue
+        with _claim:
+            _prune(base)
+            n = 1
+            while (folder := base / f"{stem}-{n}").exists():
+                n += 1
+            folder.mkdir(mode=0o700)
+            _active.add(folder)
     except Exception:  # no recording is no reason to refuse the session
         logger.warning("[live] cannot record this session", exc_info=True)
         return Recorder()
