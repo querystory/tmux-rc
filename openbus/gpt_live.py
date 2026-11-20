@@ -207,7 +207,10 @@ class Session:
         self.pane_hints = {}
         self.last_context = {}
         self.context_lock = asyncio.Lock()
-        self.audio = asyncio.Queue()  # mic frames, paced out by pace()
+        # Mic frames, paced out by pace(): about ten seconds of 40 ms frames. A provider
+        # that falls further behind than that ends the session rather than piling up
+        # speech the user will hear answered seconds late.
+        self.audio = asyncio.Queue(maxsize=250)
 
     async def send(self, event):
         await self.ws.send(json.dumps(event))
@@ -220,7 +223,10 @@ class Session:
         # Queued rather than sent: pacing here would hold up the browser reader behind it,
         # and with it a Stop or a Cancel on a card.
         if not self.closing and pcm16k and len(pcm16k) % 2 == 0:
-            self.audio.put_nowait(pcm16k)
+            try:
+                self.audio.put_nowait(pcm16k)
+            except asyncio.QueueFull:
+                raise ProviderError({"code": "mic_audio_backlog"}) from None
 
     async def pace(self):
         """Send queued mic frames in order, a burst held to real time (AUDIO_LEAD_S)."""

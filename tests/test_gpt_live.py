@@ -151,6 +151,14 @@ def test_mic_audio_is_paced_to_real_time_never_dropped(monkeypatch):
     assert sum(waits) == pytest.approx(2 - G.AUDIO_LEAD_S)  # never ahead by more
 
 
+def test_a_provider_too_far_behind_ends_the_session_rather_than_queue_forever():
+    s = session()
+    for _ in range(s.audio.maxsize):
+        asyncio.run(s.send_audio(b"\0" * 1280))
+    with pytest.raises(G.ProviderError, match=r"^GPT-Live: mic_audio_backlog$"):
+        asyncio.run(s.send_audio(b"\0" * 1280))
+
+
 def test_typed_turn_goes_to_the_backend():
     """GPT-Live's frontend takes no text, so a typed turn is a backend user item and a
     continue; the frontend then voices the result like any other."""
