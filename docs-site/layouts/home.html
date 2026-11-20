@@ -49,7 +49,7 @@
           (dict "img" "website-chat-phone" "f" "Chat & voice" "cap" "Ask about the fleet, direct an agent, approve its actions." "alt" "Chat on a phone proposing a message to the e2e triage agent, with Send, Cancel and Open")
           (dict "img" "website-voice" "f" "Chat & voice" "cap" "Talk to your fleet; hear back as the work moves." "alt" "Active desktop voice conversation sending a tracing request, then reporting the agent's progress with an Open button")
           (dict "img" "website-restore-phone" "f" "Restore" "cap" "After a reboot, the whole fleet back in one tap." "alt" "The Restore view on a phone, with agents ticked by session and a Restore button")
-          (dict "img" "website-dashboard" "f" "Dashboard" "cap" "Activity over time, open loops, and running by hour." "alt" "The dashboard: a Fleet graph of every session and its panes, open loops, running by hour, and activity over time with a moving average and a goal")
+          (dict "img" "website-dashboard" "f" "Dashboard" "cap" "The fleet graph, the morning digest, and running by hour." "alt" "The dashboard: a Fleet graph of every session and its panes, the morning digest, running by hour, and activity over time with a moving average and a goal")
           (dict "img" "mobile-terminal" "f" "Terminal" "cap" "The live terminal, with the keys a phone keyboard lacks." "alt" "An agent's live terminal on the phone: a diff, a traced test rerun, its task list, and a reply composer")
           (dict "img" "website-desktop" "f" "Terminal" "cap" "The live terminal and the agent's overview, side by side." "alt" "Desktop agent manager: the session list, an agent's live terminal full of test runs and a diff, and its overview with tasks and sub-agents")
         }}{{ $phone := or (hasPrefix $s.img "mobile") (hasPrefix $s.img "one-tap") (hasSuffix $s.img "phone") }}
@@ -123,7 +123,7 @@
     </article>
     <article class="feature-detail" id="activity">
       <div><p class="eyebrow">KEEP YOUR FLEET MOVING</p><h2>See activity over time.</h2><p>The dashboard shows how many panes and background agents are working, idle, compacting, waiting, or asking for you. Set a running-agent goal and compare it with the moving average.</p><ul><li>Explore a day, three days, a week, or a month of history.</li><li>Compare activity by tmux session or agent tool.</li><li>Filter the population and zoom into a stretch of work.</li><li>Open the full Graph to see every pane and its sub-agents, grouped by session, repo, worktree or tool.</li></ul><p class="feature-note">Activity counts show agent states, not token throughput or CPU utilization.</p><a href="{{ "design/pane-history/" | relURL }}">How activity history works <span aria-hidden="true">→</span></a></div>
-      <img src="{{ "img/website-dashboard.png" | relURL }}" width="2880" height="1800" alt="The dashboard: a Fleet graph of every session and its panes, open loops, running by hour, and activity over time with a moving average and a goal" loading="lazy">
+      <img src="{{ "img/website-dashboard.png" | relURL }}" width="2880" height="1800" alt="The dashboard: a Fleet graph of every session and its panes, the morning digest, running by hour, and activity over time with a moving average and a goal" loading="lazy">
     </article>
   </section>
 

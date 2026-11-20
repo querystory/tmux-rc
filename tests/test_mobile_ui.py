@@ -217,7 +217,7 @@ def test_wide_usage_strip_resizes_hides_and_draws_once():
     assert 'seam($("usage-handle")' in app and '"tmuxrc-usage-height"' in app
     assert 'setUsageMode("off")' in app and '["Undo", () => setUsageMode(was)]' in app
     assert 'WIDE.matches && usageMode !== "off" ? "on" : usageMode' in app
-    assert 'request("/api/open-loops"), accounts.refresh()])' in app
+    assert '"/api/usage"), accounts.refresh()])' in app
 
 
 def test_settings_holds_what_the_old_menus_did():

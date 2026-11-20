@@ -12,7 +12,6 @@ test("every addressable state round-trips", () => {
     { pane: "%3", view: "summary", filter: ["working"] },
     { dashboard: true, filter: ["finished"] },
     { dashboard: true, page: "usage" },
-    { dashboard: true, page: "loops" },
     { dashboard: true, page: "graph" },
     {},
   ]) {
@@ -81,7 +80,7 @@ test("a dashboard view only exists without a pane", () => {
   assert.equal(parseHash("#view=usage").page, "usage");
   assert.equal(parseHash("#pane=%251&view=heat").page, null);
   assert.equal(historyMode("view=dashboard", "view=heat"), "push");
-  assert.equal(historyMode("view=heat", "view=loops"), "push");
+  assert.equal(historyMode("view=heat", "view=usage"), "push");
 });
 
 test("old desktop hashes still land", () => {
