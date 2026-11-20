@@ -437,9 +437,11 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
     const source = current.capture.createMediaStreamSource(current.stream);
     const tap = new AudioWorkletNode(current.capture, "lm-tap");
     const mute = current.capture.createGain(); mute.gain.value = 0;
-    const rate = current.capture.sampleRate, resample = rate !== CAPTURE_RATE && downsampler(rate, CAPTURE_RATE);
-    let pending = new Float32Array(0);
-    current.clearPending = () => { pending = new Float32Array(0); };
+    const rate = current.capture.sampleRate;
+    let pending = new Float32Array(0), resample;
+    // A fresh downsampler too: its filter history would carry ~1 ms of pre-mute audio.
+    current.clearPending = () => { pending = new Float32Array(0); resample = rate !== CAPTURE_RATE && downsampler(rate, CAPTURE_RATE); };
+    current.clearPending();
     tap.port.onmessage = ({ data }) => {
       if (run !== current || !current.listening || (current.muted && !current.frameMs) || current.ws?.readyState !== WebSocket.OPEN || current.ws.bufferedAmount > MAX_SOCKET_BACKLOG) { pending = new Float32Array(0); return; }
       const joined = new Float32Array(pending.length + data.length);
