@@ -15,12 +15,13 @@ import logging
 import math
 import os
 import re
+import time
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 import websockets
 
-from . import live, live_providers
+from . import live, live_providers, telemetry
 
 MODEL = "gpt-live-1"
 LABEL = "GPT-Live 1"
@@ -39,6 +40,12 @@ ENTRY = live_providers.LiveModel(
 BACKEND = "gpt-5.6-luna"
 URL = "wss://api.openai.com/v1/live/sessions"
 logger = logging.getLogger(__name__)
+# GPT-Live is full duplex on its own clock and rejects mic audio that arrives faster than
+# real time (input_audio_rate_limit_exceeded). The phone's frames reach the daemon in
+# bursts through the tunnel, so past this much lead the rest of a burst is paced out at
+# real time instead of forwarded at once. Paced, not dropped: dropping frames from routine
+# bursts left the transcript unintelligible.
+AUDIO_LEAD_S = 1.0
 
 VOICE_PROMPT = """You are the voice of the user's tmux terminal session.
 Speak naturally and concisely, usually one or two sentences. Refer to windows by
@@ -71,15 +78,32 @@ stop speaking alone does not authorize a keypress or cancel terminal work.
 """
 
 
+def _ident(value):
+    """A provider identifier (a code, an error type, a rejected field's path), or None for
+    anything else: free text there could quote terminal context."""
+    return value if isinstance(value, str) and re.fullmatch(r"[a-z_.]{1,64}", value) else None
+
+
 class ProviderError(RuntimeError):
     """A diagnostic safe to display without provider messages or terminal context."""
 
     def __init__(self, event):
         error = event.get("error", event)
-        code = error.get("code") if isinstance(error, dict) else None
-        if not isinstance(code, str) or not re.fullmatch(r"[a-z_]{1,64}", code):
-            code = "unknown_error"
-        super().__init__("GPT-Live: " + code)
+        code = _ident(error.get("code")) if isinstance(error, dict) else None
+        super().__init__("GPT-Live: " + (code or "unknown_error"))
+
+
+def _failed(event):
+    """The provider's error event as a ProviderError, journalled. Error messages may quote
+    context, so the browser gets only the code; the journal also gets the identifiers that
+    name what was rejected (enough to diagnose an invalid_request_error), and the raw error
+    only under the same TMUXRC_QSDEBUG gate as transcripts."""
+    error = event.get("error")
+    error = error if isinstance(error, dict) else {}
+    shown = error if telemetry.QSDEBUG else {
+        k: _ident(error.get(k)) for k in ("type", "code", "param")}
+    logger.warning("[live] GPT-Live error: %.500s", json.dumps(shown))
+    return ProviderError(event)
 
 
 @asynccontextmanager
@@ -196,6 +220,10 @@ class Session:
         self.pane_hints = {}
         self.last_context = {}
         self.context_lock = asyncio.Lock()
+        # Mic frames, paced out by pace(): about ten seconds of 40 ms frames. A provider
+        # that falls further behind than that ends the session rather than piling up
+        # speech the user will hear answered seconds late.
+        self.audio = asyncio.Queue(maxsize=250)
 
     async def send(self, event):
         await self.ws.send(json.dumps(event))
@@ -205,13 +233,25 @@ class Session:
         # negotiates that rate directly (output comes back at it too), so unlike the
         # Realtime adapter there is nothing to resample — only an odd-length frame to
         # drop, which would otherwise cut a sample in half.
+        # Queued rather than sent: pacing here would hold up the browser reader behind it,
+        # and with it a Stop or a Cancel on a card.
         if not self.closing and pcm16k and len(pcm16k) % 2 == 0:
-            await self.send(
-                {
-                    "type": "session.input_audio.append",
-                    "audio": base64.b64encode(pcm16k).decode(),
-                }
-            )
+            try:
+                self.audio.put_nowait(pcm16k)
+            except asyncio.QueueFull:
+                raise ProviderError({"code": "mic_audio_backlog"}) from None
+
+    async def pace(self):
+        """Send queued mic frames in order, a burst held to real time (AUDIO_LEAD_S)."""
+        until = 0.0  # monotonic time the audio sent so far plays out at
+        while True:
+            pcm16k = await self.audio.get()
+            now = time.monotonic()
+            until = max(until, now) + len(pcm16k) / 32000  # 16 kHz x 2 bytes
+            if until > now + AUDIO_LEAD_S:
+                await asyncio.sleep(until - AUDIO_LEAD_S - now)
+            await self.send({"type": "session.input_audio.append",
+                             "audio": base64.b64encode(pcm16k).decode()})
 
     # The voice frontend takes no images, but the Responses backend does ("Add images and
     # visual context" in the live-delegation guide), and it is where typed turns go.
@@ -307,8 +347,7 @@ class Session:
             if kind == "session.closed":  # unasked: close() reads its own
                 raise ProviderError({"code": "session_closed_by_provider"})
             if kind == "error":
-                # Error messages may quote context; expose codes, not arbitrary content.
-                raise ProviderError(event)
+                raise _failed(event)
             if kind == "session.output_audio.delta":
                 # Live streams continuous audio; it has no Realtime speech-start /
                 # output-done events. Do not infer interruptions from transcripts:
@@ -365,8 +404,9 @@ class Session:
                                             "no pending terminal actions were run."),
                             }
                         )
-                    # These are backend completions, not spoken turn boundaries.
-                    self.meter._emit(final=False)  # noqa: SLF001 - shared Live adapter internals
+                    # Live has no spoken turn boundary, so a backend completion counts as
+                    # the turn: otherwise every session audits turns=0 however much it did.
+                    self.meter.end_turn()
 
         # Normal WebSocket EOF is a dropped Live session too. Never silently report a stop.
         raise ProviderError({"code": "connection_closed_without_session_closed"})
@@ -463,7 +503,7 @@ async def run_session(browser, watcher, meter):
         async with asyncio.timeout(20):
             event = json.loads(await ws.recv())
             if event.get("type") == "error":
-                raise ProviderError(event)
+                raise _failed(event)
             if event.get("type") != "session.started":
                 raise RuntimeError("GPT-Live session startup failed")
         tasks = []
@@ -475,6 +515,7 @@ async def run_session(browser, watcher, meter):
                 asyncio.create_task(live._forward_client(browser, session, meter)),  # noqa: SLF001 - shared Live adapter internals
                 asyncio.create_task(session.receive()),
                 asyncio.create_task(session.execute()),
+                asyncio.create_task(session.pace()),
                 asyncio.create_task(live._context_updater(session, watcher)),  # noqa: SLF001 - shared Live adapter internals
             ]
             done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)

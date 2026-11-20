@@ -93,6 +93,16 @@ def call(cid="call-1", args=None):
     }
 
 
+async def paced(s):
+    """Run the session's audio pacer until everything queued has been sent."""
+    task = asyncio.create_task(s.pace())
+    while s.audio.qsize():  # noqa: ASYNC110 - no event marks a frame sent; one yield each
+        await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+
+
 def test_shared_audio_forwarder_reaches_the_adapter():
     """The adapter borrows live._forward_client wholesale rather than growing a second mic
     path, so it has to answer to the seam's verb BY NAME: a method spelled anything else
@@ -111,8 +121,42 @@ def test_shared_audio_forwarder_reaches_the_adapter():
 
     s = session()
     asyncio.run(L._forward_client(Mic(), s, s.meter))
+    assert s.audio.qsize() == 1 and not s.ws.sent  # queued: the reader never waits on pacing
+    asyncio.run(paced(s))
     assert [e["type"] for e in s.ws.sent] == ["session.input_audio.append"]
     assert base64.b64decode(s.ws.sent[0]["audio"]) == b"\x01\x02\x03\x04"
+
+
+def test_mic_audio_is_paced_to_real_time_never_dropped(monkeypatch):
+    """GPT-Live ends the session (input_audio_rate_limit_exceeded) when mic audio arrives
+    faster than real time, and the tunnel delivers the phone's frames in bursts. Up to
+    AUDIO_LEAD_S of a burst goes straight through; the rest waits for real time to catch
+    up. Every frame is sent: dropping them garbled what the user said."""
+    clock, waits, real_sleep = [100.0], [], asyncio.sleep
+
+    async def sleep(seconds):  # asyncio.sleep itself: everything sleeps on the fake clock
+        waits.append(seconds)
+        clock[0] += seconds
+        await real_sleep(0)
+
+    monkeypatch.setattr(G.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(G.asyncio, "sleep", sleep)
+    s = session()
+    frame = b"\0" * 1280  # 40 ms at 16 kHz PCM16
+
+    for _ in range(50):  # two seconds of audio in one instant
+        asyncio.run(s.send_audio(frame))
+    asyncio.run(paced(s))
+    assert len(s.ws.sent) == 50
+    assert sum(waits) == pytest.approx(2 - G.AUDIO_LEAD_S)  # never ahead by more
+
+
+def test_a_provider_too_far_behind_ends_the_session_rather_than_queue_forever():
+    s = session()
+    for _ in range(s.audio.maxsize):
+        asyncio.run(s.send_audio(b"\0" * 1280))
+    with pytest.raises(G.ProviderError, match=r"^GPT-Live: mic_audio_backlog$"):
+        asyncio.run(s.send_audio(b"\0" * 1280))
 
 
 def test_typed_turn_goes_to_the_backend():
@@ -234,6 +278,7 @@ def test_completed_calls_survive_empty_response_output_and_all_results_precede_c
     ]
     assert json.loads(s.ws.sent[1]["item"]["output"])["status"] == "rejected"
     assert not any(m["type"] == "turn_complete" for m in s.browser.messages)
+    assert s.meter.turns == 1  # the audit counts what the session did, not turns=0
 
 
 @pytest.mark.parametrize("terminal", ["response.failed", "response.incomplete"])
@@ -404,7 +449,21 @@ def test_provider_errors_expose_only_sanitized_code(error, expected):
     assert not s.ws.sent
 
 
-def test_startup_error_preserves_code(monkeypatch):
+@pytest.mark.parametrize("debug", [False, True])
+def test_provider_error_journal_names_the_field_and_quotes_only_under_debug(
+        monkeypatch, caplog, debug):
+    monkeypatch.setattr(G.telemetry, "QSDEBUG", debug)
+    error = {"type": "invalid_request_error", "code": "secret context!",
+             "param": "session.audio", "message": "private terminal context"}
+    s = session([{"type": "error", "error": error}])
+    with pytest.raises(G.ProviderError):
+        asyncio.run(s.receive())
+    assert "session.audio" in caplog.text
+    assert ("private terminal context" in caplog.text) is debug
+    assert ("secret context!" in caplog.text) is debug  # a malformed code is no identifier
+
+
+def test_startup_error_preserves_code(monkeypatch, caplog):
     class Connection(Wire):
         async def __aenter__(self):
             return self
@@ -421,6 +480,7 @@ def test_startup_error_preserves_code(monkeypatch):
     monkeypatch.setattr(G.websockets, "connect", lambda *a, **kw: Connection())
     with pytest.raises(G.ProviderError, match=r"^GPT-Live: model_not_found$"):
         asyncio.run(G.run_session(Browser(), Watcher(), L._Meter("test", "test", G.ENTRY)))
+    assert "model_not_found" in caplog.text  # journalled like a mid-session error
 
 
 # Selection is by LABEL against the offered menu now, not by a TMUXRC_LIVE_MODEL default:
