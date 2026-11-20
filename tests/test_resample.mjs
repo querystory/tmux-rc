@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { downsampler } from "../web/m/resample.js";
 
-// Feed a tone through in 40 ms frames, the way the mic tap does, and join the output.
-const run = (from, hz, seconds = 2) => {
-  const down = downsampler(from, 16000), frame = from * 0.04, parts = [];
+// Feed a tone through in batches (40 ms, as GPT-Live frames the mic, unless given), and join the output.
+const run = (from, hz, seconds = 2, frame = from * 0.04) => {
+  const down = downsampler(from, 16000), parts = [];
   for (let start = 0; start < from * seconds; start += frame)
     parts.push(down(Float32Array.from({ length: frame }, (_, i) => Math.sin(2 * Math.PI * hz * (start + i) / from))));
   const out = new Float32Array(parts.reduce((n, p) => n + p.length, 0));
@@ -23,9 +23,9 @@ const fit = (x, hz) => {
 const settled = (x) => x.subarray(64, x.length - 64); // past the filter's ~1 ms start-up
 
 for (const from of [48000, 44100]) {
-  test(`${from} Hz: a 1 kHz tone stays 1 kHz, full length, seamless across 40 ms frames`, () => {
-    const out = run(from, 1000);
-    assert.ok(Math.abs(out.length - 32000) <= 20, `${out.length} samples for 2 s`); // only the ~1 ms lag missing
+  for (const frame of [from * 0.04, 1792, 4096]) test(`${from} Hz: a 1 kHz tone stays 1 kHz, full length, seamless across ${frame}-sample batches`, () => {
+    const out = run(from, 1000, 2, frame);
+    assert.ok(Math.abs(out.length - 32000) <= 20 + frame / 3, `${out.length} samples for 2 s`); // only the ~1 ms lag missing
     const { amplitude, worst } = fit(settled(out), 1000);
     assert.ok(Math.abs(amplitude - 1) < 0.01, `amplitude ${amplitude}`);
     assert.ok(worst < 0.01, `worst deviation from a clean 1 kHz sine ${worst}`); // a frame-edge glitch or warp would show here
