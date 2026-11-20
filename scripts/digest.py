@@ -136,9 +136,9 @@ def spend(dirs: list[str], paths: list[str], now: float) -> list[dict]:
                     if r.get("type") != "assistant" or not isinstance(msg, dict):
                         continue
                     cwd = r.get("cwd") or cwd
-                    used = json.dumps([cwd, *(
+                    used = re.sub(r"\\[nrt]", " ", json.dumps([cwd, *(  # a line break is a gap
                         b.get("input") for b in msg.get("content") or []
-                        if isinstance(b, dict) and b.get("type") == "tool_use")])
+                        if isinstance(b, dict) and b.get("type") == "tool_use")]))
                     # A whole path: /wt/reader is not named by /wt/reader-old, since removed,
                     # nor by /old/wt/reader.
                     votes.update([p for p in paths if re.search(
