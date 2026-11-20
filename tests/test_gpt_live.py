@@ -463,7 +463,7 @@ def test_provider_error_journal_names_the_field_and_quotes_only_under_debug(
     assert ("secret context!" in caplog.text) is debug  # a malformed code is no identifier
 
 
-def test_startup_error_preserves_code(monkeypatch):
+def test_startup_error_preserves_code(monkeypatch, caplog):
     class Connection(Wire):
         async def __aenter__(self):
             return self
@@ -480,6 +480,7 @@ def test_startup_error_preserves_code(monkeypatch):
     monkeypatch.setattr(G.websockets, "connect", lambda *a, **kw: Connection())
     with pytest.raises(G.ProviderError, match=r"^GPT-Live: model_not_found$"):
         asyncio.run(G.run_session(Browser(), Watcher(), L._Meter("test", "test", G.ENTRY)))
+    assert "model_not_found" in caplog.text  # journalled like a mid-session error
 
 
 # Selection is by LABEL against the offered menu now, not by a TMUXRC_LIVE_MODEL default:

@@ -93,6 +93,19 @@ class ProviderError(RuntimeError):
         super().__init__("GPT-Live: " + (code or "unknown_error"))
 
 
+def _failed(event):
+    """The provider's error event as a ProviderError, journalled. Error messages may quote
+    context, so the browser gets only the code; the journal also gets the identifiers that
+    name what was rejected (enough to diagnose an invalid_request_error), and the raw error
+    only under the same TMUXRC_QSDEBUG gate as transcripts."""
+    error = event.get("error")
+    error = error if isinstance(error, dict) else {}
+    shown = error if telemetry.QSDEBUG else {
+        k: _ident(error.get(k)) for k in ("type", "code", "param")}
+    logger.warning("[live] GPT-Live error: %.500s", json.dumps(shown))
+    return ProviderError(event)
+
+
 @asynccontextmanager
 async def _connect(key):
     try:
@@ -334,16 +347,7 @@ class Session:
             if kind == "session.closed":  # unasked: close() reads its own
                 raise ProviderError({"code": "session_closed_by_provider"})
             if kind == "error":
-                # Error messages may quote context, so the browser gets only the code.
-                # The journal also gets the identifiers that name what was rejected
-                # (enough to diagnose an invalid_request_error); the raw error only
-                # under the same TMUXRC_QSDEBUG gate as transcripts.
-                error = event.get("error")
-                error = error if isinstance(error, dict) else {}
-                shown = error if telemetry.QSDEBUG else {
-                    k: _ident(error.get(k)) for k in ("type", "code", "param")}
-                logger.warning("[live] GPT-Live error: %.500s", json.dumps(shown))
-                raise ProviderError(event)
+                raise _failed(event)
             if kind == "session.output_audio.delta":
                 # Live streams continuous audio; it has no Realtime speech-start /
                 # output-done events. Do not infer interruptions from transcripts:
@@ -499,7 +503,7 @@ async def run_session(browser, watcher, meter):
         async with asyncio.timeout(20):
             event = json.loads(await ws.recv())
             if event.get("type") == "error":
-                raise ProviderError(event)
+                raise _failed(event)
             if event.get("type") != "session.started":
                 raise RuntimeError("GPT-Live session startup failed")
         tasks = []
