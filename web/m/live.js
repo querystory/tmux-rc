@@ -6,6 +6,7 @@ const KEYCAPS = { Up: "↑", Down: "↓", Left: "←", Right: "→", Escape: "Es
 const keycap = (key) => `<kbd>${esc(KEYCAPS[key] || key)}</kbd>`;
 import { chatStarters } from "/chat-starters.js";
 import { since, paneName, sessionOf } from "/m/pane-model.js";
+import { downsampler } from "/m/resample.js";
 // Audio wire contract: rates, resampling, PCM scaling and base64 chunk bounds must match
 // what the server expects (see docs/design/live-mode.md).
 const CAPTURE_RATE = 16000; // Wire rate the server expects for mic PCM.
@@ -461,7 +462,7 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
     const source = current.capture.createMediaStreamSource(current.stream);
     const tap = new AudioWorkletNode(current.capture, "lm-tap");
     const mute = current.capture.createGain(); mute.gain.value = 0;
-    const rate = current.capture.sampleRate;
+    const rate = current.capture.sampleRate, resample = rate !== CAPTURE_RATE && downsampler(rate, CAPTURE_RATE);
     let pending = new Float32Array(0);
     current.clearPending = () => { pending = new Float32Array(0); };
     tap.port.onmessage = ({ data }) => {
@@ -479,14 +480,7 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
       pending = joined;
       if (pending.length < (current.frameMs ? rate * current.frameMs / 1000 : MIN_FRAME_SAMPLES)) return;
       let samples = pending; pending = new Float32Array(0);
-      if (rate !== CAPTURE_RATE) {
-        const resampled = new Float32Array(Math.round(samples.length * CAPTURE_RATE / rate));
-        for (let i = 0; i < resampled.length; i++) {
-          const at = i * (samples.length - 1) / (resampled.length - 1), low = Math.floor(at);
-          resampled[i] = samples[low] + (samples[Math.min(low + 1, samples.length - 1)] - samples[low]) * (at - low);
-        }
-        samples = resampled;
-      }
+      if (resample) samples = resample(samples);
       const pcm = new Int16Array(samples.length);
       for (let i = 0; i < samples.length; i++) pcm[i] = Math.max(-1, Math.min(1, samples[i])) * 0x7fff;
       const bytes = new Uint8Array(pcm.buffer);
