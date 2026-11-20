@@ -54,7 +54,7 @@ def test_publish_sends_what_changed_and_unpublish_removes_it(root, capsys):
     there = "https://pages.example/ada/tea%20notes/"
     assert capsys.readouterr().out == there + "\n"
     assert _meta(root) == {"title": "Tea", "pane": "%9", "publish": there}
-    assert sorted(BUCKET) == ["tea notes/_app/scratch.svg", "tea notes/index.html",
+    assert sorted(BUCKET) == ["index.html", "tea notes/_app/scratch.svg", "tea notes/index.html",
                               "tea notes/index.md", "tea notes/leaf.txt"]  # never meta.json
     BUCKET["tea notes/index.md"] = b"as sent"  # the next copy sends only what changed
     (root / "tea notes/leaf.txt").unlink()
@@ -94,11 +94,11 @@ def test_an_archived_folder_unpublishes_too(root, capsys):
 def test_a_ready_page_is_copied_unless_unpublished_or_revising(root, monkeypatch):
     jobs = []
     monkeypatch.setattr(P, "later", lambda job, name, tell: jobs.append(name))
-    item = {"name": "tea notes", "publish": "https://pages.example/ada/tea%20notes/",
-            "revising": False}
-    P.ready(root, item, WEB_DIR, None)
-    P.ready(root, {**item, "revising": True}, WEB_DIR, None)
-    P.ready(root, {**item, "publish": None}, WEB_DIR, None)
+    item = {"publish": "https://pages.example/ada/tea%20notes/"}
+    meta = root / "tea notes/meta.json"
+    for publish, updating in ((item["publish"], ""), (item["publish"], "v2"), (None, "")):
+        meta.write_text(json.dumps({"publish": publish, "updating": updating}))
+        P.ready(root, "tea notes", WEB_DIR, None)  # as it is now, not as it was queued
     assert jobs == ["tea notes"]
 
 
@@ -110,16 +110,42 @@ def test_a_failed_copy_is_pushed_and_never_raises(root, monkeypatch):
     monkeypatch.setattr(Fake, "fail", 1)
     told = []
     for job in (lambda: P.publish(root, "tea notes", WEB_DIR),
-                lambda: monkeypatch.setenv("TMUXRC_SCRATCH_PUBLISH", "") or P.unpublish("x")):
+                lambda: monkeypatch.setenv("TMUXRC_SCRATCH_PUBLISH", "") or P.unpublish(root, "x")):
         P.later(job, "tea notes", told.append)
         for t in threading.enumerate():
             if t.name == "scratch-publish":
                 t.join()
     assert [m["body"][:30] for m in told] == ["403 Forbidden", "set TMUXRC_SCRATCH_PUBLISH (gs"]
     assert {m["title"] for m in told} == {"Publish failed: tea notes"}
-    assert len(BUCKET) == 1
+    assert len(BUCKET) == 1 and _meta(root)["publish_failed"] == "403 Forbidden"  # its card's
     monkeypatch.setenv("TMUXRC_SCRATCH_PUBLISH", "gs://bkt/people/ada")
-    P.unpublish("tea notes")  # what was sent before the refusal is on record all the same
+    monkeypatch.setattr(Fake, "fail", 0)
+    P.publish(root, "tea notes", WEB_DIR)  # copied at last: the failure goes
+    assert "publish_failed" not in _meta(root)
+    P.unpublish(root, "tea notes")  # what was sent before the refusal is on record all the same
+    assert BUCKET == {}
+
+
+def test_the_index_lists_what_is_published_while_anything_is(root):
+    (root / "rye").mkdir()
+    (root / "rye/index.html").write_text("<title>Rye</title>")
+    P.cli(["publish", "tea notes"], WEB_DIR)
+    (root / "tea notes/meta.json").write_text(json.dumps({**_meta(root), "description": "a <b>"}))
+    P.act(root, "publish", ["rye"], WEB_DIR, None)  # the gallery's Publish, in the background
+    for t in threading.enumerate():
+        if t.name == "scratch-publish":
+            t.join()
+    index = BUCKET["index.html"].decode()
+    assert '<a href="rye/">Rye</a>' in index and '<a href="tea%20notes/">Tea</a>' in index
+    assert "a &lt;b&gt;" in index and _meta(root)["publish"].endswith("/ada/tea%20notes/")
+    BUCKET["index.html"] = b"as sent"
+    P.publish(root, "rye", WEB_DIR)  # nothing listed changed: not sent again
+    assert BUCKET["index.html"] == b"as sent"
+    P.cli(["unpublish", "tea notes"], WEB_DIR)
+    assert "tea%20notes" not in BUCKET["index.html"].decode()
+    with pytest.raises(ValueError, match="not a folder"):  # a path is never one
+        P.act(root, "unpublish", ["../rye"], WEB_DIR, None)
+    P.unpublish(root, "rye")
     assert BUCKET == {}
 
 
