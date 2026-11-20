@@ -78,15 +78,19 @@ stop speaking alone does not authorize a keypress or cancel terminal work.
 """
 
 
+def _ident(value):
+    """A provider identifier (a code, an error type, a rejected field's path), or None for
+    anything else: free text there could quote terminal context."""
+    return value if isinstance(value, str) and re.fullmatch(r"[a-z_.]{1,64}", value) else None
+
+
 class ProviderError(RuntimeError):
     """A diagnostic safe to display without provider messages or terminal context."""
 
     def __init__(self, event):
         error = event.get("error", event)
-        code = error.get("code") if isinstance(error, dict) else None
-        if not isinstance(code, str) or not re.fullmatch(r"[a-z_]{1,64}", code):
-            code = "unknown_error"
-        super().__init__("GPT-Live: " + code)
+        code = _ident(error.get("code")) if isinstance(error, dict) else None
+        super().__init__("GPT-Live: " + (code or "unknown_error"))
 
 
 @asynccontextmanager
@@ -203,7 +207,7 @@ class Session:
         self.pane_hints = {}
         self.last_context = {}
         self.context_lock = asyncio.Lock()
-        self.audio_until = 0.0  # monotonic time the audio sent so far plays out at
+        self.audio = asyncio.Queue()  # mic frames, paced out by pace()
 
     async def send(self, event):
         await self.ws.send(json.dumps(event))
@@ -213,15 +217,22 @@ class Session:
         # negotiates that rate directly (output comes back at it too), so unlike the
         # Realtime adapter there is nothing to resample — only an odd-length frame to
         # drop, which would otherwise cut a sample in half.
-        if self.closing or not pcm16k or len(pcm16k) % 2:
-            return
-        now = time.monotonic()
-        until = max(self.audio_until, now) + len(pcm16k) / 32000  # 16 kHz x 2 bytes
-        self.audio_until = until
-        if until > now + AUDIO_LEAD_S:  # a burst: hold it to real time, never drop speech
-            await asyncio.sleep(until - AUDIO_LEAD_S - now)
-        await self.send({"type": "session.input_audio.append",
-                         "audio": base64.b64encode(pcm16k).decode()})
+        # Queued rather than sent: pacing here would hold up the browser reader behind it,
+        # and with it a Stop or a Cancel on a card.
+        if not self.closing and pcm16k and len(pcm16k) % 2 == 0:
+            self.audio.put_nowait(pcm16k)
+
+    async def pace(self):
+        """Send queued mic frames in order, a burst held to real time (AUDIO_LEAD_S)."""
+        until = 0.0  # monotonic time the audio sent so far plays out at
+        while True:
+            pcm16k = await self.audio.get()
+            now = time.monotonic()
+            until = max(until, now) + len(pcm16k) / 32000  # 16 kHz x 2 bytes
+            if until > now + AUDIO_LEAD_S:
+                await asyncio.sleep(until - AUDIO_LEAD_S - now)
+            await self.send({"type": "session.input_audio.append",
+                             "audio": base64.b64encode(pcm16k).decode()})
 
     # The voice frontend takes no images, but the Responses backend does ("Add images and
     # visual context" in the live-delegation guide), and it is where typed turns go.
@@ -318,15 +329,14 @@ class Session:
                 raise ProviderError({"code": "session_closed_by_provider"})
             if kind == "error":
                 # Error messages may quote context, so the browser gets only the code.
-                # The journal also gets the fields that name what was rejected (enough
-                # to diagnose an invalid_request_error), and the message only under the
-                # same TMUXRC_QSDEBUG gate as transcripts.
+                # The journal also gets the identifiers that name what was rejected
+                # (enough to diagnose an invalid_request_error); the raw error only
+                # under the same TMUXRC_QSDEBUG gate as transcripts.
                 error = event.get("error")
                 error = error if isinstance(error, dict) else {}
-                shown = ("type", "code", "param", "event_id",
-                         *(("message",) if telemetry.QSDEBUG else ()))
-                logger.warning("[live] GPT-Live error: %.500s",
-                               json.dumps({k: error.get(k) for k in shown}))
+                shown = error if telemetry.QSDEBUG else {
+                    k: _ident(error.get(k)) for k in ("type", "code", "param")}
+                logger.warning("[live] GPT-Live error: %.500s", json.dumps(shown))
                 raise ProviderError(event)
             if kind == "session.output_audio.delta":
                 # Live streams continuous audio; it has no Realtime speech-start /
@@ -495,6 +505,7 @@ async def run_session(browser, watcher, meter):
                 asyncio.create_task(live._forward_client(browser, session, meter)),  # noqa: SLF001 - shared Live adapter internals
                 asyncio.create_task(session.receive()),
                 asyncio.create_task(session.execute()),
+                asyncio.create_task(session.pace()),
                 asyncio.create_task(live._context_updater(session, watcher)),  # noqa: SLF001 - shared Live adapter internals
             ]
             done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
