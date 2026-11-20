@@ -291,7 +291,8 @@ export function setupSidebar(ctx) {
   // keyboard (and at a password prompt is the password field), scrolled to the question.
   function openReply(id, secret) {
     if ((secret || !ctx.wide()) && id !== ctx.active()) ctx.navigate(id);
-    if (id === ctx.active()) { // its own composer is on screen
+    if (id === ctx.active()) { // its own composer is on screen, once a full-screen chat steps aside
+      ctx.leaveChatFull();
       const box = document.getElementById(secret ? "secret" : "reply");
       box.focus({ preventScroll: true });
       // Until the keyboard shrinks the pane there may be too little below the question to

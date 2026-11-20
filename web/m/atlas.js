@@ -1,9 +1,11 @@
 import { atlasCharts, fleetChart, latestAverage, shownStates, unchanged } from './atlas-charts.js';
-import { needsYou, isRunning, markWorking, modelProvider, paneName, AGENT_TOOLS } from './pane-model.js';
+import { needsYou, markWorking, modelProvider, paneName, AGENT_TOOLS } from './pane-model.js';
 
 export const STATES = ['Needs you', 'Running', 'Idle', 'Unknown', 'Compacting', 'Waiting', 'Quota blocked'];
 const sum = rows => rows.some(row => row == null) ? null : STATES.map((_, i) => rows.reduce((n, row) => n + (row[i] || 0), 0));
-export const stateOf = (p) => needsYou(p) ? 0 : p.activity === 'compacting' ? 4 : p.activity === 'waiting' ? 5 : p.activity === 'quota_blocked' ? 6 : isRunning(p) ? 1 : p.activity === 'idle' ? 2 : 3;
+// A pane's own state, as history.py records it: one idle while its subagents work stays Idle
+// here, since those agents are counted beside it.
+export const stateOf = (p) => needsYou(p) ? 0 : p.activity === 'compacting' ? 4 : p.activity === 'waiting' ? 5 : p.activity === 'quota_blocked' ? 6 : p.activity === 'running' ? 1 : p.activity === 'idle' ? 2 : 3;
 const toolOf = p => p.tool || 'other';
 // 'unknown' (classifier could not tell) and 'other' (no tool) are buckets, not agents to
 // filter to: they still count under All, but get no chip of their own.
@@ -251,7 +253,7 @@ export function pageHead(title, icon, back) {
 }
 
 // The Dashboard's heatmap card: the last week, compact, its rows growing into the height the
-// cards beside it give the row, over the figures the grid only implies, in Open loops' tiles.
+// cards beside it give the row, over the figures the grid only implies.
 function heatCard(scope, open) {
   const card = detailCard(el('section', 'atlas-heat-card'), 'Running by hour', `last 7 days · ${heatUnit()}`, open);
   if (!heat) return card.append(heatWaiting()), card;

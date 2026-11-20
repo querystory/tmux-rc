@@ -488,6 +488,7 @@ class PushManager:
         self.shoot = shoot  # what queues a landed page's thumbnail (scratch_sidecars.queue)
         self._mtimes: dict[str, tuple] | None = None
         self._waiting: dict[tuple[str, int], str] = {}
+        self._marked: dict[tuple[str, int], float] = {}  # when an update's mark was made
         self._done: set[tuple[str, int]] = set()
         self._ready: dict[tuple, float] = {}  # (pane, birth) -> when its "Ready" went out
         # The last pages that landed, as their push said it, for every open app (/api/state):
@@ -567,7 +568,8 @@ class PushManager:
         never seen pending, but was promised all the same (a meta.json tmux-rc generated, or
         one half-written, says no such thing). A page published in one go was never promised
         and does not notify; nor does any folder already there at startup that was not
-        pending. One whose meta.json said `updating` and no longer does sends "Updated"."""
+        pending. One whose meta.json said `updating` and no longer does sends "Updated", if its
+        page was written since that mark: a meta.json changed alone is no update."""
         now = self.clock()
         if not self.scratch:
             return
@@ -577,6 +579,7 @@ class PushManager:
         # Removed: forgotten.
         self._waiting = {k: v for k, v in self._waiting.items() if k[0] in self._mtimes}
         self._done = {k for k in self._done if k[0] in self._mtimes}
+        self._marked = {k: v for k, v in self._marked.items() if k in self._waiting}
         # And an updating one each time: a fresh asset reads as pending for a minute, a change
         # in time alone that no mtime shows.
         waiting = {name for (name, _), verb in self._waiting.items() if verb == "Updated"}
@@ -596,6 +599,10 @@ class PushManager:
                 # a revision that drops its index for a moment is still an update
                 self._waiting[key] = "Updated" if item["revising"] else self._waiting.get(
                     key, "Ready")
+                if item["revising"]:
+                    self._marked.setdefault(key, item["named"])
+            elif verb == "Updated" and item["read"] and item["updated"] <= self._marked.get(key, 0):
+                self._waiting.pop(key)  # its mark came and went, its page untouched: no news
             elif verb and item["read"] and (verb == "Updated" or item["href"].endswith("/")):
                 if message := self._ready_push(item, now, verb):
                     # the app's cursor: a ms clock, strictly increasing however the clock steps
