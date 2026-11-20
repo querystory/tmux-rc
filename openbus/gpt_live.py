@@ -459,6 +459,7 @@ async def run_session(browser, watcher, meter):
         async with asyncio.timeout(20):
             event = json.loads(await ws.recv())
             if event.get("type") == "error":
+                meter.rec.event("error", provider_event=event)  # local: kept whole
                 raise ProviderError(event)
             if event.get("type") != "session.started":
                 raise RuntimeError("GPT-Live session startup failed")

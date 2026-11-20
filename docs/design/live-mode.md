@@ -368,8 +368,11 @@ These files hold the user's voice and everything said, so they stay on this mach
 never in the repo, scratch, telemetry or an export. The folders are private to the user
 (mode 0700). Retention is the newest 30 sessions within 2 GB, pruned when a session
 starts, because the point is the last few bad sessions, not an archive. Set
-`TMUXRC_LIVE_RECORD=0` to turn recording off. Writes are buffered appends and a failing
-disk only logs once, since a debugging aid must never be the thing that ends a session.
+`TMUXRC_LIVE_RECORD=0` to turn recording off. Writes run in order on the recorder's own
+thread, timestamped on arrival, and a disk that falls far behind or fails only logs once
+and stops that recording: a debugging aid must never stall the audio it is meant to
+diagnose, or be the thing that ends a session. "Forwarded" in `frames.jsonl` means handed
+to the provider adapter; a send that fails ends the connection, which `events.jsonl` records.
 Text sessions are not recorded: there is no audio to debug.
 
 ## Model providers (side-by-side)

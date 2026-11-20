@@ -7,6 +7,7 @@ import itertools
 import json
 import math
 import struct
+import threading
 import wave
 
 import pytest
@@ -25,6 +26,11 @@ def state(monkeypatch, tmp_path):
 def tone(ms: int, rate: int = 16000) -> bytes:
     n = rate * ms // 1000
     return struct.pack(f"<{n}h", *(int(8000 * math.sin(i / 10)) for i in range(n)))
+
+
+def done(rec):
+    rec.close()
+    rec.thread.join()
 
 
 def lines(path):
@@ -66,6 +72,7 @@ def test_a_session_records_what_the_phone_sent_and_each_frame(state):
     meter.rec.model(tone(100, 24000), 24000)
     meter.rec.event("end", reason="stop")
     meter.rec.close()
+    meter.rec.thread.join()
 
     [folder] = state.iterdir()
     assert folder.name.endswith("-abcdef01-1")
@@ -94,6 +101,7 @@ def test_audio_during_a_reconnect_is_recorded_as_dropped(state):
              {"action": "stop"})
     assert asyncio.run(L._hold(ws, 5, meter)) is False
     meter.rec.close()
+    meter.rec.thread.join()
     [folder] = state.iterdir()
     assert lines(folder / "frames.jsonl")[0]["dropped"] == "reconnecting"
 
@@ -112,22 +120,41 @@ def test_old_sessions_are_pruned_by_count_and_size(state, monkeypatch):
         (state / f"2026010{i}-000000-x-1").mkdir()
         (state / f"2026010{i}-000000-x-1" / "mic.wav").write_bytes(b"\0" * 100)
     monkeypatch.setattr(live_record, "KEEP", 4)
-    live_record.start("new", gpt_live.ENTRY).close()
+    done(live_record.start("new", gpt_live.ENTRY))
     assert sorted(d.name[:8] for d in state.iterdir())[:3] == ["20260102", "20260103", "20260104"]
     [new] = [d for d in state.iterdir() if not d.name.startswith("2026010")]
     monkeypatch.setattr(live_record, "MAX_BYTES", (new / "events.jsonl").stat().st_size + 100)
-    live_record.start("new", gpt_live.ENTRY).close()
+    done(live_record.start("new", gpt_live.ENTRY))
     assert len([d for d in state.iterdir() if not d.name.startswith("2026010")]) == 2
     old = [d.name for d in state.iterdir() if d.name.startswith("2026010")]
     assert old == ["20260104-000000-x-1"]
 
 
+def test_a_session_still_recording_is_never_pruned(state, monkeypatch):
+    monkeypatch.setattr(live_record, "KEEP", 1)
+    first = live_record.start("one", gpt_live.ENTRY)
+    done(live_record.start("two", gpt_live.ENTRY))
+    assert first.folder.exists()
+    done(first)
+
+
 def test_a_failing_disk_never_breaks_the_session(state, caplog):
-    rec = live_record.start("s1", gpt_live.ENTRY)
-    rec.close()  # the events file is gone: every later write lands on a dead recorder
-    rec.mic(tone(40))
     rec = live_record.Recorder(state / "missing")
-    rec.mic(tone(40))  # cannot open: logged once, then a no-op
+    rec.mic(tone(40))  # cannot open: logged once, then every write is a no-op
     rec.event("end")
-    assert rec.folder is None
+    done(rec)
+    rec.mic(tone(40))  # after the end too
     assert caplog.text.count("recording to") == 1
+    assert rec.folder not in live_record._active
+
+
+def test_a_stuck_disk_drops_writes_instead_of_queueing_forever(state, monkeypatch, caplog):
+    monkeypatch.setattr(live_record, "BACKLOG", 3)
+    rec = live_record.Recorder(state)
+    gate = threading.Event()
+    rec._put(gate.wait)  # the disk hangs on the first write
+    for _ in range(10):
+        rec.event("x")  # never blocks the caller
+    gate.set()
+    rec.thread.join()
+    assert "fell behind" in caplog.text
