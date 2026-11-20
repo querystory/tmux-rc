@@ -52,6 +52,15 @@ current.frameMs = null;
 current.clearPending();
 tap.port.onmessage({data: new Float32Array(4096).fill(0.75)});
 assert.equal(sent.length, 2);
+// Audio dropped for socket backlog is counted and told to the server on the next frame.
+current.muted = false; current.frameMs = 40;
+current.ws.bufferedAmount = 1e6;
+tap.port.onmessage({data: new Float32Array(320)});
+current.ws.bufferedAmount = 0;
+tap.port.onmessage({data: new Float32Array(640)});
+assert.equal(sent.length, 3);
+assert.equal(sent[2].lost_ms, 20);
+assert.equal(sent[1].lost_ms, 0);
 """
     module = Path(__file__).resolve().parents[1] / "web/m/live.js"
     result = subprocess.run(["node", "-e", script, str(module)],

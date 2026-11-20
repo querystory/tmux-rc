@@ -345,6 +345,33 @@ parsing. It gets its own accounting rather than being folded into the parser's:
   distinct `live` bucket, so the top-bar `$cost` is total (parser + voice) with the
   tooltip splitting the two; a `🎙<n>` chip shows how many voice sessions ran.
 
+## Session recordings (local debugging)
+
+Bad voice quality has too many suspects to judge from the transcript the phone shows:
+the phone's resampling, frames lost to a socket backlog, bursts and gaps on the tunnel,
+the provider's speech recognition. So every voice session is recorded, on by default,
+under `~/.local/state/tmux-rc/live-audio/` (beside `history.sqlite3`, honouring
+`XDG_STATE_HOME`), one folder per session named by start time and session id:
+
+- `mic.wav` is the PCM exactly as the phone sent it, so listening to it separates "the
+  phone sent garbage" from "the model misheard". Frames the server did not forward are
+  in it too, because it is the phone's side of the story.
+- `frames.jsonl` is one line per frame: arrival time, size, whether it was forwarded or
+  why not (a reconnect backoff, an undecodable frame), and how much audio the phone
+  itself dropped before sending it (its `lost_ms`, counted when the socket backlog
+  overflows). Bursts, gaps and losses show up there rather than as mystery static.
+- `model.wav` is the provider's voice at its own rate; `events.jsonl` holds the
+  transcript deltas with any provider timing, errors (the provider's full error event,
+  which the browser never sees) and session start and end.
+
+These files hold the user's voice and everything said, so they stay on this machine:
+never in the repo, scratch, telemetry or an export. The folders are private to the user
+(mode 0700). Retention is the newest 30 sessions within 2 GB, pruned when a session
+starts, because the point is the last few bad sessions, not an archive. Set
+`TMUXRC_LIVE_RECORD=0` to turn recording off. Writes are buffered appends and a failing
+disk only logs once, since a debugging aid must never be the thing that ends a session.
+Text sessions are not recorded: there is no audio to debug.
+
 ## Model providers (side-by-side)
 
 The 2.5 voice sounded dated next to current consumer assistants, and the only honest way
