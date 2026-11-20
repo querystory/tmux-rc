@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title>
+<style>
+{tokens}
+:root{--g1:#c3f3dc;--g2:var(--chart-s1);--g3:#2a5c44;--nm:#6f7c75;--mark:var(--chart-s0)}
+:root.light{--g1:var(--accent);--g3:#a9dfc3;--nm:#93a39a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;overflow-x:hidden}
+main{overflow-wrap:anywhere;max-width:560px;margin:0 auto;padding:16px 12px 48px}
+p{margin:0}
+a{color:var(--accent);text-decoration:none}
+nav{display:flex;gap:2px;padding:3px;border-radius:12px;background:var(--raised);margin-bottom:16px}
+nav label{flex:1;line-height:40px;text-align:center;color:var(--muted);font-size:14px;font-weight:600;border-radius:9px;cursor:pointer}
+#daily:checked~nav [for=daily],#weekly:checked~nav [for=weekly]{background:var(--lift);color:var(--fg);box-shadow:0 1px 3px rgb(0 0 0/.14)}
+#daily:not(:checked)~.daily,#weekly:not(:checked)~.weekly{display:none}
+input[name=view]{position:absolute;opacity:0;pointer-events:none}
+#daily:focus-visible~nav [for=daily],#weekly:focus-visible~nav [for=weekly]{outline:2px solid var(--accent)}
+.date,.pick,.key,.ch,.act small,.tcard .hd span,.pace .bars div{font-size:13px;color:var(--muted)}
+.date{padding:0 4px 6px}
+.verdict em{font-style:normal;color:var(--amber)}
+.verdict{font-size:18px;line-height:1.38;font-weight:600;margin-bottom:16px;padding:0 4px;text-wrap:balance}
+.panel{min-width:0;margin-top:16px;padding:16px;border:1px solid var(--line);border-radius:20px;background:var(--surface)}
+h4{margin:0 0 12px;font-size:16px;font-weight:600}
+/* dots: one per change, by stage */
+.dots{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.d{display:inline-block;width:10px;height:10px;border-radius:50%;flex:none;border:1.5px solid var(--nm);background:transparent;padding:0;cursor:pointer}
+button.d{position:relative}
+button.d:after{content:"";position:absolute;inset:-7px}
+.d.main{background:var(--g1);border-color:var(--g1)}
+.d.held{background:var(--g3);border-color:var(--g2)}
+.d.ready{border-color:var(--g2)}
+.d.stuck{background:var(--red);border-color:var(--red)}
+.d.dropped{border-style:dotted;opacity:.6}
+.d.need{box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--mark);margin:2px}
+.d.quiet{opacity:.45}
+.d.sel{outline:2px solid var(--fg);outline-offset:2px}
+.key{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:14px}
+.key span{display:inline-flex;align-items:center;gap:6px}
+.lanes{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 8px}
+.ch{padding-bottom:6px;border-bottom:1px solid var(--line)}
+.tn{grid-column:1/-1;font-size:14px;font-weight:600;padding:10px 0 6px;border-top:1px solid var(--line)}
+.ch+.tn{border-top:0}
+.lanes .dots{min-height:12px;padding-bottom:10px;align-content:flex-start}
+.pick{margin-top:12px;line-height:1.45}
+.pick b{color:var(--fg);font-weight:600}
+/* what needs the user, and the plan */
+.act{display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--line)}
+h4+.act{border-top:0;padding-top:0}
+.act p{flex:1;min-width:0;font-weight:600;line-height:1.35}
+.act small{display:block;font-weight:400;margin-top:2px}
+.btn{flex:none;line-height:36px;padding:0 14px;border-radius:18px;background:var(--accent);color:var(--surface);font-size:14px;font-weight:600;white-space:nowrap}
+.btn.q{background:var(--accent-bg);color:var(--accent)}
+summary{padding:12px 0 0;font-size:14px;color:var(--accent);cursor:pointer;list-style:none}
+summary::-webkit-details-marker{display:none}
+summary:after{content:" ›"}
+main>details{padding:8px 4px}
+.pace{display:flex;align-items:center;gap:12px}
+.pace b{font-size:20px;font-weight:650;color:var(--accent);white-space:nowrap}
+.pace .bars{flex:1;display:grid;gap:8px}
+.pace .bars div{display:grid;grid-template-columns:110px 1fr;align-items:center;gap:8px}
+.ubar{position:relative;height:5px;border-radius:3px;background:var(--raised)}
+.ubar i{position:absolute;inset:0 auto 0 0;border-radius:inherit;background:var(--g2)}
+.ubar .ahead{opacity:.3}
+.ubar .tick{width:2px;inset:-3px auto;background:var(--fg);opacity:.55}
+/* weekly: effort map, theme cards, against last week */
+.tm{display:flex;flex-direction:column;gap:3px;height:230px}
+.tm>div{display:flex;gap:3px;min-height:38px;flex-basis:0}
+.tm>div>div{flex-basis:auto;min-width:0;border-radius:8px;padding:8px;gap:6px;font-size:13px;font-weight:600;line-height:1.25;white-space:nowrap;overflow:hidden;display:flex;align-items:flex-end;background:var(--raised)}
+.tm .d{margin-bottom:3px;cursor:default}
+.tm .s-main{background:color-mix(in srgb,var(--g2) 30%,var(--surface))}
+.tm .s-held{background:color-mix(in srgb,var(--g2) 13%,var(--surface))}
+.tm .s-stuck{background:color-mix(in srgb,var(--red) 18%,var(--surface))}
+.tm .s-none{background:none;box-shadow:inset 0 0 0 1px var(--line);color:var(--muted);font-weight:400}
+.tm .none{display:none}
+.tcard{padding:16px 0;border-top:1px solid var(--line)}
+.tcard:first-child{border-top:0;padding-top:0}
+.tcard:last-child{padding-bottom:0}
+.tcard .hd{display:flex;align-items:baseline;gap:8px}
+h5{margin:0;font-size:16px;font-weight:650;flex:1;min-width:0}
+.state{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;margin:4px 0 6px}
+.state:before{content:"";width:8px;height:8px;border-radius:50%;background:var(--nm)}
+.state.s-main{color:var(--accent)}.state.s-main:before{background:var(--g1)}
+.state.s-held:before{background:var(--g3);box-shadow:inset 0 0 0 1.5px var(--g2)}
+.state.s-stuck{color:var(--red)}.state.s-stuck:before{background:var(--red)}
+.tcard>p{line-height:1.4;margin-bottom:10px;text-wrap:pretty}
+.foot{position:relative;margin-top:4px}
+.foot .btn{position:absolute;right:0;top:6px}
+.foot summary{line-height:36px;padding:6px 0 0}
+.foot details a{display:block;font-size:13px;color:var(--muted);padding:5px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.foot details a i{margin-right:8px}
+.vs{display:grid;grid-template-columns:20px 1fr 72px;gap:8px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+h4+.vs{border-top:0;padding-top:0}
+.vs b{font-size:18px;line-height:1}
+.vs .good{color:var(--accent)}.vs .bad{color:var(--amber)}
+.vs p{font-weight:600;line-height:1.3}
+.vs small,.xrow small{display:block;font-size:13px;font-weight:400;color:var(--muted)}
+/* slice it: the same effort cut four ways */
+.seg{display:flex;gap:2px;padding:3px;border-radius:12px;background:var(--raised);margin-bottom:8px}
+.seg button{flex:1;min-width:0;min-height:36px;border:0;background:none;color:var(--muted);font:inherit;font-size:13px;font-weight:600;border-radius:9px;cursor:pointer}
+.seg [aria-pressed=true]{background:var(--lift);color:var(--fg);box-shadow:0 1px 3px rgb(0 0 0/.14)}
+.xsay{font-size:17px;font-weight:600;line-height:1.35;margin:16px 0 12px;text-wrap:pretty}
+.prop{display:flex;gap:2px;height:14px;margin-bottom:8px}
+.prop i{border-radius:3px;background:var(--g2)}
+.prop i:first-child{background:var(--g1)}
+.xrow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;padding-top:10px;font-weight:600}
+.xrow span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.xrow>i{grid-column:1/-1;height:6px;border-radius:3px;background:var(--g2)}
+.xrow.un{font-weight:400;color:var(--muted)}
+.xrow.un>i,.prop i.un{background:var(--nm)}
+[hidden]{display:none}
+</style>
+<script>// In <head> for the first paint. The app's theme when it frames the page and says so
+// (as it does for scratch_markdown.html), else the system's.
+const root = document.documentElement;
+root.classList.toggle("light", !matchMedia("(prefers-color-scheme: dark)").matches);
+addEventListener("message", (e) => e.source === parent && typeof e.data?.light === "boolean" && root.classList.toggle("light", e.data.light));</script>
+</head><body><main>{body}</main>
+<script>
+// A tapped dot says what that change is, and links to it: numbers stay behind the tap.
+document.addEventListener("click", (e) => {
+  const d = e.target.closest("button.d");
+  if (!d) return;
+  document.querySelectorAll(".d.sel").forEach((x) => x.classList.remove("sel"));
+  d.classList.add("sel");
+  const box = d.closest(".tcard, .panel").querySelector(".pick"), b = document.createElement("b"), a = document.createElement("a");
+  b.textContent = d.dataset.t;
+  Object.assign(a, { href: d.dataset.u, target: "_blank", rel: "noopener", textContent: "Open ›" });
+  box.hidden = false;
+  box.replaceChildren(b, document.createElement("br"), d.dataset.s + " · ", a);
+});
+// Slice it: the pressed button of each row picks which of the drawn views shows.
+document.querySelectorAll(".seg").forEach((g) => g.addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  g.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", x === b));
+  const k = [...document.querySelectorAll(".seg [aria-pressed=true]")].map((x) => x.dataset.v).join("-");
+  document.querySelectorAll(".x").forEach((x) => { x.hidden = x.dataset.k !== k; });
+}));
+</script></body></html>

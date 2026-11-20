@@ -31,7 +31,6 @@ shaped for the phone and carries only the events new since the last parse.
 | `GET /api/panes/{id}/history` | Colored scrollback rows above a live frame (`?before=&lines=`) |
 | `GET /api/history` | Fleet activity over time; `?before=<epoch ms>` pages back |
 | `GET /api/usage` | Each Claude and Codex account's plan windows, trend and projection ([design](design/plan-usage.md)) |
-| `GET /api/open-loops` | Waiting on you / Moving / Dropped, by workstream ([design](design/open-loops.md)) |
 | `GET /api/recent` | Panes and scratch pages last opened |
 | `GET /api/version` | Web-asset hash plus feature flags the client gates on (`live_enabled`, `docs`, `scratch`) |
 

@@ -20,7 +20,6 @@ test("each view: the count, the subject, then the host", () => {
   assert.equal(title("#view=graph"), "Graph · kestrel");
   assert.equal(title("#view=scratch"), "Scratch · kestrel");
   assert.equal(title("#view=usage"), "Plan usage · kestrel");
-  assert.equal(title("#view=loops"), "Open loops · kestrel");
   assert.equal(title("#view=heat"), "Running by hour · kestrel");
   assert.equal(title("#view=restore"), "Restore · kestrel");
   assert.equal(title("#view=graph", 0, ""), "Graph"); // before the first state answers

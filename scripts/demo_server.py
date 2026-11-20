@@ -24,11 +24,11 @@ from types import SimpleNamespace
 
 # Before openbus.server loads .env: an existing variable wins over the file, so an empty
 # one keeps a checkout's real telemetry endpoint from receiving demo traffic and its own
-# launcher menu (labels, icons) and keyword map out of the shots — empty means the shipped
+# launcher menu (labels, icons) out of the shots — empty means the shipped
 # defaults. The tab titles name an invented host, not this machine. The agent-history root
 # points nowhere so New session's directory suggestions never carry real paths. Scratch's
 # mount is decided at import, so its dir must exist now (install() fills it).
-os.environ.update(OTEL_EXPORTER_OTLP_ENDPOINT="", TMUXRC_LAUNCHERS="", TMUXRC_WORKSTREAMS="",
+os.environ.update(OTEL_EXPORTER_OTLP_ENDPOINT="", TMUXRC_LAUNCHERS="",
                   TMUXRC_HOST_NAME="kestrel", AGENT_HISTORY_DIR="/nonexistent-demo-agent-history",
                   TMUXRC_SCRATCH_DIR=tempfile.mkdtemp(prefix="tmux-rc-demo-scratch-"))
 
@@ -47,10 +47,10 @@ try:  # likewise for agent accounts
     from openbus import accounts
 except ImportError:
     accounts = None
-try:  # likewise for open loops
-    from openbus.open_loops import OpenLoops
+try:  # likewise for the worktree scan on its own
+    from openbus.worktrees import Worktrees
 except ImportError:
-    OpenLoops = None
+    Worktrees = None
 try:  # likewise for reboot restore
     from openbus import restore
 except ImportError:
@@ -140,9 +140,9 @@ async def lifespan(app):
         if PlanUsage:
             app.state.usage = demo.seed_usage(PlanUsage(app.state.history), TWO_ACCOUNTS)
             app.state.usage.report = partial(app.state.usage.report, demo.NOW)
-        if OpenLoops:
-            app.state.loops = demo.seed_loops(OpenLoops())
-            app.state.loops.report = partial(app.state.loops.report, now=demo.NOW)
+        if Worktrees:
+            app.state.worktrees = Worktrees()
+            app.state.worktrees.rows = demo.worktrees()
         if restore and hasattr(demo, "seed_restore"):
             demo.seed_restore(app.state.history)
         yield
