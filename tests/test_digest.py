@@ -54,7 +54,7 @@ def test_effort_joins_by_tool_paths_not_the_root_branch(tmp_path):
 
     project = tmp_path / "projects/p"
     project.mkdir(parents=True)
-    (project / "a.jsonl").write_text(turn(1, "git -C /w/wt/reader status") + "\n" + turn(2, "ls"))
+    (project / "a.jsonl").write_text(turn(1, "cd /tmp\n/w/wt/reader/check") + "\n" + turn(2, "ls"))
     (project / "b.jsonl").write_text(turn(  # others' names
         3, "ls /w/repo /w/wt/reader-old /w/wt/reader+old /old/w/wt/reader"))
     for f in project.iterdir():
