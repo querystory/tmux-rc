@@ -313,9 +313,9 @@ export async function pickCursorRow(io, targetText, targetIndex) {
 
 async function pick(io, targetText, targetIndex) {
   const first = picker(io), sole = first ? soleIndex(first.options, targetText) : -1;
-  // This index identifies a particular visible row, even if more than one shares its
-  // title. Keep it tied to the same layout throughout the walk, including stale retries.
-  if (first?.picker_layout) {
+  // A repeated title is identified by its index alone, so its walk stays tied to the same
+  // layout throughout, stale retries included. A unique title keeps its search below.
+  if (first?.picker_layout && sole < 0) {
     const done = await walk(io, targetText, targetIndex, first);
     if (done === false) io.note(STUCK);
     return done;
