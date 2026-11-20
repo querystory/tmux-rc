@@ -513,3 +513,142 @@ def test_lead_cannot_outgrow_the_bucket_budget(tmp_path):
     now = 100 * 86400
     assert len(h.query("1h", now=now, lead="90d")["samples"]) <= LEAD_BUCKETS + 1
     assert h.query("24h", now=now, lead="7d")["step"] == h.query("24h", now=now)["step"]
+
+
+def test_structured_worker_history_keeps_panes_and_harness_groups_separate(tmp_path):
+    h = History(tmp_path / "h.db")
+    workers = [
+        {"id": "a", "tool": "codex", "activity": "running", "session": "work"},
+        {"id": "b", "tool": "gemini", "activity": "waiting", "waiting_on": "user",
+         "session": "work"},
+        {"id": "c", "tool": "codex", "activity": "done", "session": "work"},
+        {"id": "d", "tool": "claude", "activity": "running", "session": "work",
+         "pane_id": "%1"},
+    ]
+    h.record([pane()], "s", 600, workers=workers)
+    sample = h.query(now=600)["samples"][-1]
+    assert sample["n"] == [0, 1, 0, 0, 0, 0, 0]
+    assert sample["foreground"] == sample["n"]
+    assert sample["background"] == [1, 1, 0, 0, 0, 0, 0]
+    codex = next(g for g in sample["groups"] if g["tool"] == "codex")
+    assert codex["session"] == "work" and codex["n"] == [0] * 7
+    assert codex["background"] == [0, 1, 0, 0, 0, 0, 0]
+    h.record([], "s", 660, workers=[])
+    assert h.query(now=660)["samples"][-1]["background"] == [0] * 7
+    assert h.query(now=1000)["samples"][-1]["background"] is None
+
+
+def test_structured_workers_survive_unknown_parent_and_restart(tmp_path):
+    from openbus.history import worker_records
+
+    worker = {"id": "worker", "session": "work", "tool": "codex", "activity": "running",
+              "label": "Do not persist", "observed_at": 600}
+    original = dict(worker)
+    assert worker_records([worker], "s", {})[0] == {
+        "uid": '[null, null, "worker"]', "session": "work", "tool": "codex", "state": 1,
+    }
+    assert worker == original
+    h = History(tmp_path / "h.db")
+    h.record([pane(activity="unknown")], "s", 600, workers=[worker])
+    assert History(h.path).query(now=600)["samples"][-1]["background"] == [0, 1, 0, 0, 0, 0, 0]
+    h.record([], "s", 660, workers=[{**worker, "activity": "unknown"}])
+    sample = h.query(now=660)["samples"][-1]
+    assert sample["n"] == [0] * 7
+    assert sample["background"] == [0, 0, 0, 1, 0, 0, 0]
+
+
+@pytest.mark.parametrize("bound_session", ["garden", "orchard"])
+@pytest.mark.parametrize("bound_tool", ["shell", "garden-runner"])
+def test_pane_bound_worker_history_retains_harness_attribution(tmp_path, bound_session, bound_tool):
+    h = History(tmp_path / "h.db")
+    worker = {"id": "prune", "tool": "garden-runner", "activity": "waiting",
+              "waiting_on": "user", "session": "garden", "pane_id": "%2"}
+    h.record([pane("%2", session=bound_session, tool=bound_tool)], "s", 600,
+             births={"%2": "123"}, workers=[worker])
+    sample = History(h.path).query(now=600)["samples"][-1]
+    assert sample["n"] == [0, 1, 0, 0, 0, 0, 0]
+    assert sample["background"] == [0] * 7
+    custom = next(g for g in sample["groups"]
+                  if g["session"] == "garden" and g["tool"] == "garden-runner")
+    assert custom["bound_workers"] == [{
+        "state": 0, "pane_session": bound_session, "pane_tool": bound_tool,
+    }]
+    assert custom["background"] == [0] * 7
+    with h.connect() as db:
+        payload = json.loads(db.execute("SELECT panes FROM snapshots").fetchone()[0])
+    assert payload["version"] == 2
+    assert payload["workers"][0]["pane_uid"] == payload["panes"][0]["uid"] == "s:%2:123"
+    assert payload["workers"][0]["tool"] == "garden-runner"
+
+
+def test_worker_history_binding_does_not_match_a_recycled_pane():
+    from openbus.history import grouped, worker_records
+
+    worker = {"id": "prune", "tool": "garden-runner", "activity": "running",
+              "session": "garden", "pane_id": "%2"}
+    original = dict(worker)
+    records = worker_records([worker], "s", {"%2": "old"})
+    assert worker == original
+    pane_record = {"uid": "s:%2:new", "tool": "shell", "session": "orchard",
+                   "state": 2, "foreground": [0] * 7, "background": [0] * 7}
+    counts, groups = grouped([pane_record], records)
+    assert counts == [0, 0, 1, 0, 0, 0, 0]
+    custom = next(g for g in groups if g["tool"] == "garden-runner")
+    assert custom["background"] == [0, 1, 0, 0, 0, 0, 0]
+    assert "bound_workers" not in custom
+
+
+def test_disabled_worker_adapter_keeps_version_two_payload(tmp_path):
+    h = History(tmp_path / "h.db")
+    h.record([], "s", 600)
+    with h.connect() as db:
+        assert db.execute("SELECT panes FROM snapshots").fetchone()[0] == '{"panes":[],"version":2}'
+    h.record([], "s", 660, workers=[])
+    samples = h.query(now=660)["samples"]
+    assert samples[0]["n"] == samples[-1]["n"] == [0] * 7
+    assert samples[0]["background"] == samples[-1]["background"] == [0] * 7
+
+
+def test_unavailable_worker_inventory_is_a_gap_not_zero(tmp_path):
+    h = History(tmp_path / "h.db")
+    h.record([pane()], "s", 600, workers=[], workers_observed=False)
+    unknown = h.query(now=600)["samples"][-1]
+    assert unknown["n"] == [0, 1, 0, 0, 0, 0, 0]
+    assert unknown["background"] is None
+    assert unknown["groups"][0]["background"] == [0] * 7
+    assert unknown["worker_gap_sessions"] is None
+    h.record([pane()], "s", 660, workers=[])
+    empty = h.query(now=660)["samples"][-1]
+    assert empty["n"] == unknown["n"]
+    assert empty["background"] == [0] * 7
+    h.record([], "s", 720, workers=[], workers_observed=False)
+    assert h.query(now=720)["samples"][-1]["background"] is None
+
+
+def test_unmeasured_workers_preserve_unrelated_session_observations(tmp_path):
+    h = History(tmp_path / "h.db")
+    panes = [pane(session="garden", tool="shell"),
+             pane("%2", session="orchard", subagents=[{"state": "running"}])]
+    h.record(panes, "s", 600, workers=[], workers_observed=False)
+    initial = h.query(now=600)["samples"][-1]
+    assert initial["background"] is None
+    orchard = next(g for g in initial["groups"] if g["session"] == "orchard")
+    assert orchard["background"] == [0, 1, 0, 0, 0, 0, 0]
+    h.record(panes, "s", 660, workers=[], workers_observed=False, worker_sessions=["garden"])
+    stale = History(h.path).query(now=660)["samples"][-1]
+    assert stale["n"] == initial["n"]
+    assert stale["worker_gap_sessions"] == ["garden"]
+    assert next(g for g in stale["groups"] if g["session"] == "orchard") == orchard
+    assert next(g for g in stale["groups"] if g["session"] == "garden")["background"] is None
+
+
+def test_worker_inventory_stays_readable_as_version_two_panes(tmp_path):
+    # An older reader takes `panes` from any version 2 payload and ignores the rest.
+    h = History(tmp_path / "h.db")
+    h.record([pane()], "s", 600, workers=[{"id": "a", "tool": "codex", "activity": "running",
+                                           "session": "work"}])
+    with h.connect() as db:
+        payload = json.loads(db.execute("SELECT panes FROM snapshots").fetchone()[0])
+    assert payload["version"] == 2
+    assert [p["tool"] for p in payload["panes"]] == [pane()["tool"]]
+    assert len(payload["workers"]) == 1
