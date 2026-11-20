@@ -131,7 +131,7 @@ adds is regrouping. The same panes can be viewed by repository, checkout, accoun
 and no list can show that.
 
 So the Dashboard gets a compact card (the Session lens with no pane labels, still live), and
-the card opens the full view, as Running by hour and Open loops already do. On a phone, ☰
+the card opens the full view, as Running by hour already does. On a phone, ☰
 lists it beside the Dashboard. A view of its own also gives the graph the whole screen,
 which pan and pinch need, and keeps the dashboard's scroll free of a canvas that would
 capture it.
@@ -160,10 +160,11 @@ altogether while the canvas is off screen.
 
 ## Where Repo and Worktree come from
 
-Open loops already scans every worktree of every repository a pane sits in, on its own
-cadence and off the request path. The state endpoint now joins each pane's cwd to that scan
+The daemon scans every worktree of every repository a pane sits in, on its own cadence and
+off the request path (the scan outlived Open loops, the card it was built for). The state
+endpoint joins each pane's cwd to that scan
 (the innermost worktree holding it) and adds the repository name, worktree path and branch.
-That reuses work that already runs, and adds no git process per poll. The tradeoff is
+That adds no git process per poll. The tradeoff is
 freshness. A pane that moves into a repository the scan has not seen yet sits under "no
 repository" until the next scan, at most a quarter of an hour later. Running a separate git
 lookup per pane on every poll was rejected: it would put subprocesses on the hot path for a
