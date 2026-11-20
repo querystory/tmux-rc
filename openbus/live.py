@@ -1283,6 +1283,13 @@ async def _context_updater(session, watcher) -> None:
 # composers stop at the same length.
 TYPED_TURN_CHARS = 4000
 
+# Mic audio may run this far ahead of real time. A phone that locks or backgrounds the page
+# holds its captured frames and then flushes them at once; forwarded as is, that burst trips
+# GPT-Live's input_audio_rate_limit_exceeded and ends the session. Beyond the lead the
+# stale audio is dropped, which costs a few seconds of what was said while locked, not the call.
+AUDIO_LEAD_SECONDS = 1.0
+AUDIO_BYTES_PER_SECOND = 16000 * 2  # 16 kHz PCM16, the wire format of every provider seam
+
 
 # Images a turn may carry, and their bytes together. Each is resent with every later request
 # while the turn is kept (live_chat.TURNS_KEPT), so the budget bounds a whole session's
@@ -1331,6 +1338,7 @@ async def _transcript(websocket: WebSocket, meter: _Meter, role: str, text: str,
 async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
     """Client → model: base64 16kHz PCM frames and typed turns until the client says stop.
     A typed turn is echoed as the user's transcript, so both clients render it like speech."""
+    audio_until = 0.0  # monotonic time the audio forwarded so far ends at, played in real time
     while True:
         data = await websocket.receive_json()
         action = data.get("action")
@@ -1342,6 +1350,11 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
                 audio = base64.b64decode(raw)
             except Exception:  # noqa: BLE001 - skip one bad frame, keep streaming
                 continue
+            now = time.monotonic()
+            audio_until = max(audio_until, now)
+            if audio_until - now > AUDIO_LEAD_SECONDS:
+                continue
+            audio_until += len(audio) / AUDIO_BYTES_PER_SECOND
             await session.send_audio(audio)
         elif action == "text":
             text = data.get("text")

@@ -115,6 +115,23 @@ def test_shared_audio_forwarder_reaches_the_adapter():
     assert base64.b64decode(s.ws.sent[0]["audio"]) == b"\x01\x02\x03\x04"
 
 
+def test_mic_burst_after_a_stall_is_dropped_past_the_lead(monkeypatch):
+    """A locked phone flushes its held mic frames at once; forwarding them all trips
+    GPT-Live's input_audio_rate_limit_exceeded and ends the call. Audio may run
+    AUDIO_LEAD_SECONDS ahead of real time; the rest of the burst is dropped."""
+    half_second = base64.b64encode(bytes(L.AUDIO_BYTES_PER_SECOND // 2)).decode()
+    script = [{"action": "audio", "data": half_second}] * 4 + [{"action": "stop"}]
+
+    class Mic(Browser):
+        async def receive_json(self):
+            return script.pop(0)
+
+    monkeypatch.setattr(L.time, "monotonic", lambda: 100.0)  # the whole burst in one instant
+    s = session()
+    asyncio.run(L._forward_client(Mic(), s, s.meter))
+    assert len(s.ws.sent) == 3  # 0, 0.5 and 1.0 s ahead go; 1.5 s ahead is dropped
+
+
 def test_typed_turn_goes_to_the_backend():
     """GPT-Live's frontend takes no text, so a typed turn is a backend user item and a
     continue; the frontend then voices the result like any other."""
