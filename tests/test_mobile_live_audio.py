@@ -24,7 +24,7 @@ const current = { muted: false, listening: true, frameMs: 40,
   ws: {readyState: 1, bufferedAmount: 0, send: (wire) => sent.push(JSON.parse(wire))} };
 const tap = {port: {}};
 vm.runInNewContext(source.slice(start, end), {
-  current, run: current, tap, rate: 16000, CAPTURE_RATE: 16000,
+  current, run: current, tap, rate: 16000, CAPTURE_RATE: 16000, resample: false,
   MIN_FRAME_SAMPLES: 4096, MAX_SOCKET_BACKLOG: 65536, CHAR_CHUNK: 0x8000,
   WebSocket: {OPEN: 1}, btoa: (s) => Buffer.from(s, "binary").toString("base64"),
 });
@@ -65,7 +65,7 @@ def _run_live(body: str, version: dict | None = None) -> None:
     /api/version answers; None is offline."""
     web = Path(__file__).resolve().parents[1] / "web"
     args = [str(web / p) for p in ("m/live.js", "live-close.js", "live-chat.js", "m/composer.js",
-                                 "chat-starters.js")]
+                                 "chat-starters.js", "m/resample.js")]
     markdown, model = (json.dumps((web / p).as_uri())
                        for p in ("chat-markdown.js", "m/pane-model.js"))
     script = ("globalThis.requestAnimationFrame = fn => fn();\n"

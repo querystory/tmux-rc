@@ -93,8 +93,13 @@ same shape (its session wrapper, reconnect loop, tool dispatch, and audio pipeli
 because that work already burned down the non-obvious failure modes — see "Traps
 inherited" below.
 
-- **Client**: `getUserMedia` mic → `AudioContext` at 16 kHz → 4096-sample
-  Float32→Int16 PCM frames → base64 over the WebSocket. A gain-0 node keeps the graph
+- **Client**: `getUserMedia` mic → the device-rate `AudioContext` (48 kHz on an iPhone;
+  it cannot be 16 kHz, because the same context plays the model's voice) → a streaming
+  windowed-sinc downsampler to 16 kHz (`web/m/resample.js`) → Float32→Int16 PCM frames.
+  The low-pass matters: plain interpolation folds everything above 8 kHz (sibilants,
+  room noise) back into the speech band, and resampling each frame on its own warps it
+  and clicks at every frame edge, both of which cost the recogniser accuracy. Frames go base64 over the WebSocket. A gain-0 node keeps
+  the graph
   alive without echoing the mic to the speakers. Playback of the model's voice is the
   reverse: base64 24 kHz PCM chunks → queued `AudioBufferSourceNode`s.
 - **Daemon** (`openbus/live.py`): accepts the WS, builds the system prompt from live
