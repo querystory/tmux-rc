@@ -1,0 +1,13 @@
+{
+  "description": "A finished status report while three background agents work, with Claude Code's own right-aligned update notice (\"✔ Update installed · /restart to apply\") between the waiting line and the input box. The notice is the harness's chrome, not the agent's ask: no question, no /restart button, and the headline is the importer work. Synthetic.",
+  "current_command": "node",
+  "capture": "● The duplicate-header fix for the tide-gauge\n  importer is done: the loader skips the repeated\n  header rows the harbour stations emit, and the\n  hourly rollup now matches the reference totals\n  for all six stations.\n\n  The new build isn't live yet. I'm holding it\n  for one restart of the importer service,\n  together with the time-zone fix for the Brest\n  station that a background agent is still\n  writing. After that restart, reload the\n  dashboard once to pick it up.\n\n✻ Waiting for 3 background agents to finish\n          ✔ Update installed · /restart to apply\n──────────────────────── tides importer session ─\n❯ \n──────────────────────────────────────────────────\n  ~/src/tide-gauge on main | Opus 4.8\n  session: +412/-96 lines · 22% ctx · 1h 12m\n  ⏵⏵ auto mode on · 2 shells\n\n  ● main\n  ◯ general-purpose     18m 02s · ↓ 64.1k tokens\n  ◯ general-purpose     12m 40s · ↓ 51.3k tokens\n  ◯ general-purpose     55m 10s · ↓ 98.7k tokens",
+  "reply": "The duplicate-header fix for the tide-gauge\nimporter is done: the loader skips the repeated\nheader rows the harbour stations emit, and the\nhourly rollup now matches the reference totals\nfor all six stations.\n\nThe new build isn't live yet. I'm holding it\nfor one restart of the importer service,\ntogether with the time-zone fix for the Brest\nstation that a background agent is still\nwriting. After that restart, reload the\ndashboard once to pick it up.",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "external",
+    "buttons_at_most": 0,
+    "headline": "Importer header fix done; holding its restart until the background agents finish the Brest time-zone fix"
+  }
+}

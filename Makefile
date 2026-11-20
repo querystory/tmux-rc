@@ -1,4 +1,4 @@
-.PHONY: dev run test lint fmt docs docs-dev docs-check docs-clean install-units install-apparmor demo screenshots screenshots-diff mock mock-check mock-live
+.PHONY: dev run test lint fmt docs docs-dev docs-check docs-clean install-units install-apparmor digest digest-eval install-digest demo screenshots screenshots-diff mock mock-check mock-live
 
 # Dev server with auto-reload on source changes. Reload restarts the process (the
 # watcher's in-memory cache resets and rebuilds from tmux within a couple ticks — safe,
@@ -16,14 +16,15 @@ run:
 # LINGER=0 to skip it on a host with an encrypted $HOME, where nothing under it exists
 # pre-login and lingering units would crash-loop until someone logs in.
 LINGER ?= 1
+UNITS = $(HOME)/.config/systemd/user
+STAMP = sed 's|^WorkingDirectory=.*|WorkingDirectory=$(CURDIR)|'
 install-units:
-	install -Dm644 -t $(HOME)/.config/systemd/user deploy/systemd/tmux-rc-tunnel.service \
+	install -Dm644 -t $(UNITS) deploy/systemd/tmux-rc-tunnel.service \
 		deploy/systemd/tmux-rc.target  # -D also creates the dir the sed below writes into
 	# The daemon unit is the one file that can't be host-agnostic: it has to name THIS
 	# checkout. Stamp the real path in at install time rather than making every user
 	# hand-edit it (and rather than guessing a layout that's wrong on most hosts).
-	sed 's|^WorkingDirectory=.*|WorkingDirectory=$(CURDIR)|' deploy/systemd/tmux-rc.service \
-		> $(HOME)/.config/systemd/user/tmux-rc.service
+	$(STAMP) deploy/systemd/tmux-rc.service > $(UNITS)/tmux-rc.service
 	# The one agent-history the hooks and the daemon share, refreshed to this checkout's
 	# flags ("-": a host without Go keeps the one it has).
 	-cd agent-history && go build -o $(HOME)/.local/bin/agent-history .
@@ -41,6 +42,21 @@ install-units:
 install-apparmor:
 	sudo install -m644 deploy/apparmor/tmux-rc-headless-shell /etc/apparmor.d/
 	sudo apparmor_parser -r /etc/apparmor.d/tmux-rc-headless-shell
+
+# The digest pages on scratch (docs/design/digest.md): built now, built each morning by a
+# user timer, and scored against a hand-written baseline.json of the facts.json in DIR.
+DIR ?= research/eval/digest
+digest:
+	uv run python -m scripts.digest
+
+digest-eval:
+	uv run python -m scripts.digest_eval $(DIR)
+
+install-digest:
+	install -Dm644 -t $(UNITS) deploy/systemd/tmux-rc-digest.timer
+	$(STAMP) deploy/systemd/tmux-rc-digest.service > $(UNITS)/tmux-rc-digest.service
+	systemctl --user daemon-reload
+	systemctl --user enable --now tmux-rc-digest.timer
 
 test:
 	uv run pytest -q tests/

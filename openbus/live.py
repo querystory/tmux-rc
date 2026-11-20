@@ -43,7 +43,7 @@ from . import (
     telemetry,
     tmux,
 )
-from .classify import _host_tool, _load_prompt
+from .classify import _host_tool, _load_prompt, _visible
 from .expunge import codex_names, codex_status_line, codex_status_segments, codex_thread
 from .live_chat import TURNS_KEPT, TURNS_QUEUED
 from .live_providers import KEYS, LiveModel
@@ -222,20 +222,15 @@ class _Meter:
 
 
 def _screen_tail(watcher, pane_id: str) -> str:
-    """Last SCREEN_TAIL_LINES of a pane's current screen, dim-MARKED — the same
-    ⟪dim⟫-wrapped text the classify parser sees, so the voice model can tell draft/ghost/
-    placeholder runs (composer autocomplete, unsent input) from real output instead of
-    treating them as typed content. Use the stored snapshot text directly, NOT
-    watcher.snapshot_text() — that one strips the markers for the phone's raw render.
-    Empty if none captured yet."""
+    """Last SCREEN_TAIL_LINES of a pane's current screen as plain text, the way the phone
+    shows it: the agent's greyed input suggestion dropped and our ⟪dim⟫ markers off. A
+    text chat model quotes what it is given, so marked text came back into the replies the
+    user reads. Empty if none captured yet."""
     hist = watcher.snapshots.get(pane_id) or []
     if not hist:
         return ""
-    text = hist[-1]["text"] or ""
-    lines = text.rstrip().splitlines()[-SCREEN_TAIL_LINES:]
-    # Char-bound on a MARKER boundary — a raw slice could cut a ⟪dim⟫ token or orphan
-    # a close from its open, garbling the dim signal the model relies on.
-    return tmux.tail_marked("\n".join(lines), SCREEN_TAIL_CHARS)
+    lines = _visible(hist[-1]["text"] or "").rstrip().splitlines()[-SCREEN_TAIL_LINES:]
+    return tmux.tail_marked("\n".join(lines), SCREEN_TAIL_CHARS)  # cut on a line boundary
 
 
 def _fmt_age(sec: float) -> str:
@@ -392,11 +387,8 @@ def _pane_context(watcher, screens: str) -> str:
         # Allocate SCREEN_BUDGET_CHARS priority-first — the active pane, then panes at
         # work, then the least-idle — but RENDER in digest order, which is tmux's own
         # session/window order: the model's pane map must not reshuffle by activity.
-        # The last pane granted may overshoot the budget by at most one tail. A tail
-        # itself can run a few chars past SCREEN_TAIL_CHARS — tail_marked() prefixes a
-        # marker token (⟪dim⟫/⟪placeholder⟫) when the kept text starts inside a marked
-        # run — so the slack is "one tail plus a marker", still bounded and still
-        # simpler than truncating mid-screen.
+        # The last pane granted may overshoot the budget by at most one tail, still
+        # bounded and simpler than truncating mid-screen.
         def prio(d):
             return (not d.get("tmux_active"),
                     d.get("activity") == "idle",

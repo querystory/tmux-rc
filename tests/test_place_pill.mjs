@@ -29,7 +29,7 @@ function place(page, own = null) { // own: Plan usage's account picker, once its
   if (own) view.kids[0].append(own);
   nodes["dash-page"].append(bar);
   nodes["dash-page"].querySelector = () => bar;
-  const sandbox = { page, dashboard: true, WIDE: { matches: false }, CARDS: { heat: "heat-card", usage: "usage-panel", loops: "loops-card", graph: "graph-card" },
+  const sandbox = { page, dashboard: true, WIDE: { matches: false }, CARDS: { heat: "heat-card", usage: "usage-panel", graph: "graph-card" },
     $: (id) => nodes[id], usageView: Object.assign(view, { firstChild: view.kids[0], querySelector: () => own }), renderSidebar: { picker: nodes.picker }, accounts: { pill: nodes.pill }, document: { querySelector: () => null }, };
   vm.createContext(sandbox);
   vm.runInContext(`${block}; placePill();`, sandbox);
@@ -37,7 +37,7 @@ function place(page, own = null) { // own: Plan usage's account picker, once its
 }
 
 test("a card's page puts the picker and the pill in its head bar", () => {
-  for (const page of ["heat", "usage", "loops", "graph"]) {
+  for (const page of ["heat", "usage", "graph"]) {
     const { bar, picker, pill } = place(page);
     assert.equal(picker.parentElement, bar);
     assert.equal(pill.previousElementSibling, picker);

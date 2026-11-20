@@ -6,7 +6,7 @@ import json
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
-from threading import Event
+from threading import Event, Lock
 
 
 def run_gh(args: list[str], timeout: float, stopping: Event | None = None) -> str | None:
@@ -44,7 +44,8 @@ def fetch_pr(repo: str, number: int, stopping: Event | None = None) -> dict | No
 
 
 class PRTitles:
-    """Owned by the watcher thread; workers only return results, never mutate state."""
+    """Shared by the watcher's full pass and its input-driven reads, which take turns on
+    _lock; workers only return results, never mutate state."""
 
     def __init__(self):
         self._pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="pr-title")
@@ -52,6 +53,7 @@ class PRTitles:
         self._cache = {}
         self._closed = False
         self._stopping = Event()
+        self._lock = Lock()
 
     def close(self):
         self._closed = True
@@ -60,6 +62,10 @@ class PRTitles:
 
     def enrich(self, prs: list[dict]) -> list[dict]:
         """Titled copies of the still-open PRs; merged/closed ones are dropped."""
+        with self._lock:
+            return self._enrich(prs)
+
+    def _enrich(self, prs: list[dict]) -> list[dict]:
         now = time.monotonic()
         for key, future in list(self._pending.items()):
             if future.done():

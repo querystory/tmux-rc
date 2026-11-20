@@ -1,7 +1,8 @@
 import MarkdownIt from "./m/vendor/markdown-it.mjs";
 
-// Agent replies are untrusted: no HTML, remote images, or non-web link schemes.
-const markdown = new MarkdownIt({ html: false, linkify: true });
+// Agent replies are untrusted: no HTML, remote images, or non-web link schemes. A chat
+// model breaks lines where it means them ("cwd: …" then "now: …"), so a newline is a break.
+const markdown = new MarkdownIt({ html: false, linkify: true, breaks: true });
 markdown.validateLink = (url) => /^https?:\/\//i.test(url);
 markdown.renderer.rules.image = (tokens, index) => markdown.utils.escapeHtml(tokens[index].content);
 markdown.renderer.rules.link_open = (tokens, index, options, env, renderer) => {
