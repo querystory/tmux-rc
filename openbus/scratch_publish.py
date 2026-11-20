@@ -83,9 +83,11 @@ def url(name: str) -> str:
 
 
 def _index(root: Path, names: list[str]) -> bytes:
-    """The publish root's page: each published folder's title and description."""
+    """The publish root's page: each published folder's title and description, from the
+    folder (live or archived) opted in at its URL, else just its name."""
     def card(name: str) -> str:
-        i = scratch.named(root, name) or scratch.named(scratch.archive(root), name) or {}
+        i = next((c for at in (root, scratch.archive(root)) if (c := scratch.named(at, name))
+                  and c["publish"] == url(name)), {})
         return (f'<li><a href="{quote(name)}/">{escape(i.get("title", name))}</a>'
                 f'<p>{escape(i.get("description", ""))}</p></li>')
     return ('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-'
@@ -103,6 +105,8 @@ def _sync(root: Path, name: str, out: Path | None) -> None:
     # one copy at a time, the CLI's and the daemon's alike: each reads and rewrites the record
     with _record().with_suffix(".lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        if out and not _copyable(scratch.named(root, name)):  # unpublished or revised since
+            return
         record = scratch.load(_record(), {})
         was = record.get(f"{target}/{name}", {})
         now = {f.relative_to(out).as_posix(): hashlib.sha256(f.read_bytes()).hexdigest()
@@ -136,11 +140,15 @@ def _indexed(card: dict | None) -> bool:
     return bool(card) and not card["pending"] and card["href"].endswith("/")  # it has one
 
 
+def _copyable(card: dict | None) -> bool:
+    """Opted in, with its index, and not being revised."""
+    return _indexed(card) and bool(card["publish"]) and not card["revising"]
+
+
 def publish(root: Path, name: str, web: Path) -> str:
     """Copy the folder's current version to the target; its URL. Only while it is opted in
     and not being revised: a job queued before an unpublish or an update copies nothing."""
-    if not _indexed(card := scratch.named(root, name)) or not card["publish"] or card[
-            "revising"]:
+    if not _copyable(scratch.named(root, name)):
         raise SystemExit(f"{name} is not published, has no index, or is being updated: it "
                          "is copied once it is ready")
     try:
@@ -173,21 +181,29 @@ def opt(root: Path, name: str, on: bool) -> str:
     """Opt folder `name` in ("publish": its URL, in its meta.json) or out, archived or not;
     that URL. Only a folder with an index is opted in: it is served at name/."""
     there = url(name)
-    if not scratch.folder_name(name) or (on and not (_indexed(scratch.named(
-            root, name)) and scratch.rewrite(root / name / "meta.json", root,
-                                             lambda m: {**m, "publish": there}))):
-        raise ValueError(f"{name} is not a folder of {root} with an index.html or index.md "
-                         "and a readable meta.json")
+    if why := _refused(root, name, on):
+        raise ValueError(why)
+    if on and not scratch.rewrite(meta := root / name / "meta.json", root,
+                                  lambda m: {**m, "publish": there}):
+        raise ValueError(f"{meta} is unreadable")
     for at in () if on else (root, scratch.archive(root)):
         scratch.rewrite(at / name / "meta.json", at, lambda m: _without(
             m, "publish", "publish_failed") if {"publish", "publish_failed"} & m.keys() else None)
     return there
 
 
+def _refused(root: Path, name: str, on: bool) -> str | None:
+    if not scratch.folder_name(name) or (on and not _indexed(scratch.named(root, name))):
+        return f"{name} is not a folder of {root} with an index.html or index.md"
+    return None
+
+
 def act(root: Path, action: str, names: list[str], web: Path, tell) -> list[str]:
     """The gallery's Publish or Unpublish (`action`): each folder opted in or out at once,
-    its copy made or removed in the background."""
+    its copy made or removed in the background; none of them if any is refused."""
     publishing = action == "publish"
+    if whys := [w for n in names if (w := _refused(root, n, publishing))]:
+        raise ValueError("; ".join(whys))
     for name in names:
         opt(root, name, publishing)
         later(lambda n=name: publish(root, n, web) if publishing else unpublish(root, n),
@@ -211,7 +227,7 @@ def later(job, name: str, tell) -> None:
 def ready(root: Path, name: str, web: Path, tell) -> None:
     """A page landed (push.landed), or its thumbnail did: copy it again if it is published
     and not being revised."""
-    if (item := scratch.named(root, name)) and item["publish"] and not item["revising"]:
+    if _copyable(scratch.named(root, name)):
         later(lambda: publish(root, name, web), name, tell)
 
 

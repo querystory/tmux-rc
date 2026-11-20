@@ -91,6 +91,19 @@ def test_an_archived_folder_unpublishes_too(root, capsys):
         (root / ".archive/tea notes/meta.json").read_text())
 
 
+def test_a_copy_started_before_an_unpublish_sends_nothing(root, monkeypatch):
+    P.cli(["publish", "tea notes"], WEB_DIR)
+    export = P.scratch.export
+
+    def unpublished_meanwhile(*args):  # Unpublish lands while this copy is exported
+        export(*args)
+        P.cli(["unpublish", "tea notes"], WEB_DIR)
+    monkeypatch.setattr(P.scratch, "export", unpublished_meanwhile)
+    (root / "tea notes/cup.txt").write_text("white")
+    P.publish(root, "tea notes", WEB_DIR)  # not opted in by the time it would copy: nothing
+    assert BUCKET == {}
+
+
 def test_a_ready_page_is_copied_unless_unpublished_or_revising(root, monkeypatch):
     jobs = []
     monkeypatch.setattr(P, "later", lambda job, name, tell: jobs.append(name))
@@ -143,9 +156,17 @@ def test_the_index_lists_what_is_published_while_anything_is(root):
     assert BUCKET["index.html"] == b"as sent"
     P.cli(["unpublish", "tea notes"], WEB_DIR)
     assert "tea%20notes" not in BUCKET["index.html"].decode()
-    with pytest.raises(ValueError, match="not a folder"):  # a path is never one
-        P.act(root, "unpublish", ["../rye"], WEB_DIR, None)
+    with pytest.raises(ValueError, match="not a folder"):  # a path is never one, and one
+        P.act(root, "publish", ["tea notes", "../rye"], WEB_DIR, None)  # refuses them all
+    assert "publish" not in _meta(root)
+    (root / ".archive").mkdir()  # archived, and its name taken by a folder never opted in
+    (root / "rye").rename(root / ".archive/rye")
+    (root / "rye").mkdir()
+    (root / "rye/index.html").write_text("<title>Other</title>")
+    P.cli(["publish", "tea notes"], WEB_DIR)
+    assert '<a href="rye/">Rye</a>' in BUCKET["index.html"].decode()  # the opted-in one's
     P.unpublish(root, "rye")
+    P.unpublish(root, "tea notes")
     assert BUCKET == {}
 
 
