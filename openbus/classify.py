@@ -265,8 +265,10 @@ def picker_read(text: str, prompt: str) -> PickerRead | None:
     widget = visible[top:]
     position = None
     if row:
-        cursor = row.start("cursor") - top
-        layout = widget[:cursor] + " " + widget[cursor + 1:]
+        # Neither the cursor nor the heading's live count, which both redraw with a move.
+        cursor, heading = row.start("cursor") - top, live[0].end() - top
+        layout = (_LIVE_COUNT_RE.sub("", widget[:heading]) + widget[heading:cursor] + " "
+                  + widget[cursor + 1:])
         body_start = live[0].end()
         line = visible.count("\n", body_start, row.start())
         position = PickerPosition(hashlib.sha256(layout.encode()).hexdigest(),

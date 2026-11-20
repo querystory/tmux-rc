@@ -19,7 +19,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from openbus import push, server, tmux
-from openbus.classify import classify, highlighted_row, picker_digest
+from openbus.classify import classify, highlighted_row, picker_digest, picker_read
 from openbus.tmux import Pane
 
 # A user turn that starts with the target's own word, above a box highlighting No.
@@ -405,6 +405,14 @@ def test_quoted_rows_distinguish_duplicate_titles(monkeypatch, alternate_layout)
     assert (readback["picker"], readback["layout"], readback["line"]) == (
         after["picker"], before["picker_layout"], before["picker_line"] + 1,
     )
+
+
+def test_a_counted_pickers_layout_survives_a_move():
+    first = picker_read("Resume session (1 of 2)\n  › Sow basil\n    Sow basil", "Resume session")
+    second = picker_read("Resume session (2 of 2)\n    Sow basil\n  › Sow basil", "Resume session")
+    assert first.digest != second.digest
+    assert first.position.layout == second.position.layout
+    assert second.position.line == first.position.line + 1
 
 
 def test_quoted_picker_rows_preserve_whitespace_inside_labels():
