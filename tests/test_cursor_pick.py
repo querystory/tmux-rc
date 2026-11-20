@@ -133,6 +133,13 @@ CASES = [
         {"sent": [], "selected": 0, "notes": 1},
     ),
     (
+        "a unique far title is still searched for where another title repeats",
+        {"options": ["Sort garden seeds"] * 2 + [f"r{i}" for i in range(2, 40)], "selected": 0,
+         "keymap": FULL_KM, "reads": True, "filters": True, "layout": "unchanged"},
+        "r35", 35,
+        {"sent": ["r35", "Enter"], "selected": 0, "notes": []},
+    ),
+    (
         "quoted picker cancels if the move skips a row",
         {"options": ["Sort garden seeds"] * 3, "selected": 0, "keymap": FULL_KM,
          "reads": True, "layout": "unchanged", "stride": 2},

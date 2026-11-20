@@ -215,9 +215,10 @@ def picker_read(text: str, prompt: str) -> PickerRead | None:
     widget = visible[top:]
     position = None
     if row:
-        cursor = row.start("cursor") - top
-        layout = widget[:cursor] + " " + widget[cursor + 1:]
-        body_start = live[0].end()
+        # The rows under the prompt row, cursor blanked: both it and a heading's live count
+        # redraw with a move. The prompt row is matched above, and the digest holds sends.
+        body_start, cursor = live[0].end(), row.start("cursor")
+        layout = visible[body_start:cursor] + " " + visible[cursor + 1:]
         line = visible.count("\n", body_start, row.start())
         position = PickerPosition(hashlib.sha256(layout.encode()).hexdigest(),
                                   line, visible[body_start:live[1]].split("\n"))
@@ -1428,17 +1429,20 @@ def classify(
             row = highlighted_row(visible, asked, rows)
             if row:
                 question.update(selected=rows.index(row), picker=read.digest)
-            elif read.position is not None and llm_fn:
+            # A repeated title is told apart only by its position, so a list with one is
+            # bound to the screen wherever the highlight sits, a unique title included.
+            if (read.position is not None and llm_fn
+                    and not (row and all(rows.count(option) == 1 for option in rows))):
                 body = "\n".join(read.position.body).rstrip()
                 # Let the model resolve repeated labels and metadata columns from this widget.
                 answer = llm_fn(_load_prompt("parser_cursor.txt"), f"{asked}\n{body}")
-                if isinstance(answer, dict):
-                    selected = answer.get("selected")
-                    if (answer.get("options") == rows
-                            and _quoted_picker_rows(read, rows, answer.get("rows"), selected)):
-                        question.update(selected=selected, picker=read.digest,
-                                        picker_layout=read.position.layout,
-                                        picker_line=read.position.line)
+                if not isinstance(answer, dict):  # the call failed: retry, not retire, it
+                    result["parse_ok"] = False
+                elif (answer.get("options") == rows and _quoted_picker_rows(
+                        read, rows, answer.get("rows"), answer.get("selected"))):
+                    question.update(selected=answer["selected"], picker=read.digest,
+                                    picker_layout=read.position.layout,
+                                    picker_line=read.position.line)
     if isinstance(question, dict):
         # The widget's rows and their restatement are read here, never passed through.
         for key in ("context", "ask"):

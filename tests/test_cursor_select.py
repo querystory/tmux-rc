@@ -19,7 +19,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from openbus import server, tmux
-from openbus.classify import classify, highlighted_row, picker_digest
+from openbus.classify import classify, highlighted_row, picker_digest, picker_read
 from openbus.tmux import Pane
 
 # A user turn that starts with the target's own word, above a box highlighting No.
@@ -377,6 +377,14 @@ def test_quoted_rows_distinguish_duplicate_titles(monkeypatch, alternate_layout)
     )
 
 
+def test_a_counted_pickers_layout_survives_a_move():
+    first = picker_read("Resume session (1 of 2)\n  › Sow basil\n    Sow basil", "Resume session")
+    second = picker_read("Resume session (2 of 2)\n    Sow basil\n  › Sow basil", "Resume session")
+    assert first.digest != second.digest
+    assert first.position.layout == second.position.layout
+    assert second.position.line == first.position.line + 1
+
+
 def test_quoted_picker_rows_preserve_whitespace_inside_labels():
     prompt = "Resume a previous session"
     screen = f"{prompt}\n  › Saved | Sow basil\n    Saved | Sow  basil"
@@ -401,10 +409,19 @@ def test_unambiguous_highlight_keeps_the_picker_when_other_titles_repeat():
         "prompt": "Resume a previous session", "answer_style": "cursor",
         "options": ["Sort garden seeds", "Water seedlings", "Water seedlings"],
     }}
-    answers = iter([response])  # no reread is needed to ground this highlight
-    question = classify(CODEX_PANE, screen, lambda *_: next(answers))["question"]
-    assert question["selected"] == 0
-    assert question.get("picker")
+    rows = [line.strip() for line in screen.splitlines()[1:]]
+
+    def read(reread):
+        answers = iter([response, reread])
+        return classify(CODEX_PANE, screen, lambda *_: next(answers))
+
+    unquoted = read({})  # an unquotable reread keeps the highlight's own grounding
+    assert unquoted["question"]["selected"] == 0 and "parse_ok" not in unquoted
+    assert unquoted["question"].get("picker") and "picker_layout" not in unquoted["question"]
+    # A tap on either repeated title needs the rows bound to the screen from the start.
+    bound = read({"options": response["question"]["options"], "rows": rows, "selected": 0})
+    assert bound["question"]["picker_layout"]
+    assert read(None)["parse_ok"] is False  # a failed call is retried, not retired
 
 
 MENU = """
