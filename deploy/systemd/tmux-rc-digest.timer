@@ -1,0 +1,10 @@
+[Unit]
+Description=tmux-rc digest, each morning before the day starts
+
+[Timer]
+OnCalendar=*-*-* 06:30
+# A machine that was off at 06:30 builds the pages when it next comes up.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
