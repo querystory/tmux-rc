@@ -8,6 +8,7 @@ from __future__ import annotations
 import html
 import json
 import os
+import re
 import statistics
 import subprocess
 import time
@@ -138,9 +139,10 @@ def spend(dirs: list[str], paths: list[str], now: float) -> list[dict]:
                     used = json.dumps([cwd, *(
                         b.get("input") for b in msg.get("content") or []
                         if isinstance(b, dict) and b.get("type") == "tool_use")])
-                    # A whole name: /wt/reader is not named by /wt/reader-old, since removed.
-                    votes.update([p for p in paths if any(
-                        not (t[0].isalnum() or t[0] in "-_.") for t in used.split(p)[1:])][:1])
+                    # A whole path: /wt/reader is not named by /wt/reader-old, since removed,
+                    # nor by /old/wt/reader.
+                    votes.update([p for p in paths if re.search(
+                        rf"(?<![\w.+-]){re.escape(p)}(?![\w.+-])", used)][:1])
                     usage, ago = msg.get("usage"), now - ts(r.get("timestamp"))
                     call = msg.get("id") or r.get("requestId")
                     if usage and call not in seen and ago < 14 * DAY:
@@ -320,13 +322,6 @@ def lay(reg: dict, facts: dict) -> dict:
         if themes[-1]["pieces"] or themes[-1]["effort"]:
             t["last"] = now
     themes.sort(key=lambda t: (not any(p["need"] for p in t["pieces"]), -t["effort"]))
-    # What the pages draw: at most CAP. Past it, the smallest that need nothing share a card.
-    drawn = [t for t in themes if t["pieces"] or t["effort"]]
-    if tail := drawn[CAP - 1:] if len(drawn) > CAP else []:
-        drawn[CAP - 1:] = [theme("", {
-            "name": "Everything else", "short": "Everything else",
-            "outcome": " ".join(t["outcome"] for t in tail),
-            "members": [k for t in tail for k in t["members"]]})]
     placed = {k for t in themes for k in t["members"]}
     loose = [c for k, c in live.items() if k not in placed]
     # A rebase is one ask for a theme's whole stack; each change that can merge is its own.
@@ -343,6 +338,17 @@ def lay(reg: dict, facts: dict) -> dict:
     if facts["asked"]:
         actions.append({"text": "A teammate asks for your review", "sub": "they are waiting",
                         "btn": "Review", "url": "https://github.com/pulls/review-requested"})
+    # What the pages draw: at most CAP. Past it, the smallest that need nothing share a card,
+    # which takes over any ask of theirs.
+    drawn = [t for t in themes if t["pieces"] or t["effort"]]
+    if tail := drawn[CAP - 1:] if len(drawn) > CAP else []:
+        drawn[CAP - 1:] = [theme("", {
+            "name": "Everything else", "short": "Everything else",
+            "outcome": " ".join(t["outcome"] for t in tail),
+            "members": [k for t in tail for k in t["members"]]})]
+    for a in actions:
+        if a.get("theme") in {t["id"] for t in tail}:
+            a["theme"] = ""
 
     def landed(newer, older):
         return [c for c in facts["changes"]
