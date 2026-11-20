@@ -81,7 +81,7 @@ ROWS = """\
 
 # Where each pane works, one per ROWS line: repository/directory@worktree (the main
 # checkout when no @), or a plain folder outside any repository. The Fleet graph's Repo and
-# Worktree lenses group by these; the open-loops scan finds the worktrees (worktrees()).
+# Worktree lenses group by these; the worktree scan finds them (worktrees()).
 WHERE = """shop-api/docs shop-api/db shop-api/db shop-api@money-v3 shop-api@preview shop-api
 shop-api/fixtures shop-web/e2e shop-web/e2e@checkout-flake shop-web/src ci-runner ci-runner
 evals/harness evals/prompts@ab-sweep evals/data evals/notebooks /work/papers tokenizer docs-site
@@ -121,16 +121,14 @@ def _where(i: int) -> tuple[str, str | None, str | None]:
 
 
 def worktrees() -> list[dict]:
-    """The worktrees the panes sit in, as the open-loops scan lists them: clean and pushed,
-    so none of them joins Open loops' lanes."""
+    """The worktrees the panes sit in, as the scan lists them (openbus/worktrees.py)."""
     rows = {}
     for i in range(1, len(WHERE) + 1):
         _, root, branch = _where(i)
         if root:
             repo = root.split("/")[2]
-            rows[root] = {"path": root, "repo": f"example-org/{repo}", "branch": branch,
-                          "common": f"/work/{repo}/.git", "dirty": 0, "unpushed": 0,
-                          "active_at": NOW - 3600}
+            rows[root] = {"key": f"/work/{repo}/.git", "repo": repo, "path": root,
+                          "branch": branch}
     return list(rows.values())
 
 
@@ -558,53 +556,6 @@ def seed_usage(usage, two: bool = False):
     return usage
 
 
-# Open loops: example-org's pull requests and stray worktrees, as the GitHub query and the
-# worktree scan would leave them. repo#number | title | hours since the last update |
-# overrides of the defaults below (an open PR of yours, reviewer asked, green, to main).
-LOOPS = """\
-shop-web#412|Stabilize checkout.spec under slow iframes|1|
-shop-api#409|Structured money type for order totals|2|decision=APPROVED
-shop-api#410|Migrate API clients to the money v3 type|1|base=feat/409 stacked=1
-shop-api#401|Order totals carry their currency|5|state=MERGED merged=5
-shop-api#407|Idempotency keys for refunds|3|review=rin:CHANGES_REQUESTED:3
-infra#77|Move the build cache to the new bucket|20|author=rin asked=1 label=build-cache
-ops#33|Cache warmer reads the bucket from config|120|mergeable=CONFLICTING label=build-cache
-docs#58|Release notes for 0.15|30|reviewers=0
-shop-web#405|Coupon field keeps focus on error|26|checks=FAILURE draft=1
-shop-web#398|Coupon API client|40|base=feat/coupon-api stacked=1 base_merged=1"""
-LOOP_TREES = [("/work/research/.worktrees/tokenizer-v2", "research", "tokenizer-v2", 0, 3),
-              ("/work/ci/.worktrees/flaky-quarantine", "ci", "fix/flaky-quarantine", 4, 0)]
-
-
-def seed_loops(loops):
-    """The cache an OpenLoops refresh would fill, so the dashboard has lanes to draw."""
-    prs = []
-    for line in LOOPS.splitlines():
-        ref, title, hours, extra = line.split("|")
-        repo, number = ref.split("#")
-        o = dict(kv.split("=") for kv in extra.split())
-        at, merged = NOW - int(hours) * 3600, o.get("merged")
-        who, verdict, ago = (o.get("review") or "::").split(":")
-        prs.append({
-            "repo": f"example-org/{repo}", "number": int(number), "title": title,
-            "url": f"https://{ORG}/{repo}/pull/{number}", "state": o.get("state", "OPEN"),
-            "author": o.get("author", "dev"), "draft": "draft" in o, "updated_at": at,
-            "merged_at": merged and NOW - int(merged) * 3600, "base": o.get("base", "main"),
-            "head": f"feat/{number}", "fork": False, "stacked": "stacked" in o,
-            "base_merged": "base_merged" in o,
-            "mergeable": o.get("mergeable", "MERGEABLE"),
-            "decision": o.get("decision", "REVIEW_REQUIRED"), "checks": o.get("checks", "SUCCESS"),
-            "committed_at": at, "reviewers": int(o.get("reviewers", 1)), "asked": "asked" in o,
-            "reviews": [{"by": who, "state": verdict, "at": NOW - int(ago) * 3600}] if who else [],
-            "labels": [o["label"]] if "label" in o else []})
-    loops.github, loops.fetched_at = {"viewer": "dev", "older": 6, "prs": prs}, NOW - 7 * 60
-    loops.worktrees, loops.scanned_at = [
-        {"path": path, "repo": f"example-org/{repo}", "branch": branch, "dirty": dirty,
-         "unpushed": unpushed, "active_at": NOW - 2 * 86400}
-        for path, repo, branch, dirty, unpushed in LOOP_TREES] + worktrees(), NOW - 7 * 60
-    return loops
-
-
 # Reboot restore: the workspace of a tmux server that died this morning, as the recorder
 # would have saved it (openbus/restore.py), and agent-history's word on each conversation.
 # session | window id, index, name | pane: tool | title | cwd | activity | cost | minutes idle
@@ -682,6 +633,7 @@ phone width.
 ab-sweep-interim|130,5|%14|Prompt A/B sweep: interim|Variant C leads after 60 of 200 runs.|\
 Adding runs 61 to 120
 release-notes-draft|190,190|%19|-|Merged PRs since v0.14, grouped by area.
+digest-daily|540,540|%19|Daily digest|What moved yesterday, and what needs you.
 cost-breakdown|1500,1380|%77|Monthly cost breakdown|Compute, storage and egress by team.
 latency-heatmap|4400,4300|%18|-|p50 and p99 by endpoint over the long-input bench."""
 SCRATCH_WRITERS = {"cost-breakdown": {"harness": "claude", "session_id": "demo-cost",
@@ -758,6 +710,14 @@ the sweep finishes in about two hours.
 flowchart LR
   S[Samples] --> A & B & C --> J[Judge] --> R[Report]
 ```
+"""), "digest-daily": ("index.md", """\
+# Tuesday morning
+
+Refunds work end to end on your machine and are ready to ship. The checkout tests are still
+stuck on the slow iframe.
+
+- **Needs you:** refunds can merge, and the preview deploy wants its checks run.
+- **Moved yesterday:** release notes and the cost reports reached main.
 """), "cost-breakdown": ("index.html", """\
 <!doctype html><title>Monthly cost breakdown</title>
 <style>body{font:15px/1.5 system-ui,sans-serif;margin:32px auto;max-width:720px;color:#1f2a24}
@@ -784,9 +744,25 @@ egress doubled with the image CDN move.</p>
 """)}
 
 
+# The dashboard's Digest card (web/m/digest.js): this morning's summary, as the job outside
+# the daemon leaves it beside its page in scratch (SCRATCH's digest-daily).
+DIGEST = {
+    "generated": datetime.fromtimestamp(NOW - 9 * 3600, UTC).isoformat(),
+    "verdict": "Refunds work end to end on your machine and are ready to ship. "
+               "The checkout tests are still stuck on the slow iframe.",
+    "needs_you": [{"text": "Refunds can merge: reviewed and green",
+                   "href": f"https://{ORG}/shop-api/pull/413"}],
+    "more": 1, "pace": "On pace",
+    "themes": [{"name": name, "state": state, "share": share} for name, state, share in (
+        ("Refunds", "Live on your machine, not on main", .34), ("Checkout tests", "Stuck", .22),
+        ("Money type migration", "In progress", .2), ("Release notes", "Live on main", .14),
+        ("Cost reports", "Live on main", .1))]}
+
+
 def seed_scratch(root) -> None:
     """Write SCRATCH's folders: each its page (PAGES), its meta.json, and a thumbnail shot
-    through the gallery's own renderer (openbus.scratch_sidecars, served as it serves them)."""
+    through the gallery's own renderer (openbus.scratch_sidecars, served as it serves them).
+    The digest's folder holds its summary too."""
     from openbus import scratch_sidecars
     from openbus.server import WEB_DIR
 
@@ -798,6 +774,8 @@ def seed_scratch(root) -> None:
             folder.mkdir()
             index, body = PAGES[name]
             (folder / index).write_text(body)
+            if name == "digest-daily":
+                (folder / "summary.json").write_text(json.dumps(DIGEST))
             (folder / "meta.json").write_text(json.dumps({
                 "title": "" if title == "-" else title, "description": description,
                 "pane": pane, "created": datetime.fromtimestamp(created, UTC).isoformat(),

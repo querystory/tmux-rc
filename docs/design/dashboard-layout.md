@@ -1,7 +1,10 @@
 # Design: the dashboard's layout
 
-Status: **decided**; Open loops and the session cards are built (#382), the rest is in
-review. Chosen from the dashboard layout and dashboard split mocks. This page holds the
+Status: **decided**; the session cards are built (#382), the rest is in review. The first
+card was Open loops until an audit found about 70% of its rows were noise (PRs held on
+purpose, stale refs, worktrees of agents that never sat in a pane). The Digest card took its
+cell: what a morning job outside the daemon wrote, as a verdict, one strip of where the
+effort went, and what needs you. Chosen from the dashboard layout and dashboard split mocks. This page holds the
 final layout and why; when it changes, edit it in place so the diff shows what moved.
 
 ## The problem
@@ -14,18 +17,18 @@ the page).
 
 ## The layout (A + C)
 
-- **Charts plus cards, and each card opens its own view.** Open loops shows its lane counts
-  and the top item waiting on you; Running by hour shows the heatmap. Details › opens the
-  full queue or the full heatmap as a page of its own. A dashboard is for noticing; the
+- **Charts plus cards, and each card opens its own view.** The Digest shows its verdict
+  and what needs you; Running by hour shows the heatmap. A tap opens the day's digest or
+  the full heatmap as a page of its own. A dashboard is for noticing; the
   long lists it used to inline belong one tap away, where they can be read properly.
 - **Running by hour fills its card.** The top row is as tall as its tallest card (usually
-  Open loops), so a fixed-height week of rows left the heatmap card half empty. The rows now
+  the Digest), so a fixed-height week of rows left the heatmap card half empty. The rows now
   grow into whatever height the row leaves, without ever setting it, and four figures sit
   under them that the grid only implies: the peak hour, the busiest day, the average running
   at any hour, and the change in average running over the last 7 full days against the 7
   before (the only week-over-week number on the dashboard). Every figure averages over the
   time actually recorded, so a sleeping laptop or history that starts mid-week reads as
-  missing, not as idle. They use Open loops' own KPI tiles, one style for every figure on
+  missing, not as idle. They use KPI tiles, one style for every figure on
   the page, with one-line labels so a tile never makes the row taller; the detail behind a
   figure is in the full heatmap, not in a hover-only tooltip a phone cannot reach. Chosen over showing more weeks (denser rows whose count changes with
   the window), an hour-of-day profile (a second chart form in one card) and a full-width
@@ -44,9 +47,11 @@ the page).
 ## Alternatives considered
 
 - **As shipped in #369** (every panel inline): the problem above.
-- **B, the same dashboard with Dashboard / Sessions / Open loops as top-level tabs**: not
-  chosen; the cards already give Open loops and the heatmap their own views without a
-  second layer of navigation.
+- **B, the same dashboard with its cards' views as top-level tabs**: not chosen; the cards
+  already open their own views without a second layer of navigation.
+- **The Digest as a row of two links**: rejected; a dashboard entry has to say something.
+- **KPI tiles on the Digest**: rejected with the walls of numbers on the digest itself. It
+  is words and one picture.
 - **Plan usage as a card in the grid**: replaced on wide screens by the strip, since a card
   took a whole grid cell for a handful of meters.
 - **First-round options** (usage folded into the Activity chart as tabs, a KPI row over the
