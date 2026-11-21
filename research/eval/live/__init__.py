@@ -284,17 +284,11 @@ async def replay(fleet: Fleet, steps: list, connect, *, text: bool = False,
                     if not phone.dropped:
                         break
         finally:
-            # A cancelled await leaves its send-keys thread running: let every one finish
-            # before the patches come off, or its Enter could reach the real tmux server.
-            await asyncio.to_thread(_drain, fleet)
+            # A cancelled await leaves its worker thread running, one that may not have
+            # reached send-keys yet: every thread finishes, and no new one starts, before the
+            # patches come off, or its Enter could reach the real tmux server.
+            await asyncio.get_running_loop().shutdown_default_executor()
     return trace
-
-
-def _drain(fleet: Fleet) -> None:
-    """Wait out any delivery in flight: send_keys holds its pane's lock until it is done."""
-    for pane in fleet.panes:
-        with tmux._pane_lock(pane):
-            pass
 
 
 def cases() -> list[dict]:
