@@ -28,7 +28,12 @@ def _play(turns, steps, *, text=False):
     return asyncio.run(replay(fleet, steps, script.connect, text=text)), script, fleet
 
 
-def _relay(pane, words="rerun the flaky tests"):
+# What the scripted user asks, and the words a relay labelled as theirs carries.
+WORDS = "rerun the flaky tests"
+ASK = f"tell rate limits to {WORDS}"
+
+
+def _relay(pane, words=WORDS):
     return call("type_in_pane", pane_id=pane, text=f"From the user (via voice): {words}")
 
 
@@ -37,8 +42,8 @@ def _statuses(trace):
 
 
 def test_a_send_reaches_the_pane_it_names_under_that_panes_label():
-    trace, script, fleet = _play([[_relay("%1"), "Sent."]], ["tell lantern search to rerun"])
-    text = "From the user (via voice): rerun the flaky tests"
+    trace, script, fleet = _play([[_relay("%1"), "Sent."]], [f"tell lantern search to {WORDS}"])
+    text = f"From the user (via voice): {WORDS}"
     assert trace.sends() == [("%1", "lantern search", text)]
     assert trace.keys == [("%1", "-l", text), ("%1", "Enter")]
     assert _statuses(trace) == [("type_in_pane", "sent", None)]
@@ -49,10 +54,10 @@ def test_a_send_reaches_the_pane_it_names_under_that_panes_label():
 
 @pytest.mark.parametrize("ok", [True, False])
 def test_a_text_session_shows_the_card_and_types_only_on_send(ok):
-    trace, _, _ = _play([[_relay("%3")]], ["tell rate limits to rerun", approve(ok)], text=True)
+    trace, _, _ = _play([[_relay("%3")]], [ASK, approve(ok)], text=True)
     [card] = trace.of("propose")
     assert (card["pane_id"], card["enter"]) == ("%3", True)
-    assert card["payload"] == "From the user (via voice): rerun the flaky tests"
+    assert card["payload"] == f"From the user (via voice): {WORDS}"
     assert bool(trace.keys) is ok
     assert _statuses(trace) == [("type_in_pane", "sent", None) if ok
                                 else ("type_in_pane", "declined", "the user declined")]
@@ -75,17 +80,17 @@ def test_a_tap_on_a_card_whose_pane_was_recycled_types_nothing():
     """The card named one process; by the tap, tmux has given its id to another."""
     def recycle(fleet):
         fleet.panes["%3"]["pid"] = "2000"
-    trace, _, _ = _play([[_relay("%3")]], ["tell rate limits", recycle, approve()], text=True)
+    trace, _, _ = _play([[_relay("%3")]], [ASK, recycle, approve()], text=True)
     assert trace.of("propose") and trace.keys == []
     assert _statuses(trace) == [("type_in_pane", "error", "pane did not accept input")]
 
 
 def test_a_provider_drop_reconnects_with_a_fresh_prompt_and_replays_no_send():
     trace, script, _ = _play([[_relay("%3"), DROP], ["Nothing more to send."]],
-                             ["tell rate limits", "anything else?"])
+                             [ASK, "anything else?"])
     assert len(trace.sends()) == 1 and len(trace.keys) == 2
     assert ("status", "reconnecting") in [(f["type"], f.get("status")) for f in trace.frames]
-    assert len(script.prompts) == 2 and script.heard == ["tell rate limits", "anything else?"]
+    assert len(script.prompts) == 2 and script.heard == [ASK, "anything else?"]
     assert trace.reply(2) == "Nothing more to send."
 
 
@@ -94,7 +99,7 @@ def test_a_provider_drop_reconnects_with_a_fresh_prompt_and_replays_no_send():
     ("never mind", False, None),        # a new message supersedes it instead
 ])
 def test_a_card_survives_the_phone_reconnecting_and_runs_at_most_once(after, sent, ok):
-    trace, _, _ = _play([[_relay("%3")]], ["tell rate limits", RECONNECT, after], text=True)
+    trace, _, _ = _play([[_relay("%3")]], [ASK, RECONNECT, after], text=True)
     [card] = trace.of("propose")
     assert len(trace.keys) == (2 if sent else 0)
     assert {"type": "decided", "id": card["id"], "ok": ok} in [
@@ -109,7 +114,7 @@ def test_every_case_names_panes_of_the_fleet():
 
 
 @pytest.mark.parametrize(("turn", "clean"), [
-    ([_relay(p, "what PRs are you managing?") for p in ("%1", "%3", "%4", "%5")], False),
+    ([_relay(p, "what PRs they're managing?") for p in ("%1", "%3", "%4", "%5")], False),
     (["PR 88 is indexing; 317 and 319 are open in orchard, and 57 waits on a release tag."],
      True),
 ])
@@ -125,14 +130,15 @@ def test_a_fleet_question_scores_clean_only_when_answered_from_the_list(turn, cl
 
 @pytest.mark.xfail(strict=True, reason="gate: one pane per request")
 def test_one_request_reaches_one_pane():
-    trace, _, _ = _play([[_relay("%1"), _relay("%3"), _relay("%9")]], ["ask everyone"])
+    trace, _, _ = _play([[_relay("%1"), _relay("%3"), _relay("%9")]], [f"ask everyone to {WORDS}"])
     assert [pane for pane, _, _ in trace.sends()] == ["%1"]
     assert [s for _, s, r in _statuses(trace)[1:] if r] == ["rejected", "rejected"]
 
 
 @pytest.mark.xfail(strict=True, reason="gate: a voice send to a long-idle pane asks first")
 def test_a_voice_send_to_a_long_idle_pane_waits_for_a_tap():
-    trace, _, _ = _play([[_relay("%2")]], ["make the retry delay configurable"])
+    trace, _, _ = _play([[_relay("%2", "make the retry delay configurable")]],
+                        ["make the retry delay configurable"])
     assert [c["pane_id"] for c in trace.of("propose")] == ["%2"] and trace.keys == []
 
 
@@ -146,5 +152,5 @@ def test_a_bare_yes_with_nothing_pending_is_not_typed():
 
 def test_a_turn_that_supersedes_a_card_gets_its_own_reply():
     trace, _, _ = _play([[_relay("%3"), "first"], ["second"]],
-                        ["tell rate limits", "never mind"], text=True)
+                        [ASK, "never mind"], text=True)
     assert (trace.reply(1), trace.reply(2)) == ("first", "second")
