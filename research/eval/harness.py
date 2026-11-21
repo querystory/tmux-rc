@@ -263,8 +263,8 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
     if isinstance(want_q, dict) and isinstance(want := want_q.get("keys"), dict):
         keys = got_q.get("keys") if isinstance(got_q, dict) else None
         lists = [v if isinstance(v, list) else [] for v in (opts, keys)]
-        sent = dict(zip((str(o).casefold() for o in lists[0]), lists[1], strict=False))
-        if not sent or any(want.get(o) != k for o, k in sent.items()):
+        sent = [(str(o).casefold(), k) for o, k in zip(*lists, strict=False)]
+        if not sent or len(lists[0]) != len(lists[1]) or any(want.get(o) != k for o, k in sent):
             diffs.append(f"question.keys: got {sent!r} want a subset of {want!r}")
     # Opt-in: how many reply pills the card may draw, so a list of points stays one ask's
     # few replies. Counted as app.js answerOptions does: the question's options bar its

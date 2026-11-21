@@ -328,6 +328,7 @@ def test_keys_expectation_pins_each_action_to_its_key():
     got = lambda opts, keys: {"question": {"answer_style": "key", "options": opts, "keys": keys}}  # noqa: E731
     assert score_structured(got(["Retry", "Fork"], ["r", "f"]), want)[0]
     assert score_structured(got(["retry"], ["r"]), want)[0]  # an action left out sends nothing
-    for opts, keys in ((["Retry", "Fork"], ["f", "r"]), (["Exit"], ["q"]), (None, None)):
+    for opts, keys in ((["Retry", "Fork"], ["f", "r"]), (["Exit"], ["q"]), (None, None),
+                       (["Retry", "retry"], ["f", "r"]), (["Retry", "Fork"], ["r"])):
         ok, diffs = score_structured(got(opts, keys), want)
         assert not ok and any("keys" in d for d in diffs)
