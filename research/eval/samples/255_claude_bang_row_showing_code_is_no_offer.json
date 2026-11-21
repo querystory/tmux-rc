@@ -1,0 +1,11 @@
+{
+  "description": "Synthetic: a finished auto-mode turn explains a fix and shows the new guard line, a negated grep that starts with \"! \" alone on its row. It is code shown, not a command handed to the user to run here: no Send it, nothing asked, idle.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ make the lint step fail when a TODO is left\n\n● Done. The guard in scripts/lint.sh is now a single negated grep:\n\n  ! grep -rq 'TODO' src/\n\n  It exits non-zero while any TODO is left, so the CI lint job fails. Committed as 4e1f9a2 and the tests pass.\n\n✻ Worked for 12s · done 4:05 PM\n──────────────────────────────────────────────────────────────────────────────── demo ─\n❯\n────────────────────────────────────────────────────────────────────────────────────────────────\n  ~/src/acme/tools on main | Opus 5.5 | user@example.com\n  session: +4/-2 lines · 9% ctx · 22m · $0.40\n  ⏵⏵ auto mode on · ← for agents",
+  "expected": {
+    "tool": "claude",
+    "activity": "idle",
+    "offers": null,
+    "headline": "Lint step now fails on leftover TODOs"
+  }
+}
