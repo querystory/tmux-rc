@@ -207,11 +207,16 @@ REASSEMBLE the full URL (join the wrapped fragments, no spaces). "text" is a sho
 human label ("Google OAuth approval", "PR #18"), never the URL itself. At most 3.
 
 "fresh": the agent has JUST STARTED a brand-new session and sits at its startup/welcome
-screen (a logo or banner, a welcome box, "Tips for getting started", a "Recent activity" or
-"resume" hint) with its input box ready and NO conversation yet: nothing sent, no reply, no
-tool output, and an EMPTY input box (a greyed placeholder counts as empty; typed text does
-not, since the screen's resume command would land after it). Once any turn has run, or the
-agent exited to a shell, it is not fresh. Report activity "idle" with it.
+screen (a logo or banner, a welcome box, "Tips for getting started", a "Recent activity"
+or "resume" hint) with its input box ready and NO conversation yet: nothing sent, no
+reply, no tool output, and an EMPTY input box. A startup banner with no conversation under
+it is a welcome screen too, even when it is just the agent's name and version line
+followed by its own startup lines (sign-in, plan, a greeting, tips). The card then shows a
+welcome panel whose Resume button types the agent's resume command into that input box, so
+read the input row itself: a greyed placeholder or hint there leaves it empty, while words
+the user typed after the prompt glyph are a draft, and a draft makes it not fresh (Resume
+would send both as one prompt). Once any turn has run, or the agent exited to a shell, it
+is not fresh. Report activity "idle" with it.
 "recent_sessions": only with "fresh", the titles of past sessions that welcome screen
 itself lists as resumable (Claude Code's "Recent activity" rows), each verbatim as shown,
 without its age ("2d ago"), most recent first, at most 5. Omit when it lists none.
