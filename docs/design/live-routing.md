@@ -190,11 +190,11 @@ already ask for, because a send into a live agent cannot be undone:
   question, refuses the send. A pane can still change in the instant between check and
   keystroke, so the result is observed afterwards, and one that cannot be confirmed is
   reported as unconfirmed, never replayed.
-- **Text goes only into an empty composer.** A hand-off appended to a half-typed draft
-  would submit both, so a text send needs the model's read that the input box is empty
-  (or unknown, which means a card), covered by an eval case. Menu answers and keys have
-  no composer; they are guarded by the question they answer, as the card binding above
-  does.
+- **Nothing submits an unseen draft.** Anything that submits the input box (text, an
+  image, an Enter) needs the model's read that the box is empty, covered by an eval case;
+  when that is unknown the send waits or is refused, because a card shows the payload,
+  not a draft nobody has seen. Keys that answer a question are bound to that question;
+  other keys (interrupt, scroll) to the pane's process and state.
 - **Risk tiers still apply.** A plain sentence to one named pane is the fast path only if
   it asks for nothing destructive or outward-facing (a push, a delete), as the
   control-session design specifies; those go through confirmation on every path,
