@@ -1652,6 +1652,12 @@ def test_codex_key_notice_is_answered_by_its_key(monkeypatch):
     assert result["waiting_on"] == "user"
     assert result["question"]["keys"] == ["r", "f"]
     assert result["question"]["answer_style"] == "key"
+    # An old notice above the error that stopped a later turn is not what blocks it now.
+    old = screen.replace("■ This conversation", "  Close it there and press R to continue here."
+                         "\n\n■ Selected model is at capacity", 1).split("\n\n\n  🔒")[0]
+    stale = classify(_pane("codex"), old, notice())
+    assert stale["headline"].startswith("Selected model is at capacity")
+    assert (stale.get("question") or {}).get("answer_style") != "key"
     # A key that is not one key is read as text, which Codex has nowhere to type.
     for bad in ({"keys": ["r"]}, {"keys": ["retry", "f"]}, {"keys": [" ", "f"]}):
         assert "question" not in classify(_pane("codex"), screen, notice(**bad))

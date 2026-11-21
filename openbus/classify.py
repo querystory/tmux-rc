@@ -1625,9 +1625,11 @@ def classify(
     # the turn waits on the user, where no question of its own survived grounding.
     waiting = ("parse_ok" not in result and not result.get("question")
                and result.get("activity") == "waiting" and result.get("waiting_on") != "external")
-    # A key notice the model read below the turn (grounded above) takes the next key, so
-    # no typed ask for the turn above it can be answered.
-    keyed = isinstance(q := result.get("question"), dict) and q.get("answer_style") == "key"
+    # A key notice the model read below the turn (grounded above, and not inside its final
+    # message, so not an old one the turn went on past) takes the next key, so no typed ask
+    # for the turn above it can be answered.
+    keyed = (isinstance(q := result.get("question"), dict) and q.get("answer_style") == "key"
+             and final and not _quoted(_question_prompt(q), final))
     if final and not keyed and (ask := _final_ask(visible, tool, final, offers, waiting)):
         if ask.get("options") == ["try again"]:
             result["headline"] = ask["prompt"]  # A stopped provider error outranks old progress.
