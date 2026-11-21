@@ -157,6 +157,7 @@ class _Meter:
             maxlen=TURNS_KEPT + TURNS_QUEUED + 1)
         self.usage = _LiveUsage(model.rates)
         self.turns = 0
+        self.used: set[str] = set()  # panes an action reached this session (_stale)
         self.started = time.monotonic()
         self._lines: list[str] = []
         # Extra OTel fields a provider adapter wants folded into each record (GPT-Live
@@ -496,12 +497,33 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
     try:
         if known:
             ok, pid = (await _approved(websocket, session, call, watcher, meter, rec)
-                       if meter.text and fc.name in _CONSENT else (True, None))
+                       if fc.name in _CONSENT and (meter.text or _stale(meter, call, watcher))
+                       else (True, None))
             act = _act(websocket, session, call, watcher, meter, rec, ok, pid)
             result = await (_focusing(session, watcher, rec, act) if meter.text else act)
+            if result["status"] == "sent":  # input went in: the window is in the conversation
+                meter.used.add(rec["pane_id"])
     finally:
         _audit_call(meter, fc.name if known else "unknown_tool", result, started, rec)
     await session.send_tool_result(fc, result)
+
+
+STALE_SECONDS = 3600
+
+
+def _stale(meter: _Meter, fc, watcher) -> bool:
+    """Whether a voice action is aimed at a window idle over STALE_SECONDS that is neither on
+    the user's screen nor one this session already reached. It waits for a tap on the text
+    mode's card: a topic match once sent work to a window idle for days, and the prompt's
+    "confirm a long-idle pane" went unheeded. The windows the user is working in stay
+    hands-free."""
+    pane = fc.args.get("pane_id") if isinstance(fc.args, dict) else None
+    pane = pane.strip() if isinstance(pane, str) else pane  # as _dispatch reads it
+    d = next((d for d in watcher.digest() if d["pane_id"] == pane), None)
+    idle = (d or {}).get("idle_seconds")
+    return bool(d and d.get("activity") == "idle" and not d.get("tmux_active")
+                and pane not in meter.used
+                and isinstance(idle, (int, float)) and idle > STALE_SECONDS)
 
 
 # The running action's _focusing hook, which _delivered calls as its delivery shows.
@@ -559,7 +581,8 @@ _REACHED = {"sent", "opened", "already_running"}  # ones that reached a pane
 # The tools that change a pane. In a text session each waits for the user to tap Send on
 # what it would do (the control plane's risk tiers: docs/design/agentic-control-plane.md):
 # a typed request is read and answered, never acted on unasked. find_sessions only reads,
-# so it runs at once. Voice keeps acting directly — a tap would end hands-free use.
+# so it runs at once. Voice keeps acting directly — a tap would end hands-free use — except
+# on a window long idle and out of the conversation (_stale).
 _CONSENT = {"type_in_pane", "press_key", "resume_session", "send_image_to_pane"}
 # Typing a new message while a card waits answers it: the user moved on, so the model is
 # told not to retry and to take the new turn (queued behind this one) instead.

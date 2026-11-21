@@ -502,7 +502,11 @@ sits in `_handle_tool_call`, the one choke point every Live tool call already pa
 through, so no tool can skip it. find_sessions only reads, so it runs at once. This is the
 control plane's risk-tier idea (agentic-control-plane.md) applied at the smallest scale.
 Voice keeps acting directly, because a tap would end hands-free use and the spoken "Typing
-X into Y" announcement is voice's confirmation.
+X into Y" announcement is voice's confirmation. The exception is a window idle over an hour
+that is not on the user's screen and that the session has not reached yet: that action
+waits on the same card. Matching a topic once sent work to a window idle for days, and the
+prompt's own "confirm a long-idle pane" was ignored, so the check moved into code. The
+windows the user is actually working in pass it untouched.
 
 **A card outlives its connection.** Cards used to expire the moment the socket dropped,
 because the daemon's half of a proposal lived in the coroutine waiting on the tap. On a
