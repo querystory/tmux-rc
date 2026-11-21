@@ -7,7 +7,11 @@
     "activity": "waiting",
     "waiting_on": "user",
     "question": {
-      "answer_style": "key"
+      "answer_style": "key",
+      "keys": {
+        "retry": "r",
+        "fork": "f"
+      }
     },
     "headline": "Codex is blocked: the conversation is open in another app"
   }
