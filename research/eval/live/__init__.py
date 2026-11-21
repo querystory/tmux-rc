@@ -21,6 +21,7 @@ import itertools
 import json
 import subprocess
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
@@ -275,6 +276,11 @@ async def replay(fleet: Fleet, steps: list, connect, *, text: bool = False,
             (scratch, "configured", lambda: None),
         ):
             stack.enter_context(mock.patch.object(target, name, value))
+        # The replay's worker threads get a pool of their own, so that all of them can be
+        # waited for without shutting down the caller's.
+        loop, pool = asyncio.get_running_loop(), ThreadPoolExecutor()
+        caller = loop._default_executor  # put back once the pool is drained
+        loop.set_default_executor(pool)
         try:
             async with asyncio.timeout(seconds):
                 query = {"mode": "text" if text else "voice", "session": chat}
@@ -285,9 +291,10 @@ async def replay(fleet: Fleet, steps: list, connect, *, text: bool = False,
                         break
         finally:
             # A cancelled await leaves its worker thread running, one that may not have
-            # reached send-keys yet: every thread finishes, and no new one starts, before the
-            # patches come off, or its Enter could reach the real tmux server.
-            await asyncio.get_running_loop().shutdown_default_executor()
+            # reached send-keys yet: every thread finishes before the patches come off, or
+            # its Enter could reach the real tmux server. They never need the loop to finish.
+            pool.shutdown(wait=True)
+            loop._default_executor = caller
     return trace
 
 
