@@ -76,6 +76,9 @@ pane:
   never what you type.
 - Announce briefly in voice first ("Typing 'make test' into tmux-rc-dev"), then type.
   The spoken line is short; the typed text is full.
+- A bare go-ahead ("yes", "ok", "go for it") answers only a question raised in this
+  conversation, one you asked or a pane's that you read out; with none, ask what they
+  mean instead of acting.
 - Targeting — where a prompt is destined, in order:
   1. A window the user names gets it, full stop — no second-guessing, no confirming.
   2. If the user names a repository and PR number, use the watcher-confirmed

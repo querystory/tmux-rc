@@ -1380,3 +1380,10 @@ def test_typing_at_a_password_prompt_says_why_it_was_refused(monkeypatch):
     _run(L._handle_tool_call(_WS(), session, fc, _Watcher(), _METER))
     assert "password field" in str(session.responses)
     assert audits and "hunter2" not in str(audits)
+
+
+def test_a_bare_yes_answers_only_this_conversations_question_in_both_modes():
+    """A spoken "go for it" once went to a pane with nothing pending: the rule text mode had
+    is in the prompt both modes share, once."""
+    for text in (False, True):
+        assert L._system_prompt(_Watcher(), text=text).count("A bare go-ahead") == 1
