@@ -1380,3 +1380,39 @@ def test_typing_at_a_password_prompt_says_why_it_was_refused(monkeypatch):
     _run(L._handle_tool_call(_WS(), session, fc, _Watcher(), _METER))
     assert "password field" in str(session.responses)
     assert audits and "hunter2" not in str(audits)
+
+
+def test_voice_sends_to_a_long_idle_window_wait_for_a_tap(monkeypatch):
+    """Voice types at once into the window on screen or one idle a minute, but a window idle
+    for hours that the session has not reached waits on the text mode's card; once reached,
+    it is back in the conversation and goes hands-free."""
+    class Idle(_Watcher):
+        def __init__(self, idle):
+            super().__init__()
+            self.idle = idle
+
+        def digest(self):
+            return [{**d, "idle_seconds": self.idle} if d["pane_id"] == "%2" else d
+                    for d in super().digest()]
+
+    meter = L._Meter("s1", "tester", P._DEFAULT[0])
+    shell = _FC(args={"pane_id": "%2", "text": "ls"})
+    assert not L._stale(meter, shell, Idle(60))
+    assert not L._stale(meter, _FC(args={"pane_id": "%1", "text": "x"}), Idle(7200))  # ACTIVE
+
+    class Tap(_WS):
+        async def send_json(self, obj):
+            await super().send_json(obj)
+            if obj["type"] == "propose":
+                client = _ScriptedWS([{"action": "approve", "id": obj["id"], "ok": True},
+                                      {"action": "stop"}])
+                await L._forward_client(client, None, meter)
+
+    typed = []
+    monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append(a))
+    monkeypatch.setattr(L.telemetry, "emit_action", lambda **k: None)
+    ws = Tap()
+    for _ in range(2):
+        _run(L._handle_tool_call(ws, _Session(), shell, Idle(7200), meter))
+    assert [m["type"] for m in ws.sent].count("propose") == 1  # the second went hands-free
+    assert typed == [("%2", "ls", True, True)] * 2
