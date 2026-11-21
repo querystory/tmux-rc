@@ -179,6 +179,7 @@ class Phone:
         self.changed = asyncio.Event()
         self.up = self.dropped = False
         self.owed, self.card = 0, None  # turns not yet complete; the card up on this socket
+        self.held = None  # the card the newest turn superseded
 
     async def accept(self) -> None:
         pass
@@ -193,8 +194,10 @@ class Phone:
         self.trace.frames.append({**frame, "_turn": self.trace.turn - late})
         if frame.get("status") == "listening":  # a reconnect drops the turn it was in
             self.up, self.owed = True, 0
-        elif frame["type"] == "turn_complete" or frame.get("refused"):  # a refused turn ends
+        elif frame["type"] == "turn_complete":
             self.owed = max(0, self.owed - 1)
+        elif frame.get("refused"):  # the turn ends unsent, and the card it superseded stays
+            self.owed, self.card = max(0, self.owed - 1), self.held
         elif frame["type"] == "propose":
             self.card = frame["id"]
         elif frame["type"] == "decided" and frame.get("id") == self.card:
@@ -216,7 +219,8 @@ class Phone:
                 raise WebSocketDisconnect(1006)
             if isinstance(step, str):
                 self.trace.turn += 1
-                self.owed, self.card = self.owed + 1, None  # a new turn supersedes a card
+                # A new turn supersedes a card, unless it is refused (held till then).
+                self.owed, self.held, self.card = self.owed + 1, self.card, None
                 return {"action": "text", "text": step}
             if step["action"] == "approve":
                 step = {"id": self.trace.of("propose")[-1]["id"], **step}

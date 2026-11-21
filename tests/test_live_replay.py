@@ -156,6 +156,6 @@ def test_a_turn_that_supersedes_a_card_gets_its_own_reply():
     assert (trace.reply(1), trace.reply(2)) == ("first", "second")
 
 
-def test_a_refused_turn_ends_and_the_next_one_plays():
-    trace, script, _ = _play([["next"]], ["x" * 100_000, "and now?"])
-    assert script.heard == ["and now?"] and trace.reply(2) == "next"
+def test_a_refused_turn_ends_and_leaves_the_card_it_would_have_superseded():
+    trace, script, _ = _play([[_relay("%3")]], [ASK, "x" * 100_000, approve()], text=True)
+    assert script.heard == [ASK] and len(trace.keys) == 2
