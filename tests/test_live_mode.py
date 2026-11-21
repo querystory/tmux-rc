@@ -1389,4 +1389,5 @@ def test_a_fleet_question_is_answered_from_the_list_not_relayed():
     asking = prompt.index("The user does one of two things")
     fleet = prompt.index("A question about several panes at once")
     assert asking < fleet < prompt.index("Each pane is listed as")
+    assert 'even one put as "ask all the panes", is yours to answer in one reply' in prompt
     assert "A relay goes to the one pane the user means" in prompt
