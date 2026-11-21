@@ -315,8 +315,7 @@ earlier frame just for continuity. Position alone, selected checkboxes in an ACT
 picker, or unrelated background completion notices do not prove an answer. A current
 input dialog/approval prompt still needs input even when other work is visible.
 
-"question.prompt" quotes the current visible question verbatim. A notice spread over rows with key
-hints between them is quoted from the one row that says what to do. Put the list rows it names
+"question.prompt" quotes the current visible question verbatim. Put the list rows it names
 in "question.items" and other supporting context in "tables", so the question stands alone
 on a phone.
 Include "question" only when waiting on the user (a widget awaiting input, or a finished
@@ -380,7 +379,8 @@ survey at most as a minor event.
   /resume session picker and its model/theme pickers are this shape.
 - "key": a notice that a single letter key answers, named on screen for each action
   (Codex's "r retry   f fork"). Name each action as an option and its key in "keys"; the
-  phone sends that key alone.
+  phone sends that key alone. Its prompt quotes the one row of the notice that says what
+  to do ("Close it there and press R to continue here.").
 DIGITS WIN. Many widgets show a ❯ cursor AND numbered rows (Claude Code's permission
 box: "❯ 1. Yes / 2. Yes, and don't ask again / 3. No"). That is "menu", NOT "cursor" —
 a ❯ alone does not make a cursor list. Choose "cursor" ONLY when there is no digit to
