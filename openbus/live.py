@@ -925,11 +925,21 @@ def _not_theirs(meter: _Meter, text: str) -> bool:
     if not colon or not label.startswith("From the user"):
         return False
     own, _, note = said.partition("(assistant's note")
-    if not note.rstrip().endswith(")"):  # a note ends the relay; anything after is checked
+    if not _closes_last(note):  # a note ends the relay; anything after it is checked
         own = said
     words = _words(own)
     heard = {*_words("".join(meter.heard)), *_words(" ".join(meter.heard))}
     return sum(w in heard for w in words) < HEARD_SHARE * len(words)
+
+
+def _closes_last(text: str) -> bool:
+    """Whether the parenthesis already open before `text` closes at its very end."""
+    depth = 1
+    for i, ch in enumerate(text):
+        depth += (ch == "(") - (ch == ")")
+        if depth == 0:
+            return not text[i + 1:].strip()
+    return False
 
 
 def _typed(args: dict) -> tuple[str, bool] | None:
