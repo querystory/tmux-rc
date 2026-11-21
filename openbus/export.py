@@ -437,7 +437,7 @@ def restore(src) -> list[str]:
         owner = _owners([(p, n) for n, p in where.items()] + [
             (d, f"agents/{d.name}" if d.parent == Path(home) else None) for d in _agent_dirs()]
             + [(b.with_name(b.name + s), "history.sqlite3") for b in (db, db.resolve())
-               for s in ("-wal", "-shm")])
+               for s in ("-wal", "-shm")] + [(live_record.root(), None)])  # never the archive's
         keep = sorted(owner, key=lambda p: len(p.parts))
         # as named, through linked dirs, and itself resolved: a place nests in a swap however
         # it is reached; outermost first: a dir kept carries what is kept inside it
