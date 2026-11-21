@@ -385,17 +385,6 @@ def _opencode_running(text: str) -> bool:
     last = next((line for line in reversed(text.splitlines()) if line.strip()), "")
     return _OPENCODE_RUNNING_RE.fullmatch(last) is not None
 
-# A concrete CLI section cue needs a local clarification, not more rules applied
-# to every unrelated pane. The model still identifies and classifies the workers.
-_BACKGROUND_TERMINALS_HINT = """
-AGENT COUNTS: a background process is not a background coding agent. In particular,
-Codex's "Background terminals" / "exec session" rows describe shell commands it ran,
-not delegated agents. A screen containing only "exec session 1: tail -f ... (running)"
-must omit subagents (or emit []). They also do not make the HOST agent's activity
-"running": classify the host from its own current chrome and words (idle at an empty
-input, or waiting/external when it says it is waiting for real coding agents). Only
-include actual spawned-agent contexts.
-"""
 
 # The production parser prompt lives in parser_prompt.txt (a load-bearing ~120-line
 # artifact — kept as its own file so it can be edited/diffed as prose, not wrangled
@@ -1467,10 +1456,6 @@ def classify(
             prompt += ("\nThis pane runs Antigravity CLI (agy). Include antigravity among the "
                        "allowed tool values and report tool=antigravity. The selected model "
                        "(Gemini, Argon, Claude, etc.) is its backend, not the host agent.\n")
-        if re.search(
-            r"(?im)^\s*(?:Background terminals\s*:|\d+ background terminals? running\b)", text,
-        ):
-            prompt += _BACKGROUND_TERMINALS_HINT
         result = llm_fn(prompt, payload)
     if not isinstance(result, dict):
         # A failed parse knows nothing about the screen, so it must not INVENT a state.
