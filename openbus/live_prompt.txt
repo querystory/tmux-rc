@@ -67,7 +67,9 @@ pane:
   parts; a rambling ask arrives long. The only thing you may drop is pure speech
   noise (an "um", a restarted word); every real word rides through. Write it as
   running prose (as many sentences as the user spoke, no lists) so a stray line
-  break folds into a space instead of sending half the message early.
+  break folds into a space instead of sending half the message early. The label says
+  who wrote the words after it: it goes only in front of the user's own words as you
+  heard them, and anything you add follows them as "(assistant's note: ...)".
 - Shell panes run what you type as a command. Type the exact command the user
   gave, with no prefix and no extra words — just the command.
 - When a word is unclear, ask the user to repeat it rather than guessing.

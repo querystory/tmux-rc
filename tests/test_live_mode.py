@@ -1380,3 +1380,25 @@ def test_typing_at_a_password_prompt_says_why_it_was_refused(monkeypatch):
     _run(L._handle_tool_call(_WS(), session, fc, _Watcher(), _METER))
     assert "password field" in str(session.responses)
     assert audits and "hunter2" not in str(audits)
+
+
+def test_a_relay_labelled_as_the_users_must_carry_their_words(monkeypatch):
+    """Agents take "From the user" as the user's authority, so a voice relay under that label
+    carries words the user said (a streamed transcript's fragments rejoined), and the model's
+    own wording rides only under its own label. Unlabelled text, and text mode, which shows
+    every send on a card, are not checked."""
+    meter = L._Meter("s1", "tester", P._DEFAULT[0])
+    for part in ["rebase onto ma", "in, then", " um merge it"]:
+        _run(L._transcript(_WS(), meter, "user", part))
+    said = "From the user (via voice): rebase onto main, then merge it."
+    brief = ("From the user (via voice): please merge the pull request if it is still approved "
+             "and report its review status and queue position")
+    noted = said + " (assistant's note: it was approved an hour ago)"
+    for text, sent in [(said, True), (brief, False), (noted, True), ("make test", True)]:
+        _, _, session, typed = _dispatch(_FC(args={"pane_id": "%1", "text": text}),
+                                         monkeypatch, meter=meter)
+        assert bool(typed) is sent, text
+        assert sent or "not the user's words" in session.responses[0][1]["reason"]
+    chat = L._Meter("s1", "tester", P._DEFAULT[0], text=True)
+    fc = _FC(args={"pane_id": "%1", "text": brief})
+    assert _run(L._dispatch(_WS(), None, fc, _Watcher(), {}, meter=chat))["status"] == "sent"
