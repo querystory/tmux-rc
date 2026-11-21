@@ -507,9 +507,8 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
                        if meter.text and fc.name in _CONSENT else (True, None))
             act = _act(websocket, session, call, watcher, meter, rec, ok, pid)
             result = await (_focusing(session, watcher, rec, act) if meter.text else act)
-            pane = result.get("pane_id") or rec.get("pane_id")
-            if result["status"] in _REACHED and pane and request is not None:
-                meter.reached.setdefault(request, pane)
+            if result["status"] == "sent" and request is not None:  # input went in
+                meter.reached.setdefault(request, rec["pane_id"])
                 if len(meter.reached) > REQUESTS_KEPT:
                     del meter.reached[next(iter(meter.reached))]
     finally:
