@@ -1326,7 +1326,7 @@ def send_keys(
                     j = len(b)
                 else:
                     check_pane(pane_id, identity)
-                    _run(["send-keys", "-t", pane_id, "-l", b[i:j].decode()])
+                    _run(["send-keys", "-t", pane_id, "-l", _literal(b[i:j].decode())])
                 # Per chunk, not once at the end: if a later chunk raises, the bytes
                 # already delivered are in the pane and a paste really did happen, so a
                 # Return arriving after that failure still has a burst to clear. Stamping

@@ -147,8 +147,9 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
              "first on its status bar, before the model (see TOOL above)",
   "working": {"verb": "...", "elapsed": "...", "tokens": "..."},
   "tables": [{"title": "optional caption", "headers": ["col", ...], "rows": [["cell", ...], ...]}],
-  "question": {"prompt": "...", "options": ["..."], "answer_style": "text"|"menu"|"cursor",
+  "question": {"prompt": "...", "options": ["..."], "answer_style": "text"|"menu"|"cursor"|"key",
                "selected": <int|null>,   // cursor style: index of the ❯-highlighted option
+               "keys": ["r"],   // key style: each option's one key, in order
                "free_text": <int>,   // index of an option that only opens the agent's own free-text field
                "items": ["1. ..."],   // when it names rows of a list above it ("do 1 and 2?", "A or B?"): exactly the rows it names
                "subject": "...",   // with "items": the heading or lead-in line just above that list
@@ -376,6 +377,10 @@ survey at most as a minor event.
   inverse/colored row — and the rows carry NO digits. Nothing you can type picks a row
   here: a digit and the row's text both land in the picker's search box. Claude Code's
   /resume session picker and its model/theme pickers are this shape.
+- "key": a notice that a single letter key answers, named on screen for each action
+  (Codex's "r retry   f fork"). Name each action as an option and its key in "keys"; the
+  phone sends that key alone. Its prompt quotes the one row of the notice that says what
+  to do ("Close it there and press R to continue here.").
 DIGITS WIN. Many widgets show a ❯ cursor AND numbered rows (Claude Code's permission
 box: "❯ 1. Yes / 2. Yes, and don't ask again / 3. No"). That is "menu", NOT "cursor" —
 a ❯ alone does not make a cursor list. Choose "cursor" ONLY when there is no digit to
