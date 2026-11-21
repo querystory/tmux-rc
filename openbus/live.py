@@ -156,6 +156,7 @@ class _Meter:
             maxlen=TURNS_KEPT + TURNS_QUEUED + 1)
         self.usage = _LiveUsage(model.rates)
         self.turns = 0
+        self.heard: deque[str] = deque(maxlen=400)  # the user's recent transcript (_not_theirs)
         self.started = time.monotonic()
         self._lines: list[str] = []
         # Extra OTel fields a provider adapter wants folded into each record (GPT-Live
@@ -867,6 +868,10 @@ async def _dispatch(
     rec["pane_id"] = pane_id
     if send_args is None:
         return {"status": "rejected", "reason": "malformed call"}
+    if fc.name == "type_in_pane" and meter and not meter.text and _not_theirs(meter, what):
+        return {"status": "rejected", "reason": (
+            "not the user's words as transcribed: after the label send what they said, "
+            "and put your own wording in an (assistant's note: ...) instead")}
 
     from .server import _input_attempt  # noqa: PLC0415 - server imports this module
 
@@ -902,6 +907,24 @@ async def _dispatch(
     if session is not None:  # none for a resumed card (_resume)
         _background(asyncio.create_task(refresh()))
     return _sent(label)
+
+
+# How much of a relay labelled as the user's must be words they said: speech noise may drop out
+# and a misheard word may be fixed, but a brief the model wrote is not theirs.
+HEARD_SHARE = 0.8
+
+
+def _not_theirs(meter: _Meter, text: str) -> bool:
+    """Whether a voice relay labelled "From the user" carries words the user didn't say. Agents
+    take that label as the user's authority, and a voice backend that sees only a handoff
+    once sent its own briefs under it. What follows an "(assistant's note" is the model's by
+    its own label. Fragments are joined both ways, since some providers stream words split."""
+    label, colon, said = text.strip().partition(":")
+    if not colon or not label.startswith("From the user"):
+        return False
+    words = _words(said.partition("(assistant's note")[0])
+    heard = {*_words("".join(meter.heard)), *_words(" ".join(meter.heard))}
+    return sum(w in heard for w in words) < HEARD_SHARE * len(words)
 
 
 def _typed(args: dict) -> tuple[str, bool] | None:
@@ -1325,6 +1348,8 @@ async def _transcript(websocket: WebSocket, meter: _Meter, role: str, text: str,
     if telemetry.QSDEBUG:  # content reaches the journal under the same flag as OTel
         logger.info("[live] %s: %s", role, text)
     meter.note(f"{role}: {text}")
+    if role == "user":
+        meter.heard.append(text)
     await websocket.send_json({"type": "transcript", "role": role, "text": text, **extra})
 
 
