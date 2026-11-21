@@ -50,16 +50,18 @@ where a send leaves the daemon:
   a spoken turn, and a tool result can start another completion for the same request, so
   the count is keyed to the user's input turn, not to completions. Where that identity
   is unavailable, a send goes through the card rather than guessing;
-- a send to a pane idle for more than about an hour goes through the approval card text
-  mode already has, instead of typing straight in. Three things the card does not do yet
+- a send to a pane idle or waiting for more than about an hour (an agent parked on the
+  same question for days is waiting, not idle), or whose age is unknown, goes through
+  the approval card text mode already has, instead of typing straight in. Three things the card does not do yet
   are prerequisites in voice: waiting on it must not stall the provider's event stream; a
   spoken correction must supersede a pending card, as a typed message already does; and
   the card must be bound to what the pane showed when it was proposed, not only to its
   process, so a pane that moved on to a different question refuses the send instead of
   taking it as an answer;
 - the bare-"yes" rule moves into the shared prompt, so voice and text say the same thing;
-- a fleet question is answered from the pane list, and no relay asks an agent to contact
-  other panes;
+- a fleet question is answered from the pane list when the list holds the evidence, and
+  says what it does not know otherwise (the list carries each pane's associations, not a
+  complete account of the user's PRs); no relay asks an agent to contact other panes;
 - an instruction relayed as the user's must be the user's words for that request. When
   the daemon cannot match it against that request's transcript (a paraphrase, or a
   transcript that has not arrived yet), the send needs the card. Relabelling alone is
@@ -139,7 +141,8 @@ The controller also sends to other panes, through the daemon's verbs, and those 
 need gating too, or fan-out moves one hop down. But (a)'s one-pane limit cannot apply
 as is, since dispatching to several panes is the point: the hand-off to the controller
 does not count as a destination, and a plan that touches more than one pane is shown
-as one card listing its targets, approved once, and bounded to those targets. As with
+as one card listing its targets and what each receives, approved once; a deviation needs
+a new card. As with
 any agent, a controller that calls tmux directly is outside the gates; its charter
 forbids that, which is a convention, not a boundary.
 
@@ -174,6 +177,27 @@ conversation at a few seconds per step, without a separate pane. It would replac
 managed delegation that GPT-Live is built around, so it is a larger change than it looks,
 and it still cannot run long multi-step work. It is the fallback if the controller's
 latency proves too slow for voice.
+
+## What every send keeps
+
+Whichever option routes, the send itself keeps the guarantees the existing designs
+already ask for, because a send into a live agent cannot be undone:
+
+- **Delivery rechecks the target.** The pane's process, agent and screen at delivery must
+  be the ones the decision was made on, for direct sends as well as carded ones; a pane
+  that exited to a shell, or moved on to a new question, refuses the send.
+- **Only into an empty composer.** A hand-off appended to a half-typed draft would submit
+  both, so the parser's evidence that the input box is empty is rechecked with the screen
+  just before typing.
+- **Risk tiers still apply.** A plain sentence to one named pane is the fast path only if
+  it asks for nothing destructive or outward-facing (a push, a delete), as the
+  control-session design specifies; those go through confirmation on every path,
+  fallbacks included.
+- **Approval is for what was shown.** A card binds the concrete action, text and target
+  it displayed; anything different, added, or riskier needs a fresh card.
+- **No silent waits.** A hand-off has a deadline. Past it, the user hears that the outcome
+  is unconfirmed, the request is not replayed, and the controller stays unavailable until
+  it shows ready again.
 
 ## Tradeoffs at a glance
 
