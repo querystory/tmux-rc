@@ -917,12 +917,17 @@ HEARD_SHARE = 0.8
 def _not_theirs(meter: _Meter, text: str) -> bool:
     """Whether a voice relay labelled "From the user" carries words the user didn't say. Agents
     take that label as the user's authority, and a voice backend that sees only a handoff
-    once sent its own briefs under it. What follows an "(assistant's note" is the model's by
-    its own label. Fragments are joined both ways, since some providers stream words split."""
+    once sent its own briefs under it. An "(assistant's note: ...)" that ends the relay is the
+    model's by its own label. Whether the words keep the user's meaning is the model's
+    judgement; this only checks whose words they are. Fragments are joined both ways, since
+    some providers stream words split."""
     label, colon, said = text.strip().partition(":")
     if not colon or not label.startswith("From the user"):
         return False
-    words = _words(said.partition("(assistant's note")[0])
+    own, _, note = said.partition("(assistant's note")
+    if not note.rstrip().endswith(")"):  # a note ends the relay; anything after is checked
+        own = said
+    words = _words(own)
     heard = {*_words("".join(meter.heard)), *_words(" ".join(meter.heard))}
     return sum(w in heard for w in words) < HEARD_SHARE * len(words)
 

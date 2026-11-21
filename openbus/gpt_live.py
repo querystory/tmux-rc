@@ -325,15 +325,9 @@ class Session:
                 # Display grouping only: never use transcript timing to trigger tools.
                 new = start - self.caption_end.get(role, start) > 1500
                 self.caption_end[role] = event.get("end_ms", start)
-                self.meter.note(role + ": " + event["delta"])
-                await self.browser.send_json(
-                    {
-                        "type": "transcript",
-                        "role": role,
-                        "text": event["delta"],
-                        "new_segment": new,
-                    }
-                )
+                await live._transcript(  # noqa: SLF001 - shared Live adapter internals
+                    self.browser, self.meter, role, event["delta"], new_segment=new,
+                    start_ms=start, end_ms=self.caption_end[role])
             elif kind == "response.event":
                 nested = event.get("event", {})
                 delegation = event.get("delegation_id")
