@@ -27,7 +27,7 @@ from pathlib import Path
 
 from dotenv import dotenv_values
 
-from . import accounts, config, history, push
+from . import accounts, config, history, live_record, push
 
 FORMAT = 2
 DONE = "complete"  # the archive's last member
@@ -134,7 +134,7 @@ def _entries(parts=PARTS):
         (p.resolve(), str(p)) for p in logins[1:] if p.is_symlink()  # not another login
         and p.resolve() not in {q.resolve() for q in logins if not q.is_symlink()}] + [
         (b.with_name(b.name + s), None) for b in (db, db.resolve())  # snapshotted
-        for s in ("", "-wal", "-shm")])
+        for s in ("", "-wal", "-shm")] + [(live_record.root(), None)])  # the user's voice: never
     inodes = {_inode(p) for p in logins} - {None}  # a login's other names: the login's too
     for part, name, at in _roots():
         root = at.resolve()  # a linked root: what it links to
