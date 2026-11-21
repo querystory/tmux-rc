@@ -190,11 +190,12 @@ already ask for, because a send into a live agent cannot be undone:
   question, refuses the send. A pane can still change in the instant between check and
   keystroke, so the result is observed afterwards, and one that cannot be confirmed is
   reported as unconfirmed, never replayed.
-- **Nothing submits an unseen draft.** Anything that submits the input box (text, an
-  image, an Enter) needs the model's read that the box is empty, covered by an eval case;
-  when that is unknown the send waits or is refused, because a card shows the payload,
-  not a draft nobody has seen. Keys that answer a question are bound to that question;
-  other keys (interrupt, scroll) to the pane's process and state.
+- **Nothing touches an unseen draft.** Typing into the input box (text or an image)
+  needs the model's read that the box is empty, covered by an eval case, and a separate
+  Enter submits only a draft that is fully on screen, unchanged, and what this request
+  put there. When the box's state is unknown the send waits or is refused, because a card
+  shows the payload, not a draft nobody has seen. Keys that answer a question are bound
+  to that question; other keys (interrupt, scroll) to the pane's process and state.
 - **Risk tiers still apply.** A plain sentence to one named pane is the fast path only if
   it asks for nothing destructive or outward-facing (a push, a delete), as the
   control-session design specifies; those go through confirmation on every path,
