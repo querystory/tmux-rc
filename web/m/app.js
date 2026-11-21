@@ -1982,7 +1982,7 @@ function answerOptions(question, pane) {
 const isCommand = (offer) => offer.startsWith("! ");
 // What makes a question the same ask: its prompt, context, items and subject, and its options unless
 // it is a cursor list, whose walk redraws them (a long list scrolls) under one prompt.
-const questionKey = (q) => JSON.stringify([q?.prompt, q?.context, q?.items, q?.subject, q?.answer_style === "cursor" ? null : q?.options]);
+const questionKey = (q) => JSON.stringify([q?.prompt, q?.context, q?.items, q?.subject, q?.answer_style === "cursor" ? null : q?.options, q?.keys]);
 // The tapped answer while its question is still the one on the card, else null. Once the
 // pane shows another question, or none, the answer has landed and is forgotten; a sent
 // offer, once the pane's state has moved on (a question-less turn keeps the same key).
