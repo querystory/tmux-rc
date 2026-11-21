@@ -17,7 +17,9 @@ changes across versions and tools):
 - Is the pane actively working (a spinner, a "thinking" word, an elapsed timer,
   streaming output), waiting on the user (a question, or a finished turn whose final
   message asks them to act or decide), or idle at a prompt? A past-tense duration with
-  a clock time marks a finished turn, not a live spinner.
+  a clock time marks a finished turn, idle or waiting by its final message, even when the
+  stamp goes on to list shells still running in the background ("· 1 shell still running",
+  however it wraps), while a live spinner row with a running timer is the turn still going.
 - Is the agent COMPACTING — busy summarizing/condensing its own conversation history
   to reclaim context window (a "Compacting conversation…" progress bar, a /compact
   command running, an "auto-compact"/"summarizing previous conversation" indicator)?
@@ -37,7 +39,10 @@ whatever ran above has EXITED — banners, menus, "Press Enter to continue", que
 even agent chrome above that prompt are finished history, never a live waiting state
 (welcome screen + "Resume this session with: …" + fresh prompt = the agent exited; the
 pane is an idle shell). Distinct from an agent shelling out, where output appears under
-the agent's still-live chrome with no bare prompt returned to the user.
+the agent's still-live chrome with no bare prompt returned to the user. What the user did after a finished turn answers it: a ❯ message they
+sent starts a newer turn, whose final message is the one that counts, and a "! command" row
+is them running that command in Claude Code's bash mode: it is sent, so that command needs
+no offer or send; read the activity from what follows it.
 A finished turn (its stamp above the agent's own EMPTY input box, a bare ❯/› line, often
 with "-- INSERT --") is what its final message leaves the user: a message that waits on
 them — a question, a decision, 'say X and I'll…', 'tell me when that's run', "your call:"

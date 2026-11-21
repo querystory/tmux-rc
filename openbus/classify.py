@@ -64,12 +64,6 @@ _CHECKLIST_LINE_RE = re.compile(
     r"(?im)^[ \t│├└─|+*-]*(?:(?P<done>☑|✓|✔|\uf14a|\[[x✓]\])|☐|\uf096|\[[ •]\])"
     r"[ \t]*(?P<text>\S.*)$",
 )
-_OPENCODE_RUNNING_RE = re.compile(
-    # OpenCode 1.18's spinner is ■/⬝ blocks, or "[⋯]" with animations off; a first Esc
-    # press turns the label into "esc again to interrupt".
-    r"^[ \t]*(?:[▰▱▮▯■⬝□▪▫█▓▒░]+|\[⋯\])[ \t]+esc[ \t]+(?:again[ \t]+to[ \t]+)?interrupt[ \t]*$",
-    re.IGNORECASE | re.MULTILINE,
-)
 _CLAUDE_TURN_RE = re.compile(
     # Claude Code's turn status row: a live spinner ("✶ Befuddling… (1m 7s · ↓ 2k tokens)")
     # or the finished stamp ("✻ Worked for 40s · done 4:47 AM · 1 shell still running").
@@ -79,14 +73,6 @@ _CLAUDE_TURN_RE = re.compile(
     r"(?:(?P<live>…[ \t]*\((?:\d+[hms]|esc to interrupt))| for \d+[hms][\dhms ]*(?:[·│]|$))",
     re.MULTILINE,
 )
-# Codex's live status row: "Working (2m 32s • esc to interrupt)", and the same row while its
-# own reviewer weighs an approval: "Reviewing approval request (17m 00s • esc to interrupt)".
-# Unindented, its elapsed time, and nothing under it but its own detail rows (└ the command,
-# ↳ a queued message) above the input row. Codex hides it while a menu waits on the user,
-# so under it nothing is asking.
-_CODEX_LIVE_RE = re.compile(
-    r"^(?:• )?\w[^\n(]*\(\d+[hms](?: \d+[hms])* • esc to interrupt\).*"
-    r"(?=(?:\n(?:[ \t]+[└↳⌥].*|[ \t]*))*\n[ \t]*›)", re.MULTILINE)
 # A provider error that aborted the turn, per tool: Codex's "■ Selected model is at
 # capacity…" (not its "■ Conversation interrupted"), Claude Code's "⎿ API Error: 529 …".
 _TURN_ERROR_RE = {
@@ -105,17 +91,6 @@ _BASH_ROW_RE = re.compile(r"^[ \t│]*! +\S", re.MULTILINE)
 # Claude's input box: its top rule (flat, or framed from a ╭ corner), then its prompt row
 # (❯, or "!" in bash mode).
 _INPUT_BOX_RE = re.compile(r"^[ \t]*╭?[─━]{3,}.*\n[ \t│]*[❯!]", re.MULTILINE)
-
-
-def _spent(visible: str, turn: re.Match | None) -> bool:
-    """Whether a command run in bash mode below Claude's finished turn spent what that turn
-    asked or offered (a sent offer above all), however the command is doing. Not once a ❯
-    row with text follows (a newer prompt, or a dialog's cursor row); the input box's
-    unsent draft is neither."""
-    if not turn or turn["live"]:
-        return False
-    after = _below_turn(visible, turn.end())
-    return bool(_BASH_ROW_RE.search(after)) and not _USER_ROW_RE.search(after)
 
 
 def _below_turn(visible: str, end: int) -> str:
@@ -380,10 +355,6 @@ def _checklist_text(text: str) -> str:
     return " ".join(text.split()).casefold()
 
 
-def _opencode_running(text: str) -> bool:
-    """Recognize OpenCode's live interrupt row, not an older row in scrollback."""
-    last = next((line for line in reversed(text.splitlines()) if line.strip()), "")
-    return _OPENCODE_RUNNING_RE.fullmatch(last) is not None
 
 # A concrete CLI section cue needs a local clarification, not more rules applied
 # to every unrelated pane. The model still identifies and classifies the workers.
@@ -622,17 +593,12 @@ def _supported_question(question, text: str, tool, pane: Pane) -> bool:
     if tool == "shell" and _answered_prompt(question, visible):
         return False
     # The user's own turn or draft (a ❯/› row) or a gutter-numbered file line is not the
-    # agent asking; a live spinner below the text means the agent is working again; and a
-    # finished turn's question followed by typed input has been answered.
+    # agent asking.
     idle_box = _EMPTY_INPUT_RE.search(visible)
     row = found and visible.rfind("\n", 0, found.start()) + 1
     return found is not None and not (
         (idle_box and found.start() > idle_box.start())
         or _NOT_ASKING_ROW_RE.match(visible[row:])
-        or any(turn["live"] or _USER_ROW_RE.search(_below_turn(visible, turn.end()))
-               for turn in (_CLAUDE_TURN_RE.finditer(visible, found.end())
-                            if tool == "claude" else ()))
-        or (tool == "codex" and _CODEX_LIVE_RE.search(visible, row))  # the prompt's own row too
     )
 
 
@@ -1447,7 +1413,7 @@ def classify(
     = events already reported (so the model doesn't repeat them). `prev_activity` is the
     pane's last classified activity, held onto when the parse fails (see below). `reply`
     is the agent's last message from its transcript, whose code blocks become copyables;
-    `turn_live` whether Codex's rollout has a turn open (transcript.codex_turn_live).
+    `turn_live` whether Codex's rollout has its turn open (transcript.turn_live).
     Returns the model's JSON with pane_id/label merged in; on no/failed LLM a minimal
     heuristic dict."""
     visible = _visible(text)
@@ -1541,9 +1507,6 @@ def classify(
         result["tasks"] = validated
     if result.get("tasks") == []:
         result.pop("tasks")
-    # Apply authoritative live chrome AFTER a bounded retry can replace activity.
-    if result.get("tool") == "opencode" and _opencode_running(text):
-        result["activity"] = "running"
     # omp's title is its run state (title-generator.ts), and the title is itself a read,
     # so it stands even after a failed parse. "π >": the turn is over, so job rows still on
     # screen are finished history, and so are its workers (any omp still tracks stay
@@ -1569,34 +1532,9 @@ def classify(
     elif state and result.get("activity") != "compacting":
         result["activity"] = "running"
         result.pop("parse_ok", None)
-    # Claude's turn is read on the ask view: a long final message, its stamp and a bash
-    # row that spent it may all sit above the viewport (tmux.VIEWPORT_ROWS).
+    # Claude's final message is read on the ask view: a long one begins above the viewport.
     view = _ask_view(text) if result.get("tool") == "claude" else visible
-    *_, turn = [None, *_CLAUDE_TURN_RE.finditer(view)]
-    # Either row is itself a read of the screen, so it stands even after a failed parse.
-    spent = result.get("tool") == "claude" and _spent(view, turn)
-    if spent:
-        # A quota notice under that row stands, when this read (not a carried one) saw it.
-        if result.get("activity") != "quota_blocked" or "parse_ok" in result:
-            result["activity"] = "idle"
-        result.pop("question", None)
-        result.pop("parse_ok", None)
-    elif result.get("tool") == "claude" and turn:
-        if turn["live"] and result.get("activity") in (None, "idle", "unknown"):
-            result["activity"] = "running"
-            result.pop("parse_ok", None)
-        elif (not turn["live"] and result.get("activity") == "running"
-              and not _USER_ROW_RE.search(view, turn.end())):  # no newer turn began
-            result["activity"] = "idle"  # The turn is over; background shells don't count.
-            result.pop("parse_ok", None)
-    # Codex's live row is a read too: a user wait with no question under it, or an ask the
-    # re-read could not place, is its turn running. A finished turn's "idle" stands.
-    if (result.get("tool") == "codex" and result.get("activity") in ("waiting", "unknown", None)
-            and not result.get("question") and result.get("waiting_on") != "external"
-            and _CODEX_LIVE_RE.search(visible)):
-        result["activity"] = "running"
-        result.pop("parse_ok", None)
-    # So is a turn Codex's own rollout has open: its "Working" row hides while a message
+    # A turn Codex's own rollout has open is running: its "Working" row hides while a message
     # prints mid-turn, which reads as a finished turn on screen. A failed parse stays one,
     # to be retried: the open turn may be waiting on an approval the parse missed.
     if (result.get("tool") == "codex" and turn_live and not result.get("question")
@@ -1608,9 +1546,7 @@ def classify(
     # typed after it, so a live menu (whose ❯/› rows would count as typed) is ruled out.
     tool = result.get("tool")
     blocked = result.get("activity") == "quota_blocked"  # its ask already dropped (_unblocked_ask)
-    over = spent or blocked
-    # Claude's final message is read on the ask view: a long one begins above the viewport.
-    final = not over and tool in _TURN_ERROR_RE and _final_message(view, tool)
+    final = not blocked and tool in _TURN_ERROR_RE and _final_message(view, tool)
     # Only Claude Code's finished turn hands a command over as `! command`; a "!" row in a
     # running turn's tool output or another program is bash's own. In auto mode, where the
     # agent stops only when it needs the user, its handoff row is the turn's ask (_final_ask);
@@ -1619,7 +1555,7 @@ def classify(
     copied = [c.get("text") for c in cps if isinstance(c, dict)] if (
         isinstance(cps, list) and tool == "claude" and final
         and claude_mode(visible) == "auto mode") else []
-    if (offers := screen_offers(result.pop("offers", None), text, copied)) and not over:
+    if (offers := screen_offers(result.pop("offers", None), text, copied)) and not blocked:
         result["offers"] = offers = [_from_reply(offer, reply) for offer in offers]
     # The model's own read of this screen (not an activity carried over a failed parse) that
     # the turn waits on the user, where no question of its own survived grounding.

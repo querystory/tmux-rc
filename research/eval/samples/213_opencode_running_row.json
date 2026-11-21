@@ -1,0 +1,10 @@
+{
+  "description": "Synthetic: OpenCode mid-turn. Its spinner row ('■■⬝⬝⬝⬝ esc interrupt') at the bottom of the screen marks the turn as still going, under the composer and its footer: running.",
+  "current_command": "opencode",
+  "capture": "Renaming the `qty` field to `quantity` across the pantry API.\n\n← Edit src/pantry/models.py\n  12 -    qty: int\n  12 +    quantity: int\n\n← Edit src/pantry/routes.py\n\n▣  Build · GPT-6 · 21.4s\n\n┃\n┃\n┃  Build · GPT-6 · OpenAI                                          ~/src/pantry:rename-qty\n╹━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n /home/example/src/pantry          24.1K (3%) · $0.11   ctrl+p commands   • OpenCode 1.18.32\n\n■■⬝⬝⬝⬝ esc interrupt",
+  "expected": {
+    "tool": "opencode",
+    "activity": "running",
+    "question": null
+  }
+}
