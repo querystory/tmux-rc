@@ -42,6 +42,14 @@ def test_small_literal_one_call(monkeypatch):
     assert calls == [["send-keys", "-t", "%1", "-l", "yes"]]
 
 
+def test_literal_ending_in_semicolon_is_typed(monkeypatch):
+    # tmux reads an argument ending in ";" as its command separator, which types nothing
+    calls = []
+    monkeypatch.setattr(T, "_run", lambda argv: calls.append(argv))
+    T.send_keys("%1", ";", enter=False)
+    assert calls == [["send-keys", "-t", "%1", "-l", "\\;"]]
+
+
 def test_empty_literal_still_sends(monkeypatch):
     # an empty text with enter=True is "press Return" — the empty -l call is harmless
     # and the Enter must still go
