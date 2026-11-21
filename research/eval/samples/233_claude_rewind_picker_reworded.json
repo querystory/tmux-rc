@@ -1,0 +1,15 @@
+{
+  "description": "The rewind picker with its header and footer worded differently from sample 09 (\"Jump back to an earlier message\", \"enter to jump back\"): still the restore-history picker, so it is a rewind with no question. Invented screen.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n  Jump back to an earlier message\n\n     2 more above\n     Count the herons in the north marsh photos       No code changes\n   ❯ Add a CSV export for the tally                   export.py +41 -0\n     Fix the date column in the export                export.py +3 -3\n     6 more below\n\n  ↑/↓ choose · enter to jump back · esc to cancel\n  ~/src/bird-count on main | Opus 4.8",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "rewind": {
+      "present": true
+    },
+    "question": null,
+    "headline": "Showing the rewind picker to go back to an earlier message"
+  }
+}

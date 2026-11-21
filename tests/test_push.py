@@ -95,7 +95,7 @@ def held(command="ls", **fields):
     them) and restatement."""
     return {"prompt": "Proceed?", "answer_style": "menu",
             "context": _widget_text("Proceed?", box(command)),
-            "options": ["Yes", "No"], "ask": "List the files?", **fields}
+            "options": ["Yes", "No"], "approval": True, "ask": "List the files?", **fields}
 
 
 def waiting(question=None, screen=box("ls")):
@@ -293,6 +293,9 @@ def test_contract_includes_nonrendered_options_that_change_menu_mapping():
     with_option = push.contract(pane, "123")[0]
     pane["question"]["subject"] = "Ways to free disk:"
     assert push.contract(pane, "123")[0] != with_option
+    with_option = push.contract(pane, "123")[0]
+    pane["question"]["approval"] = True
+    assert push.contract(pane, "123")[0] != with_option
 
 
 def test_body_shows_the_rows_a_question_names(tmp_path, monkeypatch):
@@ -383,8 +386,8 @@ def test_wait_settles_then_notifies_once_and_can_notify_after_clear(tmp_path, mo
     assert sender.payloads[1]["actions"] == [] and sender.payloads[1]["nonce"] is None
     # Nor for an approval whose restatement failed (retried later): it would be approved
     # blind. A numbered choice that is no approval needs none and keeps its actions.
-    for question, titles in ((held(ask=None), []), (held(
-            ask=None, prompt="Deploy to?", options=["Staging", "Prod"]), ["Staging", "Prod"])):
+    choice = held(ask=None, approval=None, prompt="Deploy to?", options=["Staging", "Prod"])
+    for question, titles in ((held(ask=None), []), (choice, ["Staging", "Prod"])):
         watcher.states = []
         clock[0] += push.RATE_WINDOW_SECONDS
         service.evaluate()

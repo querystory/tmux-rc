@@ -95,9 +95,6 @@ _TURN_ERROR_RE = {
 }
 # A prompt row, bare or inside Claude's box ("│ ❯ …"); with text after it, the user typed.
 _PROMPT_ROW = f"^[ \\t│]*[{PROMPT_GLYPHS}]"
-# Codex's live composer: a › row with no transcript cell ("• …") under it. An earlier
-# turn's row is always followed by Codex's reply to it, and a shell's ❯ is no composer.
-_CODEX_COMPOSER_RE = re.compile(r"^[ \t]*›(?![\s\S]*^• )", re.MULTILINE)
 _USER_ROW_RE = re.compile(_PROMPT_ROW + "[ \\xa0]*[^\\s│]", re.MULTILINE)
 # Claude Code's bash mode echoes a command typed after "!" (no prompt glyph) and runs it
 # without starting a turn, so below a finished turn it is the user acting on that turn.
@@ -127,29 +124,6 @@ def _below_turn(visible: str, end: int) -> str:
 # Rows whose text is never the agent asking: the user's own (a prompt row), and file
 # content behind a tool's line-number gutter ("12│", "+245│" in a diff, "*65│" on a grep hit).
 _NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─]*[+*-]?\\d+│")
-# A tabbed panel the user opened and is browsing (/config, /plugin): a strip of 3+ short
-# tab labels under a dialog's top rule ("Settings  Status  Config  Usage  Stats"), a search
-# box or a ❯ cursor on a "name  value" row below it, and the panel's own key-hint footer
-# as the screen's last row. The agent is not asking: a row toggles a setting or opens a
-# page and the panel stays. The footer closes, clears, goes back or exits on Esc, where a
-# question's cancels; any other wording fails safe as a question, as does a later dialog
-# below a lookalike strip. Read by structure, not one panel's exact tabs or hints, which
-# Claude Code keeps rewording.
-_TAB_LABEL = r"\w\S*(?: \S+)?"
-_TAB_STRIP_RE = re.compile(
-    rf"▔{{3,}}.*\n[ \t]*{_TAB_LABEL}(?:[ \t]{{2,}}{_TAB_LABEL}){{2,}}[ \t]*$", re.MULTILINE)
-_PANEL_BODY_RE = re.compile(r"⌕|^[ \t]*❯[ \t]*\S.*?\S[ \t]{2,}\S", re.MULTILINE)
-_PANEL_FOOTER_RE = re.compile(r"\bEsc to (?:close|clear|(?:go )?back|exit)\b", re.IGNORECASE)
-
-
-def _tabbed_panel_open(visible: str) -> bool:
-    """Whether the screen ends in an open tabbed panel (see _TAB_STRIP_RE)."""
-    *_, strip = (None, *_TAB_STRIP_RE.finditer(visible))
-    body = visible[strip.end():].rstrip() if strip else ""
-    return bool(_PANEL_BODY_RE.search(body)
-                and _PANEL_FOOTER_RE.search(body.rsplit("\n", 1)[-1]))
-
-
 # A picker's highlighted row: the last prompt-glyph row below its own prompt, read past
 # the frame, a radio and a digit. The model reads the highlight too but can misplace it
 # (it took a ❯ user turn above Claude's digitless No/Yes box for the cursor, so a tap on
@@ -271,16 +245,6 @@ _STEPPER_RE = re.compile(r"‹ (.*?) ›")
 # session list included), never a question. A real picker replaces the box with a ❯ cursor.
 _EMPTY_INPUT_RE = re.compile(_PROMPT_ROW + r"[ \xa0\t│]*$(?![\s\S]*" + _PROMPT_ROW + ")",
                              re.MULTILINE)
-# omp blocks that are never a live question: a completed Ask receipt, plain or boxed, from
-# its "? Ask" header through its chosen radios (a pending Ask is a "╭─ Ask" dialog with no
-# "?"); the queued outgoing-input bands ("Steering · 1", "After yield · 2"); and the "⎋"
-# activity row, whose right-aligned session label can read like an Ask.
-# Each may straddle the history boundary, which _omp_asking_view marks with a "\0" row.
-_OMP_RECEIPT_RE = re.compile(r"(?m)^ ?(?:╭─+ )?\? Ask\b.*\n(?:.*\S.*\n)*")
-_OMP_NOT_ASKING_RE = re.compile(
-    rf"{_OMP_RECEIPT_RE.pattern}|^ ?(?:Steering|After yield) · \d+\n(?: {{3,}}.*\n|\0\n)*"
-    r"|^ *⎋ .*\n",
-)
 
 # tmux's foreground executable is stronger identity evidence than any model name inside
 # an agent's UI. In particular OpenCode can run Claude, GPT, or Gemini models; calling it
@@ -333,7 +297,8 @@ _OMP_AGENTS_RE = re.compile(r"◀ 👥 (\d+)")  # its count of subagents still r
 def _read_omp_row(result: dict, visible: str) -> None:
     """cost, context, working time and running subagents off omp's status row (the one
     with its context bar)."""
-    *_, row = ["", *(line for line in visible.splitlines() if _OMP_CTX_RE.search(line))]
+    lines = visible.splitlines()
+    row = lines[bar] if (bar := _omp_bar(lines)) is not None else ""
     if m := _OMP_COST_RE.search(row):
         unit, spend, sub = m.groups()
         result["cost"] = f"${spend}" + (f" (+${sub})" if sub else "") + (" (sub)" * (unit == "S"))
@@ -456,6 +421,18 @@ def _codex_model_segments(line: str) -> list[int]:
             if segment and _CODEX_MODEL_TOKEN_RE.fullmatch(segment.split(maxsplit=1)[0])]
 
 
+def _omp_bar(lines: list[str]) -> int | None:
+    """The index of omp's status row: the last one carrying its context bar."""
+    *_, bar = [None, *(i for i, line in enumerate(lines) if _OMP_CTX_RE.search(line))]
+    return bar
+
+
+def _omp_label_row(lines: list[str]) -> str | None:
+    """omp's session label: right-aligned on the row just above its status row."""
+    row = lines[bar - 1] if (bar := _omp_bar(lines)) else ""
+    return row if row.strip() and _indent(row) >= 8 else None
+
+
 def _session_chrome(text: str) -> list[str]:
     lines = strip_dim(text.rsplit(VISIBLE_SCREEN, 1)[-1]).splitlines()
     # The input row separates conversation output from the bottom status chrome.
@@ -473,6 +450,8 @@ def _session_chrome(text: str) -> list[str]:
                 and re.match(r"^\s*[─━]+\s+\S", candidates[i - 1])):
             chrome.append(candidates[i - 1])  # Claude title immediately above status.
         chrome.append(line)
+    if label := _omp_label_row(lines):
+        chrome.append(label)
     renames = [line for line in strip_dim(text).splitlines()
                if re.match(r"^\s*[•●]\s+Thread renamed to \S", line)]
     if renames:
@@ -482,7 +461,11 @@ def _session_chrome(text: str) -> list[str]:
 
 def _session_evidence(text: str) -> str:
     titles = []
+    label = _omp_label_row(strip_dim(text.rsplit(VISIBLE_SCREEN, 1)[-1]).splitlines())
     for line in _session_chrome(text):
+        if line == label:
+            titles.append(line.strip())
+            continue
         match = re.match(r"^\s*[─━]+\s+(\S.*?)\s*$", line)
         if match:
             titles.append(match.group(1))
@@ -568,14 +551,6 @@ def _answered_prompt(question, visible: str) -> re.Match | None:
     return row if any(map(str.strip, below)) and not below[-1] else None
 
 
-def _omp_asking_view(text: str) -> str:
-    """The viewport minus omp text that never asks. Blocks are matched across the history
-    boundary (a heading may have scrolled off) but only the visible part is kept."""
-    head = strip_dim(text.rpartition(VISIBLE_SCREEN)[0])
-    joined = f"{head}\0\n" + _visible(text).removeprefix("\n")
-    joined = _OMP_NOT_ASKING_RE.sub(lambda m: "\0" if "\0" in m[0] else "", joined)
-    return joined.rsplit("\0", 1)[-1]
-
 
 def _ask_view(text: str) -> str:
     """The screen a finished turn's ask or offer is read on: the viewport, and above it the
@@ -612,12 +587,6 @@ def _supported_question(question, text: str, tool, pane: Pane) -> bool:
             return False
         if state == ">" and question.get("answer_style") in ("menu", "cursor"):
             return False
-        if state == ">" and re.search(
-            rf"(?m)^ {{2,}}{re.escape(prompt.strip())}\s*\n[ \t]*π >",
-            visible,
-        ):
-            return False  # Right-aligned label above the idle footer, not assistant prose.
-        visible = _omp_asking_view(text)
     found = _last_occurrence(prompt, visible)
     if tool == "shell" and _answered_prompt(question, visible):
         return False
@@ -637,8 +606,10 @@ def _supported_question(question, text: str, tool, pane: Pane) -> bool:
 
 
 def _supported_rewind(rewind, visible: str) -> bool:
-    text = " ".join(visible.split()).casefold()
-    return bool(rewind) and "rewind to a previous point" in text and "enter to restore" in text
+    """Every row the model read off the rewind picker is on screen."""
+    entries = rewind.get("entries") if isinstance(rewind, dict) else None
+    return isinstance(entries, list) and bool(entries) and all(
+        isinstance(e, dict) and _quoted(e.get("text"), visible) for e in entries)
 
 
 def _unblocked_ask(result: dict) -> None:
@@ -681,19 +652,11 @@ def _ground_visible_fields(
     # cannot be read as the question again.
     box = _EMPTY_INPUT_RE.search(visible)
     evidence = (visible[:box.end()] if box else visible) if bad_action else identity_chrome
-    receipt = None
-    if bad_question and host_tool == "omp" and (
-        (omp := OMP_TITLE_RE.match(pane.title)) and omp["state"] not in (None, "!")
-    ):
-        # Read beyond an answered Ask receipt; any other rejected text keeps the viewport.
-        asked, kind = _question_prompt(result["question"]), "Ask receipt"
-        *_, receipt = [None, *(m for m in _OMP_RECEIPT_RE.finditer(visible)
-                               if asked and _last_occurrence(asked, m[0]))]
-    elif bad_question and result.get("tool") == "shell":
-        receipt, kind = _answered_prompt(result["question"], visible), "prompt"
+    receipt = bad_question and result.get("tool") == "shell" and _answered_prompt(
+        result["question"], visible)
     if receipt:
         evidence = (
-            f"[Completed {kind} — question and chosen answer explain the resumed task;\n"
+            "[Completed prompt — question and chosen answer explain the resumed task;\n"
             "use them for the headline's goal, NEVER as a current input request]\n"
             f"{receipt[0]}\n[Current visible work]\n{visible[receipt.end():]}"
         )
@@ -708,7 +671,7 @@ def _ground_visible_fields(
     if retry:
         _fold_sends(retry)
         _unblocked_ask(retry)  # before its ask is validated: a bad one costs no quota read
-    if retry and receipt and kind == "prompt":
+    if retry and receipt:
         # The cursor rests below everything printed since the answer: nothing there asks.
         retry.pop("question", None)
     if bad_action:
@@ -862,10 +825,8 @@ _asks: dict[tuple, str] = {}  # by (prompt, widget): one call per ask, not per t
 
 
 def is_approval(question: dict) -> bool:
-    """A menu whose option 1 is "Yes…": an approval, which only its restatement describes."""
-    options = question.get("options")
-    first = options[0] if isinstance(options, list) and options else None
-    return isinstance(first, str) and bool(re.match(r"(?i)(?:\d+[.)]\s*)?yes\b", first))
+    """A menu the model marked as an approval, which only its restatement describes."""
+    return question.get("approval") is True
 
 
 def _restate(question: dict, replies_fn) -> str | None:
@@ -1638,13 +1599,6 @@ def classify(
         ask.update({k: own[k] for k in ("items", "subject", "link") if k in own})
         result["question"] = ask
         result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.
-    if result.get("tool") == "claude" and _tabbed_panel_open(visible):
-        # Authoritative over the model, a failed parse included: the screen is a settings
-        # panel, so nothing is asked. Only a turn the model saw still running stays running
-        # (not one a failed parse carried over).
-        result.pop("question", None)
-        if result.pop("parse_ok", True) is False or result.get("activity") != "running":
-            result["activity"] = "idle"
     question = result.get("question")
     footer = visible.rstrip().splitlines()[-3:]
     search = any(map(_SEARCH_FOOTER_RE.search, footer))
@@ -1714,7 +1668,8 @@ def classify(
             style = question["answer_style"] = "text"
             question.pop("options", None)
         # Numbered menus only: a cursor picker is a plain choice, never an approval.
-        if context := style == "menu" and asked and _widget_text(asked, visible):
+        widget = asked and _widget_text(asked, visible)
+        if context := style == "menu" and widget:
             question["context"] = context
             # Only an approval is restated: a numbered choice such as "Which environment?"
             # keeps its own question.
@@ -1734,15 +1689,6 @@ def classify(
                                or not 0 < seen(t, visible) <= seen(t, widget)]
             if not result["tasks"]:
                 result.pop("tasks")
-    # Codex reads typed text only in its › composer (a menu the screen can't back is text
-    # by now). A text question with no composer on screen has nowhere to be typed: `codex
-    # login --device-auth`'s "Enter code …" means in the browser, so the pane waits on
-    # something outside it.
-    if (result.get("tool") == "codex" and isinstance(result.get("question"), dict)
-            and result["question"].get("answer_style", "text") == "text"
-            and not _CODEX_COMPOSER_RE.search(visible)):
-        del result["question"]
-        result.update(activity="waiting", waiting_on="external")
     # The model's own answers must agree: a question, rewind or offer it returned (and the
     # screen showed) is something for the user to answer or send, so the pane waits on the
     # user, whatever it put in "activity" (a stray "external" included).

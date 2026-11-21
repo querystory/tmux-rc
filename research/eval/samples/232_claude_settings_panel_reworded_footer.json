@@ -1,0 +1,11 @@
+{
+  "description": "Claude Code's /config settings panel, which the user opened, drawn with a footer worded differently from samples 86 and 97 (\"Esc returns\"): a tab strip, then a ❯ cursor on setting / value rows. The user is browsing their own settings; the agent asks nothing, so the pane is idle. Invented screen.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n ~/src/bird-count\n\n▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔\n   Status   Config   Usage   Stats\n\n   ❯ Auto-compact                   true\n     Show tips                      true\n     Verbose output                 false\n     Reduce motion                  false\n     Theme                          Dark ›\n     Copy on select                 true\n\n   Space toggles · Enter opens · ←/→ switch tab · Esc returns",
+  "expected": {
+    "tool": "claude",
+    "activity": "idle",
+    "question": null,
+    "headline": "Browsing the settings panel"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "description": "A finished auto-mode turn in a narrow pane whose final message reports the work, then lists what is next: one step to try, the user's word on merging a PR, and the user's OK for a step that needs a new credential. The message waits on the user's decisions, so the pane waits on the user. Invented screen.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n● The tally export is done and the PR is green.\n  - The CSV now has one row per bird per day.\n  - One catch: open the file as UTF-8 or the\n    accented site names look wrong.\n\n  What's next:\n  - Try it now: run make export and open\n    out/tallies.csv.\n  - Your word: whether to merge #41.\n  - Your OK for step 2: a read-only key for the\n    photo bucket. Step 2 is the nightly photo\n    count, and it needs that key.\n\n⟪dim⟫✻ Worked for 6m 2s · done 10:40 PM\n          ✔ Update installed · Restart to update\n──────────────────────────────────────────────────\n⟪/dim⟫❯\n⟪dim⟫──────────────────────────────────────────────────\n  ⟪/dim⟫~/src/bird-count ⟪dim⟫| Opus 5.5 | 8% ctx⟪/dim⟫\n  ⏵⏵ auto mode on⟪dim⟫ (shift+tab to cycle)⟪/dim⟫",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "headline": "Tally export done; waiting on the user's word on merging #41 and an OK for step 2",
+    "question": {
+      "present": true,
+      "answer_style": "text"
+    }
+  }
+}

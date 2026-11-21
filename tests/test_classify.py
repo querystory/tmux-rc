@@ -391,32 +391,6 @@ def test_omp_malformed_question_is_rejected_without_raising(state, question):
     assert not result.get("question")
 
 
-_RECEIPT = "? Ask\nWhich color do you prefer?\n○ Red\n● Green\n\nRead web/m/app.js\n\n"
-_LIVE_ASK = "╭─ Ask ──╮\n│ Which shade? │\n├──┤\n│ ❯ ○ Light │\n╰──╯\n"
-
-
-@pytest.mark.parametrize("style", ["text", None])
-@pytest.mark.parametrize(("title", "screen", "prompt"), [
-    ("π > Colors", _RECEIPT + " π > ◒ GPT-5.5\n", "Which color do you prefer?"),
-    ("π > Colors", "61_omp_running_subagents", "Which color do you prefer?"),  # boxed
-    ("t", "67_omp_queued_messages_with_ask", "Are the regressions passing?"),  # no omp title
-    ("π ! Ask Preferred Color Choice", "67_omp_queued_messages_with_ask",
-     "Ask Preferred Color Choice"),  # the ⎋ activity row's session label
-    ("π ! Ask Shade", _RECEIPT + _LIVE_ASK, "Which color do you prefer?"),
-    ("π ! Ask Preferred Color Choice", "67_omp_queued_messages_with_ask",
-     "Are the regressions passing?"),
-    ("π > Colors", "67_omp_queued_messages_with_ask", "Are the regressions passing?"),
-])
-def test_omp_receipts_and_queued_input_are_not_questions(title, screen, prompt, style):
-    if screen[:3] in ("61_", "67_"):
-        screen = _sample(screen)
-    result = classify(_pane("omp", title), f"\x1e[visible screen]\x1f\n{screen}", _llm({
-        "tool": "omp", "activity": "waiting", "waiting_on": "user",
-        "question": {"prompt": prompt, "answer_style": style},
-    }))
-    assert (result.get("question") or {}).get("prompt") != prompt
-
-
 def test_omp_rejected_queue_text_keeps_the_whole_viewport_for_the_retry():
     seen = []
     classify(_pane("bun", "π ⠦ Follow PR293 Copilot Review"),
@@ -428,54 +402,30 @@ def test_omp_rejected_queue_text_keeps_the_whole_viewport_for_the_retry():
     assert "Completed Ask receipt" not in retry and "Reviewing the documentation" in retry
 
 
-@pytest.mark.parametrize(("closing", "kept"), [
-    ("", False), ("\nDone. Should I merge this?\n", True),
-])
-def test_omp_receipt_header_above_the_visible_boundary(closing, kept):
-    capture = _sample("61_omp_running_subagents")
-    cut = capture.index("\n", capture.index("? Ask"))  # the header scrolled into history
-    screen = f"{capture[:cut]}\n\x1e[visible screen]\x1f{capture[cut:]}{closing}"
-    prompt = "Should I merge this?" if kept else "Which color do you prefer?"
-    result = classify(_pane("omp", "π > Colors"), screen, _llm({
-        "tool": "omp", "activity": "waiting",
-        "question": {"prompt": prompt, "answer_style": "text"},
-    }))
-    assert ((result.get("question") or {}).get("prompt") == prompt) is kept
-
-
-@pytest.mark.parametrize(("prompt", "kept"), [
-    ("Are the regressions passing?", False), ("Which color do you prefer?", True),
-])
-def test_omp_queue_heading_above_the_visible_boundary(prompt, kept):
-    capture = _sample("67_omp_queued_messages_with_ask").replace("\x1e[visible screen]\x1f\n", "")
-    cut = capture.index("\n", capture.index("After yield"))  # the heading scrolled off
-    screen = f"{capture[:cut]}\n\x1e[visible screen]\x1f{capture[cut:]}"
-    result = classify(_pane("omp", "π ! Ask Preferred Color Choice"), screen, _llm({
-        "tool": "omp", "activity": "waiting",
-        "question": {"prompt": prompt, "answer_style": "text"},
-    }))
-    assert ((result.get("question") or {}).get("prompt") == prompt) is kept
+def test_omp_session_label_above_its_status_row_is_title_evidence():
+    screen = _sample("60_omp_bun_idle")
+    result = classify(_pane("bun", "π > omp-play"), screen, _llm({
+        "tool": "omp", "activity": "idle", "session": "Ask Preferred Color Choice"}))
+    assert result["session"] == "Ask Preferred Color Choice"
+    # Not a label: the same words in the transcript, away from the status row.
+    moved = screen.replace("Ask Preferred Color Choice", "").replace(
+        "No direct subdirectories", "Ask Preferred Color Choice. No direct subdirectories")
+    assert "session" not in classify(_pane("bun", "π > omp-play"), moved, _llm({
+        "tool": "omp", "activity": "idle", "session": "Ask Preferred Color Choice"}))
+    # Codex's footer indented like a label, with no omp context bar, names no session.
+    codex = "\x1e[visible screen]\x1f\n• Done.\n\n›\n\n        gpt-5.5 xhigh fast · ~/src/app"
+    assert "session" not in classify(_pane("codex"), codex, _llm(
+        {"tool": "codex", "activity": "idle", "session": "fast"}))
 
 
 def test_screen_inferred_omp_drops_a_rejected_questions_tables():
     screen = "\x1e[visible screen]\x1f\n" + _sample("61_omp_running_subagents")
     result = classify(_pane("bash", "t"), screen, _llm({
         "tool": "omp", "activity": "waiting", "waiting_on": "user",
-        "question": {"prompt": "Which color do you prefer?", "answer_style": "text"},
+        "question": {"prompt": "Which shade do you prefer?", "answer_style": "text"},
         "tables": [{"headers": ["Option"], "rows": [["Red"], ["Green"]]}],
     }))
     assert not result.get("question") and not result.get("tables")
-
-
-def test_omp_idle_session_label_is_not_a_question():
-    label = "Ask Preferred Color Choice"
-    result = classify(
-        _pane("bun", "π > omp-play"), _sample("60_omp_bun_idle"),
-        _llm({"tool": "omp", "activity": "waiting", "waiting_on": "user",
-              "question": {"prompt": label, "answer_style": "text"}}),
-    )
-    assert result["activity"] == "idle"
-    assert not any(result.get(key) for key in ("question", "waiting_on"))
 
 
 @pytest.mark.parametrize(
@@ -1067,6 +1017,18 @@ def test_question_retry_cannot_resurrect_stale_rewind():
     assert result["activity"] == "unknown" and result["parse_ok"] is False
 
 
+def test_rewind_rows_must_be_on_screen():
+    capture = f"{tmux.VISIBLE_SCREEN}\n" + _sample("09_claude_rewind")
+    def read(*texts):
+        return classify(_pane("claude"), capture, _llm({"tool": "claude", "rewind": {
+            "entries": [{"text": t} for t in texts]}}))
+    assert read("Wire the CLI --prompt override")["rewind"]
+    assert "rewind" not in read("Wire the CLI --prompt override", "Ship the release")
+    for entries in (1, True, "Wire the CLI --prompt override"):  # malformed: rejected, no raise
+        assert "rewind" not in classify(_pane("claude"), capture, _llm(
+            {"tool": "claude", "rewind": {"entries": entries}}))
+
+
 def test_non_codex_session_requires_visible_evidence():
     for tool in ("opencode", "gemini"):
         capture = ("\x1e[visible screen]\x1f\n› Ready\n"
@@ -1397,7 +1359,7 @@ def test_widget_ask_is_restated_once_per_widget():
         return lambda system, text: calls.append(text) or reply
     def ask(capture, replies_fn):
         return classify(_pane("node"), capture, _llm({"tool": "claude", "question": {
-            "prompt": "Do you want to proceed?", "answer_style": "menu",
+            "prompt": "Do you want to proceed?", "answer_style": "menu", "approval": True,
             "options": ["Yes", "No"]}}), replies_fn=replies_fn)["question"]
     good = restate({"ask": "The agent wants to kill what listens on 4100 and 4200. Continue?"})
     q = ask(capture, good)
@@ -1611,33 +1573,6 @@ def test_claude_api_error_ending_the_turn_offers_a_retry():
     claude = classify(_pane("claude"), "● Ran make\n■ Build failed\n\n❯", _llm({}))
     codex = classify(_pane("codex"), screen.replace("  ⎿  ", "✻ Worked for 3s\n"), _llm({}))
     assert "question" not in claude and "question" not in codex
-
-
-def test_codex_text_question_without_a_composer_is_not_typed(monkeypatch):
-    monkeypatch.setattr(classify_mod, "_host_tool", lambda _pane: "codex")
-    screen = _sample("98_codex_device_code_is_not_a_question")
-    code = [{"label": "Device login code", "text": "ABCD-12345"}]
-    def asked(_system, _text):  # fresh each call: classify() edits the parse in place
-        return {"activity": "waiting", "waiting_on": "user", "copyables": code,
-                "question": {"prompt": "Enter code ABCD-12345", "answer_style": "text"}}
-    # Not a composer: an earlier turn's › row with a "• …" reply, or the shell's ❯ row.
-    earlier = screen.replace("Welcome", "› log me in\n\n• Starting login.\n\nWelcome", 1)
-    shell = screen.replace("Welcome", "❯ codex login --device-auth\n\nWelcome", 1)
-    for shown in (screen, earlier, shell):
-        result = classify(_pane("node"), shown, asked)
-        assert "question" not in result and result["copyables"] == code
-        assert (result["activity"], result["waiting_on"]) == ("waiting", "external")
-    # Read as text all the same: no answer_style, or a menu of the numbered steps.
-    for style in ({}, {"answer_style": "menu", "options": ["Open this page", "Type in"]}):
-        styled = {"question": {"prompt": "Enter code ABCD-12345", **style}}
-        assert "question" not in classify(_pane("node"), screen, _llm(styled))
-    # In the TUI the composer takes the answer, and a menu is answered by its keys.
-    composer = screen + "\n\n› \n\n  gpt-5.5 high · ~/src/app"
-    assert classify(_pane("node"), composer, asked)["waiting_on"] == "user"
-    menu = {"question": {"prompt": "Enter code ABCD-12345", "answer_style": "menu",
-                         "options": ["Yes", "No"]}}
-    menu_screen = screen + "\n› 1. Yes\n  2. No"
-    assert "question" in classify(_pane("node"), menu_screen, _llm(menu))
 
 
 def _auto_screen(message):
@@ -2090,89 +2025,6 @@ def test_question_not_below_an_empty_input_box_stands(screen, prompt):
     result = classify(_pane("claude"), f"\x1e[visible screen]\x1f\n{screen}", _llm({
         "tool": "claude", "question": {"prompt": prompt, "answer_style": "cursor"}}))
     assert result["question"]["prompt"] == prompt
-
-
-_PANEL = """▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔ ◐ medium · /effort ▔
-   Settings  Status   Config   Usage   Stats
-
-   ╭──────────────────────╮
-   │ ⌕ Search settings…   │
-   ╰──────────────────────╯
-
-   ❯ Auto-compact                true
-     Theme                       Auto (match terminal) ›
-
-   Type to filter · Enter/↓ to select · ↑ to tabs · Esc to clear"""
-
-
-def test_a_tabbed_panel_the_user_opened_is_not_a_question():
-    asking = {"tool": "claude", "activity": "waiting", "waiting_on": "user", "question": {
-        "prompt": "Search settings…", "answer_style": "cursor", "options": ["Auto-compact"]}}
-    result = classify(_pane("claude"), f"{tmux.VISIBLE_SCREEN}\n{_PANEL}", lambda s, t: asking)
-    assert "question" not in result
-    assert result["activity"] == "idle"
-    # A failed parse of the same panel is grounded by it too: idle (not the running it
-    # carried over), and not reparsed.
-    failed = {"tool": "claude", "activity": "running", "parse_ok": False}
-    result = classify(_pane("claude"), f"{tmux.VISIBLE_SCREEN}\n{_PANEL}", lambda s, t: failed)
-    assert (result["activity"], "parse_ok" in result) == ("idle", False)
-    # Only while its own footer is the last row: a later dialog below a lookalike asks.
-    asking["question"] = {"prompt": "Switch the output to tabs?", "answer_style": "text"}
-    lookalike = _PANEL.rsplit("\n", 1)[0] + "\n\nSwitch the output to tabs?"  # its own words
-    assert "question" in classify(_pane("claude"), lookalike, lambda s, t: asking)
-    ruled, boxed = "────────\n Proceed?\n ❯ No\n   Yes", "╭─────╮\n│ Proceed? │\n│ ❯ No │\n╰─────╯"
-    for dialog in (ruled, boxed):
-        later = {"tool": "claude", "question": {"prompt": "Proceed?", "answer_style": "cursor",
-                                                "options": ["No", "Yes"]}}
-        text = f"{tmux.VISIBLE_SCREEN}\n{_PANEL}\n{dialog}"
-        assert "question" in classify(_pane("claude"), text, lambda s, t, q=later: q)
-
-
-_PLUGIN_PANEL = """▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
- Plugins  Discover   Installed   Marketplaces   Errors
-
- ╭──────────────────╮
- │ ⌕ Search…        │
- ╰──────────────────╯
- ❯ code-review      claude-plugins-official
-   pr-tools         acme-marketplace
-
- Space to toggle · Enter to details · Esc to back"""
-_NEW_CONFIG_PANEL = """▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
-   Settings  Status   Config   Usage   Stats
-   ❯ Auto-compact                true
-     Theme                       Auto (match terminal) ›
-
-   Enter/Space to change · / to search · Esc to close"""
-
-
-@pytest.mark.parametrize("screen", [
-    _sample("97_claude_config_panel_search_footer"),
-    f"{tmux.VISIBLE_SCREEN}\n{_NEW_CONFIG_PANEL}",  # no search box: the ❯ name/value row
-    f"{tmux.VISIBLE_SCREEN}\n{_PLUGIN_PANEL}",
-])
-def test_a_tabbed_panel_is_read_by_its_shape_not_one_footer(screen):
-    asking = {"tool": "claude", "activity": "waiting", "waiting_on": "user", "question": {
-        "prompt": "Search settings…", "answer_style": "cursor", "options": ["Auto-compact"]}}
-    result = classify(_pane("claude"), screen, lambda s, t: asking)
-    assert ("question" in result, result["activity"]) == (False, "idle")
-
-
-def test_a_tabbed_question_is_still_a_question():
-    # Multi-question AskUserQuestion: its tab bar opens on an arrow and its Esc cancels.
-    screen = """▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
-←  ☐ Scope  ☐ Approach  ✔ Submit  →
-
-Which scope?
-
-❯ 1. Whole repo        every package
-  2. One package       just web/
-
-Enter to select · Tab/Arrow keys to navigate · Esc to cancel"""
-    asking = {"tool": "claude", "question": {"prompt": "Which scope?", "answer_style": "cursor",
-                                             "options": ["Whole repo", "One package"]}}
-    result = classify(_pane("claude"), f"{tmux.VISIBLE_SCREEN}\n{screen}", lambda s, t: asking)
-    assert "question" in result
 
 
 def test_codex_reviewing_its_own_approval_is_working():
