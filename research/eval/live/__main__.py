@@ -94,11 +94,21 @@ async def _run(case: dict, model: LiveModel, connect) -> list[dict]:
     trace = await replay(Fleet.load(), [t["say"] for t in case["turns"]], connect,
                          model=model, seconds=300)
     return [{"say": t["say"], **score(t, trace, n), "sent": trace.sends(n),
-             "reply": trace.reply(n)} for n, t in enumerate(case["turns"], 1)]
+             "reply": trace.reply(n), "completed": _completed(trace, n)}
+            for n, t in enumerate(case["turns"], 1)]
+
+
+def _completed(trace, n: int) -> bool:
+    """Whether turn n got a real answer: a failed model call (an error frame, the chat
+    loop's failure line, a turn that never completed) sends nothing, which must not score
+    as a turn that rightly sent nothing."""
+    return bool(trace.of("turn_complete", n)) and not trace.of("error", n) and (
+        live_chat._FAILED not in trace.reply(n))
 
 
 def _passed(turns: list[dict]) -> bool:
-    return all(t[k] is not False for t in turns for k in ("target", "sends", "answered"))
+    return all(t["completed"] and t[k] is not False
+               for t in turns for k in ("target", "sends", "answered"))
 
 
 def main() -> int:
@@ -111,6 +121,8 @@ def main() -> int:
     ap.add_argument("--prompt", type=Path, help="candidate live_prompt.txt (A/B)")
     ap.add_argument("--json", type=Path, help="write every turn's outcome here")
     args = ap.parse_args()
+    if args.runs < 1:
+        ap.error("--runs must be at least 1")
     load_dotenv(Path.home() / ".config/tmux-rc/openai.env")  # keys live outside every checkout
 
     selected = [c for c in cases() if args.case in (None, c["name"])]
@@ -137,7 +149,8 @@ def main() -> int:
               f"{tally('sends'):<6} {tally('answered')}")
         for r in runs:
             for t in r if not _passed(r) else ():
-                print(f"    {t['say']!r} -> {[p for p, _, _ in t['sent']]}: {t['reply'][:160]!r}")
+                print(f"    {t['say']!r} -> {[p for p, _, _ in t['sent']]}"
+                      f"{'' if t['completed'] else ' (model failed)'}: {t['reply'][:160]!r}")
     total = sum(_passed(r) for runs in results.values() for r in runs)
     print(f"\n{total}/{sum(map(len, results.values()))} case runs passed")
     if args.json:

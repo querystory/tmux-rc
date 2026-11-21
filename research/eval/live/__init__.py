@@ -270,14 +270,26 @@ async def replay(fleet: Fleet, steps: list, connect, *, text: bool = False,
             (scratch, "configured", lambda: None),
         ):
             stack.enter_context(mock.patch.object(target, name, value))
-        async with asyncio.timeout(seconds):
-            query = {"mode": "text" if text else "voice", "session": chat}
-            while True:
-                phone = Phone(steps, fleet, trace, query)
-                await live.live_mode(phone)
-                if not phone.dropped:
-                    break
+        try:
+            async with asyncio.timeout(seconds):
+                query = {"mode": "text" if text else "voice", "session": chat}
+                while True:
+                    phone = Phone(steps, fleet, trace, query)
+                    await live.live_mode(phone)
+                    if not phone.dropped:
+                        break
+        finally:
+            # A cancelled await leaves its send-keys thread running: let every one finish
+            # before the patches come off, or its Enter could reach the real tmux server.
+            await asyncio.to_thread(_drain, fleet)
     return trace
+
+
+def _drain(fleet: Fleet) -> None:
+    """Wait out any delivery in flight: send_keys holds its pane's lock until it is done."""
+    for pane in fleet.panes:
+        with tmux._pane_lock(pane):
+            pass
 
 
 def cases() -> list[dict]:
