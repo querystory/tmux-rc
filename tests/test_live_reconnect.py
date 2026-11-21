@@ -33,7 +33,7 @@ def test_hold_returns_false_on_stop():
 
 def test_hold_keeps_reading_past_a_stray_frame():
     ws = _WS({"action": "audio", "data": "AA=="}, {"action": "stop"})
-    assert asyncio.run(L._hold(ws, 5, None)) is False
+    assert asyncio.run(L._hold(ws, 5, L._Meter("s", None, P._DEFAULT[0]))) is False
 
 
 def test_hold_still_hears_the_view():

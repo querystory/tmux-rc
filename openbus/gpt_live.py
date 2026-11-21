@@ -308,11 +308,13 @@ class Session:
                 raise ProviderError({"code": "session_closed_by_provider"})
             if kind == "error":
                 # Error messages may quote context; expose codes, not arbitrary content.
+                self.meter.rec.event("error", provider_event=event)  # local: kept whole
                 raise ProviderError(event)
             if kind == "session.output_audio.delta":
                 # Live streams continuous audio; it has no Realtime speech-start /
                 # output-done events. Do not infer interruptions from transcripts:
                 # brief user backchannels can intentionally overlap model speech.
+                self.meter.rec.model(base64.b64decode(event["delta"]), 16000)
                 await self.browser.send_json(
                     {"type": "audio", "data": event["delta"], "sample_rate": 16000}
                 )
@@ -325,15 +327,9 @@ class Session:
                 # Display grouping only: never use transcript timing to trigger tools.
                 new = start - self.caption_end.get(role, start) > 1500
                 self.caption_end[role] = event.get("end_ms", start)
-                self.meter.note(role + ": " + event["delta"])
-                await self.browser.send_json(
-                    {
-                        "type": "transcript",
-                        "role": role,
-                        "text": event["delta"],
-                        "new_segment": new,
-                    }
-                )
+                await live._transcript(  # noqa: SLF001 - shared Live adapter internals
+                    self.browser, self.meter, role, event["delta"], new_segment=new,
+                    start_ms=start, end_ms=self.caption_end[role])
             elif kind == "response.event":
                 nested = event.get("event", {})
                 delegation = event.get("delegation_id")
@@ -463,6 +459,7 @@ async def run_session(browser, watcher, meter):
         async with asyncio.timeout(20):
             event = json.loads(await ws.recv())
             if event.get("type") == "error":
+                meter.rec.event("error", provider_event=event)  # local: kept whole
                 raise ProviderError(event)
             if event.get("type") != "session.started":
                 raise RuntimeError("GPT-Live session startup failed")
