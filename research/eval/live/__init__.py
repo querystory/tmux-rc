@@ -196,6 +196,8 @@ class Phone:
             self.owed = max(0, self.owed - 1)
         elif frame["type"] == "propose":
             self.card = frame["id"]
+        elif frame["type"] == "decided" and frame.get("id") == self.card:
+            self.card = None  # settled without a tap here: its turn goes on, to turn_complete
         self.changed.set()
 
     async def receive_json(self) -> dict:
