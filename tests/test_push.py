@@ -295,6 +295,11 @@ def test_contract_includes_nonrendered_options_that_change_menu_mapping():
     with_option = push.contract(pane, "123")[0]
     pane["question"]["subject"] = "Ways to free disk:"
     assert push.contract(pane, "123")[0] != with_option
+    key = waiting({"prompt": "Press R.", "answer_style": "key", "options": ["Retry"],
+                   "keys": ["r"]})
+    before = push.contract(key, "123")[0]
+    key["question"]["keys"] = ["R"]
+    assert push.contract(key, "123")[0] != before
 
 
 def test_body_shows_the_rows_a_question_names(tmp_path, monkeypatch):

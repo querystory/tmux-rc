@@ -356,6 +356,10 @@ def contract(pane: dict, birth: str | None) -> tuple[str, dict | None]:
         # The body is the restatement: one that arrives late (a retried call) re-notifies.
         "ask": question.get("ask") if question else None,
     }
+    # A key notice's keys, like its labels: a remap is a new ask. Only when set, so no
+    # other question's digest moves.
+    if question and question.get("keys"):
+        value["keys"] = question["keys"]
     digest = hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
     return digest, question
 
