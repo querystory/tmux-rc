@@ -1,0 +1,23 @@
+{
+  "description": "Invented Claude Code /resume picker whose footer words its search box \"Start typing to filter\" instead of \"Type to search\". The search binding is the model's read: code no longer sets keymap.search from a footer phrase, so the model must report search true from the filter box and its hint, whatever the wording.",
+  "current_command": "node",
+  "capture": "\u001e[visible screen]\u001f\n  Resume session (1 of 5)\n\n  ┌──────────────────────────────────────────────────────────┐\n  │ ⌕ Filter…                                                │\n  └──────────────────────────────────────────────────────────┘\n  ❯ Kite ledger rounding fix\n    2 hours ago · main · 420.3KB\n\n    Lantern docs refresh\n    1 day ago · docs/lantern · 88.0KB\n\n    Orchard sync retry\n    4 days ago · main · 1.1MB\n\n  Space to preview · Start typing to filter · Esc to cancel\n",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "present": true,
+      "answer_style": "cursor",
+      "selected": 0,
+      "prompt": "Resume session",
+      "keymap": {
+        "next": "Down",
+        "prev": "Up",
+        "select": "Enter",
+        "search": true
+      }
+    },
+    "headline": "Showing the resume-session picker to choose a past session"
+  }
+}

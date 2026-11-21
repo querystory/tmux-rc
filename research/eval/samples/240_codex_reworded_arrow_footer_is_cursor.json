@@ -1,0 +1,22 @@
+{
+  "description": "Invented Codex folder-permission picker with numbered rows under a › highlight and a key-hint footer worded unlike Codex 0.162's \"enter continue · esc back\". A tap must walk it with arrows and Enter: the footer names arrows to move and Enter to choose, so a digit is no commit here. The model reads that off the footer itself (no code keys on the wording any longer), so a reworded footer still yields a cursor picker with the default keymap.",
+  "current_command": "codex",
+  "capture": "\u001e[visible screen]\u001f\n\n\n\n\n\n\n\n\n\n\n  Workspace permissions\n\n  /home/dev/src/kite-ledger\n\n  Allow Codex to work in this folder? It can read, edit, and run files here, subject to your\n  permission settings. Your choice will be remembered for this folder.\n\n› 1. Allow and continue\n  2. Choose a different folder\n\n  ↑↓ move · enter choose · esc go back\n\n",
+  "expected": {
+    "tool": "codex",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "present": true,
+      "answer_style": "cursor",
+      "selected": 0,
+      "keymap": {
+        "next": "Down",
+        "prev": "Up",
+        "select": "Enter",
+        "search": false
+      }
+    },
+    "headline": "Asking whether to allow work in the kite-ledger folder"
+  }
+}
