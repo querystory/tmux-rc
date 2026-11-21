@@ -628,6 +628,20 @@ def test_pipes_llm_json_through():
     assert r["pane_id"] == "%0" and r["label"] == "work:0"  # merged in (session:window)
 
 
+@pytest.mark.parametrize("status, model", [
+    ("~/src/demo on feature/a-long-branch-na…\n  session: 9% ctx · 2h · $1…", None),
+    ("~/src/demo on main | Opus 5.5 | you@example.com\n  session: 9% ctx", None),
+    ("~/src/demo on main | Opus 4.8 | you@example.com\n  session: 9% ctx", "Opus 4.8"),
+])
+def test_model_only_as_the_screen_shows_it(status, model):
+    # A narrow pane cuts its status line before the model slot; the parser then guesses
+    # a model. A name the screen doesn't show is dropped.
+    r = classify(_pane(), f"╭───╮\n│ > │\n╰───╯\n  {status}",
+                 _llm({"tool": "claude", "activity": "idle", "model": "Opus 4.8",
+                       "status_entries": ["Opus 4.8", "2h"]}))
+    assert r.get("model") == model and r["status_entries"] == ["2h"]
+
+
 def test_question_forces_waiting():
     r = classify(
         _pane(),
@@ -1540,7 +1554,8 @@ def test_a_turn_read_as_waiting_asks_with_its_closing_paragraph():
 def test_status_entries_drop_what_has_its_own_chip():
     parsed = {"model": "Opus 5.5", "context_pct": 16, "cost": "$4.96",
               "status_entries": ["16% ctx", "4h49m", "$4.96", "Opus 5.5", "2%/61% 5h/7d"]}
-    result = classify(_pane("claude"), "❯", _llm(parsed))
+    screen = "❯\n Opus 5.5 · 16% ctx · 4h49m · $4.96 · 2%/61% 5h/7d"
+    result = classify(_pane("claude"), screen, _llm(parsed))
     assert result["status_entries"] == ["4h49m", "2%/61% 5h/7d"]
     kept = classify(_pane("claude"), "❯", _llm({"status_entries": ["16% ctx", "$4.96"]}))
     assert kept["status_entries"] == ["16% ctx", "$4.96"]  # no field holds them

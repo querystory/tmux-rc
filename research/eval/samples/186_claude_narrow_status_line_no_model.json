@@ -1,0 +1,11 @@
+{
+  "description": "Claude Code idle in a narrow (50-column) pane: a long branch name cuts the status line off before its model slot, so no model is on screen. The card must show no model rather than a guessed one (the prompt's example).",
+  "current_command": "node",
+  "capture": "● Pushed the layout fix; the preview build is green.\n\n╭────────────────────────────────────────────────╮\n│ ❯                                              │\n╰────────────────────────────────────────────────╯\n  ~/src/example-app on feature/a-long-branch-na…\n  session: +16/-0 lines · 9% ctx · 3h12m · $1…\n  ⏵⏵ auto mode on · 1 shell",
+  "expected": {
+    "tool": "claude",
+    "activity": "idle",
+    "model": null,
+    "headline": "Pushed the layout fix; preview build green"
+  }
+}
