@@ -748,8 +748,8 @@ egress doubled with the image CDN move.</p>
 # the daemon leaves it beside its page in scratch (SCRATCH's digest-daily).
 DIGEST = {
     "generated": datetime.fromtimestamp(NOW - 9 * 3600, UTC).isoformat(),
-    "verdict": "Refunds work end to end on your machine and are ready to ship. "
-               "The checkout tests are still stuck on the slow iframe.",
+    "verdict": "Refunds work end to end and are ready to ship. "
+               "Checkout tests are still stuck.",
     "needs_you": [{"text": "Refunds can merge: reviewed and green",
                    "href": f"https://{ORG}/shop-api/pull/413"}],
     "more": 1, "pace": "On pace",
