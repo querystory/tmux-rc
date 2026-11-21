@@ -893,9 +893,9 @@ addEventListener("message", (e) => {
   if (e.source !== scratchFrame.contentWindow) return;
   if (["grid", "list"].includes(view)) { scratchView = view; try { localStorage.setItem("tmuxrc-scratch-view", view); } catch {} }
   if (href) viewScratch(href, title);
-  if (["archive", "unarchive", "delete"].includes(scratch) && Array.isArray(names)) scratchAct(scratch, names);
+  if (["archive", "unarchive", "delete", "publish", "unpublish"].includes(scratch) && Array.isArray(names)) scratchAct(scratch, names);
 });
-// The gallery's Archive, Restore and Delete, which its sandbox can't: Delete (only ever from
+// The gallery's Archive, Restore, Delete, Publish and Unpublish, which its sandbox can't: Delete (only ever from
 // the archive) asks first, here where no page can click it; Archive offers an Undo.
 async function scratchAct(action, names) {
   const what = (n) => (n === 1 ? "1 page" : `${n} pages`);
@@ -904,7 +904,7 @@ async function scratchAct(action, names) {
   let done;
   try { ({ done } = await post("/api/scratch", { action, names }, NO_TIMEOUT)); } catch (err) { idle(); return notice(`Could not change Scratch: ${err.message}`, 6000); }
   scratchFrame.contentWindow?.postMessage({ reload: true }, "*");
-  notice(`${{ archive: "Archived", unarchive: "Restored", delete: "Deleted" }[action]} ${what(done.length)}.`, 8000,
+  notice(`${{ archive: "Archived", unarchive: "Restored", delete: "Deleted", publish: "Published", unpublish: "Unpublished" }[action]} ${what(done.length)}.`, 8000,
     action === "archive" && done.length ? ["Undo", () => scratchAct("unarchive", done)] : null);
 }
 // The pane whose pages it shows (?pane=, scratch.html), opened from that pane's Links.
