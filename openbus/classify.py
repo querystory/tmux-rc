@@ -22,6 +22,7 @@ import textwrap
 from functools import lru_cache
 from itertools import islice
 from pathlib import Path
+from typing import NamedTuple
 
 from .tmux import (
     DIM_CLOSE,
@@ -161,7 +162,7 @@ def _tabbed_panel_open(visible: str) -> bool:
 # ahead of a value column ("Auto-compact      true"). Only a row that opens with a frame
 # loses one closing bar: a label's own bar is content.
 _HIGHLIGHT_RE = re.compile(
-    rf"^[ \t]*(?P<frame>│)?[ \t│]*[{PROMPT_GLYPHS}>][ \t]*(?:[○●◉◯✔✓✘][ \t]*)?"
+    rf"^[ \t]*(?P<frame>│)?[ \t│]*(?P<cursor>[{PROMPT_GLYPHS}>])[ \t]*(?:[○●◉◯✔✓✘][ \t]*)?"
     r"(?P<digit>\d+[.)][ \t]+)?(?P<label>.*?)(?(frame)[ \t]*[│┃╎])[ \t]*$", re.MULTILINE)
 # A picker heading's live count ("Resume session (1 of 47)"): it redraws with every move
 # and filter while the picker stays the same, so it is never part of the prompt.
@@ -213,26 +214,65 @@ def _live_prompt(visible: str, prompt: str) -> tuple[re.Match, int] | None:
 _DIALOG_TOP_RE = re.compile(r"^(?:[─━▔]{3,}|╭)", re.MULTILINE)
 
 
-def _drawn_row(visible: str, live: tuple[re.Match, int]) -> str | None:
+def _drawn_row(visible: str, live: tuple[re.Match, int]) -> re.Match | None:
     *_, row = [None, *_HIGHLIGHT_RE.finditer(visible, live[0].end(), live[1])]
-    return row and row["label"]
+    return row
 
 
-def picker_read(text: str, prompt: str) -> tuple[str, str | None] | None:
-    """A capture's live picker, as a walk is held to it: its digest and its highlighted
-    row as drawn, or None. The digest hashes from the dialog's top edge (so the command a
-    generic "Do you want to proceed?" approves is part of it) down to the screen's end, as
-    classify reads the viewport (_visible) but otherwise verbatim. Any change since the
-    frame a step was computed from, be it a replacement picker, a moved highlight or a
-    row's "30s" now "60s", refuses the step (/send), and /send hands both back after each
-    key, so the next step is planned off the screen itself with no parse in between."""
+class PickerPosition(NamedTuple):
+    layout: str
+    line: int
+    body: list[str]
+
+
+class PickerRead(NamedTuple):
+    digest: str
+    row: str | None
+    position: PickerPosition | None
+
+
+def _quoted_picker_rows(read: PickerRead, options: list, rows: object, selected: object) -> bool:
+    """Check the model's option-to-screen mapping against the actual cursor line."""
+    position = read.position
+    if (position is None or not isinstance(rows, list) or len(rows) != len(options)
+            or type(selected) is not int or not 0 <= selected < len(rows)
+            or not all(isinstance(item, str) and item.strip() for item in (*options, *rows))):
+        return False
+    first = position.line - selected
+    if first < 0:
+        return False
+    quotes = [row.strip() for row in rows]
+    seen = position.body[first:first + len(rows)]
+    labels = [option.strip() for option in options]
+    return ([line.strip() for line in seen] == quotes
+            and all(label in quote for label, quote in zip(labels, quotes, strict=True)))
+
+
+def picker_read(text: str, prompt: str) -> PickerRead | None:
+    """Read the digest, highlighted label and any screen-grounded position of a live picker.
+
+    /send holds every key to the digest from the dialog's top edge to the screen's end.
+    The digest includes the command a generic approval prompt refers to and changes
+    on any repaint of the widget, including a move to a row with the same title.
+    """
     visible = _visible(text)
     live = _live_prompt(visible, prompt)
     if not live:
         return None
     *_, top = [live[0].start(), *(m.start() for m in
                                   _DIALOG_TOP_RE.finditer(visible, 0, live[0].start()))]
-    return hashlib.sha256(visible[top:].encode()).hexdigest(), _drawn_row(visible, live)
+    row = _drawn_row(visible, live)
+    widget = visible[top:]
+    position = None
+    if row:
+        # The rows under the prompt row, cursor blanked: both it and a heading's live count
+        # redraw with a move. The prompt row is matched above, and the digest holds sends.
+        body_start, cursor = live[0].end(), row.start("cursor")
+        layout = visible[body_start:cursor] + " " + visible[cursor + 1:]
+        line = visible.count("\n", body_start, row.start())
+        position = PickerPosition(hashlib.sha256(layout.encode()).hexdigest(),
+                                  line, visible[body_start:live[1]].split("\n"))
+    return PickerRead(hashlib.sha256(widget.encode()).hexdigest(), row and row["label"], position)
 
 
 def prompt_gone(text: str, prompt: str) -> bool:
@@ -244,15 +284,16 @@ def prompt_gone(text: str, prompt: str) -> bool:
 
 def picker_digest(text: str, prompt: str) -> str | None:
     read = picker_read(text, prompt)
-    return read and read[0]
+    return read and read.digest
 
 
 def highlighted_row(visible: str, prompt: str, options: list) -> str | None:
     """The one option the live picker's highlighted row under prompt names, or None."""
     live = _live_prompt(visible, prompt)
-    label = live and _drawn_row(visible, live)
-    if label is None:
+    row = live and _drawn_row(visible, live)
+    if row is None:
         return None
+    label = row["label"]
     # A stepper row draws its value between ←/→ arrows ("Autocompact at ‹ 400k › tokens")
     # that its option leaves out; read so only where the row as drawn names no option.
     for drawn in (label, _STEPPER_RE.sub(r"\1", label)):
@@ -1676,9 +1717,26 @@ def classify(
         # only where it shows which row is highlighted: a colour-only highlight is invisible
         # to the digest, so no walk is held to a screen that hashes alike whichever row it is.
         question.pop("picker", None)
-        if asked and isinstance(rows, list) and (row := highlighted_row(visible, asked, rows)):
-            question["selected"] = rows.index(row)
-            question["picker"] = picker_digest(text, asked)
+        question.pop("picker_layout", None)
+        question.pop("picker_line", None)
+        if asked and isinstance(rows, list) and (read := picker_read(text, asked)):
+            row = highlighted_row(visible, asked, rows)
+            if row:
+                question.update(selected=rows.index(row), picker=read.digest)
+            # A repeated title is told apart only by its position, so a list with one is
+            # bound to the screen wherever the highlight sits, a unique title included.
+            if (read.position is not None and llm_fn
+                    and not (row and all(rows.count(option) == 1 for option in rows))):
+                body = "\n".join(read.position.body).rstrip()
+                # Let the model resolve repeated labels and metadata columns from this widget.
+                answer = llm_fn(_load_prompt("parser_cursor.txt"), f"{asked}\n{body}")
+                if not isinstance(answer, dict):  # the call failed: retry, not retire, it
+                    result["parse_ok"] = False
+                elif (answer.get("options") == rows and _quoted_picker_rows(
+                        read, rows, answer.get("rows"), answer.get("selected"))):
+                    question.update(selected=answer["selected"], picker=read.digest,
+                                    picker_layout=read.position.layout,
+                                    picker_line=read.position.line)
     if isinstance(question, dict):
         # The widget's rows and their restatement are read here, never passed through.
         for key in ("context", "ask"):
