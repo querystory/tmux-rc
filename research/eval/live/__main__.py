@@ -99,11 +99,12 @@ async def _run(case: dict, model: LiveModel, connect) -> list[dict]:
 
 
 def _completed(trace, n: int) -> bool:
-    """Whether turn n got a real answer: a failed model call (an error frame, the chat
-    loop's failure line, a turn that never completed) sends nothing, which must not score
-    as a turn that rightly sent nothing."""
-    return bool(trace.of("turn_complete", n)) and not trace.of("error", n) and (
-        live_chat._FAILED not in trace.reply(n))
+    """Whether turn n got a real answer: a failed or empty model call (an error frame, the
+    chat loop's failure or no-response line, a turn that never completed) sends nothing,
+    which must not score as a turn that rightly sent nothing."""
+    reply = trace.reply(n)
+    return bool(trace.of("turn_complete", n)) and not trace.of("error", n) and not any(
+        note in reply for note in (live_chat._FAILED, live_chat._EMPTY))
 
 
 def _passed(turns: list[dict]) -> bool:

@@ -186,7 +186,10 @@ class Phone:
         pass
 
     async def send_json(self, frame: dict) -> None:
-        self.trace.frames.append({**frame, "_turn": self.trace.turn})
+        # Tagged with the turn being answered: a turn that superseded a card is queued
+        # behind the one still finishing, which owns whatever arrives until it completes.
+        late = 0 if frame.get("role") == "user" else max(self.owed - 1, 0)
+        self.trace.frames.append({**frame, "_turn": self.trace.turn - late})
         if frame.get("status") == "listening":  # a reconnect drops the turn it was in
             self.up, self.owed = True, 0
         elif frame["type"] == "turn_complete":

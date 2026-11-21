@@ -142,3 +142,9 @@ def test_a_bare_yes_with_nothing_pending_is_not_typed():
                         ["show me release notes", "go for it"])
     assert trace.keys == []
     assert _statuses(trace)[-1][1] == "rejected" and _statuses(trace)[-1][2]
+
+
+def test_a_turn_that_supersedes_a_card_gets_its_own_reply():
+    trace, _, _ = _play([[_relay("%3"), "first"], ["second"]],
+                        ["tell rate limits", "never mind"], text=True)
+    assert (trace.reply(1), trace.reply(2)) == ("first", "second")
