@@ -5,34 +5,35 @@ title: "Live Mode routing: gates first, a controller behind a flag"
 # Design: Live Mode routing
 
 Status: **proposed**. Weighs where a voice request's send decision should be made, after
-an afternoon of voice use in which six of fifteen relays reached a wrong or stale pane.
-Builds on [Live Mode](live-mode.md) and [the control session](control-session-routing.md);
-it links to them rather than restating them.
+voice relays were seen reaching wrong or stale panes. The examples below are invented to
+show each failure's shape. Builds on [Live Mode](live-mode.md) and
+[the control session](control-session-routing.md); it links to them rather than
+restating them.
 
-## What went wrong, by cause
+## What goes wrong, by cause
 
-Every wrong send that afternoon can be explained without a single recognition error, so
-this is a routing problem, not an audio one. The causes fall into four kinds:
+The wrong sends could be explained without any recognition error, so this is a routing
+problem, not an audio one. The causes fall into four kinds:
 
-- **Fan-out.** A fleet-wide question ("what's the status of everything today?") was
-  relayed to four panes, because the prompt says to ask the pane that would know. Each
-  receiving agent then took "ask all the panes" literally and broadcast its own
-  roll-call. One spoken sentence became hundreds of agent-to-agent messages, reaching
-  panes idle for days. The answer was already in the pane list the model held.
-- **A stale target.** With no name given, the model matched on topic and picked a pane
-  idle for ten days whose history happened to be about the same subject. The prompt's
-  ladder already says a long-idle pane needs confirming; at low reasoning effort the
-  model skipped that rung.
-- **A bare "yes" with nothing to answer.** "Go for it" was typed into a pane with no
-  pending question. Text mode has a rule for this (a bare yes only answers a question this
-  conversation asked); the voice prompt did not, and the correction that followed went to
-  the same wrong pane.
+- **Fan-out.** A fleet-wide question ("which of my PRs are waiting on me?") is relayed
+  to several panes, because the prompt says to ask the pane that would know. Each
+  receiving agent takes "ask all the panes" literally and broadcasts its own roll-call,
+  so one sentence becomes a flood of agent-to-agent messages that reaches long-idle
+  panes. The answer was already in the pane list the model held.
+- **A stale target.** With no name given, the model matches on topic and picks a pane
+  idle for days whose history happens to be about the same subject. The prompt's ladder
+  already says a long-idle pane needs confirming; at low reasoning effort the model
+  skips that rung.
+- **A bare "yes" with nothing to answer.** "Sounds good, do it" is typed into a pane
+  with no pending question. Text mode has a rule for this (a bare yes only answers a
+  question this conversation asked); the voice prompt does not, and the correction that
+  follows goes to the same wrong pane.
 - **The model's words under the user's label.** In GPT-Live, the voice front end hands
-  off to a backend model that only sees the handoff. It wrote its own briefs and sent them
-  as "From the user (via voice)", so the receiving agent could not tell instruction from
-  paraphrase.
+  off to a backend model that only sees the handoff. It writes its own briefs and sends
+  them as "From the user (via voice)", so the receiving agent cannot tell instruction
+  from paraphrase.
 
-The backend was a small model at low effort. That makes "use a bigger model" the obvious
+The backend is a small model at low effort. That makes "use a bigger model" the obvious
 fix, and it is part of the answer, but three of the four causes are not intelligence
 failures: they are missing rules and missing checks that a bigger model would also
 sometimes skip.
@@ -44,29 +45,43 @@ sometimes skip.
 Keep the current path (voice front end, backend model, `type_in_pane`) and add checks
 where a send leaves the daemon:
 
-- one pane per user request; a second distinct target in the same turn is refused with a
-  reason the model can say aloud;
+- one pane per user request; a second distinct target is refused with a reason the model
+  can say aloud. "Request" needs a real identity: in GPT-Live a backend completion is not
+  a spoken turn, and a tool result can start another completion for the same request, so
+  the count is keyed to the user's input turn, not to completions. Where that identity
+  is unavailable, a send goes through the card rather than guessing;
 - a send to a pane idle for more than about an hour goes through the approval card text
-  mode already has, instead of typing straight in;
+  mode already has, instead of typing straight in. Three things the card does not do yet
+  are prerequisites in voice: waiting on it must not stall the provider's event stream; a
+  spoken correction must supersede a pending card, as a typed message already does; and
+  the card must be bound to what the pane showed when it was proposed, not only to its
+  process, so a pane that moved on to a different question refuses the send instead of
+  taking it as an answer;
 - the bare-"yes" rule moves into the shared prompt, so voice and text say the same thing;
 - a fleet question is answered from the pane list, and no relay asks an agent to contact
   other panes;
-- text labelled as the user's must be the user's: the daemon compares it with the input
-  transcript, and anything else is labelled as the assistant's.
+- an instruction relayed as the user's must be the user's words for that request. When
+  the daemon cannot match it against that request's transcript (a paraphrase, or a
+  transcript that has not arrived yet), the send needs the card. Relabelling alone is
+  not enough: a paraphrase can drop a condition the user stated, whatever its label says.
 
 **Fit with the rule that the model owns meaning.** This is the reason (a) is safe to ship
 first. Every check is plumbing or an evidence gate: counting targets per turn, reading a
 pane's idle age, comparing a label against a transcript. None judges what the user meant.
 The two that are about meaning (what a bare yes answers, when to relay a question) go in
-the prompt, where the model owns them. The approval card is reused as is, so the only new
-UI is a card appearing in voice for a stale pane.
+the prompt, where the model owns them. The approval card is reused, so the only new UI is a
+card appearing in voice for a stale pane or an unverified relay.
 
 **Latency:** none added on the common path; a stale-pane send waits for a tap, which is
 the point. **Cost:** none. **Failure mode:** a gate refuses a send the user wanted; the
 model says why and the user names the pane. That is recoverable; a misplaced instruction
 in a live agent is not. **What it leaves open:** the backend can still pick the wrong
 fresh pane, and it still cannot run a multi-step dispatch (open a window, start an agent,
-hand off). Gates remove the worst sends; they do not make routing smart.
+hand off). The fan-out rule is a prompt rule on both ends, which mitigates rather than
+prevents: a receiving agent can still call tmux itself, outside any daemon gate.
+Preventing that needs agent-to-agent sends mediated and tied to the originating
+request, which is [cross-agent connect](cross-agent-connect.md)'s territory. Gates
+remove the worst sends; they do not make routing smart.
 
 ### (b) A stronger model for the send decision, inside the daemon
 
@@ -95,9 +110,9 @@ code.
 Every voice request goes to one long-lived agent pane (a Claude Code session, opt-in per
 user), which reads the directory and dispatches. This is the control session already
 proposed in [control-session-routing](control-session-routing.md), with voice as its
-front end. It reuses a pattern that already works by hand: on the bad afternoon, the two
-sends the user addressed to their own coordinator pane were the two that landed right
-first time, because that agent had the context to know where work lived.
+front end. It reuses a pattern that already works by hand: a coordinator pane the user
+addresses by name routes well, because that agent has the context to know where work
+lives.
 
 **What it buys.** The best model available, with the whole conversation, the fleet
 directory, and the ability to run a sequence (find, open, start, hand off) instead of a
@@ -113,11 +128,20 @@ than API spend.
 point of failure that is often not idle. It can be mid-turn on the last request, waiting
 on its own permission prompt, compacting, or crashed. A request typed into a busy agent
 queues behind its current work with no deadline; one typed into a wedged agent goes
-nowhere, and the voice user hears nothing. So the daemon has to watch the controller's
-state (the watcher already knows when a pane is working, idle or asking) and refuse to
-hand off to one that is not ready, falling back to the gated direct path or to asking.
-The controller also sends to other panes, so (a)'s gates must apply to its sends too;
-otherwise the fan-out failure simply moves one hop down.
+nowhere, and the voice user hears nothing. A cached "idle" from the watcher is not
+enough to hand off on: two requests can both see it before it refreshes, and an agent
+that exited leaves a shell that would run the text. So admission is serialized (one
+request holds the controller until a correlated completion or failure), and delivery
+checks the controller's process is still the agent it was. A controller that is not
+ready gets no hand-off.
+
+The controller also sends to other panes, through the daemon's verbs, and those sends
+need gating too, or fan-out moves one hop down. But (a)'s one-pane limit cannot apply
+as is, since dispatching to several panes is the point: the hand-off to the controller
+does not count as a destination, and a plan that touches more than one pane is shown
+as one card listing its targets, approved once, and bounded to those targets. As with
+any agent, a controller that calls tmux directly is outside the gates; its charter
+forbids that, which is a convention, not a boundary.
 
 **Fit with the rule.** Good: the controller is a model making the meaning call, and the
 daemon only delivers, gates and watches. The return path (how the controller's answer gets
@@ -134,7 +158,10 @@ acknowledgement.
 
 This is the controller-routing design's fast path made concrete, and it pays (c)'s
 latency and cost only on the requests that need its intelligence. When the controller is
-busy or wedged, the hybrid degrades to (a), which is no worse than today. The cost is two
+busy or wedged, a request falls back to the direct path only if it would have qualified
+for that path anyway (one named or active agent pane, a plain sentence); anything
+ambiguous or multi-pane gets "the controller is busy" and a question instead, since
+the direct path has no confident target for it. The cost is two
 paths to understand and test, which is why the replay suite has to cover both before it
 ships.
 
@@ -155,14 +182,14 @@ latency proves too slow for voice.
 | (a) Gates | none; a tap for stale panes | none | refuses a wanted send; user names the pane | yes, gates are evidence only | approval card, shared prompt |
 | (b) Verifier | a few seconds | small | API down: card | splits meaning across two models | provider seam |
 | (c) Controller | tens of seconds | an agent turn per request | busy or wedged controller: nothing happens | yes | coordinator pattern, control-session design |
-| (d) Hybrid | none for answers; controller time for actions | agent turns for actions only | falls back to (a) | yes | all of the above |
+| (d) Hybrid | none for answers; controller time for actions | agent turns for actions only | fast-path requests fall back to (a); the rest ask | yes | all of the above |
 | (e) Claude loop | a few seconds per step | small to moderate | API down: no backend | yes | text mode's loop and cards |
 
 ## Recommendation
 
 Ship (a) now: it addresses all four causes, adds no latency, and fits the meaning rule
 without exceptions. Measure it with the conversation-replay suite, built from invented
-conversations with the same shapes as the bad afternoon.
+conversations with the same shapes as these failures.
 
 Then, in order:
 
@@ -171,8 +198,8 @@ Then, in order:
    is the model.
 2. **The hybrid (d), behind a per-user setting, off by default.** The controller is the
    control session from the controller-routing design, with a narrow charter and the
-   daemon's gates on its sends. The daemon hands off only to a controller that is idle,
-   and says so aloud when it cannot.
+   daemon's gates on its sends. The daemon hands off only to a controller it has
+   reserved and verified, and says so aloud when it cannot.
 3. **Everything through the controller (c)** only if the replay suite and real use show
    the gated direct path still sends to wrong panes after step 1.
 
