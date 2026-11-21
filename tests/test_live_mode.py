@@ -1399,6 +1399,7 @@ def test_voice_sends_to_a_long_idle_window_wait_for_a_tap(monkeypatch):
     shell = _FC(args={"pane_id": "%2", "text": "ls"})
     assert not L._stale(meter, shell, Idle(60))
     assert not L._stale(meter, _FC(args={"pane_id": "%1", "text": "x"}), Idle(7200))  # ACTIVE
+    assert L._stale(meter, _FC(args={"pane_id": " %2 ", "text": "x"}), Idle(7200))  # as sent
 
     class Tap(_WS):
         async def send_json(self, obj):

@@ -499,8 +499,8 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
                        else (True, None))
             act = _act(websocket, session, call, watcher, meter, rec, ok, pid)
             result = await (_focusing(session, watcher, rec, act) if meter.text else act)
-            if result["status"] in _REACHED:
-                meter.used.add(result.get("pane_id") or rec.get("pane_id"))
+            if result["status"] == "sent":  # input went in: the window is in the conversation
+                meter.used.add(rec["pane_id"])
     finally:
         _audit_call(meter, fc.name if known else "unknown_tool", result, started, rec)
     await session.send_tool_result(fc, result)
@@ -516,6 +516,7 @@ def _stale(meter: _Meter, fc, watcher) -> bool:
     "confirm a long-idle pane" went unheeded. The windows the user is working in stay
     hands-free."""
     pane = fc.args.get("pane_id") if isinstance(fc.args, dict) else None
+    pane = pane.strip() if isinstance(pane, str) else pane  # as _dispatch reads it
     d = next((d for d in watcher.digest() if d["pane_id"] == pane), None)
     idle = (d or {}).get("idle_seconds")
     return bool(d and d.get("activity") == "idle" and not d.get("tmux_active")
