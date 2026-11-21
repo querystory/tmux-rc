@@ -1394,8 +1394,10 @@ def test_voice_reaches_one_pane_per_request(monkeypatch):
     assert typed and not more
     assert session.responses[0][1]["status"] == "rejected"
     assert "ask which one" in session.responses[0][1]["reason"]
-    assert _dispatch(_FC("press_key", {"pane_id": "%1", "key": "Enter"}), monkeypatch,
-                     meter=meter)[3]  # the pane it already reached
+    assert _dispatch(_FC("press_key", {"pane_id": " %1", "key": "Enter"}), monkeypatch,
+                     meter=meter)[3]  # the pane it already reached, however spelled
+    resume = _FC("resume_session", {"session_id": "s-1"})  # opens a window, typing nothing
+    assert L._other_pane(meter, meter.request, resume) is None
     _run(L._transcript(_WS(), meter, "user", "now the shell"))  # the user speaks again
     assert _dispatch(_FC(args={"pane_id": "%2", "text": "ls"}), monkeypatch, meter=meter)[3]
     text = L._Meter("s", "a", P._DEFAULT[0], text=True)  # typed chat: each send has a card

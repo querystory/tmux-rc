@@ -157,9 +157,10 @@ class _Meter:
         self.usage = _LiveUsage(model.rates)
         self.turns = 0
         # Which user request this is (each user transcript fragment starts one; None before
-        # the user has said anything), and the (request, pane) a voice action last reached.
+        # the user has said anything), and the pane each recent request's voice actions
+        # reached, by request: GPT-Live's delegations can interleave.
         self.request: int | None = None
-        self.reached: tuple = (None, None)
+        self.reached: dict = {}
         self.started = time.monotonic()
         self._lines: list[str] = []
         # Extra OTel fields a provider adapter wants folded into each record (GPT-Live
@@ -507,21 +508,27 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
             act = _act(websocket, session, call, watcher, meter, rec, ok, pid)
             result = await (_focusing(session, watcher, rec, act) if meter.text else act)
             pane = result.get("pane_id") or rec.get("pane_id")
-            if result["status"] in _REACHED and pane:
-                meter.reached = request, pane
+            if result["status"] in _REACHED and pane and request is not None:
+                meter.reached.setdefault(request, pane)
+                if len(meter.reached) > REQUESTS_KEPT:
+                    del meter.reached[next(iter(meter.reached))]
     finally:
         _audit_call(meter, fc.name if known else "unknown_tool", result, started, rec)
     await session.send_tool_result(fc, result)
 
 
+REQUESTS_KEPT = 32  # requests whose pane is remembered: far more than can still be running
+
+
 def _other_pane(meter: _Meter, request, fc) -> dict | None:
     """Refuse a voice action on a second pane in one user request. Voice acts without a card,
     and one spoken question once fanned out to several agents, each of which then messaged
-    the whole fleet; the user, not the model, says when one request should reach two windows."""
+    the whole fleet; the user, not the model, says when one request should reach two windows.
+    A resume only opens a window, idle: it goes, and typing into it is what this holds."""
     args = fc.args if isinstance(fc.args, dict) else {}
-    held, pane = meter.reached[1], args.get("pane_id")
-    if (meter.text or fc.name not in _CONSENT or request is None or meter.reached[0] != request
-            or pane == held):
+    held, pane = meter.reached.get(request), args.get("pane_id")
+    pane = pane.strip() if isinstance(pane, str) else pane  # as _dispatch reads it
+    if meter.text or fc.name not in _CONSENT - {"resume_session"} or held in (None, pane):
         return None
     return {"status": "rejected", "reason": (
         f"one pane per request, and this one already reached id={held}; send nothing more, "

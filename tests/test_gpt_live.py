@@ -627,10 +627,10 @@ def test_one_delegation_types_into_one_pane(monkeypatch):
 
     async def run():
         s = session()
-        s.meter.reached = ("delegation-1", "%1")
         worker = asyncio.create_task(s.execute())
-        for batch in [("delegation-1", [call("c2", {"pane_id": "%2", "text": "x"})]),
-                      ("delegation-2", [call("c3", {"pane_id": "%2", "text": "y"})])]:
+        for batch in [("delegation-1", [call("c1", {"pane_id": "%1", "text": "w"})]),
+                      ("delegation-2", [call("c2", {"pane_id": "%2", "text": "x"})]),
+                      ("delegation-1", [call("c3", {"pane_id": "%2", "text": "y"})])]:
             s.work.put_nowait(batch)
             await asyncio.wait_for(s.ws.continued.wait(), 1)  # the batch's continuation
             s.ws.continued.clear()
@@ -640,5 +640,5 @@ def test_one_delegation_types_into_one_pane(monkeypatch):
         return s
 
     s = asyncio.run(run())
-    assert typed == [("%2", "y", True, True)]
-    assert json.loads(s.ws.sent[0]["item"]["output"])["status"] == "rejected"
+    assert typed == [("%1", "w", True, True), ("%2", "x", True, True)]  # interleaved: A, B, A
+    assert json.loads(s.ws.sent[-2]["item"]["output"])["status"] == "rejected"
