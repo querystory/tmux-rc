@@ -51,7 +51,8 @@ where a send leaves the daemon:
   the count is keyed to the user's input turn, not to completions. Where that identity
   is unavailable, a send goes through the card rather than guessing;
 - a send to a pane idle or waiting for more than about an hour (an agent parked on the
-  same question for days is waiting, not idle), or whose age is unknown, goes through
+  same question for days is waiting, not idle), or whose age is not established (a pane
+  first seen after a restart has no known start, whatever the watcher stamps), goes through
   the approval card text mode already has, instead of typing straight in. Three things the card does not do yet
   are prerequisites in voice: waiting on it must not stall the provider's event stream; a
   spoken correction must supersede a pending card, as a typed message already does; and
@@ -183,12 +184,17 @@ latency proves too slow for voice.
 Whichever option routes, the send itself keeps the guarantees the existing designs
 already ask for, because a send into a live agent cannot be undone:
 
-- **Delivery rechecks the target.** The pane's process, agent and screen at delivery must
-  be the ones the decision was made on, for direct sends as well as carded ones; a pane
-  that exited to a shell, or moved on to a new question, refuses the send.
-- **Only into an empty composer.** A hand-off appended to a half-typed draft would submit
-  both, so the parser's evidence that the input box is empty is rechecked with the screen
-  just before typing.
+- **Delivery rechecks the target.** The pane's process, agent and screen must still be
+  the ones the decision was made on, for direct sends as well as carded ones, checked
+  under the pane's send lock; a pane that exited to a shell, or moved on to a new
+  question, refuses the send. A pane can still change in the instant between check and
+  keystroke, so the result is observed afterwards, and one that cannot be confirmed is
+  reported as unconfirmed, never replayed.
+- **Text goes only into an empty composer.** A hand-off appended to a half-typed draft
+  would submit both, so a text send needs the model's read that the input box is empty
+  (or unknown, which means a card), covered by an eval case. Menu answers and keys have
+  no composer; they are guarded by the question they answer, as the card binding above
+  does.
 - **Risk tiers still apply.** A plain sentence to one named pane is the fast path only if
   it asks for nothing destructive or outward-facing (a push, a delete), as the
   control-session design specifies; those go through confirmation on every path,
