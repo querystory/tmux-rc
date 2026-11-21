@@ -545,6 +545,8 @@ async def _act(websocket, session, call, watcher, meter: _Meter, rec: dict, ok, 
 
 
 def _audit_call(meter: _Meter, name: str, result: dict, started: float, rec: dict) -> None:
+    # The recording keeps it whole (local only), so what was heard lines up with what was done.
+    meter.rec.event("tool", tool=name, rec=rec, result=result)
     status, reason = result["status"], result.get("reason")
     _audit(
         meter, f"live_{name}",

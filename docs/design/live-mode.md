@@ -361,8 +361,9 @@ under `~/.local/state/tmux-rc/live-audio/` (beside `history.sqlite3`, honouring
   itself dropped before sending it (its `lost_ms`, counted when the socket backlog
   overflows). Bursts, gaps and losses show up there rather than as mystery static.
 - `model.wav` is the provider's voice at its own rate; `events.jsonl` holds the
-  transcript deltas with any provider timing, errors (the provider's full error event,
-  which the browser never sees) and session start and end.
+  transcript deltas with any provider timing, each tool call (its name, target, full text
+  and result, so what was heard lines up with what was done in one file), errors (the
+  provider's full error event, which the browser never sees) and session start and end.
 
 These files hold the user's voice and everything said, so they stay on this machine:
 never in the repo, scratch, telemetry or an export. The folders are private to the user
