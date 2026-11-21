@@ -352,7 +352,7 @@ class Session:
                     calls = self.calls.pop(delegation, [])
                     if nk == "response.completed" and calls:
                         try:
-                            self.work.put_nowait(calls)
+                            self.work.put_nowait((delegation, calls))
                         except asyncio.QueueFull:
                             # Keep receiving voice while tools run; do not block
                             # the audio receiver or leave a long delayed-action queue.
@@ -373,7 +373,7 @@ class Session:
 
     async def execute(self):
         while True:
-            calls = await self.work.get()
+            delegation, calls = await self.work.get()
             for item in calls:
                 if self.closing:
                     return
@@ -389,8 +389,9 @@ class Session:
                     args = None
                 fc = SimpleNamespace(id=cid, name=item.get("name"), args=args)
                 self.meter.note(f"[typed] {args}")
+                # One delegation is one user request, whatever the transcript does meanwhile.
                 await live._handle_tool_call(  # noqa: SLF001 - shared Live adapter internals
-                    self.browser, self, fc, self.watcher, self.meter
+                    self.browser, self, fc, self.watcher, self.meter, delegation
                 )
             if not self.closing:
                 # All outputs must precede continuation, even if a backend emits

@@ -156,6 +156,11 @@ class _Meter:
             maxlen=TURNS_KEPT + TURNS_QUEUED + 1)
         self.usage = _LiveUsage(model.rates)
         self.turns = 0
+        # Which user request this is (each user transcript fragment starts one; None before
+        # the user has said anything), and the pane each recent request's voice actions
+        # reached, by request: GPT-Live's delegations can interleave.
+        self.request: int | None = None
+        self.reached: dict = {}
         self.started = time.monotonic()
         self._lines: list[str] = []
         # Extra OTel fields a provider adapter wants folded into each record (GPT-Live
@@ -471,13 +476,16 @@ def _audit(meter: _Meter, action: str, pane_id: str = "-", **kw) -> None:
     )
 
 
-async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _Meter) -> None:
+async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _Meter,
+                            request=None) -> None:
     """Run one tool call, audit it, and answer the model tersely. The ONE place every
     Live tool call is recorded: the handler notes what it touched in `rec` (pane, detail,
     content, ids) and the outcome comes from its answer, so no path goes unaudited — a
     call that raises (say, the socket dropping after the keys went in) is audited too,
-    with whatever `rec` already shows it did."""
+    with whatever `rec` already shows it did. `request` names the user request the call
+    serves, when the provider knows it better than the latest transcript does."""
     started, rec = time.monotonic(), {}
+    request = meter.request if request is None else request
     # Pin an omitted image_number to the latest image NOW: the user approves the thumbnail
     # on the card, and a turn pasted while it waits must not change which image is sent.
     call = fc
@@ -492,14 +500,39 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
     result = {"status": "error", "reason": "aborted"} if known else {
         "status": "rejected", "reason": "unknown tool"}
     try:
-        if known:
+        if known and (refused := _other_pane(meter, request, call)):
+            result = refused
+        elif known:
             ok, pid = (await _approved(websocket, session, call, watcher, meter, rec)
                        if meter.text and fc.name in _CONSENT else (True, None))
             act = _act(websocket, session, call, watcher, meter, rec, ok, pid)
             result = await (_focusing(session, watcher, rec, act) if meter.text else act)
+            pane = result.get("pane_id") or rec.get("pane_id")
+            if result["status"] in _REACHED and pane and request is not None:
+                meter.reached.setdefault(request, pane)
+                if len(meter.reached) > REQUESTS_KEPT:
+                    del meter.reached[next(iter(meter.reached))]
     finally:
         _audit_call(meter, fc.name if known else "unknown_tool", result, started, rec)
     await session.send_tool_result(fc, result)
+
+
+REQUESTS_KEPT = 32  # requests whose pane is remembered: far more than can still be running
+
+
+def _other_pane(meter: _Meter, request, fc) -> dict | None:
+    """Refuse a voice action on a second pane in one user request. Voice acts without a card,
+    and one spoken question once fanned out to several agents, each of which then messaged
+    the whole fleet; the user, not the model, says when one request should reach two windows.
+    A resume only opens a window, idle: it goes, and typing into it is what this holds."""
+    args = fc.args if isinstance(fc.args, dict) else {}
+    held, pane = meter.reached.get(request), args.get("pane_id")
+    pane = pane.strip() if isinstance(pane, str) else pane  # as _dispatch reads it
+    if meter.text or fc.name not in _CONSENT - {"resume_session"} or held in (None, pane):
+        return None
+    return {"status": "rejected", "reason": (
+        f"one pane per request, and this one already reached id={held}; send nothing more, "
+        "tell the user which other windows you meant and ask which one they want")}
 
 
 # The running action's _focusing hook, which _delivered calls as its delivery shows.
@@ -1325,6 +1358,8 @@ async def _transcript(websocket: WebSocket, meter: _Meter, role: str, text: str,
     if telemetry.QSDEBUG:  # content reaches the journal under the same flag as OTel
         logger.info("[live] %s: %s", role, text)
     meter.note(f"{role}: {text}")
+    if role == "user":
+        meter.request = (meter.request or 0) + 1
     await websocket.send_json({"type": "transcript", "role": role, "text": text, **extra})
 
 

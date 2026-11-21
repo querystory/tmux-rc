@@ -254,7 +254,7 @@ def test_duplicate_tool_call_stops_without_typing():
     async def run():
         s = session()
         s.seen_calls.add("call-1")
-        s.work.put_nowait([call()])
+        s.work.put_nowait(("delegation-1", [call()]))
         with pytest.raises(RuntimeError, match="duplicate input"):
             await s.execute()
         assert not s.ws.sent
@@ -518,7 +518,7 @@ def test_full_tool_queue_reports_overload_without_running_more_actions():
         response("response.completed", response={"id": "r1", "output": []}),
     ])
     for _ in range(s.work.maxsize):
-        s.work.put_nowait([call()])
+        s.work.put_nowait(("delegation-1", [call()]))
     with pytest.raises(G.ProviderError, match=r"^GPT-Live: terminal_queue_full$"):
         asyncio.run(s.receive())
     assert not s.ws.sent
@@ -615,3 +615,30 @@ def test_a_missing_key_is_an_error_not_a_stop(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     with pytest.raises(L.live_providers.Unreachable, match="OPENAI_API_KEY"):
         asyncio.run(G.run_session(Browser(), Watcher(), L._Meter("test", "test", G.ENTRY)))
+
+
+def test_one_delegation_types_into_one_pane(monkeypatch):
+    """GPT-Live's request is its delegation, not the transcript, which streams meanwhile."""
+    typed = []
+    monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append(a))
+    monkeypatch.setattr(L.tmux, "server_uid", lambda: "test")
+    monkeypatch.setattr(L.telemetry, "emit_action", lambda **kw: None)
+    monkeypatch.setattr(L, "_labels", lambda w: {"%1": "shell", "%2": "docs"})
+
+    async def run():
+        s = session()
+        worker = asyncio.create_task(s.execute())
+        for batch in [("delegation-1", [call("c1", {"pane_id": "%1", "text": "w"})]),
+                      ("delegation-2", [call("c2", {"pane_id": "%2", "text": "x"})]),
+                      ("delegation-1", [call("c3", {"pane_id": "%2", "text": "y"})])]:
+            s.work.put_nowait(batch)
+            await asyncio.wait_for(s.ws.continued.wait(), 1)  # the batch's continuation
+            s.ws.continued.clear()
+        for task in [worker, *L._tasks]:
+            task.cancel()
+        await asyncio.gather(worker, *list(L._tasks), return_exceptions=True)
+        return s
+
+    s = asyncio.run(run())
+    assert typed == [("%1", "w", True, True), ("%2", "x", True, True)]  # interleaved: A, B, A
+    assert json.loads(s.ws.sent[-2]["item"]["output"])["status"] == "rejected"

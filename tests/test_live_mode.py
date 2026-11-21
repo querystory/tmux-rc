@@ -1380,3 +1380,25 @@ def test_typing_at_a_password_prompt_says_why_it_was_refused(monkeypatch):
     _run(L._handle_tool_call(_WS(), session, fc, _Watcher(), _METER))
     assert "password field" in str(session.responses)
     assert audits and "hunter2" not in str(audits)
+
+
+def test_voice_reaches_one_pane_per_request(monkeypatch):
+    """One spoken request types into one pane: a second pane is refused untyped, with a reason
+    that sends the model back to the user; the same pane, or the next request, still goes."""
+    meter = L._Meter("s", "a", P._DEFAULT[0])
+    _run(L._transcript(_WS(), meter, "user", "ask both panes their status"))
+    first = _FC(args={"pane_id": "%1", "text": "status?"})
+    *_, typed = _dispatch(first, monkeypatch, meter=meter)
+    _, _, session, more = _dispatch(_FC(args={"pane_id": "%2", "text": "status?"}),
+                                    monkeypatch, meter=meter)
+    assert typed and not more
+    assert session.responses[0][1]["status"] == "rejected"
+    assert "ask which one" in session.responses[0][1]["reason"]
+    assert _dispatch(_FC("press_key", {"pane_id": " %1", "key": "Enter"}), monkeypatch,
+                     meter=meter)[3]  # the pane it already reached, however spelled
+    resume = _FC("resume_session", {"session_id": "s-1"})  # opens a window, typing nothing
+    assert L._other_pane(meter, meter.request, resume) is None
+    _run(L._transcript(_WS(), meter, "user", "now the shell"))  # the user speaks again
+    assert _dispatch(_FC(args={"pane_id": "%2", "text": "ls"}), monkeypatch, meter=meter)[3]
+    text = L._Meter("s", "a", P._DEFAULT[0], text=True)  # typed chat: each send has a card
+    assert L._other_pane(text, 1, _FC(args={"pane_id": "%2", "text": "x"})) is None
