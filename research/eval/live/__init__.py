@@ -178,7 +178,8 @@ class Phone:
         self.client, self.headers = None, {}
         self.changed = asyncio.Event()
         self.up = self.dropped = False
-        self.owed, self.card = 0, None  # turns not yet complete; the card up on this socket
+        self.owed: list[int] = []  # the turns not yet complete, oldest first
+        self.card = None  # the card up on this socket
         self.held = None  # the card the newest turn superseded
 
     async def accept(self) -> None:
@@ -190,14 +191,16 @@ class Phone:
     async def send_json(self, frame: dict) -> None:
         # Tagged with the turn being answered: a turn that superseded a card is queued
         # behind the one still finishing, which owns whatever arrives until it completes.
-        late = 0 if frame.get("role") == "user" else max(self.owed - 1, 0)
-        self.trace.frames.append({**frame, "_turn": self.trace.turn - late})
+        # The echo, and a refusal, answer the newest turn at once.
+        now = frame.get("role") == "user" or frame.get("refused") or not self.owed
+        self.trace.frames.append({**frame, "_turn": self.trace.turn if now else self.owed[0]})
         if frame.get("status") == "listening":  # a reconnect drops the turn it was in
-            self.up, self.owed = True, 0
-        elif frame["type"] == "turn_complete":
-            self.owed = max(0, self.owed - 1)
-        elif frame.get("refused"):  # the turn ends unsent, and the card it superseded stays
-            self.owed, self.card = max(0, self.owed - 1), self.held
+            self.up, self.owed = True, []
+        elif frame["type"] == "turn_complete" and self.owed:
+            self.owed.pop(0)
+        elif frame.get("refused") and self.owed:  # it ends unsent; the card it superseded stays
+            self.owed.pop()
+            self.card = self.held
         elif frame["type"] == "propose":
             self.card = frame["id"]
         elif frame["type"] == "decided" and frame.get("id") == self.card:
@@ -206,7 +209,7 @@ class Phone:
 
     async def receive_json(self) -> dict:
         while True:
-            while not (self.up and (self.owed == 0 or self.card)):
+            while not (self.up and (not self.owed or self.card)):
                 self.changed.clear()
                 await self.changed.wait()
             # Taken only now: a wait cancelled (a reconnect's backoff) leaves it for the next.
@@ -220,7 +223,8 @@ class Phone:
             if isinstance(step, str):
                 self.trace.turn += 1
                 # A new turn supersedes a card, unless it is refused (held till then).
-                self.owed, self.held, self.card = self.owed + 1, self.card, None
+                self.owed.append(self.trace.turn)
+                self.held, self.card = self.card, None
                 return {"action": "text", "text": step}
             if step["action"] == "approve":
                 step = {"id": self.trace.of("propose")[-1]["id"], **step}
