@@ -193,7 +193,7 @@ class Phone:
         self.trace.frames.append({**frame, "_turn": self.trace.turn - late})
         if frame.get("status") == "listening":  # a reconnect drops the turn it was in
             self.up, self.owed = True, 0
-        elif frame["type"] == "turn_complete":
+        elif frame["type"] == "turn_complete" or frame.get("refused"):  # a refused turn ends
             self.owed = max(0, self.owed - 1)
         elif frame["type"] == "propose":
             self.card = frame["id"]
