@@ -53,6 +53,8 @@ class Backend(live_chat._Chat):  # the text sessions' own tool loop
         })
         r.raise_for_status()
         body = r.json()
+        if body.get("status") != "completed":  # a cut-off reply is a failed turn, not acted on
+            raise RuntimeError(f"response {body.get('status')}")
         out = [{k: v for k, v in o.items() if k not in {"id", "status"}} for o in body["output"]]
         self.history += out
         reply = "".join(c.get("text", "") for o in out if o["type"] == "message"
@@ -127,6 +129,8 @@ def main() -> int:
     load_dotenv(Path.home() / ".config/tmux-rc/openai.env")  # keys live outside every checkout
 
     selected = [c for c in cases() if args.case in (None, c["name"])]
+    if not selected:
+        ap.error(f"no case named {args.case}")
     model = LiveModel(args.model, args.model, _backend(args.model))
     load = live._load_prompt
     prompt = args.prompt.read_text(encoding="utf-8") if args.prompt else None
