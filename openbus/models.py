@@ -21,7 +21,9 @@ Mode = Literal["normal", "plan", "accept-edits", "bypass", "unknown"]
 # sends one keystroke (the row's digit). "cursor" is a highlighted list you ARROW through
 # — neither of the other two works on it, because both a digit and the option's text
 # land in the picker's search box instead of selecting (the /resume bug, issue #206).
-AnswerStyle = Literal["text", "menu", "cursor"]
+# "key" sends the option's own one-key shortcut from `keys` ("r" for Codex's "r retry"),
+# no Enter: a notice that takes no typed line, only a key.
+AnswerStyle = Literal["text", "menu", "cursor", "key"]
 
 
 class Keymap(BaseModel):
@@ -48,6 +50,7 @@ class Question(BaseModel):
     prompt: str
     options: list[str] = []  # empty ⇒ free-text answer expected
     answer_style: AnswerStyle = "text"
+    keys: list[str] = []  # key style only: each option's one key, in order
     # cursor style only: which option the highlight (❯) currently sits on, so the UI can
     # compute how far to move. None ⇒ unknown; the UI must then NOT walk the cursor
     # blind, since a wrong anchor silently selects the wrong row.

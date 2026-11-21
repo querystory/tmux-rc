@@ -29,3 +29,10 @@ test("a typed reply keeps its Enter", () => {
   assert.deepEqual(answerBody({ answer_style: "text", options: ["Ship it"] }, "Ship it", 0),
     { keys: "Ship it", enter: true, literal: true });
 });
+
+test("a key notice sends the option's own key, never Enter", () => {
+  const notice = { answer_style: "key", options: ["Retry", "Fork"], keys: ["r", "f"], fp: "q1" };
+  assert.deepEqual(answerBody(notice, "Retry", 0), digit("r"));
+  assert.deepEqual(answerBody(notice, "Fork", 1), digit("f"));
+  assert.equal(answerBody({ ...notice, keys: [] }, "Retry", 0), null);
+});

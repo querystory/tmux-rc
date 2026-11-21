@@ -1477,6 +1477,16 @@ def classify(
             # without buttons the user types exactly what the screen asks for.
             style = question["answer_style"] = "text"
             question.pop("options", None)
+        # A key answer sends exactly one key per option, so each must be one key.
+        keys, options = question.get("keys"), question.get("options")
+        if style == "key" and not (isinstance(keys, list) and isinstance(options, list)
+                                   and len(keys) == len(options) > 0 and all(
+                                       isinstance(k, str) and len(k) == 1 and k.isprintable()
+                                       and not k.isspace() for k in keys)):
+            style = question["answer_style"] = "text"
+            question.pop("options", None)
+        if style != "key":
+            question.pop("keys", None)
         # Numbered menus only: a cursor picker is a plain choice, never an approval.
         if context := style == "menu" and asked and _widget_text(asked, visible):
             question["context"] = context

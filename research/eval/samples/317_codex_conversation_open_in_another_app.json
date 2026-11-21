@@ -1,0 +1,14 @@
+{
+  "description": "Synthetic: a finished Codex turn, then Codex's blocking notice that the conversation is open in another app (close it there and press R to continue here), its key hint 'r to retry' on the notice's first row, and a key bar 'r retry  f fork'. Codex sends nothing until the user acts, and the notice takes one key, not a typed line: a key question, its key sent without Enter.",
+  "current_command": "codex",
+  "capture": "\u001e[visible screen]\u001f\n• Ran make build-docs\n  │ … +9 lines\n  └ Docs built: 41 pages\n\n• Ran git status --short\n  │ systemctl --user is-active orchard-sync\n  └ active\n\n• Merged #88 (https://github.com/example-org/orchard/pull/88) and redeployed the sync service. Tests passed and\n  the nightly import ran clean against the new schema.\n\n  #91 is still open; I left it out of this deploy.\n\n  Worked for 14m 02s • Nov 3 at 4:51 PM\n\n■ This conversation is read-only or unavailable; no operation was sent.\n\n\n  🔒  This conversation is open in another app                                                  r to retry\n      Close it there and press R to continue here.\n\n   r retry   f fork   ←/esc command center   ^c/q exit   ^t transcript",
+  "expected": {
+    "tool": "codex",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "key"
+    },
+    "headline": "Codex is blocked: the conversation is open in another app"
+  }
+}
