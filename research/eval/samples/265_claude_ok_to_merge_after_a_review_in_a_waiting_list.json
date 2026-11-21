@@ -1,0 +1,15 @@
+{
+  "description": "Synthetic: a finished auto-mode turn reports a security fix and closes with a \"Still waiting on:\" list: another person's approval and then the user's OK to merge, and a question about which staging teams to switch on; the user has an unsent draft in the input box. The OK to merge and the question are left to the user: waiting on the user, and the draft is no offer.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ how is the access fix going\n\n● Rosa's review found a gap in the access check:\n\n  What she found: the check only looked at the caller's team. Someone on an allowed team could still run the\n  hosted model on a board another team had shared with them, so that team's notes would reach it.\n\n  The fix: the hosted model now runs only if every team whose notes the call can read has it switched on. That\n  covers the caller's team, the board's team, and the teams of the board's linked sources. An unknown team counts\n  as switched off.\n  - Every call now passes the board it reads, so no call site can skip the check.\n  - New test for her case: the caller's team is allowed, another team shares a board, and the call gets a 403\n    until that team allows it.\n  - I replied to and resolved her two threads and re-requested her review.\n\n  CI: all 18 checks pass on 3c41e2b. Preview: rebuilt at 3c41e2b; the blocked call now gets a 403 with the new\n  message.\n\n  Still waiting on:\n  - Rosa's approval. After that I need your OK to merge this PR.\n  - Staging teams: which ones do the nightly import and digest runs use? Their switch needs turning on right after\n    the staging deploy.\n  - After merge: confirm the production board, then I'll switch the model on for it.\n\n✻ Baked for 34s · done 6:48 PM\n────────────────────────────────────────────────────────────────────────────────────────────────────\n❯ check again and keep going\n────────────────────────────────────────────────────────────────────────────────────────────────────\n  ~/src/orchard/boards on fix/access-check | Opus 5.5 | dev@example.com\n  session: +211/-18 lines · 16% ctx · 59h3m · $12.40\n  ⏵⏵ auto mode on (shift+tab to cycle) · PR #412",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "optional": true,
+      "answer_style": "text"
+    },
+    "headline": "Access fix PR #412 waits on Rosa's approval, then the user's OK to merge"
+  }
+}
