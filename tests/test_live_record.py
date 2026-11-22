@@ -97,7 +97,7 @@ def test_a_session_records_what_the_phone_sent_and_each_frame(state):
     assert all(a["t_ms"] <= b["t_ms"] for a, b in itertools.pairwise(frames))
     events = lines(folder / "events.jsonl")
     assert [e["kind"] for e in events] == ["start", "transcript", "end"]
-    assert events[0]["model"] == gpt_live.MODEL
+    assert events[0]["model"] == gpt_live.ENTRY.model
     assert events[1] | {"role": "user", "text": "hello there", "end_ms": 400} == events[1]
 
 

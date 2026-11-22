@@ -15,7 +15,7 @@ For the supported iPhone workflow, follow [Live Mode + notifications setup](../i
 Safari or Chrome → Add to Home Screen → launch the installed app. The guide covers microphone
 and push permissions, screen timeout, lock/background audio interruptions, and recovery.
 
-## GPT-Live 1
+## GPT-Live
 
 `openbus/gpt_live.py` adds OpenAI's full-duplex voice frontend with managed Responses
 delegation to `gpt-5.6-luna`. It reuses the existing pane-context updater, microphone
@@ -24,13 +24,18 @@ stay in the backend prompt; the voice prompt covers conversation and delegation.
 
 Configure `OPENAI_API_KEY` in `~/.config/tmux-rc/openai.env`, outside every checkout.
 Set `TMUXRC_LIVE_MODE=1` in the daemon environment (or root `.env`) and restart the
-daemon to load both settings. GPT-Live 1 then appears first in the picker and is the
-default voice model; picking another entry by its label still wins — but it is NOT a `TMUXRC_LIVE_MODELS` entry and cannot be
+daemon to load both settings. GPT-Live 1.1 and GPT-Live 1 then appear first in the picker,
+1.1 as the default voice model; picking another entry by its label still wins — but it is NOT a `TMUXRC_LIVE_MODELS` entry and cannot be
 one: the seam opens a *connection* and hands it to the shared coroutines, whereas this
 adapter owns the whole *session*. So it is routed by label ahead of the table lookup and
 put first in `/api/version`'s menu under the same "only if its key is set" rule the table
 entries follow; the two lists have to agree on what is selectable, or the socket would
 refuse the one pick the menu just offered.
+1.1 is the default because it is a strict improvement on 1 at the same price: OpenAI
+reports more accurate transcription and a steadier accent across languages, over the same
+session protocol, so the two differ only in the model id `session.start` sends. 1 stays in
+the picker rather than being dropped, because each model has its own concurrent-session
+limit and a regression in the newer one should be one tap away from a comparison.
 `TMUXRC_GPT_LIVE_VOICE` chooses the voice (default `marin`).
 `TMUXRC_GPT_LIVE_BACKEND` chooses the Responses model; changing it requires explicit
 input/cached/output prices (see `.env.example`). This adapter reaches OpenAI directly —
