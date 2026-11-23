@@ -9,6 +9,7 @@
     "model": "Opus 5.5",
     "cost": "$4.96",
     "question": {
+      "optional": true,
       "answer_style": "text",
       "reply_buttons": false
     },

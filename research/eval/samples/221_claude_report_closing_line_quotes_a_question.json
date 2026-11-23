@@ -1,0 +1,11 @@
+{
+  "description": "Synthetic: a finished auto-mode turn reports the docs it wrote; its last line ends in a quoted question mark (the title of a FAQ entry it added), and nothing is asked of the user. Idle, no question, not Needs you.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ add the missing FAQ entries from the support tickets\n\n● Added three entries to docs/faq.md and linked them from the sidebar:\n\n  - Exports: covers the per-format modules and where the files land.\n  - Tokens: the rotation schedule and how revocation propagates.\n  - The last one is titled \"Why does my ledger show a pending balance?\"\n\n✻ Worked for 31s · done 2:47 PM\n──────────────────────────────────────────────────────────────────────────────────\n❯\n──────────────────────────────────────────────────────────────────────────────────\n  ~/src/brightmoor/ledger on main | Opus 5.5 | dev@example.com\n  session: +18/-4 lines · 22% ctx · 34m · $1.90\n  ⏵⏵ auto mode on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "idle",
+    "question": null,
+    "headline": "Added three FAQ entries to the docs"
+  }
+}
