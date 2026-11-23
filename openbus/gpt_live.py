@@ -195,7 +195,9 @@ class Session:
         self.calls = {}
         self.seen_calls = set()
         self.work = asyncio.Queue(maxsize=16)
-        self.running = False  # execute() is between taking a batch and asking to go on
+        # Delegations (None for a composer turn) with calls queued or running, or a
+        # continuation asked for and not yet completed: work an earlier turn still has.
+        self.busy = set()
         self.caption_end = {}
         self.pane_hints = {}
         self.last_context = {}
@@ -232,7 +234,7 @@ class Session:
         # It is a new one only when no earlier turn's response or calls are still running: no
         # id ties a continuation to its turn, so in an overlap the two share one, and a second
         # pane is refused rather than reached.
-        if not (self.calls or self.running or not self.work.empty()):
+        if not (self.calls or self.busy):
             self.meter.answered = True
         await self.send({"type": "response.item.create",
                          "item": live_providers.openai_message("user", text, images)})
@@ -357,13 +359,16 @@ class Session:
                 ):
                     calls = self.calls.pop(delegation, [])
                     if nk == "response.completed" and calls:
+                        self.busy.add(delegation)  # until a response of it ends with none
                         try:
                             self.work.put_nowait((delegation, calls))
                         except asyncio.QueueFull:
                             # Keep receiving voice while tools run; do not block
                             # the audio receiver or leave a long delayed-action queue.
                             raise ProviderError({"code": "terminal_queue_full"}) from None
-                    elif nk != "response.completed":
+                    else:
+                        self.busy.discard(delegation)
+                    if nk != "response.completed":
                         await self.browser.send_json(
                             {
                                 "type": "error",
@@ -380,7 +385,6 @@ class Session:
     async def execute(self):
         while True:
             delegation, calls = await self.work.get()
-            self.running = True
             for item in calls:
                 if self.closing:
                     return
@@ -406,7 +410,6 @@ class Session:
                 # In Live this continues the backend, independent of frontend
                 # speech. Waiting for a voice-response.done event would deadlock.
                 await self.send({"type": "response.create"})
-            self.running = False
 
     async def close(self):
         self.closing = True

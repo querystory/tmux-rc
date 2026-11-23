@@ -658,30 +658,34 @@ def test_two_composer_turns_are_two_requests(monkeypatch):
     def composer(kind, **fields):
         return {**response(kind, **fields), "delegation_id": None}
 
-    async def turn(s, pane):
+    async def turn(s, n, pane, *, finish=True):
         await s.send_text("now there")
         s.ws.continued.clear()  # the turn's own response.create
         await L._transcript(s.browser, s.meter, "user", "now there")
-        events = [composer("response.created", response={"id": f"r{pane}"}),
-                  composer("response.output_item.done", item=call(f"c{pane}", {
-                      "pane_id": pane, "text": "x"})),
-                  composer("response.completed", response={"id": f"r{pane}"})]
-        s.ws.events = [*events, {"type": "session.closed"}]
+        s.ws.events = [composer("response.created", response={"id": f"r{n}"}),
+                       composer("response.output_item.done", item=call(f"c{n}", {
+                           "pane_id": pane, "text": "x"})),
+                       composer("response.completed", response={"id": f"r{n}"}),
+                       {"type": "session.closed"}]
         await drain(s)
         await asyncio.wait_for(s.ws.continued.wait(), 1)  # its calls ran; asked to go on
         s.ws.continued.clear()
+        if finish:  # the continuation ends the turn, calling nothing more
+            s.ws.events = [composer("response.completed", response={"id": f"r{n}+"}),
+                           {"type": "session.closed"}]
+            await drain(s)
 
     async def run():
         s = session()
         worker = asyncio.create_task(s.execute())
-        await turn(s, "%1")
-        await turn(s, "%2")  # the first turn is over: a request of its own
-        s.calls[None] = []  # a composer response still running when the next is typed
-        await s.send_text("and here")
-        assert not s.meter.answered and s.meter.asking() == s.meter.request
+        await turn(s, 1, "%1")
+        await turn(s, 2, "%2")  # the first turn is over: a request of its own
+        await turn(s, 3, "%1", finish=False)
+        await s.send_text("and here")  # before that continuation's response even starts
+        assert not s.meter.answered
         for task in [worker, *L._tasks]:
             task.cancel()
         await asyncio.gather(worker, *list(L._tasks), return_exceptions=True)
 
     asyncio.run(run())
-    assert [t[0] for t in typed] == ["%1", "%2"]
+    assert [t[0] for t in typed] == ["%1", "%2", "%1"]
