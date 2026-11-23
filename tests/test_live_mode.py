@@ -1463,7 +1463,12 @@ def test_a_tool_call_that_raises_fails_the_receiver(monkeypatch):
     async def boom(*_a, **_k):
         raise RuntimeError("tool bug")
 
+    class Ended(Session):  # the stream ends while the failed call is still settling
+        async def events(self):
+            yield P.Event("tool_call", call=P.ToolCall("c", "type_in_pane", {}))
+
     monkeypatch.setattr(L, "_handle_tool_call", boom)
-    with pytest.raises(RuntimeError, match="tool bug"):
-        _run(asyncio.wait_for(L._receiver(_WS(), Session(), _Watcher(),
-                                          L._Meter("s", "a", P._DEFAULT[0])), 2))
+    for session in (Session(), Ended()):
+        with pytest.raises(RuntimeError, match="tool bug"):
+            _run(asyncio.wait_for(L._receiver(_WS(), session, _Watcher(),
+                                              L._Meter("s", "a", P._DEFAULT[0])), 2))

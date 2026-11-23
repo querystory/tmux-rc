@@ -1528,15 +1528,14 @@ async def _receiver(websocket: WebSocket, session, watcher, meter: _Meter) -> No
                 await then(_turn_complete(websocket, meter))
             elif ev.kind == "interrupted":
                 await websocket.send_json({"type": "interrupted"})
-    except asyncio.CancelledError:
+        if turn:  # a stream that ended mid-turn: the calls it made still finish (as they do,
+            await asyncio.wait([turn])  # unawaited, when it ends in an error)
+    except asyncio.CancelledError:  # the session ending, or a step that raised
         if failed:
             raise failed[0] from None
         if turn:
-            turn.cancel()  # a card one waits on parks, as on a drop
+            turn.cancel()
         raise
-    finally:
-        if turn:  # a provider that dropped mid-turn: the calls it made still finish
-            await asyncio.wait([turn])
 
 
 async def _after(previous: asyncio.Task | None, step) -> None:
