@@ -192,6 +192,10 @@ def test_resume_reopens_the_makers_conversation_and_sends_the_page_there(tmp_pat
         (scratch / name / "meta.json").write_text(json.dumps(
             {"pane": "%7", **({"agent_session": session} if session else {})}))
     env = {"TMUXRC_SCRATCH_DIR": str(scratch), "XDG_STATE_HOME": str(tmp_path / "state")}
+    # Single-pane mode shows no new window: Resume is neither offered nor run.
+    asks = 'print(c.post("/api/scratch/made/resume").status_code)'
+    target = RESUME.partition("r = c.post")[0] + asks
+    assert _probe({**env, "TMUXRC_TARGET": "%1"}, tmp_path, target, str) == ["0", "409"]
     assert _probe(env, tmp_path, RESUME, str) == [
         "1", "200", "1", "%40", "2", "409", "session-directory-is-gone",
         "409", "no-conversation-was-recorded-for-this-page",

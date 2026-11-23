@@ -2491,7 +2491,8 @@ if _scratch_dir:
             pane = None
         page = scratch.named(root, name) or scratch.named(scratch.archive(root), name) or {}
         return {"pane": (pane or {}).get("pane_id"), "birth": (pane or {}).get("birth"),
-                "session": None if pane else session,  # the conversation Resume would reopen
+                # the conversation Resume would reopen, where its window could be shown
+                "session": None if pane or os.environ.get("TMUXRC_TARGET") else session,
                 "about": scratch.about(root, name), "title": page.get("title")}
 
     @app.get("/api/scratch/{name}/version")
@@ -2538,6 +2539,8 @@ if _scratch_dir:
         (scratch.bind), the incarnation resumed: one that closed during the wait is refused,
         as is a folder that is no longer the one asked about (deleted and made again)."""
         root, watcher = Path(_scratch_dir), app.state.watcher
+        refuse = partial(_refuse, request, "scratch_resume", name[:120])
+        _single_pane(refuse, "a resumed conversation")
 
         def asked() -> tuple:  # the folder and who it goes to, as one reading
             return (scratch.named(root, name) or {}).get("inode"), scratch_maker(name)
@@ -2545,11 +2548,10 @@ if _scratch_dir:
         if to["pane"]:  # another device resumed it meanwhile, and its agent is ready
             return to
         if not to["session"]:
-            _refuse(request, "scratch_resume", name[:120], 409,
-                    "no conversation was recorded for this page")
+            refuse(409, "no conversation was recorded for this page")
         found = await live.resume(to["session"], watcher, {})
         if not (pane := found.get("pane_id")):
-            _refuse(request, "scratch_resume", name[:120], 409, found["reason"])
+            refuse(409, found["reason"])
         wait = _prompt(pane, opened=found["status"] == "opened")
         birth = await asyncio.to_thread(tmux.pane_pid, pane)
         await wait
@@ -2557,8 +2559,7 @@ if _scratch_dir:
         def land() -> dict:  # a pane picked on the To chip during the wait stands
             went = scratch_maker(name)
             if not went["pane"] and went["session"] != to["session"]:
-                _refuse(request, "scratch_resume", name[:120], 409,
-                        "this page was replaced while its conversation resumed")
+                refuse(409, "this page was replaced while its conversation resumed")
             return went if went["pane"] else _send_to(request, "scratch_resume", name, pane,
                                                       birth or "", folder)
         return await asyncio.to_thread(land)
