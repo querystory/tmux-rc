@@ -288,16 +288,20 @@ def test_the_tag_changes_with_what_the_open_gallery_shows(tmp_path):
     assert tag() != seen
 
 
-def test_only_a_page_that_may_still_stop_changes_the_tag_by_the_minute(tmp_path, monkeypatch):
-    """A page in progress reloads the open gallery each minute, to show it stopped; one
-    abandoned past STUCK has stopped for good, so it never does."""
+def test_a_page_in_progress_changes_the_tag_only_when_it_stops(tmp_path, monkeypatch):
+    """Not with the clock: one being made keeps the open gallery as it is until its agent's
+    pane closes or it gets too old, and one abandoned long ago never reloads it again."""
     now = time.time()
-    tag = lambda at: (monkeypatch.setattr(scratch.time, "time", lambda: at),  # noqa: E731
-                      scratch.tag(scratch.items(tmp_path)))[1]
-    old = _folder(tmp_path, "old", now - scratch.STUCK - 60, {"updating": "more charts"})
-    assert tag(now) == tag(now + 60)
-    os.utime(old / "meta.json", (now, now))  # its update begun just now
-    assert tag(now) != tag(now + 60)
+    monkeypatch.setattr(scratch, "made_in", lambda *_: True)
+    tag = lambda at, states: (monkeypatch.setattr(scratch.time, "time", lambda: at),  # noqa: E731
+                              scratch.tag(scratch.items(tmp_path), states))[1]
+    _folder(tmp_path, "old", now - scratch.STUCK - 60, {"updating": "more charts", "pane": "%2"})
+    wip = _folder(tmp_path, "wip", now, {"updating": "a new section", "pane": "%1"})
+    os.utime(wip / "meta.json", (now, now))
+    running = [{"pane_id": "%1", "activity": "running"}]
+    assert tag(now, running) == tag(now + 600, running) == tag(now + 600, [{"pane_id": "%1"}])
+    assert tag(now, running) != tag(now, [])  # its pane closed: stopped
+    assert tag(now, running) != tag(now + scratch.STUCK + 1, running)
 
 
 def test_a_folder_with_only_its_meta_json_is_a_page_being_made(tmp_path, monkeypatch):

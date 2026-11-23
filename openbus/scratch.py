@@ -380,19 +380,19 @@ def listing(root: Path, *, archived: bool = False) -> list[dict]:
     return items(archive(root)) if archived else items(root)
 
 
-def tag(listed: list[dict]) -> str:
+def tag(listed: list[dict], states: list[dict] = ()) -> str:
     """What the open gallery compares to see that it changed: a folder came, went or
     changed (its page too, say renamed to its index), its thumbnail, title or description
-    landed, an update began or ended, a page was moved to a pane (bind), or (by the minute)
-    a page in progress or being updated may have stopped, until STUCK, by when it has
-    (progress): a folder abandoned mid-page must not reload the gallery every minute for
-    good. In no particular order, as the gallery sorts after listing."""
+    landed, an update began or ended, a page was moved to a pane (bind), or a page in
+    progress or being updated stopped (by `states`, the panes: its agent's pane closed or
+    went quiet, or it got too old). Only stopping: working and quiet look the same. In no
+    particular order, as the gallery sorts after listing."""
+    panes = {s.get("pane_id"): s for s in states}
     return str(hash((*sorted((i["name"], i["href"], i["updated"], i["pending"], i["thumb"],
                               i["title"], i["description"], i["updating"]) for i in listed),
                      json.dumps(_load(BINDINGS, {}), sort_keys=True),
-                     any((i["pending"] or i["updating"]) and time.time() - i["since"] <= STUCK
-                         for i in listed)
-                     and int(time.time() // 60))))
+                     *sorted(i["name"] for i in listed if (i["pending"] or i["updating"])
+                             and _state(i, panes)[1] == "stopped"))))
 
 
 def items(root: Path) -> list[dict]:
@@ -573,12 +573,18 @@ def _progress(listed: list[dict], states: list[dict]) -> dict:
     """Each item's `state` (progress, read while one is pending), and its `pane` while that
     pane is still open. Returns the panes by id."""
     panes = {s.get("pane_id"): s for s in states}
-    for i in listed:  # a pane id from before a tmux restart names some other pane now
-        if (pane := panes.get(i["pane"])) and not made_in(pane, i["named"]):
-            pane = None
-        i["state"] = progress(pane, i["pane"], i["since"])
+    for i in listed:
+        pane, i["state"] = _state(i, panes)
         i["pane"] = pane and i["pane"]
     return panes
+
+
+def _state(i: dict, panes: dict) -> tuple[dict | None, str]:
+    """The open pane i's meta.json names, and i's progress by it."""
+    # a pane id from before a tmux restart names some other pane now
+    if (pane := panes.get(i["pane"])) and not made_in(pane, i["named"]):
+        pane = None
+    return pane, progress(pane, i["pane"], i["since"])
 
 
 def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
@@ -646,7 +652,7 @@ def page(root: Path, states: list[dict], profiles: list[dict], style: Path,
     thumbnails and descriptions (scratch_sidecars.queue) and `docs` its documentation;
     `archived`, the archive's instead (an archived page is still served at its link)."""
     listed = listing(root, archived=archived)
-    seen = tag(listed)  # as the open gallery's check lists it: before the links are dressed
+    seen = tag(listed, states)  # as the open gallery's check lists it: before the links are dressed
     sidecars([i for i in listed if not (i["pending"] or archived)])  # nothing to shoot yet
     resolve(listed, states, profiles, pane_of)
     for i in listed if archived else ():  # its own link: the name may be taken again since

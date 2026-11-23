@@ -125,10 +125,11 @@ folder made after it loaded. Its sandbox forbids fetch, so it can't make a condi
 request. Instead it loads `?seen=<its listing's tag>` as an image every five seconds while
 on screen. The answer is a pixel only when the listing changed, and the page then
 reloads. The tag hashes each folder's name, newest file, whether it is in progress, and
-its thumbnail, so a reload means there is something new to see. While a page is in
-progress the tag also turns over each minute, so its card can say it stopped, but only for
-the two hours after which progress can say nothing else: three abandoned folders had kept
-every open gallery reloading once a minute for weeks. Giving the gallery
+its thumbnail, so a reload means there is something new to see. A page in progress
+changes the tag when it stops, read from the panes as its card is. It used to change
+the tag every minute instead, to catch the stop whenever it came. Some page is nearly
+always being made or revised, and three abandoned ones counted forever, so every open
+gallery reloaded about once a minute. Giving the gallery
 fetches was rejected. It would need CORS for the opaque origin, which every agent page
 shares, or the app's own origin for a page that renders agent-written text. A push
 channel was rejected too: the daemon only notices scratch changes on a ten-second scan,
