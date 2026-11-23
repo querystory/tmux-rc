@@ -42,6 +42,7 @@ _ACT = threading.Lock()  # one Archive, Restore or Delete batch at a time
 _BIND = threading.Lock()  # one bind() read-merge-replace at a time
 _META = threading.Lock()  # one meta.json read-merge-replace at a time (authors, descriptions)
 _missed: dict[tuple, float] = {}  # when each (name, inode, update mark) was last not found
+_BASIS: dict[tuple, tuple] = {}  # (name, inode): the panes its card's state was read from (_read)
 _found: dict[tuple, str] = {}  # for a refusing meta.json, or a listing older than it
 _reconciled = [0.0]
 _PAGE = Path(__file__).resolve().parent / "scratch.html"
@@ -388,11 +389,15 @@ def tag(listed: list[dict], states: list[dict] = ()) -> str:
     went quiet, or it got too old). Only stopping: working and quiet look the same. In no
     particular order, as the gallery sorts after listing."""
     panes = {s.get("pane_id"): s for s in states}
+
+    def stopped(i: dict) -> bool:  # as its card last read it (resolve), else by its meta.json
+        pane, named = _BASIS.get((i["name"], i["inode"])) or (_open(i, panes), i["pane"])
+        return progress(panes.get(pane), named, i["since"]) == "stopped"
     return str(hash((*sorted((i["name"], i["href"], i["updated"], i["pending"], i["thumb"],
                               i["title"], i["description"], i["updating"]) for i in listed),
                      json.dumps(_load(BINDINGS, {}), sort_keys=True),
                      *sorted(i["name"] for i in listed if (i["pending"] or i["updating"])
-                             and _state(i, panes)[1] == "stopped"))))
+                             and stopped(i)))))
 
 
 def items(root: Path) -> list[dict]:
@@ -574,17 +579,24 @@ def _progress(listed: list[dict], states: list[dict]) -> dict:
     pane is still open. Returns the panes by id."""
     panes = {s.get("pane_id"): s for s in states}
     for i in listed:
-        pane, i["state"] = _state(i, panes)
-        i["pane"] = pane and i["pane"]
+        pane = _open(i, panes)
+        _read(i, panes, pane, i["pane"])
+        i["pane"] = pane
     return panes
 
 
-def _state(i: dict, panes: dict) -> tuple[dict | None, str]:
-    """The open pane i's meta.json names, and i's progress by it."""
-    # a pane id from before a tmux restart names some other pane now
-    if (pane := panes.get(i["pane"])) and not made_in(pane, i["named"]):
-        pane = None
-    return pane, progress(pane, i["pane"], i["since"])
+def _open(i: dict, panes: dict) -> str | None:
+    """The pane i's meta.json names, while it is open and still that pane: an id from
+    before a tmux restart names some other pane now."""
+    pane = panes.get(i["pane"])
+    return i["pane"] if pane and made_in(pane, i["named"]) else None
+
+
+def _read(i: dict, panes: dict, pane: str | None, named: str | None) -> None:
+    """i's `state` by `pane` (open, or None) and the pane its writer was `named` in, which
+    tag() reads again to see the card stop."""
+    _BASIS[i["name"], i["inode"]] = pane, named
+    i["state"] = progress(panes.get(pane), named, i["since"])
 
 
 def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
@@ -620,10 +632,11 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
             at, i["sure"] = moved, True
         if at != i["pane"]:
             named = at or (None if s.get("running") else i["pane"])
-            i["pane"], i["state"] = at, progress(panes.get(at), named, i["since"])
+            i["pane"] = at
+            _read(i, panes, at, named)
         if (pane := panes.get(i["pane"])) is not None:
             if s:  # its session, found in a new pane: its page comes along as that pane does
-                i["state"] = progress(pane, i["pane"], i["since"])
+                _read(i, panes, i["pane"], i["pane"])
             _author(i, pane.get("tool"), account.get(i["pane"]) or {})
             i["where"] = where(pane)
             continue
@@ -652,9 +665,9 @@ def page(root: Path, states: list[dict], profiles: list[dict], style: Path,
     thumbnails and descriptions (scratch_sidecars.queue) and `docs` its documentation;
     `archived`, the archive's instead (an archived page is still served at its link)."""
     listed = listing(root, archived=archived)
-    seen = tag(listed, states)  # as the open gallery's check lists it: before the links are dressed
     sidecars([i for i in listed if not (i["pending"] or archived)])  # nothing to shoot yet
     resolve(listed, states, profiles, pane_of)
+    seen = tag(listed, states)  # as the open gallery's check reads it: before links are dressed
     for i in listed if archived else ():  # its own link: the name may be taken again since
         i["under"] = f"{scratch_markdown.ARCHIVE}/"
         i["href"] = i["under"] + i["href"]
