@@ -1477,6 +1477,33 @@ def test_a_provider_drop_lets_the_call_it_made_finish_first(monkeypatch):
     assert order == ["answered", "dropped"]
 
 
+def test_the_session_ending_while_a_drop_drains_stops_the_call(monkeypatch):
+    """The session ending while the receiver waits on a dropped provider's last call stops
+    that call too, so nothing types into a pane after the session is gone."""
+    reached = []
+
+    class Session(_Session):
+        async def events(self):
+            yield P.Event("tool_call", call=P.ToolCall("c", "read_scratch", {}))
+            raise ConnectionError("provider dropped")
+
+    async def slow(*_a, **_k):
+        await asyncio.sleep(5)
+        reached.append("typed")
+
+    monkeypatch.setattr(L, "_handle_tool_call", slow)
+
+    async def run():
+        rx = asyncio.create_task(
+            L._receiver(_WS(), Session(), _Watcher(), L._Meter("s", "a", P._DEFAULT[0])))
+        await asyncio.sleep(0.1)  # dropped, and draining
+        rx.cancel()
+        await asyncio.gather(rx, return_exceptions=True)
+        await asyncio.sleep(0)
+        return [t for t in L._tasks if not t.done()]
+    assert _run(run()) == [] and reached == []
+
+
 def test_a_tool_call_that_raises_fails_the_receiver(monkeypatch):
     """Off the loop, a call that raises still ends the receiver with its error, so the
     session reconnects as it did when calls ran inline."""

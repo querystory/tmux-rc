@@ -1539,7 +1539,12 @@ async def _receiver(websocket: WebSocket, session, watcher, meter: _Meter) -> No
     finally:  # a stream that dropped mid-turn: the calls it made finish first, as inline
         failed.append(None)  # ones did, so none runs on into the reconnect
         if turn:
-            await asyncio.wait([turn])
+            try:
+                await asyncio.wait([turn])
+            except asyncio.CancelledError:  # the session ended meanwhile: they stop with it
+                turn.cancel()
+                await asyncio.wait([turn])
+                raise
 
 
 async def _after(previous: asyncio.Task | None, step) -> None:
