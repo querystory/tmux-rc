@@ -1423,3 +1423,14 @@ def test_voice_reaches_one_pane_per_request(monkeypatch):
     assert L._other_pane(meter, 1, resume) is None
     text = L._Meter("s", "a", P._DEFAULT[0], text=True)  # typed chat: each send has a card
     assert L._other_pane(text, 1, _FC(args={"pane_id": "%2", "text": "x"})) is None
+
+
+def test_a_turn_end_starts_the_next_request(monkeypatch):
+    """GPT-Live has no seam receiver, and a typed turn there has no delegation id: its turn
+    end (end_turn) is what makes the next turn a request of its own."""
+    monkeypatch.setattr(L.telemetry, "emit_live_turn", lambda **k: None)
+    meter = L._Meter("s", "a", P._DEFAULT[0])
+    first = meter.asking()
+    assert meter.asking() == first  # a second call of the same turn
+    meter.end_turn()
+    assert meter.asking() == first + 1
