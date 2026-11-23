@@ -535,9 +535,11 @@ def _occurrences(prompt: str, visible: str, *, row: bool = False) -> list[re.Mat
     the terminal may also wrap, so the prompt's row runs on past it."""
     # A wrapped prompt's rows may each carry a frame or quote bar (│ …), skipped too. Each
     # alternative needs its own bar, so no two ever match one gap: overlapping ones
-    # backtrack exponentially on a long wrapped near-miss.
+    # backtrack exponentially on a long wrapped near-miss. A program that wraps its own
+    # text may break a word after a hyphen ("--skip-" / "permissions"), which the model
+    # rejoins, so a hyphen may end a row.
     words = (r"(?:[ \t]*\n[ \t]*[│┃╎][ \t]*|[ \t]*[│┃╎][ \t]*\n[ \t]*(?:[│┃╎][ \t]*)?|\s+)"
-             .join(map(re.escape, prompt.split())))
+             .join(re.escape(w).replace(r"\-", r"-(?:[ \t]*\n[ \t]*)?") for w in prompt.split()))
     if row:
         words = (rf"^[ \t│┃╎]*(?:⌕[ \t]*)?{words}(?:[ \t]*{_LIVE_COUNT})?"
                  r"(?=[ \t│┃╎]*$|(?<=[?.!])[ \t]+\S)")
