@@ -2558,7 +2558,8 @@ if _scratch_dir:
 
         def land() -> dict:  # a pane picked on the To chip during the wait stands
             went = scratch_maker(name)
-            if not went["pane"] and went["session"] != to["session"]:
+            if (scratch.named(root, name) or {}).get("inode") != folder or (
+                    not went["pane"] and went["session"] != to["session"]):
                 refuse(409, "this page was replaced while its conversation resumed")
             return went if went["pane"] else _send_to(request, "scratch_resume", name, pane,
                                                       birth or "", folder)
