@@ -72,7 +72,7 @@ def test_a_text_session_shows_the_card_and_types_only_on_send(ok):
     (call("rm_rf", pane_id="%3"), "unknown tool"),
 ])
 def test_a_refused_call_goes_back_to_the_model_with_its_reason(fc, reason):
-    trace, _, _ = _play([[fc]], ["do it"])
+    trace, _, _ = _play([[fc]], [ASK])  # the relay's words were said: only its pane is wrong
     assert [(p["status"], p["reason"]) for _, p in trace.results] == [("rejected", reason)]
     assert trace.keys == [] and trace.sends() == []
 
@@ -209,7 +209,8 @@ def test_a_relay_not_in_the_users_words_is_refused_with_what_they_said(text):
     trace, _, _ = _play([[call("type_in_pane", pane_id="%6", text=text)]], [said])
     [(_, status, reason)] = _statuses(trace)
     assert status == "rejected" and trace.keys == []
-    assert f'"{said}"' in reason and "say it again" in reason and "note" not in reason
+    assert f'"{said}"' in reason and "say it again" in reason
+    assert "assistant's note" not in reason  # the way round the check, once
     assert [f["text"] for f in trace.of("transcript") if f["role"] == "note"] == [
         "Not sent to release notes: not the user's words as transcribed"]
 
