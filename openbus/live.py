@@ -409,10 +409,11 @@ def _pane_context(watcher, screens: str) -> str:
 
 
 # Appended in a text session, whose relayed messages are labelled by how the user really
-# said them. The prompt's example label is the one place the relay prefix is taught.
+# said them: _system_prompt swaps the prompt's example label, the one place the relay prefix
+# is taught.
 _TEXT_NOTE = (
     "\nThis session is typed, not spoken: the user types to you and reads your replies. "
-    'Keep them short and plain. Label relayed messages "(via text)". Actions that change '
+    "Keep them short and plain. Actions that change "
     "a pane (type_in_pane, press_key, resume_session, send_image_to_pane) are shown to the "
     "user to approve first; a declined one did not happen, so don't retry it unless the user "
     "asks. Act first, then say briefly what you sent and where; don't narrate what you're "
@@ -451,12 +452,24 @@ def _scratch_index(watcher) -> str:
     return "\n".join(map(line, listed))
 
 
-def _system_prompt(watcher, *, text: bool = False) -> str:
+# Appended for a model that speaks to the user itself. GPT-Live's backend doesn't: it hands
+# its results to a voice that has speaking rules of its own (gpt_live.VOICE_PROMPT).
+_SPOKEN_NOTE = (
+    "\nYou are a voice. Keep replies to one or two spoken sentences, in plain words, the kind "
+    "of thing that sounds natural read aloud, skipping markdown, code, and long identifiers. "
+    "Announce briefly in voice before you type (\"Typing 'make test' into tmux-rc-dev\"): the "
+    "spoken line is short; the typed text is full."
+)
+
+
+def _system_prompt(watcher, *, text: bool = False, spoken: bool = True) -> str:
     """Blocking (_scratch_index): run it off the event loop."""
     stamp = time.strftime("%Y-%m-%d %H:%M %Z")
     prompt = _load_prompt("live_prompt.txt")
     if text:
         prompt = prompt.replace("(via voice)", "(via text)") + _TEXT_NOTE
+    elif spoken:
+        prompt += _SPOKEN_NOTE
     pages = _scratch_index(watcher)
     return (
         f"{prompt}\nNow: {stamp}"
@@ -495,7 +508,9 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
     result = {"status": "error", "reason": "aborted"} if known else {
         "status": "rejected", "reason": "unknown tool"}
     try:
-        if known:
+        if known and (refused := await _honest(meter, call)):
+            result = refused
+        elif known:
             ok, pid = (await _approved(websocket, session, call, watcher, meter, rec)
                        if meter.text and fc.name in _CONSENT else (True, None))
             act = _act(websocket, session, call, watcher, meter, rec, ok, pid)
@@ -870,10 +885,6 @@ async def _dispatch(
     rec["pane_id"] = pane_id
     if send_args is None:
         return {"status": "rejected", "reason": "malformed call"}
-    if fc.name == "type_in_pane" and meter and not meter.text and _not_theirs(meter, what):
-        return {"status": "rejected", "reason": (
-            "not the user's words as transcribed: after the label send what they said, "
-            "and put your own wording in an (assistant's note: ...) instead")}
 
     from .server import _input_attempt  # noqa: PLC0415 - server imports this module
 
@@ -912,15 +923,37 @@ async def _dispatch(
 
 
 # How much of a relay labelled as the user's must be words they said: speech noise may drop out
-# and a misheard word may be fixed, but a brief the model wrote is not theirs.
+# and a misheard word may be fixed, but a brief the model wrote is not theirs. Words not heard
+# yet get HEARD_WAIT_SECONDS to arrive: the seam's providers (Gemini, OpenAI Realtime) keep
+# no order between the user's transcript and the model's tool calls.
 HEARD_SHARE = 0.8
+HEARD_WAIT_SECONDS = 1.5
+
+
+async def _honest(meter: _Meter, fc) -> dict | None:
+    """Refuse a voice relay labelled as the user's that does not carry their words, before
+    any card, with what they did say, so a retry has their words to send."""
+    text = (fc.args if isinstance(fc.args, dict) else {}).get("text")
+    if meter.text or fc.name != "type_in_pane" or not isinstance(text, str):
+        return None
+    deadline = time.monotonic() + HEARD_WAIT_SECONDS
+    while _not_theirs(meter, text):
+        if time.monotonic() >= deadline:
+            said = " ".join("".join(meter.heard).split())[-300:]
+            return {"status": "rejected", "reason": (
+                "not the user's words as transcribed; what they said ends "
+                f"{json.dumps(said, ensure_ascii=False)}. Send their words after the label, "
+                "and if that isn't what they asked, ask them to say it again")}
+        await asyncio.sleep(0.1)
+    return None
 
 
 def _not_theirs(meter: _Meter, text: str) -> bool:
     """Whether a voice relay labelled "From the user" carries words the user didn't say. Agents
     take that label as the user's authority, and a voice backend that sees only a handoff
     once sent its own briefs under it. An "(assistant's note: ...)" that ends the relay is the
-    model's by its own label. Whether the words keep the user's meaning is the model's
+    model's by its own label, and a relay with no words of the user's before it is not theirs.
+    Whether the words keep the user's meaning is the model's
     judgement; this only checks whose words they are. Fragments are joined both ways, since
     some providers stream words split."""
     label, colon, said = text.strip().partition(":")
@@ -931,7 +964,7 @@ def _not_theirs(meter: _Meter, text: str) -> bool:
         own = said
     words = _words(own)
     heard = {*_words("".join(meter.heard)), *_words(" ".join(meter.heard))}
-    return sum(w in heard for w in words) < HEARD_SHARE * len(words)
+    return not words or sum(w in heard for w in words) < HEARD_SHARE * len(words)
 
 
 def _closes_last(text: str) -> bool:
@@ -1461,23 +1494,49 @@ async def _receiver(websocket: WebSocket, session, watcher, meter: _Meter) -> No
     the session — takes each usage event into `meter` and emits a per-turn OTel record
     at every turn boundary."""
     meter.superseded = False  # a reconnect drops the turn it belonged to
-    async for ev in session.events():
-        if ev.kind == "usage":
-            meter.usage.set(ev.usage)
-        elif ev.kind == "tool_call":
-            meter.note(f"[typed] {ev.call.args}")
-            await _handle_tool_call(websocket, session, ev.call, watcher, meter)
-        elif ev.kind == "audio":
-            meter.rec.model(ev.data, 24000)  # the seam's providers all speak 24 kHz
-            await websocket.send_json({"type": "audio", "data": base64.b64encode(ev.data).decode()})
-        elif ev.kind == "transcript":
-            await _transcript(websocket, meter, ev.role, ev.text)
-        elif ev.kind == "turn_complete":
-            meter.superseded = False
-            meter.end_turn()
-            await websocket.send_json({"type": "turn_complete"})
-        elif ev.kind == "interrupted":
-            await websocket.send_json({"type": "interrupted"})
+    calls = None  # the latest tool call; each is answered after the one before it
+    try:
+        async for ev in session.events():
+            if ev.kind == "usage":
+                meter.usage.set(ev.usage)
+            elif ev.kind == "tool_call":  # answered off this loop, in order: audio and the
+                # transcript a relay is checked against (_honest) keep arriving meanwhile
+                meter.note(f"[typed] {ev.call.args}")
+                calls = asyncio.create_task(_after(calls, _handle_tool_call(
+                    websocket, session, ev.call, watcher, meter)))
+                _background(calls)  # its failure is logged even with no turn end to raise it
+            elif ev.kind == "audio":
+                meter.rec.model(ev.data, 24000)  # the seam's providers all speak 24 kHz
+                await websocket.send_json(
+                    {"type": "audio", "data": base64.b64encode(ev.data).decode()})
+            elif ev.kind == "transcript":
+                await _transcript(websocket, meter, ev.role, ev.text)
+            elif ev.kind == "turn_complete":
+                if calls:  # a turn ends once its calls are answered
+                    await calls
+                meter.superseded = False
+                meter.end_turn()
+                await websocket.send_json({"type": "turn_complete"})
+            elif ev.kind == "interrupted":
+                await websocket.send_json({"type": "interrupted"})
+    except asyncio.CancelledError:
+        if calls:
+            calls.cancel()  # a card one waits on parks, as on a drop
+        raise
+    finally:
+        if calls:  # a provider that dropped mid-turn: the calls it made still finish
+            await asyncio.wait([calls])
+
+
+async def _after(previous: asyncio.Task | None, call) -> None:
+    """Run `call` once the call before it is answered, so a turn's calls keep their order."""
+    if previous:
+        try:
+            await previous
+        except BaseException:
+            call.close()  # never started: the turn already failed
+            raise
+    await call
 
 
 def _view(meter: _Meter, data: dict) -> None:
