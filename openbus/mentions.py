@@ -27,12 +27,13 @@ PROMPT = ("{file} addresses you:\n\n{request}\n\nWrite your answer in that file,
 def mentions(text: str) -> list[str]:
     """Each `agent request` a line addresses: `@agent request` from the line's first column,
     so never quoted or indented, and not inside a code fence: one opened by a run of ` or
-    ~, however indented, until a line opening with as long a run of the same."""
+    ~, however indented, until a line that is only as long a run of the same."""
     out, fence = [], ""
     for line in text.splitlines():
         bare = line.lstrip()
         if fence:
-            fence = "" if bare.startswith(fence) else fence
+            if bare.startswith(fence) and not bare.strip(fence[0] + " \t"):
+                fence = ""  # closed by the run alone: with a word after it, it is content
         elif bare.startswith(("```", "~~~")):
             fence = bare[0] * (len(bare) - len(bare.lstrip(bare[0])))
         elif line.startswith("@"):
@@ -90,7 +91,7 @@ class Mentions:
         state = _load(self.store, {})
         first = str(self.root) not in state
         started = state.setdefault(str(self.root), {})
-        here, changed, due = defaultdict(Counter), {}, []
+        here, changed, due, save = defaultdict(Counter), {}, [], first
         for when, path, mention in self.found():
             file = str(path.relative_to(self.root))
             here[mention][file] += 1
@@ -106,8 +107,9 @@ class Mentions:
                 if changed[file] <= now - QUIET and opened + len(due) < OPEN:
                     was[file] += 1
                     due.append((file, mention))
+            save |= started.get(mention, {}) != was  # started, or moved with its file
             started[mention] = was
-        if first or due:
+        if save:
             _save(self.store, state)
         return due
 

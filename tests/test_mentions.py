@@ -43,7 +43,8 @@ def test_reads_only_lines_that_address_an_agent():
             "    @claude indented as code\n"
             "ask @claude in passing\n"
             "```\n@codex inside a fence\n```\n"
-            "  ````text\n@codex inside an indented fence\n```\n~~~~\n@codex still inside\n  ````\n"
+            "  ````text\n@codex inside an indented fence\n```\n~~~~\n@codex still inside\n"
+            "````python\n@codex and after a fence with a word on it\n  ````\n"
             "@codex\n"
             "@rosemary is a plant, not an agent\n"
             "@codex: price the seeds\n")
@@ -86,6 +87,14 @@ def test_a_new_copy_starts_in_its_own_file_whichever_was_edited_last(watch):
     for name in ("today.md", "garden.md"):
         os.utime(folder / name, (OLD, OLD + (name == "garden.md")))
     assert due(files=True) == [("today.md", "claude which beds get morning sun")]
+
+
+def test_a_new_copy_starts_in_its_own_file_after_the_old_one_was_renamed(watch):
+    folder, due = watch
+    (folder / "garden.md").rename(folder / "archive.md")
+    assert due() == []
+    note(folder, "garden.md", "@claude which beds get morning sun\n", changed=OLD - 60)
+    assert due(files=True) == [("garden.md", "claude which beds get morning sun")]
 
 
 def test_a_file_still_being_written_waits(watch):
