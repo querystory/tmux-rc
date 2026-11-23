@@ -180,8 +180,10 @@ def test_a_turn_that_supersedes_a_card_gets_its_own_reply():
     assert (trace.reply(1), trace.reply(2)) == ("first", "second")
 
 
-def test_a_refused_turn_ends_and_leaves_the_card_it_would_have_superseded():
-    trace, script, _ = _play([[_relay("%3")]], [ASK, "x" * 100_000, approve()], text=True)
+@pytest.mark.parametrize("reconnect", [[], [RECONNECT]])
+def test_a_refused_turn_ends_and_leaves_the_card_it_would_have_superseded(reconnect):
+    trace, script, _ = _play([[_relay("%3")]], [ASK, "x" * 100_000, *reconnect, approve()],
+                             text=True)
     assert script.heard == [ASK] and len(trace.keys) == 2
     assert [f["type"] for f in trace.of("error", 2)] == ["error"]  # the refusal is turn 2's
     assert trace.sends(1) and not trace.sends(2)  # the card's send stays turn 1's

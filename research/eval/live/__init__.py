@@ -86,6 +86,7 @@ class Trace:
     results: list[tuple] = field(default_factory=list)
     audits: list[dict] = field(default_factory=list)
     turn: int = 0
+    owners: dict[str, int] = field(default_factory=dict)  # card id -> its turn, across sockets
 
     def of(self, kind: str, turn: int | None = None) -> list[dict]:
         return [f for f in self.frames
@@ -182,6 +183,7 @@ class Phone:
         self.owed: list[int] = []  # the turns not yet complete, oldest first
         self.card = None  # the card up on this socket
         self.held = None  # the card the newest turn superseded
+        self.resumed = None  # the turn of a parked card this socket's tap resumed
 
     async def accept(self) -> None:
         pass
@@ -192,9 +194,11 @@ class Phone:
     async def send_json(self, frame: dict) -> None:
         # Tagged with the turn being answered: a turn that superseded a card is queued
         # behind the one still finishing, which owns whatever arrives until it completes.
-        # The echo, and a refusal, answer the newest turn at once.
-        now = frame.get("role") == "user" or frame.get("refused") or not self.owed
-        self.trace.frames.append({**frame, "_turn": self.trace.turn if now else self.owed[0]})
+        # The echo, and a refusal, answer the newest turn at once. A parked card resumed on a
+        # new socket, which owes no turn, is still its own turn's.
+        turn = (self.trace.turn if frame.get("role") == "user" or frame.get("refused")
+                else self.owed[0] if self.owed else self.resumed or self.trace.turn)
+        self.trace.frames.append({**frame, "_turn": turn})
         if frame.get("status") == "listening":  # a reconnect drops the turn it was in
             self.up, self.owed = True, []
         elif frame["type"] == "turn_complete" and self.owed:
@@ -203,7 +207,7 @@ class Phone:
             self.owed.pop()
             self.card = self.held
         elif frame["type"] == "propose":
-            self.card = frame["id"]
+            self.card, self.trace.owners[frame["id"]] = frame["id"], turn
         elif frame["type"] == "decided" and frame.get("id") == self.card:
             self.card = None  # settled without a tap here: its turn goes on, to turn_complete
         self.changed.set()
@@ -215,6 +219,7 @@ class Phone:
                 await self.changed.wait()
             # Taken only now: a wait cancelled (a reconnect's backoff) leaves it for the next.
             step = self.steps.pop(0) if self.steps else {"action": "stop"}
+            self.resumed = None
             if callable(step):
                 step(self.fleet)
                 continue
@@ -231,6 +236,8 @@ class Phone:
                 step = {"id": self.trace.of("propose")[-1]["id"], **step}
                 if step["id"] == self.card:  # its turn goes on, to turn_complete
                     self.card = None
+                elif not self.owed:  # a parked card: what it sends is its own turn's
+                    self.resumed = self.trace.owners.get(step["id"])
             return step
 
 
