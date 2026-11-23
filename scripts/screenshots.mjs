@@ -133,7 +133,7 @@ function openScratch(name, select) {
     await (await stillFrame(page)).locator(`article[data-name="${name}"] h2 a`).click();
     const shown = await stillFrame(page, "#scratch-viewer iframe");
     await loud(page.waitForSelector("#viewer-form:not([hidden])"), "no reply box"); // the shot is the reply box: no gallery in its place
-    if (select) { await shown.locator(select).first().selectText(); await loud(page.waitForSelector("#viewer-quote:not([hidden])"), "no quote chip"); }
+    if (select) { await shown.locator(select).first().selectText(); await page.waitForSelector("#viewer-quote:not([hidden])"); } // not loud: a base without the chip still shoots
   };
 }
 

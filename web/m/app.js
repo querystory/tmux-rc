@@ -929,7 +929,7 @@ const viewer = $("scratch-viewer");
 // for an update (checkUpdate), scrolled as it was.
 function viewerFrame(href, title) {
   const old = viewer.querySelector("iframe"), scrolled = old?.src === new URL(href, location.href).href && old.scrolled; // the same page only
-  old?.remove();
+  old?.remove(); quotable = ""; paintViewerForm(); // a selection is its document's: a reload may have reworded it
   const frame = Object.assign(document.createElement("iframe"), { src: href, title, onload() {
     if (++this.loads > 1) { viewerTo = null; paintViewerForm(); return; }
     this.sandbox = "allow-popups allow-popups-to-escape-sandbox";
@@ -1023,7 +1023,7 @@ for (const load of [loadPins, loadRecent]) { addEventListener("focus", load); lo
 // or the one the user moved the page to with the To chip. A Composer per pane, sent through
 // compose() like the pane's footer and a sidebar Reply.
 async function findMaker(href) {
-  viewerTo = moving = null; quotable = ""; paintViewerForm(); text($("viewer-status"), ""); const out = $("viewer-out").href;
+  viewerTo = moving = null; paintViewerForm(); text($("viewer-status"), ""); const out = $("viewer-out").href;
   const url = new URL(href), [, , top, ...rest] = url.pathname.split("/"); // the page and query it opened at
   const archived = top === ".archive", [folder, ...view] = archived ? rest : [top, ...rest]; // archived: its title, no pane
   const to = folder ? { ...await request(`/api/scratch/${folder}/pane${archived ? "?archived=1" : ""}`).catch(() => ({})), folder: decodeURIComponent(folder), view: view.join("/") + url.search + url.hash } : {};
@@ -1048,7 +1048,8 @@ const paintMove = headerPicker($("viewer-move"));
 $("viewer-move-picker").ontoggle = (e) => e.target.querySelector(":checked")?.scrollIntoView({ block: "nearest" });
 const paneWhere = (p) => { const name = paneName(p); return name.startsWith(`${p.session}:`) ? name : `${p.session}:${name}`; };
 async function moveTo(method, path, body, failure, timeout) {
-  const out = $("viewer-out").href, move = moving = moveSave = moveSave.catch(() => {}).then(() => request(`/api/scratch/${encodeURIComponent(viewerTo.folder)}/${path}`, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }, timeout));
+  const out = $("viewer-out").href, { folder } = viewerTo; // this visit's page, whatever is open once the queue reaches it
+  const move = moving = moveSave = moveSave.catch(() => {}).then(() => request(`/api/scratch/${encodeURIComponent(folder)}/${path}`, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }, timeout));
   paintViewerForm();
   let failed; const to = await move.catch((e) => { failed = e; });
   // A later pick, another visit, or the page navigated (a page in progress reloading is the same visit: viewerFrame).
@@ -1081,10 +1082,16 @@ const viewerKey = (p) => `${p.pane_id}@${p.birth}`; // a pane recycled under its
 const viewerPane = () => panes.find((p) => p.pane_id === viewerTo?.pane && p.birth === viewerTo.birth);
 // Why Send can't go now ("" when it can): the greyed look and what a tap on it says.
 const viewerWhy = (p) => moving ? "Checking where this page goes…" : sending ? "Still sending the last message…" : p.secret ? "This pane is asking for a password: open it to answer." : !viewerDrafts.get(viewerKey(p)).segments().length ? "Nothing to send yet." : "";
+// The pane closed under an open viewer: who the page goes to now, or the conversation to resume.
+async function lostMaker(to) {
+  const now = await request(`/api/scratch/${encodeURIComponent(to.folder)}/pane`).catch(() => null);
+  if (now && viewerTo === to && !moving) useMaker({ ...to, ...now });
+}
 function paintViewerForm() {
   const p = $("scratch-viewer").open && viewerPane(), form = $("viewer-form"); // render() may run before `viewer` is defined
   form.hidden = !($("scratch-viewer").open && viewerTo); // not a page messages can go from
   if (form.hidden) return;
+  if (p) viewerTo.seen = true; else if (viewerTo.seen) { viewerTo.seen = false; lostMaker(viewerTo); } // asked once
   html($("viewer-move"), (p ? "" : '<option value="">Choose a pane</option>') + panes.filter((q) => AGENT_TOOLS.has(q.tool) || q === p).map((q) => `<option value="${esc(viewerKey(q))}">${esc(paneWhere(q))}</option>`).join(""));
   $("viewer-move").value = p ? viewerKey(p) : ""; paintMove();
   $("viewer-to").hidden = !p; $("viewer-send").setAttribute("aria-disabled", String(!p));

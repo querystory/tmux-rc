@@ -2512,6 +2512,8 @@ if _scratch_dir:
         _audit(request, "scratch_move", body.pane, name[:120])
         return scratch_maker(name)
 
+    _resuming = asyncio.Lock()  # a second tap waits out the first's wait, then finds its pane
+
     @app.post("/api/scratch/{name}/resume")
     async def scratch_resume(name: str, request: Request) -> dict:
         """Reopen the conversation that made a scratch folder, as Live Mode resumes one
@@ -2520,13 +2522,14 @@ if _scratch_dir:
         (scratch.bind)."""
         watcher = app.state.watcher
         session = (await asyncio.to_thread(scratch_maker, name))["session"]
-        found = await live.resume(session, watcher, {}) if session else {
-            "reason": "no conversation was recorded for this page"}
-        if not (pane := found.get("pane_id")):
-            _refuse(request, "scratch_resume", name[:120], 409, found["reason"])
-        _audit(request, "scratch_resume", pane, name[:120])
-        if found["status"] == "opened":
-            await restore.ready(watcher, pane)
+        async with _resuming:
+            found = await live.resume(session, watcher, {}) if session else {
+                "reason": "no conversation was recorded for this page"}
+            if not (pane := found.get("pane_id")):
+                _refuse(request, "scratch_resume", name[:120], 409, found["reason"])
+            _audit(request, "scratch_resume", pane, name[:120])
+            if found["status"] == "opened":
+                await restore.ready(watcher, pane)
         return await asyncio.to_thread(scratch_move, name, ScratchPane(
             pane=pane, birth=watcher.pane_birth(pane) or ""), request)
 
