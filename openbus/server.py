@@ -2513,8 +2513,8 @@ if _scratch_dir:
         _audit(request, "scratch_move", body.pane, name[:120])
         return scratch_maker(name)
 
-    # Per conversation: a second tap waits out the first's wait, then finds its pane.
-    _resuming: defaultdict[str | None, asyncio.Lock] = defaultdict(asyncio.Lock)
+    # Per folder: a second tap waits out the first's wait, then finds its pane.
+    _resuming: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
     @app.post("/api/scratch/{name}/resume")
     async def scratch_resume(name: str, request: Request) -> dict:
@@ -2523,12 +2523,15 @@ if _scratch_dir:
         wait for its prompt as a restore does, and send the folder's messages to that pane
         (scratch.bind), the incarnation resumed: one that closed during the wait is refused."""
         watcher = app.state.watcher
-        async with _resuming[(await asyncio.to_thread(scratch_maker, name))["session"]]:
+        to = await asyncio.to_thread(scratch_maker, name)
+        if not (to["pane"] or to["session"]):  # before its lock: only a real page has one
+            _refuse(request, "scratch_resume", name[:120], 409,
+                    "no conversation was recorded for this page")
+        async with _resuming[name]:
             to = await asyncio.to_thread(scratch_maker, name)
             if to["pane"]:  # another device resumed it meanwhile
                 return to
-            found = await live.resume(to["session"], watcher, {}) if to["session"] else {
-                "reason": "no conversation was recorded for this page"}
+            found = await live.resume(to["session"] or "", watcher, {})  # "": gone since, unknown
             if not (pane := found.get("pane_id")):
                 _refuse(request, "scratch_resume", name[:120], 409, found["reason"])
             _audit(request, "scratch_resume", pane, name[:120])
