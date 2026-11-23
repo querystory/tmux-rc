@@ -1383,9 +1383,10 @@ def test_typing_at_a_password_prompt_says_why_it_was_refused(monkeypatch):
 
 
 def test_voice_sends_to_a_long_idle_window_are_refused_once(monkeypatch):
-    """Voice types at once into the window on screen or one idle a minute, but the first send
-    to a window idle for hours that the session has not reached is refused, with no card, so
-    the model asks the user aloud; the next send there (their yes) goes hands-free."""
+    """Voice types at once into the window on screen or one idle a minute, but a send to a
+    window idle for hours that the session has not reached is refused, with no card, so the
+    model asks the user aloud: every call there is refused until they speak (an Enter after
+    the refused text too), and the next send after their yes goes hands-free."""
     class Idle(_Watcher):
         def __init__(self, idle):
             super().__init__()
@@ -1404,10 +1405,13 @@ def test_voice_sends_to_a_long_idle_window_are_refused_once(monkeypatch):
     typed, ws, session = [], _WS(), _Session()
     monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append(a))
     monkeypatch.setattr(L.telemetry, "emit_action", lambda **k: None)
-    for _ in range(2):
-        _run(L._handle_tool_call(ws, session, shell, Idle(7200), meter))
-    refused, sent = (p for _, p in session.responses)
-    assert refused["status"] == "rejected"
+    enter = _FC("press_key", {"pane_id": "%2", "key": "Enter"})
+    for fc in (shell, enter):
+        _run(L._handle_tool_call(ws, session, fc, Idle(7200), meter))
+    _run(L._transcript(ws, meter, "user", "yes, there"))
+    _run(L._handle_tool_call(ws, session, shell, Idle(7200), meter))
+    refused, held, sent = (p for _, p in session.responses)
+    assert refused["status"] == held["status"] == "rejected"
     assert refused["reason"].startswith("idle 2h; confirm with the user first")
     assert sent["status"] == "sent" and typed == [("%2", "ls", True, True)]
     assert not any(m["type"] == "propose" for m in ws.sent)

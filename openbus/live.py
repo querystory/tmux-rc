@@ -158,6 +158,7 @@ class _Meter:
         self.usage = _LiveUsage(model.rates)
         self.turns = 0
         self.used: set[str] = set()  # panes an action reached this session (_stale)
+        self.asked: set[str] = set()  # long-idle panes refused until the user speaks (_stale)
         self.started = time.monotonic()
         self._lines: list[str] = []
         # Extra OTel fields a provider adapter wants folded into each record (GPT-Live
@@ -516,8 +517,10 @@ def _stale(meter: _Meter, fc, watcher) -> dict | None:
     """Refuse, once, a voice action on a window idle over STALE_SECONDS that is neither on the
     user's screen nor one this session already reached: a topic match once sent work to a
     window idle for days, and the prompt's "confirm a long-idle pane" went unheeded. The
-    refusal sends the model to ask the user, and their yes, the next request there, goes
-    through, so voice confirms by voice. The windows the user is working in pass untouched."""
+    refusal sends the model to ask the user, and once they have spoken the next send there
+    goes through, so voice confirms by voice; until then every call there is refused, so the
+    rest of the request (an Enter after the refused text) cannot act without them. The
+    windows the user is working in pass untouched."""
     pane = _pane_arg(fc)
     d = next((d for d in watcher.digest() if d["pane_id"] == pane), None)
     idle = (d or {}).get("idle_seconds")
@@ -525,7 +528,7 @@ def _stale(meter: _Meter, fc, watcher) -> dict | None:
             or d.get("tmux_active") or pane in meter.used
             or not isinstance(idle, (int, float)) or idle <= STALE_SECONDS):
         return None
-    meter.used.add(pane)
+    meter.asked.add(pane)
     return {"status": "rejected", "reason": (
         f"idle {_fmt_age(idle)}; confirm with the user first that they want it in "
         f"{_pane_name(d)}, and once they say so, send it again")}
@@ -1360,6 +1363,9 @@ async def _transcript(websocket: WebSocket, meter: _Meter, role: str, text: str,
         logger.info("[live] %s: %s", role, text)
     meter.note(f"{role}: {text}")
     meter.rec.event("transcript", role=role, text=text, **extra)
+    if role == "user":  # their say on a long-idle window held for it (_stale)
+        meter.used |= meter.asked
+        meter.asked.clear()
     await websocket.send_json({"type": "transcript", "role": role, "text": text, **extra})
 
 

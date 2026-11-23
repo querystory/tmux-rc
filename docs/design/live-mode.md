@@ -508,9 +508,10 @@ through, so no tool can skip it. find_sessions only reads, so it runs at once. T
 control plane's risk-tier idea (agentic-control-plane.md) applied at the smallest scale.
 Voice keeps acting directly, because a tap would end hands-free use and the spoken "Typing
 X into Y" announcement is voice's confirmation. The exception is a window idle over an hour
-that is not on the user's screen and that the session has not reached yet: the first send
-there is refused, and the model is told to confirm it with the user, whose yes then goes
-through hands-free. Matching a topic once sent work to a window idle for days, and the
+that is not on the user's screen and that the session has not reached yet: a send there is
+refused, and the model is told to confirm it with the user. Every call there stays refused
+until the user speaks, so the rest of the request (an Enter after the refused text) cannot
+act for them, and the send after their yes goes through hands-free. Matching a topic once sent work to a window idle for days, and the
 prompt's own "confirm a long-idle pane" was ignored, so the check moved into code. It
 first waited on the same card as a typed turn, which failed in voice: nothing told the
 voice a card was up, so a spoken "yes" arrived as a new request and cancelled the card it
