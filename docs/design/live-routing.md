@@ -52,7 +52,9 @@ where a send leaves the daemon:
   another completion for the same request, so the count is keyed to the delegation. The
   other providers keep no order between the user's transcript and the model's tool calls,
   so there a request starts at the user's first words or tool call after the model's turn
-  ended or was talked over, not at every transcript fragment;
+  ended or was talked over, not at every transcript fragment. A response that called a
+  tool does not end the turn: its result starts a continuation of the same request, which
+  keeps that request's one pane;
 - a send to a window idle for more than about an hour, not on the user's screen and not
   reached earlier in this session, is refused once with its idle age and a reason that
   sends the model to ask the user. Every call to that window stays refused until the user
@@ -125,8 +127,9 @@ when the two disagree there is no principled tiebreak except asking the user, wh
 what (a)'s refusals already do. It also cannot repair the deeper limit, that the GPT-Live
 backend is chosen from OpenAI's own models: Opus can review a send but cannot become the
 model holding the conversation. The cheaper version of this idea is to raise the existing
-backend's reasoning effort or pick a larger backend model, which the daemon already allows
-through configuration. That is worth measuring on the replay suite before writing any
+backend's reasoning effort or pick a larger backend model. The model is already a
+configuration setting; the effort is fixed at low in the adapter and has to be exposed
+first, a one-line change. That is worth measuring on the replay suite before writing any
 code.
 
 ### (c) A dedicated controller pane
@@ -245,9 +248,9 @@ conversations with the same shapes as these failures.
 
 Then, in order:
 
-1. **Turn the existing knob.** Rerun the replay suite with the backend at higher effort
-   and with a larger backend model. No code; it tells us how much of the remaining error
-   is the model.
+1. **Turn the backend's knobs.** Rerun the replay suite with a larger backend model (a
+   setting today) and at higher effort (once the adapter stops fixing it at low). It tells
+   us how much of the remaining error is the model.
 2. **The hybrid (d), behind a per-user setting, off by default.** The controller is the
    control session from the controller-routing design, with a narrow charter and the
    daemon's gates on its sends. The daemon hands off only to a controller it has
