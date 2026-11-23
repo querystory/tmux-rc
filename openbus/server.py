@@ -937,7 +937,7 @@ def push_config():
 @app.post("/api/push/subscribe")
 def push_subscribe(body: PushSubscriptionBody, request: Request):
     try:
-        app.state.push.subscribe(body.model_dump())
+        app.state.push.subscribe(body.model_dump(), request.headers.get("origin"))
     except ValueError as exc:
         _audit(request, "push_subscribe", "push", outcome=f"rejected: {exc}")
         raise HTTPException(400, str(exc)) from exc
