@@ -150,7 +150,7 @@ watcher = server.app.state.watcher = SimpleNamespace(states=[])
 server.tmux.pane_pid = lambda _pane: "77"  # the incarnation resumed, read before the wait
 server.agent_history.reconcile = lambda: None
 server.app.state.history = server.History(server.Path(sys.argv[1]))
-asked = []
+asked, loading = [], []
 async def resume(sid, _watcher, _rec):  # Live Mode's, which opens the window
     asked.append(sid)
     if sid == "s2":
@@ -159,6 +159,9 @@ async def resume(sid, _watcher, _rec):  # Live Mode's, which opens the window
     return {"status": "opened", "pane_id": "%40"}
 async def ready(_watcher, pane):
     asked.append(pane)
+    if asked[-2] == "s1":  # found meanwhile (here, moved to it): no pane to write to yet
+        server.scratch.bind(server.Path(server._scratch_dir), "made", pane, "77", watcher.states)
+        loading.append(to("made")["pane"])
     if asked[-2] == "s3":  # its folder deleted and made again by someone else, during the wait
         (server.Path(server._scratch_dir) / "swap" / "meta.json").write_text('{"pane": "%7"}')
 server.live.resume, server.restore.ready = resume, ready
@@ -166,8 +169,9 @@ c = TestClient(server.app)
 to = lambda name: c.get(f"/api/scratch/{name}/pane").json()
 print(int((to("made")["pane"], to("made")["session"], to("anon")["session"]) == (None, "s1", None)))
 r = c.post("/api/scratch/made/resume")
-print(r.status_code, int(asked == ["s1", "%40"] and (to("made")["pane"], to("made")["birth"],
-                                                    to("made")["session"]) == ("%40", "77", None)))
+now = to("made")
+print(r.status_code, int(asked == ["s1", "%40"] and loading == [None]
+                         and (now["pane"], now["birth"], now["session"]) == ("%40", "77", None)))
 print(c.post("/api/scratch/made/resume").json()["pane"], len(asked))  # a second device: as it is
 for name in ("lost", "anon", "swap"):
     r = c.post(f"/api/scratch/{name}/resume")

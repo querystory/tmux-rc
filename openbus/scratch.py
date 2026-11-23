@@ -429,13 +429,13 @@ def maker(root: Path, name: str, states: list[dict],
           pane_of=lambda _entry: None) -> tuple[dict | None, str | None]:
     """The open pane (its state) where the scratch viewer's composer sends for folder `name`:
     the one it was moved to, else its maker as the gallery finds it (resolve), only where
-    that is sure, never a Codex meta.json's pane that no transcript confirms. With no such
-    pane, the session that made it, if known: the viewer offers to resume it."""
+    that is sure, never a Codex meta.json's pane that no transcript confirms. And the
+    session that made it, if known: with no pane, the viewer offers to resume it."""
     if not (item := named(root, name)):
         return None, None
     panes = resolve([item], states, [], pane_of)
     pane = panes.get(item["pane"]) if item["sure"] else None
-    return pane, None if pane else item["session_id"]
+    return pane, item["session_id"]
 
 
 def about(root: Path, name: str) -> str | None:

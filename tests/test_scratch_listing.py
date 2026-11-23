@@ -484,7 +484,7 @@ def test_a_codex_page_goes_to_its_writer_never_to_the_pane_codex_stamped(tmp_pat
     assert scratch.maker(tmp_path, "plan", states, lambda _e: "%44")[0] is None
     found["plan"] = {"session_id": "t2"}
     scratch._missed.clear()
-    assert scratch.maker(tmp_path, "plan", states, lambda _e: "%44")[0]["pane_id"] == "%44"
+    assert scratch.maker(tmp_path, "plan", states, lambda _e: "%44") == (states[1], "t2")
     # in no pane: the conversation it could resume instead
     assert scratch.maker(tmp_path, "plan", states, lambda _e: None) == (None, "t2")
 

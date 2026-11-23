@@ -2474,6 +2474,9 @@ if _scratch_dir:
         _audit(request, f"scratch_{body.action}", "-", ",".join(done))
         return {"done": done}
 
+    # pane -> its wait for the agent's prompt, shared by every request that finds that pane.
+    _prompts: dict[str, asyncio.Task] = {}
+
     @app.get("/api/scratch/{name}/pane")
     def scratch_maker(name: str, archived: bool = False) -> dict:
         """The open pane a scratch folder's messages go to (scratch.maker): the viewer's
@@ -2484,9 +2487,11 @@ if _scratch_dir:
         watcher = app.state.watcher
         pane, session = scratch.maker(root, name, list(watcher.states),
                                       lambda entry: live.running_pane(entry, watcher))
+        if pane and pane["pane_id"] in _prompts:  # resumed, its agent still loading: no box yet
+            pane = None
         page = scratch.named(root, name) or scratch.named(scratch.archive(root), name) or {}
         return {"pane": (pane or {}).get("pane_id"), "birth": (pane or {}).get("birth"),
-                "session": session,  # with no pane, the conversation Resume would reopen
+                "session": None if pane else session,  # the conversation Resume would reopen
                 "about": scratch.about(root, name), "title": page.get("title")}
 
     @app.get("/api/scratch/{name}/version")
@@ -2512,9 +2517,6 @@ if _scratch_dir:
         _audit(request, "scratch_move", body.pane, name[:120])
         return scratch_maker(name)
 
-    # pane -> its wait for the agent's prompt, shared by every request that finds that pane.
-    _prompts: dict[str, asyncio.Task] = {}
-
     def _prompt(pane: str, *, opened: bool = False) -> Awaitable:
         """The wait for `pane`'s prompt, begun here and now for one just `opened`: the next
         request to find the pane, however soon, waits on the same one."""
@@ -2536,8 +2538,7 @@ if _scratch_dir:
         def asked() -> tuple:  # the folder and who it goes to, as one reading
             return (scratch.named(root, name) or {}).get("inode"), scratch_maker(name)
         folder, to = await asyncio.to_thread(asked)
-        if to["pane"]:  # another device resumed it meanwhile: ready when its agent is
-            await _prompt(to["pane"])
+        if to["pane"]:  # another device resumed it meanwhile, and its agent is ready
             return to
         if not to["session"]:
             _refuse(request, "scratch_resume", name[:120], 409,
