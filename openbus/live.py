@@ -351,6 +351,13 @@ def _pane_block(d: dict, screen: str | None, digest: list[dict] = ()) -> str:
     if d.get("tmux_active"):
         head += " — ACTIVE (the pane the user is looking at; 'here'/'this' means this one)"
     parts = [f"## {head}"]
+    # The window name the user gave, which the agent's title hides from the heading: it is
+    # the user's own word for the window ("tax-return" under a title that never says
+    # "tax"). tmux.Pane.label's "<session>:<index>" fallback names nothing, so not that.
+    label = d.get("label")
+    if d.get("title") and label and label != d["title"] and not label.endswith(
+            f":{d.get('window_index')}"):
+        parts.append(f"window name: {json.dumps(_flat(label), ensure_ascii=False)}")
     if d.get("cwd"):
         # Keep untrusted directory names from introducing fake prompt lines.
         parts.append(f"cwd: {json.dumps(str(d['cwd']), ensure_ascii=True)}")

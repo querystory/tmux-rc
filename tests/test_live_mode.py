@@ -125,11 +125,18 @@ def test_pane_block_names_window_prefers_title_hides_id_role():
         {"pane_id": "%16", "window_index": "9", "title": "Resolve PR 78", "session": "qs",
          "label": "work", "tool": "claude", "activity": "idle"}, None)
     assert '## "Resolve PR 78 · claude in qs" (id=%16)' in titled
+    # The window name the user gave still reaches the model, under the title it lost to.
+    assert 'window name: "work"' in titled
+    fallback = L._pane_block(
+        {"pane_id": "%17", "window_index": "4", "title": "Resolve PR 79", "session": "qs",
+         "label": "qs:4", "tool": "claude", "activity": "idle"}, None)
+    assert "window name" not in fallback  # "<session>:<index>" is no name the user gave
     # No self-published title ⇒ fall back to the window label.
     untitled = L._pane_block(
         {"pane_id": "%2", "window_index": "2", "title": None, "label": "shell",
          "tool": "shell", "activity": "running"}, None)
     assert '## "shell · shell" (id=%2)' in untitled
+    assert "window name" not in untitled  # the heading already is the label
 
 
 def test_pane_name_adds_the_window_only_to_tell_twins_apart():
