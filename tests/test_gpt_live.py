@@ -643,3 +643,38 @@ def test_one_delegation_types_into_one_pane(monkeypatch):
     s = asyncio.run(run())
     assert typed == [("%1", "w", True, True), ("%2", "x", True, True)]  # interleaved: A, B, A
     assert json.loads(s.ws.sent[-2]["item"]["output"])["status"] == "rejected"
+
+
+def test_two_composer_turns_are_two_requests(monkeypatch):
+    """A composer turn has no delegation id, so its request is the meter's: it ends when its
+    last backend response completes with no call left to continue, and the next turn can
+    reach another pane. A response that queued calls keeps it open for their continuation."""
+    typed = []
+    monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append(a))
+    monkeypatch.setattr(L.tmux, "server_uid", lambda: "test")
+    monkeypatch.setattr(L.telemetry, "emit_action", lambda **kw: None)
+    monkeypatch.setattr(L, "_labels", lambda w: {"%1": "shell", "%2": "docs"})
+
+    def typed_turn(kind, **fields):
+        return {**response(kind, **fields), "delegation_id": None}
+
+    async def run():
+        s = session()
+        worker = asyncio.create_task(s.execute())
+        for pane in ("%1", "%2"):
+            item = call(f"c{pane}", {"pane_id": pane, "text": "x"})
+            for events in ([typed_turn("response.output_item.done", item=item),
+                            typed_turn("response.completed", response={"id": f"r{pane}"})],
+                           [typed_turn("response.completed", response={"id": f"r{pane}+"})]):
+                s.ws.events = [*events, {"type": "session.closed"}]
+                await drain(s)
+                if len(events) == 2:  # its calls ran, and the backend was asked to go on
+                    await asyncio.wait_for(s.ws.continued.wait(), 1)
+                    s.ws.continued.clear()
+        for task in [worker, *L._tasks]:
+            task.cancel()
+        await asyncio.gather(worker, *list(L._tasks), return_exceptions=True)
+
+    asyncio.run(run())
+    assert [t[0] for t in typed] == ["%1", "%2"]
+

@@ -366,6 +366,10 @@ class Session:
                         )
                     # These are backend completions, not spoken turn boundaries.
                     self.meter._emit(final=False)  # noqa: SLF001 - shared Live adapter internals
+                    # A composer turn has no delegation, so its request is the meter's: it is
+                    # over once a response completes with no call left to continue.
+                    if delegation is None and not (nk == "response.completed" and calls):
+                        self.meter.answered = True
 
         # Normal WebSocket EOF is a dropped Live session too. Never silently report a stop.
         raise ProviderError({"code": "connection_closed_without_session_closed"})

@@ -203,10 +203,8 @@ class _Meter:
         return "\n".join(self._lines)
 
     def end_turn(self) -> None:
-        """A voice turn completed — emit its cumulative usage snapshot. The user's next words
-        or tool call are a new request (asking)."""
+        """A voice turn completed — emit its cumulative usage snapshot."""
         self.turns += 1
-        self.answered = True
         self._emit(final=False)
 
     def finish(self) -> None:
@@ -1489,6 +1487,7 @@ async def _receiver(websocket: WebSocket, session, watcher, meter: _Meter) -> No
         elif ev.kind == "transcript":
             await _transcript(websocket, meter, ev.role, ev.text)
         elif ev.kind == "turn_complete":
+            meter.answered = True
             meter.superseded = False
             meter.end_turn()
             await websocket.send_json({"type": "turn_complete"})
