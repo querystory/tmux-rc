@@ -62,8 +62,10 @@ as a single positional parameter. Because it arrives embedded in the prompt's wo
 cannot be read as an option either, however it begins.
 
 **Handled means counted, in tmux-rc's state.** The store holds, per watched folder, how
-many copies of each mention have been started. A copy beyond the count is new; the count
-only rises and is saved before the window opens. That gives at-most-once through
+many copies of each mention have been started, and which files held them. A copy beyond
+the count is new, and it is the one in a file that gained a copy, so editing the file of
+an answered mention never takes a request away from a new one. The count only rises and is
+saved before the window opens. That gives at-most-once through
 everything that was worth worrying about: a restart rereads the same counts, an edit
 elsewhere in the file leaves the line as it was, the agent's answer adds no mention, and a
 file that is renamed, or emptied and rewritten by a sync or a checkout, holds the same
@@ -82,7 +84,7 @@ Alternatives weighed:
 - *Git state* (a mention not yet committed is new) is also stateless, and wrong in both
   directions: anything that commits before the daemon looks hides a request, and every
   uncommitted draft by an agent is a candidate.
-- *Keying by file path* re-fires every mention in a file when it is moved, and moving notes
+- *Keying by file path alone* re-fires every mention in a file when it is moved, and moving notes
   out of an inbox is exactly what such folders are for.
 
 The cost of counting is stated under limits: delete a mention and type the identical line

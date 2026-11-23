@@ -8,7 +8,7 @@ import logging
 import os
 import stat
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Callable
 from pathlib import Path
 
@@ -26,12 +26,16 @@ PROMPT = ("{file} addresses you:\n\n{request}\n\nWrite your answer in that file,
 
 def mentions(text: str) -> list[str]:
     """Each `agent request` a line addresses: `@agent request` from the line's first column,
-    so never quoted or indented, and not inside a code fence."""
-    out, fenced = [], False
+    so never quoted or indented, and not inside a code fence: one opened by a run of ` or
+    ~, however indented, until a line opening with as long a run of the same."""
+    out, fence = [], ""
     for line in text.splitlines():
-        if line.startswith(("```", "~~~")):
-            fenced = not fenced
-        elif not fenced and line.startswith("@"):
+        bare = line.lstrip()
+        if fence:
+            fence = "" if bare.startswith(fence) else fence
+        elif bare.startswith(("```", "~~~")):
+            fence = bare[0] * (len(bare) - len(bare.lstrip(bare[0])))
+        elif line.startswith("@"):
             agent, _, request = line[1:].partition(" ")
             agent = agent.lower().rstrip(",:")
             if agent in AGENTS and request.strip():
@@ -40,9 +44,10 @@ def mentions(text: str) -> list[str]:
 
 
 def windows() -> int:
-    """How many windows a mention started are open: they are the ones named `@agent file`."""
+    """How many windows a mention started are open: they are the ones named `@agent file`.
+    Counted by pane, which a window shared between sessions is listed with once per session."""
     panes = tmux.list_panes() if tmux.server_running() else []
-    return len({(p.session, p.window_index) for p in panes if p.window_name.startswith("@")})
+    return len({p.id for p in panes if p.window_name.startswith("@")})
 
 
 class Mentions:
@@ -72,27 +77,36 @@ class Mentions:
                 out += [(at.st_mtime, path, m) for m in self.read[path][1]]
         return sorted(out, key=lambda m: m[0])
 
-    def due(self, now: float, opened: int) -> list[tuple[Path, str]]:
-        """The mentions to start now, with `opened` such windows open already. The store
-        counts, per mention, how many copies of it were started, in whichever files: a
-        copy beyond that count is new. Counts only rise and are saved before anything
-        starts, so a mention starts at most once, through restarts, renames and a file
-        that vanishes and returns. A folder's first reading starts nothing: all it holds
-        is counted as started."""
+    def due(self, now: float, opened: int) -> list[tuple[str, str]]:
+        """The (file, mention) to start now, with `opened` such windows open already. The
+        store holds, per mention, how many copies of it each file held when they were
+        started. More copies in the folder than that are new, and they are the ones in the
+        files that gained some, so an old copy's file being edited takes no request from
+        a new one's. The total only rises and is saved before anything starts, so a
+        mention starts at most once, through restarts, renames and a file that vanishes
+        and returns. A folder's first reading starts nothing: all it holds is counted."""
         if not self.root.is_dir():
             return []
         state = _load(self.store, {})
         first = str(self.root) not in state
-        started, seen, due = state.setdefault(str(self.root), {}), Counter(), []
-        for changed, path, mention in self.found():
-            seen[mention] += 1
-            if seen[mention] <= started.get(mention, 0):
-                continue
-            if not first and (changed > now - QUIET or opened + len(due) >= OPEN):
-                continue  # still being written, or enough open: it waits, and starts later
-            started[mention] = seen[mention]
-            if not first:
-                due.append((path, mention))
+        started = state.setdefault(str(self.root), {})
+        here, changed, due = defaultdict(Counter), {}, []
+        for when, path, mention in self.found():
+            file = str(path.relative_to(self.root))
+            here[mention][file] += 1
+            changed[file] = when
+        for mention, at in here.items():
+            was = Counter(started.get(mention))
+            new = at.total() - was.total()
+            if first or not new:
+                was = at  # all of it is counted, wherever a renamed file took its copies
+            gained = sorted((at - was).elements(), key=changed.get, reverse=True)
+            for file in gained[:max(new, 0)]:
+                # else still being written, or enough open: it waits, and starts later
+                if changed[file] <= now - QUIET and opened + len(due) < OPEN:
+                    was[file] += 1
+                    due.append((file, mention))
+            started[mention] = was
         if first or due:
             _save(self.store, state)
         return due
@@ -102,13 +116,12 @@ class Mentions:
         argument (sh's "$1"), which no shell parses, inside a prompt, so it is no option
         either; the launcher's own command is configuration, and sh reads that."""
         panes = []
-        for path, mention in self.due(time.time(), windows()):
+        for file, mention in self.due(time.time(), windows()):
             agent, _, request = mention.partition(" ")
-            file = str(path.relative_to(self.root))
             command = next((e["command"] for e in self.launchers() if e["icon"] == agent), agent)
             argv = ["sh", "-c", f'{command} "$1"', "sh", PROMPT.format(file=file, request=request)]
             try:
-                pane, _ = live.open_window(f"@{agent} {path.stem}"[:40], argv, str(self.root))
+                pane, _ = live.open_window(f"@{agent} {Path(file).stem}"[:40], argv, str(self.root))
             except Exception as e:  # noqa: BLE001 - the rest of what is due still starts
                 telemetry.audit("mention", "-", "mentions", file, outcome=f"error: {e}"[:80])
                 continue

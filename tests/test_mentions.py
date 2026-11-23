@@ -3,6 +3,7 @@
 
 import asyncio
 import os
+import shutil
 import time
 
 import pytest
@@ -28,9 +29,9 @@ def watch(tmp_path):
     folder = tmp_path / "notes"
     note(folder, "garden.md", "# Garden\n\n@claude which beds get morning sun\n\nThe east two.\n")
 
-    def due(opened: int = 0) -> list[str]:
+    def due(opened: int = 0, *, files: bool = False) -> list:
         fresh = mentions.Mentions(str(folder), tmp_path / "state" / "mentions.json", list)
-        return [m for _, m in fresh.due(time.time(), opened)]
+        return [(f, m) if files else m for f, m in fresh.due(time.time(), opened)]
 
     assert due() == []  # enabling it on a folder that holds mentions starts nothing
     return folder, due
@@ -42,6 +43,7 @@ def test_reads_only_lines_that_address_an_agent():
             "    @claude indented as code\n"
             "ask @claude in passing\n"
             "```\n@codex inside a fence\n```\n"
+            "  ````text\n@codex inside an indented fence\n```\n~~~~\n@codex still inside\n  ````\n"
             "@codex\n"
             "@rosemary is a plant, not an agent\n"
             "@codex: price the seeds\n")
@@ -72,6 +74,18 @@ def test_the_same_request_written_again_is_a_new_mention(watch):
     folder, due = watch
     note(folder, "today.md", "@claude which beds get morning sun\n")
     assert due() == ["claude which beds get morning sun"]
+
+
+def test_a_new_copy_starts_in_its_own_file_whichever_was_edited_last(watch):
+    folder, due = watch
+    asked = "@claude which beds get morning sun\n"
+    note(folder, "today.md", asked, changed=time.time())  # too fresh to start yet
+    note(folder, "garden.md", f"# Garden\n\n{asked}\nThe east two, and the herb bed.\n",
+         changed=time.time())  # the answered copy's file, edited after it
+    assert due() == []
+    for name in ("today.md", "garden.md"):
+        os.utime(folder / name, (OLD, OLD + (name == "garden.md")))
+    assert due(files=True) == [("today.md", "claude which beds get morning sun")]
 
 
 def test_a_file_still_being_written_waits(watch):
@@ -137,6 +151,7 @@ def test_off_unless_configured(monkeypatch, env, started):
     asyncio.run(check())
 
 
+@pytest.mark.skipif(not shutil.which("tmux"), reason="tmux is not installed")
 def test_the_window_runs_the_configured_agent_on_the_request_unparsed(sock, tmp_path):  # noqa: F811
     """On a private tmux server, with a stand-in for the agent: it is started in the folder
     with the request as one argument, whatever shell syntax the request holds."""
