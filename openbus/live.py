@@ -157,12 +157,12 @@ class _Meter:
             maxlen=TURNS_KEPT + TURNS_QUEUED + 1)
         self.usage = _LiveUsage(model.rates)
         self.turns = 0
-        # Which user request this is (None before the user has said anything), and the pane
-        # each recent request's voice actions reached, by request: GPT-Live's delegations can
-        # interleave. On the seam the user's first words after the model's turn ended start
-        # the next one (_transcript): a provider's transcript keeps no order against its
-        # tool calls, so words arriving between two calls of one turn are still its request.
-        self.request: int | None = None
+        # Which user request this is, and the pane each recent request's voice actions
+        # reached, by request: GPT-Live's delegations can interleave. On the seam the first
+        # of the user's words or a tool call after the model's turn ended starts the next
+        # one (asking): a provider's transcript keeps no order against its tool calls, so
+        # words arriving after or between the calls of one turn are still its request.
+        self.request = 0
         self.answered = True  # the model's turn ended since the current request began
         self.reached: dict = {}
         self.started = time.monotonic()
@@ -172,6 +172,12 @@ class _Meter:
         # providers, which report everything through `usage`.
         self.details: dict = {}
         self.rec = live_record.Recorder()  # off until live_mode starts one for a voice session
+
+    def asking(self) -> int:
+        """The request being made now, the next one if the model's turn ended since."""
+        if self.answered:
+            self.request, self.answered = self.request + 1, False
+        return self.request
 
     def keep_images(self, images: list[tuple[str, bytes]]) -> None:
         """Number a delivered turn's images (a turn without any still ages the older ones)."""
@@ -490,7 +496,7 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
     with whatever `rec` already shows it did. `request` names the user request the call
     serves, when the provider knows it better than the latest transcript does."""
     started, rec = time.monotonic(), {}
-    request = meter.request if request is None else request
+    request = meter.asking() if request is None else request
     # Pin an omitted image_number to the latest image NOW: the user approves the thumbnail
     # on the card, and a turn pasted while it waits must not change which image is sent.
     call = fc
@@ -512,7 +518,7 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
                        if meter.text and fc.name in _CONSENT else (True, None))
             act = _act(websocket, session, call, watcher, meter, rec, ok, pid)
             result = await (_focusing(session, watcher, rec, act) if meter.text else act)
-            if result["status"] == "sent" and request is not None:  # input went in
+            if result["status"] == "sent":  # input went in
                 meter.reached.setdefault(request, rec["pane_id"])
                 if len(meter.reached) > REQUESTS_KEPT:
                     del meter.reached[next(iter(meter.reached))]
@@ -1373,8 +1379,8 @@ async def _transcript(websocket: WebSocket, meter: _Meter, role: str, text: str,
         logger.info("[live] %s: %s", role, text)
     meter.note(f"{role}: {text}")
     meter.rec.event("transcript", role=role, text=text, **extra)
-    if role == "user" and meter.answered:  # the user's first words since the model's turn
-        meter.request, meter.answered = (meter.request or 0) + 1, False
+    if role == "user":
+        meter.asking()
     await websocket.send_json({"type": "transcript", "role": role, "text": text, **extra})
 
 
@@ -1468,6 +1474,7 @@ async def _receiver(websocket: WebSocket, session, watcher, meter: _Meter) -> No
     the session — takes each usage event into `meter` and emits a per-turn OTel record
     at every turn boundary."""
     meter.superseded = False  # a reconnect drops the turn it belonged to
+    meter.answered = True
     async for ev in session.events():
         if ev.kind == "usage":
             meter.usage.set(ev.usage)

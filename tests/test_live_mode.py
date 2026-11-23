@@ -195,8 +195,10 @@ def test_explicit_pr_target_precedes_conversational_continuity():
     assert "If no association matches, inspect current pane context or ask which window" in prompt
 
 
-def _dispatch(fc, monkeypatch, watcher=None, meter=_METER, panes=()):
-    w = watcher or _Watcher()
+def _dispatch(fc, monkeypatch, watcher=None, meter=None, panes=()):
+    """One call on a fresh meter unless one is given: a shared one would carry the panes an
+    earlier test's request reached into the next (_other_pane)."""
+    w, meter = watcher or _Watcher(), meter or L._Meter("s1", "tester", P._DEFAULT[0])
     ws, session = _WS(), _Session()
     typed = []
     monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append(a))
@@ -1395,9 +1397,8 @@ def test_voice_reaches_one_pane_per_request(monkeypatch):
 
     class Session(_Session):
         async def events(self):
-            yield P.Event("transcript", role="user", text="ask both panes")
-            yield P.Event("tool_call", call=to("%1"))
-            yield P.Event("transcript", role="user", text=" their status")  # late
+            yield P.Event("tool_call", call=to("%1"))  # before any word of it is heard
+            yield P.Event("transcript", role="user", text="ask both panes their status")
             yield P.Event("tool_call", call=to("%2"))
             yield P.Event("tool_call", call=to(" %1"))  # the pane it reached, however spelled
             yield P.Event("turn_complete")
@@ -1411,6 +1412,9 @@ def test_voice_reaches_one_pane_per_request(monkeypatch):
     for task in list(L._tasks):  # the post-type refreshes
         task.cancel()
     assert [t[0] for t in typed] == ["%1", "%1", "%2"]
+    meter.answered = False  # a provider that dropped mid-turn: the reconnect ends that turn
+    _run(L._receiver(_WS(), Session(), _Watcher(), meter))
+    assert typed[3][0] == "%1"
     refused = session.responses[1][1]
     assert refused["status"] == "rejected" and "its own request" in refused["reason"]
     assert {"type": "transcript", "role": "note",
