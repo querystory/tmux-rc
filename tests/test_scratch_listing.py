@@ -313,11 +313,13 @@ def test_a_page_whose_writer_moved_changes_the_tag_when_that_writer_stops(tmp_pa
     monkeypatch.setattr(agent_history, "get_many", lambda _ids: {"t": {
         "session_id": "t", "harness": "codex", "running": {"thread": "t"}}})
     _folder(tmp_path, "wip", time.time() - 60, {"updating": "more", "pane": "%6"})
-    writer = [{"pane_id": "%44", "tool": "codex", "activity": "running"}]
+    writer = [{"pane_id": "%44", "tool": "codex", "activity": "running", "birth": "1"}]
     scratch.page(tmp_path, writer, [], STYLE, pane_of=lambda _e: "%44")  # %6 closed
     monkeypatch.setattr(agent_history, "writers", lambda *_: pytest.fail("no search"))
     tag = lambda states: scratch.tag(scratch.items(tmp_path), states)  # noqa: E731
+    scratch.opened(tmp_path, [("wip", 0)], 1, writer)  # Recent: by meta.json's pane alone
     assert tag(writer) == tag([{**writer[0], "activity": "idle"}]) != tag([])
+    assert tag(writer) != tag([{**writer[0], "birth": "another"}])  # its id, recycled
 
 
 def test_a_folder_with_only_its_meta_json_is_a_page_being_made(tmp_path, monkeypatch):

@@ -42,7 +42,7 @@ _ACT = threading.Lock()  # one Archive, Restore or Delete batch at a time
 _BIND = threading.Lock()  # one bind() read-merge-replace at a time
 _META = threading.Lock()  # one meta.json read-merge-replace at a time (authors, descriptions)
 _missed: dict[tuple, float] = {}  # when each (name, inode, update mark) was last not found
-_BASIS: dict[tuple, tuple] = {}  # (name, inode): the panes its card's state was read from (_read)
+_BASIS: dict[tuple, tuple] = {}  # (name, inode): what its card's state was read from (resolve)
 _found: dict[tuple, str] = {}  # for a refusing meta.json, or a listing older than it
 _reconciled = [0.0]
 _PAGE = Path(__file__).resolve().parent / "scratch.html"
@@ -391,8 +391,11 @@ def tag(listed: list[dict], states: list[dict] = ()) -> str:
     panes = {s.get("pane_id"): s for s in states}
 
     def stopped(i: dict) -> bool:  # as its card last read it (resolve), else by its meta.json
-        pane, named = _BASIS.get((i["name"], i["inode"])) or (_open(i, panes), i["pane"])
-        return progress(panes.get(pane), named, i["since"]) == "stopped"
+        pane, birth, named = (_BASIS.get((i["name"], i["inode"]))
+                              or _basis(panes, _open(i, panes), i["pane"]))
+        now = panes.get(pane)  # that pane, not another under its recycled id
+        return progress(now if now and now.get("birth") == birth else None, named,
+                        i["since"]) == "stopped"
     return str(hash((*sorted((i["name"], i["href"], i["updated"], i["pending"], i["thumb"],
                               i["title"], i["description"], i["updating"]) for i in listed),
                      json.dumps(_load(BINDINGS, {}), sort_keys=True),
@@ -592,10 +595,15 @@ def _open(i: dict, panes: dict) -> str | None:
     return i["pane"] if pane and made_in(pane, i["named"]) else None
 
 
+def _basis(panes: dict, pane: str | None, named: str | None) -> tuple:
+    """What a state is read from: `pane` (open, or None) as it is now, and the pane its
+    writer was `named` in."""
+    return pane, (panes.get(pane) or {}).get("birth"), named
+
+
 def _read(i: dict, panes: dict, pane: str | None, named: str | None) -> None:
-    """i's `state` by `pane` (open, or None) and the pane its writer was `named` in, which
-    tag() reads again to see the card stop."""
-    _BASIS[i["name"], i["inode"]] = pane, named
+    """i's `state` by `pane` and `named` (_basis), kept with it for resolve to note."""
+    i["basis"] = _basis(panes, pane, named)
     i["state"] = progress(panes.get(pane), named, i["since"])
 
 
@@ -645,6 +653,8 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
         i["pane"] = None
         _author(i, s.get("harness"), acct)
         i["where"] = s.get("title") or ""
+    # Noted only now, as each card reads: a _progress alone (opened's) knows less.
+    _BASIS.update({(i["name"], i["inode"]): i["basis"] for i in listed})
     return panes
 
 
