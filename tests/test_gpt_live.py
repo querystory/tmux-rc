@@ -3,7 +3,6 @@
 import asyncio
 import base64
 import json
-import time
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -236,73 +235,6 @@ def test_completed_calls_survive_empty_response_output_and_all_results_precede_c
     ]
     assert json.loads(s.ws.sent[1]["item"]["output"])["status"] == "rejected"
     assert not any(m["type"] == "turn_complete" for m in s.browser.messages)
-
-
-def later(kind, **fields):
-    return {**response(kind, **fields), "delegation_id": "delegation-2"}
-
-
-@pytest.mark.parametrize(("seen", "events"), [
-    ((), [{"type": "session.delegation.created", "delegation": {"id": "delegation-2"}}]),
-    ((), [later("response.created", response={"id": "r2"})]),
-    # Its handoff came before the card went up: its calls queueing behind the card count.
-    (("delegation-2",), [later("response.output_item.done", item=call("c3")),
-                         later("response.completed", response={"id": "r2", "output": []})]),
-])
-def test_a_new_spoken_request_supersedes_a_waiting_tap_card(monkeypatch, seen, events):
-    """execute() runs calls one at a time, so a #716 card waiting on a long-idle window held
-    every later spoken request behind it, and the voice kept repeating its question. A new
-    request answers the card as a typed turn does: nothing is sent, the rest of its batch
-    is declined too, and the backend is told the user moved on. Its own continuation, which
-    reuses its delegation, does not."""
-    typed = []
-    monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append(a))
-    monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "42")
-    monkeypatch.setattr(L.telemetry, "emit_action", lambda **kw: None)
-    monkeypatch.setattr(L.telemetry, "emit_live_turn", lambda **kw: None)
-    on_screen = {**Watcher().digest()[0], "pane_id": "%2"}
-
-    async def run():
-        s = session([response("response.created", response={"id": "r1"}),
-                     response("response.output_item.done", item=call()),
-                     response("response.output_item.done",
-                              item=call("c2", {"pane_id": "%2", "text": "ls"})),
-                     response("response.completed", response={"id": "r1", "output": []})])
-        s.watcher.digest = lambda: [{**Watcher().digest()[0], "tmux_active": False,
-                                     "idle_seconds": 7200}, on_screen]
-        s.delegations.update(seen)
-        # A card parked by an earlier connection drop goes with it.
-        L._park("parked", (time.monotonic(), None, None, {}, s.meter, s.watcher))
-        shown, send = asyncio.Event(), s.browser.send_json
-
-        async def watch(message):
-            await send(message)
-            if message["type"] == "propose":
-                shown.set()
-
-        s.browser.send_json = watch
-        await drain(s)
-        worker = asyncio.create_task(s.execute())
-        await asyncio.wait_for(shown.wait(), 1)  # the card is up
-        for step, waiting in [([response("response.created", response={"id": "r1"})], True),
-                              (events, False)]:
-            s.ws.events = [*step, {"type": "session.closed"}]
-            await drain(s)
-            await asyncio.sleep(0)
-            assert any(not a.done() for a in s.meter.approvals.values()) is waiting
-        await asyncio.wait_for(s.ws.continued.wait(), 1)
-        worker.cancel()
-        await asyncio.gather(worker, return_exceptions=True)
-        return s
-
-    s = asyncio.run(run())
-    assert not typed
-    for sent in s.ws.sent[:2]:
-        result = json.loads(sent["item"]["output"])
-        assert result["status"] == "declined" and "new request" in result["reason"]
-    shown = next(m["id"] for m in s.browser.messages if m["type"] == "propose")
-    for card in (shown, "parked"):
-        assert {"type": "decided", "id": card, "ok": None} in s.browser.messages
 
 
 @pytest.mark.parametrize("terminal", ["response.failed", "response.incomplete"])

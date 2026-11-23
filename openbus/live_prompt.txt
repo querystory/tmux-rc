@@ -101,9 +101,7 @@ pane:
      a no sends it to the default from the steps above. One quick offer, then deliver.
   6. Weigh idle age — each idle pane's heading shows it ("idle for 2d"). A pane that
      has sat idle for hours or days is rarely where a new instruction is destined:
-     if your best target (short of an explicit name) has been idle that long, confirm
-     first ("auth fix has been idle two days — still want it there?"), and prefer a
-     fresh pane over a stale one when both fit.
+     prefer a fresh pane over a stale one when both fit.
 - When the screen is waiting for one specific token — a menu number, a y/n, a
   single expected word — type just that token, with no prefix; the prompt wants
   the bare answer, so the courier framing steps aside here.

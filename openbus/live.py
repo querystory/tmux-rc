@@ -495,11 +495,11 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
     result = {"status": "error", "reason": "aborted"} if known else {
         "status": "rejected", "reason": "unknown tool"}
     try:
-        if known:
+        if known and (refused := _stale(meter, call, watcher)):
+            result = refused
+        elif known:
             ok, pid = (await _approved(websocket, session, call, watcher, meter, rec)
-                       if fc.name in _CONSENT
-                       and (meter.text or meter.superseded or _stale(meter, call, watcher))
-                       else (True, None))
+                       if meter.text and fc.name in _CONSENT else (True, None))
             act = _act(websocket, session, call, watcher, meter, rec, ok, pid)
             result = await (_focusing(session, watcher, rec, act) if meter.text else act)
             if result["status"] == "sent":  # input went in: the window is in the conversation
@@ -512,19 +512,23 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
 STALE_SECONDS = 3600
 
 
-def _stale(meter: _Meter, fc, watcher) -> bool:
-    """Whether a voice action is aimed at a window idle over STALE_SECONDS that is neither on
-    the user's screen nor one this session already reached. It waits for a tap on the text
-    mode's card: a topic match once sent work to a window idle for days, and the prompt's
-    "confirm a long-idle pane" went unheeded. The windows the user is working in stay
-    hands-free."""
-    pane = fc.args.get("pane_id") if isinstance(fc.args, dict) else None
-    pane = pane.strip() if isinstance(pane, str) else pane  # as _dispatch reads it
+def _stale(meter: _Meter, fc, watcher) -> dict | None:
+    """Refuse, once, a voice action on a window idle over STALE_SECONDS that is neither on the
+    user's screen nor one this session already reached: a topic match once sent work to a
+    window idle for days, and the prompt's "confirm a long-idle pane" went unheeded. The
+    refusal sends the model to ask the user, and their yes, the next request there, goes
+    through, so voice confirms by voice. The windows the user is working in pass untouched."""
+    pane = _pane_arg(fc)
     d = next((d for d in watcher.digest() if d["pane_id"] == pane), None)
     idle = (d or {}).get("idle_seconds")
-    return bool(d and d.get("activity") == "idle" and not d.get("tmux_active")
-                and pane not in meter.used
-                and isinstance(idle, (int, float)) and idle > STALE_SECONDS)
+    if (meter.text or fc.name not in _CONSENT or not d or d.get("activity") != "idle"
+            or d.get("tmux_active") or pane in meter.used
+            or not isinstance(idle, (int, float)) or idle <= STALE_SECONDS):
+        return None
+    meter.used.add(pane)
+    return {"status": "rejected", "reason": (
+        f"idle {_fmt_age(idle)}; confirm with the user first that they want it in "
+        f"{_pane_name(d)}, and once they say so, send it again")}
 
 
 # The running action's _focusing hook, which _delivered calls as its delivery shows.
@@ -582,14 +586,14 @@ _REACHED = {"sent", "opened", "already_running"}  # ones that reached a pane
 # The tools that change a pane. In a text session each waits for the user to tap Send on
 # what it would do (the control plane's risk tiers: docs/design/agentic-control-plane.md):
 # a typed request is read and answered, never acted on unasked. find_sessions only reads,
-# so it runs at once. Voice keeps acting directly — a tap would end hands-free use — except
-# on a window long idle and out of the conversation (_stale).
+# so it runs at once. Voice keeps acting directly — a tap would end hands-free use — but a
+# window long idle and out of the conversation is refused once, to be confirmed aloud (_stale).
 _CONSENT = {"type_in_pane", "press_key", "resume_session", "send_image_to_pane"}
-# A new request (typed, or a new GPT-Live delegation) while a card waits answers it: the
-# user moved on, so the model is told not to retry and to take the new turn instead.
+# Typing a new message while a card waits answers it: the user moved on, so the model is
+# told not to retry and to take the new turn (queued behind this one) instead.
 _DECLINED = {"declined": "the user declined",
-             "superseded": "the user made a new request instead of answering; do not retry "
-                           "this, answer their new request (it follows)"}
+             "superseded": "the user sent a new message instead of answering; do not retry "
+                           "this, answer their new message (it follows)"}
 # A card whose connection dropped before the user answered (iOS drops the socket on every
 # lock, the tunnel relay every hour) stays up on the phone, so the daemon keeps what Send
 # needs, for the same chat reconnecting: (actor, session, proposal) -> (parked at, call,
@@ -643,22 +647,6 @@ def _disconnect(meter: _Meter) -> None:
     for key, parked in _parked.items():
         if key[:2] == chat:
             parked[4].unseen_since = since
-
-
-async def _supersede(websocket: WebSocket, meter: _Meter) -> None:
-    """The user moved on to a new request (typed, or a new GPT-Live delegation) while a card
-    waits unanswered (not one tapped and still unwinding): it, and the rest of its turn, are
-    declined, and the model is told to take the new request instead."""
-    for answer in [a for a in meter.approvals.values() if not a.done()]:
-        meter.superseded = True
-        answer.set_result(None)
-    # Parked ones too (their model is gone: nothing to tell it), all recorded before any is
-    # sent, so a socket dying mid-way loses none.
-    claimed = _unpark(meter)
-    for proposal, parked in claimed:
-        _answer(meter, proposal, None, parked[3])
-    for proposal, _ in claimed:
-        await _tell(websocket, meter, proposal)
 
 
 def _tapped(answer: asyncio.Future) -> bool:
@@ -891,12 +879,11 @@ async def _dispatch(
     if fc.name == "read_scratch":
         return await asyncio.to_thread(_read_scratch, args, rec)
 
-    # Keep the RAW value as well as the coerced one: str() turns a dict or an int into a
-    # perfectly plausible-looking string, and the guards below have to reject a wrong TYPE
-    # rather than silently accept its repr. A model parroting our own tool response back
-    # as a new call is exactly how a dict arrives here.
-    raw_pane_id = args.get("pane_id")
-    pane_id = str(raw_pane_id or "").strip()
+    # The guards below (_keystrokes) check the RAW value as well as this coerced one: str()
+    # turns a dict or an int into a plausible-looking string, and they must reject a wrong
+    # TYPE rather than accept its repr. A model parroting our own tool response back as a new
+    # call is exactly how a dict arrives here.
+    pane_id = _pane_arg(fc)
     labels = _labels(watcher)
 
     send_args, what, submitted = _keystrokes(fc, pane_id)
@@ -953,6 +940,11 @@ def _typed(args: dict) -> tuple[str, bool] | None:
     ok = (isinstance(args.get("pane_id"), str) and isinstance(text, str) and text.strip()
           and isinstance(enter, bool) and not set(args) - {"pane_id", "text", "press_enter"})
     return (text, enter) if ok else None
+
+
+def _pane_arg(fc) -> str:
+    """The pane a call names, as _dispatch and every gate before it read it."""
+    return str((fc.args if isinstance(fc.args, dict) else {}).get("pane_id") or "").strip()
 
 
 def _sent(label: str) -> dict:
@@ -1415,7 +1407,18 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
                     await websocket.send_json({"type": "error", "refused": True, "message": busy})
                     continue
                 meter.keep_images(images)
-                await _supersede(websocket, meter)
+                # An unanswered card (not one tapped and still unwinding): this supersedes
+                # it, and the rest of its turn.
+                for answer in [a for a in meter.approvals.values() if not a.done()]:
+                    meter.superseded = True
+                    answer.set_result(None)
+                # Parked ones too (their model is gone: nothing to tell it), all recorded
+                # before any is sent, so a socket dying mid-way loses none.
+                claimed = _unpark(meter)
+                for proposal, parked in claimed:
+                    _answer(meter, proposal, None, parked[3])
+                for proposal, _ in claimed:
+                    await _tell(websocket, meter, proposal)
                 await _transcript(websocket, meter, "user", text, new_segment=True,
                                   images=len(images))
         elif action == "resume" and hasattr(session, "restore"):  # a chat's reconnect

@@ -1382,10 +1382,10 @@ def test_typing_at_a_password_prompt_says_why_it_was_refused(monkeypatch):
     assert audits and "hunter2" not in str(audits)
 
 
-def test_voice_sends_to_a_long_idle_window_wait_for_a_tap(monkeypatch):
-    """Voice types at once into the window on screen or one idle a minute, but a window idle
-    for hours that the session has not reached waits on the text mode's card; once reached,
-    it is back in the conversation and goes hands-free."""
+def test_voice_sends_to_a_long_idle_window_are_refused_once(monkeypatch):
+    """Voice types at once into the window on screen or one idle a minute, but the first send
+    to a window idle for hours that the session has not reached is refused, with no card, so
+    the model asks the user aloud; the next send there (their yes) goes hands-free."""
     class Idle(_Watcher):
         def __init__(self, idle):
             super().__init__()
@@ -1396,24 +1396,18 @@ def test_voice_sends_to_a_long_idle_window_wait_for_a_tap(monkeypatch):
                     for d in super().digest()]
 
     meter = L._Meter("s1", "tester", P._DEFAULT[0])
-    shell = _FC(args={"pane_id": "%2", "text": "ls"})
+    shell = _FC(args={"pane_id": " %2 ", "text": "ls"})  # as sent, spaces and all
     assert not L._stale(meter, shell, Idle(60))
     assert not L._stale(meter, _FC(args={"pane_id": "%1", "text": "x"}), Idle(7200))  # ACTIVE
-    assert L._stale(meter, _FC(args={"pane_id": " %2 ", "text": "x"}), Idle(7200))  # as sent
-
-    class Tap(_WS):
-        async def send_json(self, obj):
-            await super().send_json(obj)
-            if obj["type"] == "propose":
-                client = _ScriptedWS([{"action": "approve", "id": obj["id"], "ok": True},
-                                      {"action": "stop"}])
-                await L._forward_client(client, None, meter)
-
-    typed = []
+    text = L._Meter("s1", "tester", P._DEFAULT[0], text=True)  # typed: every send has a card
+    assert not L._stale(text, shell, Idle(7200))
+    typed, ws, session = [], _WS(), _Session()
     monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append(a))
     monkeypatch.setattr(L.telemetry, "emit_action", lambda **k: None)
-    ws = Tap()
     for _ in range(2):
-        _run(L._handle_tool_call(ws, _Session(), shell, Idle(7200), meter))
-    assert [m["type"] for m in ws.sent].count("propose") == 1  # the second went hands-free
-    assert typed == [("%2", "ls", True, True)] * 2
+        _run(L._handle_tool_call(ws, session, shell, Idle(7200), meter))
+    refused, sent = (p for _, p in session.responses)
+    assert refused["status"] == "rejected"
+    assert refused["reason"].startswith("idle 2h; confirm with the user first")
+    assert sent["status"] == "sent" and typed == [("%2", "ls", True, True)]
+    assert not any(m["type"] == "propose" for m in ws.sent)

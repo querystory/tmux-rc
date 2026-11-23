@@ -779,7 +779,7 @@ def test_chat_shows_a_working_row_until_each_turn_is_answered():
   assert.equal(roles().at(-1), 'propose');
   say({type: 'decided', id: 'p2', ok: null});
   const card = log.children.filter((row) => row.dataset.role === 'propose').at(-1);
-  assert.equal(card.firstChild.textContent, 'Cancelled — you asked for something else');
+  assert.equal(card.firstChild.textContent, 'Cancelled — you sent a new message');
   assert.equal(roles().at(-1), 'typing');
   send('five');
   $('voice-end').onclick();

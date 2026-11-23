@@ -556,7 +556,7 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
       else if (message.type === "propose") propose(current, message);
       else if (message.type === "open_pane") offer(message);
       else if (message.type === "expired") settle(current, message.id, "Expired");
-      else if (message.type === "decided") settle(current, message.id, message.ok ? "Approved" : message.ok === null ? "Cancelled — you asked for something else" : "Declined");
+      else if (message.type === "decided") settle(current, message.id, message.ok ? "Approved" : message.ok === null ? "Cancelled — you sent a new message" : "Declined");
       else if (message.type === "interrupted") silence(current);
       else if (message.type === "audio") { try { playAudio(current, message.data, message.sample_rate); } catch { add("error", "Could not play this audio chunk."); } }
     };
