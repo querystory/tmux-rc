@@ -35,7 +35,8 @@ def mentions(text: str) -> list[str]:
             if bare.startswith(fence) and not bare.strip(fence[0] + " \t"):
                 fence = ""  # closed by the run alone: with a word after it, it is content
         elif bare.startswith(("```", "~~~")):
-            fence = bare[0] * (len(bare) - len(bare.lstrip(bare[0])))
+            run = bare[0] * (len(bare) - len(bare.lstrip(bare[0])))
+            fence = "" if "`" in run and "`" in bare[len(run):] else run  # ```a code span```
         elif line.startswith("@"):
             agent, _, request = line[1:].partition(" ")
             agent = agent.lower().rstrip(",:")
@@ -46,9 +47,10 @@ def mentions(text: str) -> list[str]:
 
 def windows() -> int:
     """How many windows a mention started are open: they are the ones named `@agent file`.
-    Counted by pane, which a window shared between sessions is listed with once per session."""
-    panes = tmux.list_panes() if tmux.server_running() else []
-    return len({p.id for p in panes if p.window_name.startswith("@")})
+    Counted by id: tmux lists a window once for each session that shares it."""
+    listed = tmux.run("list-windows", "-a", "-F", "#{window_name} #{window_id}") \
+        if tmux.server_running() else ""
+    return len({w.rsplit(" ", 1)[1] for w in listed.splitlines() if w.startswith("@")})
 
 
 class Mentions:

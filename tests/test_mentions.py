@@ -45,6 +45,7 @@ def test_reads_only_lines_that_address_an_agent():
             "```\n@codex inside a fence\n```\n"
             "  ````text\n@codex inside an indented fence\n```\n~~~~\n@codex still inside\n"
             "````python\n@codex and after a fence with a word on it\n  ````\n"
+            "```a code span``` opens no fence\n```\n@codex inside the fence after it\n```\n"
             "@codex\n"
             "@rosemary is a plant, not an agent\n"
             "@codex: price the seeds\n")
@@ -185,5 +186,8 @@ def test_the_window_runs_the_configured_agent_on_the_request_unparsed(sock, tmp_
     assert prompt == mentions.PROMPT.format(file="trees.md", request=request)
     assert not list(tmp_path.rglob("pwned"))
     assert [p.window_name for p in tmux.list_panes()] == ["@claude trees"]
+    pane = tmux.list_panes()[0]
+    tmux.run("split-window", "-d", "-t", pane.id, "sleep 30")
+    tmux.run("new-session", "-d", "-s", "other", "-t", pane.session)  # shares its windows
     assert mentions.windows() == 1
     assert watcher.poll() == []
