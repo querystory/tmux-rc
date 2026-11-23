@@ -10,7 +10,11 @@
     "waiting_on": "user",
     "parse_ok": true,
     "question": {
-      "answer_style": "text"
+      "answer_style": "text",
+      "prompt_excludes": [
+        "Create the repo?",
+        "Who holds the keys"
+      ]
     },
     "buttons_at_most": 3,
     "headline": "Seed swap plan is ready; eight decisions wait on the user"
