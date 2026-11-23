@@ -36,6 +36,7 @@ _TITLE = re.compile(r"<title[^>]*>([^<]*)", re.IGNORECASE)
 # ends a path in prose, markdown, JSON or a URL.
 _MENTION = r"(scratch|SCRATCH_[A-Z_]+)/[^]/\"'\\<>()[{}`,;:*|?#[:space:]]+"
 _RETRY = 600
+_FRESH = 86400  # a miss is retried while its folder is this young: after that, never found
 _LOCK = threading.Lock()
 _ACT = threading.Lock()  # one Archive, Restore or Delete batch at a time
 _BIND = threading.Lock()  # one bind() read-merge-replace at a time
@@ -383,12 +384,14 @@ def tag(listed: list[dict]) -> str:
     """What the open gallery compares to see that it changed: a folder came, went or
     changed (its page too, say renamed to its index), its thumbnail, title or description
     landed, an update began or ended, a page was moved to a pane (bind), or (by the minute)
-    a page in progress or being updated may have stopped. In no particular order,
-    as the gallery sorts after listing."""
+    a page in progress or being updated may have stopped, until STUCK, by when it has
+    (progress): a folder abandoned mid-page must not reload the gallery every minute for
+    good. In no particular order, as the gallery sorts after listing."""
     return str(hash((*sorted((i["name"], i["href"], i["updated"], i["pending"], i["thumb"],
                               i["title"], i["description"], i["updating"]) for i in listed),
                      json.dumps(_load(BINDINGS, {}), sort_keys=True),
-                     any(i["pending"] or i["updating"] for i in listed)
+                     any((i["pending"] or i["updating"]) and time.time() - i["since"] <= STUCK
+                         for i in listed)
                      and int(time.time() // 60))))
 
 
@@ -453,8 +456,11 @@ def _writers(todo: list[dict]) -> None:
     with _LOCK:  # a second request waits for the first's search instead of repeating it
         for i in todo:
             i["session_id"] = i["session_id"] or _found.get(keys[i["name"]])
-        due = {i["name"]: i["since"] for i in todo if not i["session_id"]
-               and now - _missed.get(keys[i["name"]], 0) > _RETRY}
+        # Searched once, then again only while young: an old miss's retry grepped weeks of
+        # transcripts for seconds, every _RETRY, holding up the gallery's every load.
+        due = {i["name"]: i["since"] for i in todo if not i["session_id"] and (
+            (key := keys[i["name"]]) not in _missed
+            or (now - _missed[key] > _RETRY and now - i["since"] < _FRESH))}
         if due and now - _reconciled[0] > _RETRY:  # a running session's entry can be days old
             agent_history.reconcile()
             _reconciled[0] = now

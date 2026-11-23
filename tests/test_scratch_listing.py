@@ -108,6 +108,10 @@ def test_a_closed_pane_falls_back_to_the_transcript_once(tmp_path, monkeypatch):
     items, _ = _resolved(tmp_path)
     assert items["gone"]["where"] == "Billing"
     assert calls == [{"gone": 1000, "nobody": 2000}]  # found is stored, a miss waits to retry
+    later = time.time() + scratch._RETRY + 1
+    monkeypatch.setattr(scratch.time, "time", lambda: later)
+    _resolved(tmp_path)
+    assert calls == [{"gone": 1000, "nobody": 2000}]  # nor ever again: a day old, never found
 
 
 def test_a_codex_panes_meta_json_is_checked_against_the_transcript(tmp_path, monkeypatch):
@@ -282,6 +286,18 @@ def test_the_tag_changes_with_what_the_open_gallery_shows(tmp_path):
     seen = tag()
     scratch.act(tmp_path, "archive", ["one"])
     assert tag() != seen
+
+
+def test_only_a_page_that_may_still_stop_changes_the_tag_by_the_minute(tmp_path, monkeypatch):
+    """A page in progress reloads the open gallery each minute, to show it stopped; one
+    abandoned past STUCK has stopped for good, so it never does."""
+    now = time.time()
+    tag = lambda at: (monkeypatch.setattr(scratch.time, "time", lambda: at),  # noqa: E731
+                      scratch.tag(scratch.items(tmp_path)))[1]
+    old = _folder(tmp_path, "old", now - scratch.STUCK - 60, {"updating": "more charts"})
+    assert tag(now) == tag(now + 60)
+    os.utime(old / "meta.json", (now, now))  # its update begun just now
+    assert tag(now) != tag(now + 60)
 
 
 def test_a_folder_with_only_its_meta_json_is_a_page_being_made(tmp_path, monkeypatch):
