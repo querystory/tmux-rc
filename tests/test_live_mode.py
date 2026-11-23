@@ -1452,6 +1452,31 @@ def test_a_relay_waits_for_a_transcript_that_lands_after_its_call(monkeypatch):
     assert kinds.index("typed") < kinds.index("turn_complete")  # the turn ends after its call
 
 
+def test_a_provider_drop_lets_the_call_it_made_finish_first(monkeypatch):
+    """A transport error mid-turn ends the receiver only once the call the provider made has
+    been answered, as when calls ran inline: none runs on into the reconnect."""
+    order = []
+
+    class Session(_Session):
+        async def events(self):
+            yield P.Event("tool_call", call=P.ToolCall("c", "read_scratch", {}))
+            raise ConnectionError("provider dropped")
+
+    async def slow(*_a, **_k):
+        await asyncio.sleep(0.2)
+        order.append("answered")
+
+    monkeypatch.setattr(L, "_handle_tool_call", slow)
+
+    async def run():
+        try:
+            await L._receiver(_WS(), Session(), _Watcher(), L._Meter("s", "a", P._DEFAULT[0]))
+        except ConnectionError:
+            order.append("dropped")
+    _run(run())
+    assert order == ["answered", "dropped"]
+
+
 def test_a_tool_call_that_raises_fails_the_receiver(monkeypatch):
     """Off the loop, a call that raises still ends the receiver with its error, so the
     session reconnects as it did when calls ran inline."""

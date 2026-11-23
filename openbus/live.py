@@ -1499,7 +1499,7 @@ async def _receiver(websocket: WebSocket, session, watcher, meter: _Meter) -> No
     me, turn, failed = asyncio.current_task(), None, []  # turn: its latest step, run in order
 
     def done(task: asyncio.Task) -> None:  # a step that raised fails the receiver, as inline
-        if not (task.cancelled() or failed) and task.exception():
+        if not (task.cancelled() or failed) and task.exception():  # (until it is ending)
             failed.append(task.exception())
             me.cancel()
 
@@ -1528,14 +1528,18 @@ async def _receiver(websocket: WebSocket, session, watcher, meter: _Meter) -> No
                 await then(_turn_complete(websocket, meter))
             elif ev.kind == "interrupted":
                 await websocket.send_json({"type": "interrupted"})
-        if turn:  # a stream that ended mid-turn: the calls it made still finish (as they do,
-            await asyncio.wait([turn])  # unawaited, when it ends in an error)
+        if turn:  # the stream ended: its last calls finish, and one that raises fails this
+            await asyncio.wait([turn])
     except asyncio.CancelledError:  # the session ending, or a step that raised
         if failed:
             raise failed[0] from None
         if turn:
             turn.cancel()
         raise
+    finally:  # a stream that dropped mid-turn: the calls it made finish first, as inline
+        failed.append(None)  # ones did, so none runs on into the reconnect
+        if turn:
+            await asyncio.wait([turn])
 
 
 async def _after(previous: asyncio.Task | None, step) -> None:
