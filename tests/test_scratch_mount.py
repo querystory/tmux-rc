@@ -165,8 +165,9 @@ async def ready(_watcher, pane):
     if asked[-2] == "s3":  # its folder deleted and made again by someone else, during the wait
         (server.Path(server._scratch_dir) / "swap" / "meta.json").write_text('{"pane": "%7"}')
     if asked[-2] == "s4":  # replaced outright, and the new one sent to a live pane
-        again = server.Path(server._scratch_dir) / "redone"
-        server.shutil.rmtree(again); again.mkdir(); (again / "index.html").write_text("new")
+        again = server.Path(server._scratch_dir) / "redone"  # made before the old goes: a new inode
+        (new := again.with_name("new")).mkdir(); (new / "index.html").write_text("new")
+        server.shutil.rmtree(again); new.rename(again)
         server.scratch.bind(again.parent, "redone", pane, "77", watcher.states)
 server.live.resume, server.restore.ready = resume, ready
 c = TestClient(server.app)
