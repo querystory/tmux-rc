@@ -1,0 +1,15 @@
+{
+  "description": "Synthetic: a finished turn in accept-edits mode (not auto mode) ends with a real yes/no question to the user. The model's own question is the ask: a text Needs-you with accept-then-decline reply buttons.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ fix the rounding in the totals row\n\n● Fixed: totals now round half-even, matching the per-line amounts, and the\n  two snapshot tests that pinned the old value are updated.\n\n  Should I also bump the patch version for this?\n\n✻ Worked for 19s · done 11:20 AM\n──────────────────────────────────────────────────────────────────────────────────\n❯\n──────────────────────────────────────────────────────────────────────────────────\n  ~/src/brightmoor/ledger on main | Opus 5.5 | dev@example.com\n  session: +18/-4 lines · 14% ctx · 34m · $1.90\n  ⏵⏵ accept edits on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "text",
+      "reply_buttons": true
+    },
+    "headline": "Asking whether to bump the patch version after the rounding fix"
+  }
+}
