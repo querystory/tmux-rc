@@ -647,8 +647,9 @@ def test_one_delegation_types_into_one_pane(monkeypatch):
 
 def test_two_composer_turns_are_two_requests(monkeypatch):
     """A composer turn has no delegation id, so its request is the meter's: a turn typed once
-    the last one has finished is a new one and can reach another pane. One typed while a
-    response or calls of the last are still running shares its request (fail closed)."""
+    the last one has finished is a new one and can reach another pane. One typed while an
+    earlier turn is still going (its calls, or the continuation they asked for, even after a
+    later turn's own reply has ended) shares its request: fail closed."""
     typed = []
     monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append(a))
     monkeypatch.setattr(L.tmux, "server_uid", lambda: "test")
@@ -683,6 +684,17 @@ def test_two_composer_turns_are_two_requests(monkeypatch):
         await turn(s, 3, "%1", finish=False)
         await s.send_text("and here")  # before that continuation's response even starts
         assert not s.meter.answered
+        s.ws.events = [composer("response.completed", response={"id": "r4"}),  # it answers
+                       {"type": "session.closed"}]
+        await drain(s)
+        await s.send_text("and there")  # the third turn's continuation is still to come
+        assert not s.meter.answered
+        for n in ("3+", "5"):  # that continuation, then the last turn's reply, end both
+            s.ws.events = [composer("response.completed", response={"id": f"r{n}"}),
+                           {"type": "session.closed"}]
+            await drain(s)
+        await s.send_text("now somewhere else")
+        assert s.meter.answered
         for task in [worker, *L._tasks]:
             task.cancel()
         await asyncio.gather(worker, *list(L._tasks), return_exceptions=True)

@@ -195,9 +195,10 @@ class Session:
         self.calls = {}
         self.seen_calls = set()
         self.work = asyncio.Queue(maxsize=16)
-        # Delegations (None for a composer turn) with calls queued or running, or a
-        # continuation asked for and not yet completed: work an earlier turn still has.
-        self.busy = set()
+        # Composer turns not yet over. Each asks for one response, and each response that
+        # calls a tool is followed by one continuation, so a turn is over at the first of its
+        # responses to end with no call; which turn a response belongs to never matters.
+        self.composing = 0
         self.caption_end = {}
         self.pane_hints = {}
         self.last_context = {}
@@ -231,11 +232,12 @@ class Session:
         if self.closing:
             return
         # A composer turn has no delegation, so its request is the meter's (live._Meter.asking).
-        # It is a new one only when no earlier turn's response or calls are still running: no
-        # id ties a continuation to its turn, so in an overlap the two share one, and a second
-        # pane is refused rather than reached.
-        if not (self.calls or self.busy):
+        # It is a new one only when no earlier composer turn is still going: no id ties a
+        # continuation to its turn, so in an overlap they share one, and a second pane is
+        # refused rather than reached.
+        if not self.composing:
             self.meter.answered = True
+        self.composing += 1
         await self.send({"type": "response.item.create",
                          "item": live_providers.openai_message("user", text, images)})
         await self.send({"type": "response.create"})
@@ -359,15 +361,14 @@ class Session:
                 ):
                     calls = self.calls.pop(delegation, [])
                     if nk == "response.completed" and calls:
-                        self.busy.add(delegation)  # until a response of it ends with none
                         try:
                             self.work.put_nowait((delegation, calls))
                         except asyncio.QueueFull:
                             # Keep receiving voice while tools run; do not block
                             # the audio receiver or leave a long delayed-action queue.
                             raise ProviderError({"code": "terminal_queue_full"}) from None
-                    else:
-                        self.busy.discard(delegation)
+                    elif delegation is None:  # a composer turn is over
+                        self.composing = max(0, self.composing - 1)
                     if nk != "response.completed":
                         await self.browser.send_json(
                             {
