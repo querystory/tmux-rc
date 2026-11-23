@@ -15,7 +15,12 @@ are satellites, and hubs group the panes by a lens:
 - **Repo / dir**: the repository a pane works in, then the directory inside it.
 - **Worktree**: the git checkout a pane sits in. A checkout with two agents busy in it is
   ringed in amber, since that is where two agents' edits collide.
-- **Tool / model**: the agent, then the model it runs.
+- **Tool / model**: the agent, then the model it runs. Each agent's hub shows the agent's
+  logo inside its status ring, the same image the session list uses, so the hub is
+  recognised before its label is read. A model hub shows its vendor's mark only under a
+  tool that runs any vendor's models (opencode, omp, Antigravity), the session list's
+  model-badge rule. Under Claude, Codex or Gemini the mark would only repeat the parent
+  hub, so the model hub keeps its dot.
 
 You pan by dragging (one finger on a phone), zoom with the wheel or a pinch, and Fit puts
 the whole graph back in view. Tapping a pane opens a popover with its state, model,
