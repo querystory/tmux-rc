@@ -98,7 +98,8 @@ that very pane is still open, never to another pane that later took its id.
 
 Most remarks are about one sentence. Select it on the page (press and hold, on a phone)
 and a **Quote** chip appears above the box, showing what it caught; a tap puts those words,
-in quotation marks, into your message, and you type the remark after them. The agent finds
+in quotation marks, into your message, and you type the remark after them. The chip then
+reads **Quoted**, with an × that takes the quote back out and keeps the remark. The agent finds
 the sentence by its words, so nothing else is stored. It works on Markdown and HTML pages
 alike; a page that navigated away from the one you opened has no chip.
 
