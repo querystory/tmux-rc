@@ -1,0 +1,14 @@
+{
+  "description": "Synthetic: Claude Code's provider error (\"⎿ API Error: 529 overloaded\") stops an auto-mode turn in the middle of a task, above the empty input box. The turn did not finish its work and only the user can retry, so a text Needs-you whose headline is the error.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ split the invoice exporter into one module per format\n\n● Update(src/export/csv_writer.py)\n  ⎿  Added 41 lines\n\n● Next, the PDF writer.\n  ⎿  API Error: 529 {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}\n\n──────────────────────────────────────────────────────────────────────────────────\n❯\n──────────────────────────────────────────────────────────────────────────────────\n  ~/src/brightmoor/ledger on main | Opus 5.5 | dev@example.com\n  session: +18/-4 lines · 18% ctx · 34m · $1.90\n  ⏵⏵ auto mode on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "text"
+    },
+    "headline": "Turn stopped by an API error: the provider is overloaded"
+  }
+}

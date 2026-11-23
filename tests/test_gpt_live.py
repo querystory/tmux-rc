@@ -4,6 +4,7 @@ import asyncio
 import base64
 import json
 from pathlib import Path
+from urllib.parse import urlencode
 
 import pytest
 from fastapi import WebSocketDisconnect
@@ -360,36 +361,38 @@ def test_stop_or_phone_disconnect_collects_final_usage(monkeypatch, disconnected
     asyncio.run(run())
     assert meter.usage.final and meter.usage.seconds == 10
     assert wire.sent[0]["type"] == "session.start"
+    assert wire.sent[0]["session"]["model"] == G.ENTRY.model  # the picked entry's id
     assert wire.sent[-1]["type"] == "session.close"
     assert meter.model.backend == "openai"
 
 
-def test_picker_key_gating_and_route_selection(monkeypatch):
+@pytest.mark.parametrize("entry", G.ENTRIES, ids=lambda e: e.model)
+def test_picker_key_gating_and_route_selection(monkeypatch, entry):
     from fastapi.testclient import TestClient
 
     from openbus import server
 
     monkeypatch.setenv("TMUXRC_LIVE_MODE", "1")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    assert all(m["label"] != G.LABEL for m in server.get_version()["live_models"])
+    assert all(m["label"] != entry.label for m in server.get_version()["live_models"])
     monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
-    assert any(m["label"] == G.LABEL for m in server.get_version()["live_models"])
+    assert any(m["label"] == entry.label for m in server.get_version()["live_models"])
     called = []
 
-    async def run(*args):
-        called.append("gpt")
+    async def run(browser, watcher, meter):
+        called.append(meter.model)
 
     monkeypatch.setattr(G, "run_session", run)
     monkeypatch.setitem(server.app.state._state, "watcher", Watcher())
     monkeypatch.setattr(L._Meter, "finish", lambda s: None)
     with (
         TestClient(server.app).websocket_connect(
-            "/api/live-mode?model=GPT-Live%201"
+            "/api/live-mode?" + urlencode({"model": entry.label})
         ) as ws,
         pytest.raises(WebSocketDisconnect),
     ):
         ws.receive_json()
-    assert called == ["gpt"]
+    assert called == [entry]  # the adapter, carrying the model id the user picked
 
 
 @pytest.mark.parametrize("error,expected", [
@@ -428,13 +431,11 @@ def test_startup_error_preserves_code(monkeypatch):
 # label, only when its key is present. The safety property these cases were written for is
 # unchanged — a pick the server never offered must not open a session.
 @pytest.mark.parametrize("selection,key", [
-    (G.LABEL, False),          # GPT-Live with no key: offered by neither source
+    (G.ENTRY.label, False),          # GPT-Live with no key: offered by neither source
     ("No Such Model", False),  # a label from neither source
     ("No Such Model", True),
 ])
 def test_unavailable_model_never_connects(monkeypatch, selection, key):
-    from urllib.parse import urlencode
-
     from fastapi.testclient import TestClient
 
     from openbus import server
@@ -545,7 +546,7 @@ def test_invalid_configuration_still_marks_openai_telemetry(monkeypatch):
     }
     meter._emit(final=True)
     assert emitted[0]["provider"] == "openai"
-    assert emitted[0]["model"] == G.MODEL
+    assert emitted[0]["model"] == G.ENTRY.model
     assert emitted[0]["backend_model"] == G.BACKEND
 
 

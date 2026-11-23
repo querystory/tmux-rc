@@ -16,6 +16,7 @@ def _vertex_project(monkeypatch):
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "test-project")
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)  # likewise: never the dev's key
     monkeypatch.delenv("TMUXRC_SCRATCH_DIR", raising=False)  # nor the scratch agent shells export
+    monkeypatch.setenv("TMUXRC_LIVE_RECORD", "0")  # nor recordings in the dev's state dir
 
 
 @pytest.fixture(autouse=True)
