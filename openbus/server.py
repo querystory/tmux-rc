@@ -31,6 +31,7 @@ import tempfile
 import threading
 import time
 import urllib.error
+from collections import defaultdict
 from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
 from dataclasses import replace
@@ -2512,7 +2513,8 @@ if _scratch_dir:
         _audit(request, "scratch_move", body.pane, name[:120])
         return scratch_maker(name)
 
-    _resuming = asyncio.Lock()  # a second tap waits out the first's wait, then finds its pane
+    # Per conversation: a second tap waits out the first's wait, then finds its pane.
+    _resuming: defaultdict[str | None, asyncio.Lock] = defaultdict(asyncio.Lock)
 
     @app.post("/api/scratch/{name}/resume")
     async def scratch_resume(name: str, request: Request) -> dict:
@@ -2521,7 +2523,7 @@ if _scratch_dir:
         wait for its prompt as a restore does, and send the folder's messages to that pane
         (scratch.bind), the incarnation resumed: one that closed during the wait is refused."""
         watcher = app.state.watcher
-        async with _resuming:
+        async with _resuming[(await asyncio.to_thread(scratch_maker, name))["session"]]:
             to = await asyncio.to_thread(scratch_maker, name)
             if to["pane"]:  # another device resumed it meanwhile
                 return to
@@ -2533,8 +2535,12 @@ if _scratch_dir:
             birth = await asyncio.to_thread(tmux.pane_pid, pane)
             if found["status"] == "opened":
                 await restore.ready(watcher, pane)
-        return await asyncio.to_thread(scratch_move, name,
-                                       ScratchPane(pane=pane, birth=birth or ""), request)
+
+        def land() -> dict:  # a pane picked on the To chip during the wait stands
+            now = scratch_maker(name)
+            return now if now["pane"] else scratch_move(
+                name, ScratchPane(pane=pane, birth=birth or ""), request)
+        return await asyncio.to_thread(land)
 
     def _pins() -> Path:
         return accounts.store_path().with_name("pins.json")  # the state dir: every device's

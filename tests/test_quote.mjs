@@ -17,4 +17,5 @@ test("no control or invisible character reaches the terminal", () => {
 test("a long selection is cut, on whole characters", () => {
   assert.equal(quoteOf("ab \u{1F600}\u{1F600} cd", 4), '"ab \u{1F600}…" ');
   assert.equal(quoteOf("x".repeat(400)).length, 280 + 4);
+  assert.equal(quoteOf(`ok${" ".repeat(5000)}more`), '"ok…" '); // cut before it is cleaned, and says so
 });
