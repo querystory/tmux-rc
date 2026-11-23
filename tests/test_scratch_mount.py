@@ -159,9 +159,9 @@ async def resume(sid, _watcher, _rec):  # Live Mode's, which opens the window
     return {"status": "opened", "pane_id": "%40"}
 async def ready(_watcher, pane):
     asked.append(pane)
-    if asked[-2] == "s1":  # found meanwhile (here, moved to it): no pane to write to yet
-        server.scratch.bind(server.Path(server._scratch_dir), "made", pane, "77", watcher.states)
-        loading.append(to("made")["pane"])
+    if asked[-2] == "s1":  # a page that finds the pane meanwhile (moved to it): no box yet
+        server.scratch.bind(server.Path(server._scratch_dir), "also", pane, "77", watcher.states)
+        loading.append(to("also")["pane"])
     if asked[-2] == "s3":  # its folder deleted and made again by someone else, during the wait
         (server.Path(server._scratch_dir) / "swap" / "meta.json").write_text('{"pane": "%7"}')
 server.live.resume, server.restore.ready = resume, ready
@@ -170,7 +170,7 @@ to = lambda name: c.get(f"/api/scratch/{name}/pane").json()
 print(int((to("made")["pane"], to("made")["session"], to("anon")["session"]) == (None, "s1", None)))
 r = c.post("/api/scratch/made/resume")
 now = to("made")
-print(r.status_code, int(asked == ["s1", "%40"] and loading == [None]
+print(r.status_code, int(asked == ["s1", "%40"] and (loading, to("also")["pane"]) == ([None], "%40")
                          and (now["pane"], now["birth"], now["session"]) == ("%40", "77", None)))
 print(c.post("/api/scratch/made/resume").json()["pane"], len(asked))  # a second device: as it is
 for name in ("lost", "anon", "swap"):
@@ -185,7 +185,8 @@ def test_resume_reopens_the_makers_conversation_and_sends_the_page_there(tmp_pat
     # says why, a page with none recorded is not offered one, and a folder replaced while
     # its conversation resumed is not bound to it.
     scratch = tmp_path / "scratch"
-    for name, session in (("made", "s1"), ("lost", "s2"), ("anon", None), ("swap", "s3")):
+    for name, session in (("made", "s1"), ("lost", "s2"), ("anon", None), ("swap", "s3"),
+                          ("also", None)):
         (scratch / name).mkdir(parents=True)
         (scratch / name / "index.html").write_text("page")
         (scratch / name / "meta.json").write_text(json.dumps(

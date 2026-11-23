@@ -2509,10 +2509,10 @@ if _scratch_dir:
     @app.put("/api/scratch/{name}/pane")
     def scratch_move(name: str, body: ScratchPane, request: Request) -> dict:
         """Send a scratch folder's messages to this open pane from now on (scratch.bind)."""
-        return _bind(request, "scratch_move", name, body.pane, body.birth)
+        return _send_to(request, "scratch_move", name, body.pane, body.birth)
 
-    def _bind(request: Request, action: str, name: str, pane: str, birth: str,
-              inode: int = 0) -> dict:
+    def _send_to(request: Request, action: str, name: str, pane: str, birth: str,
+                 inode: int = 0) -> dict:
         try:
             scratch.bind(Path(_scratch_dir), name, pane, birth,
                          list(app.state.watcher.states), inode)
@@ -2559,8 +2559,8 @@ if _scratch_dir:
             if not went["pane"] and went["session"] != to["session"]:
                 _refuse(request, "scratch_resume", name[:120], 409,
                         "this page was replaced while its conversation resumed")
-            return went if went["pane"] else _bind(request, "scratch_resume", name, pane,
-                                                   birth or "", folder)
+            return went if went["pane"] else _send_to(request, "scratch_resume", name, pane,
+                                                      birth or "", folder)
         return await asyncio.to_thread(land)
 
     def _pins() -> Path:
