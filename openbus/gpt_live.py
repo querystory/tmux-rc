@@ -194,6 +194,7 @@ class Session:
         self.closing = False
         self.calls = {}
         self.seen_calls = set()
+        self.delegations = set()  # every delegation id a backend response has started under
         self.work = asyncio.Queue(maxsize=16)
         self.caption_end = {}
         self.pane_hints = {}
@@ -339,6 +340,11 @@ class Session:
                 nk = nested.get("type")
                 if nk == "response.created":
                     self.calls[delegation] = []
+                    if delegation not in self.delegations:  # a new spoken request: a card
+                        # still waiting would hold it behind the old one (execute runs calls
+                        # one at a time), and the voice would keep repeating its question.
+                        self.delegations.add(delegation)
+                        live._supersede(self.meter)  # noqa: SLF001 - shared Live adapter internals
                 elif nk == "response.output_item.done":
                     item = nested.get("item", {})
                     if item.get("type") == "function_call":
@@ -373,6 +379,7 @@ class Session:
     async def execute(self):
         while True:
             calls = await self.work.get()
+            self.meter.superseded = False  # a batch the user moved on from declines only itself
             for item in calls:
                 if self.closing:
                     return

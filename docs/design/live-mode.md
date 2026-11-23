@@ -511,7 +511,12 @@ X into Y" announcement is voice's confirmation. The exception is a window idle o
 that is not on the user's screen and that the session has not reached yet: that action
 waits on the same card. Matching a topic once sent work to a window idle for days, and the
 prompt's own "confirm a long-idle pane" was ignored, so the check moved into code. The
-windows the user is actually working in pass it untouched.
+windows the user is actually working in pass it untouched. A new spoken request answers
+such a card as a typed one does: it is declined as superseded and the model told why.
+GPT-Live runs tool calls one at a time, so a card left waiting held every later request
+behind it, and the voice kept repeating the card's question while nothing the user said
+could act. The signal is a backend response under a delegation not seen before, since a
+continuation of the card's own request reuses its delegation.
 
 **A card outlives its connection.** Cards used to expire the moment the socket dropped,
 because the daemon's half of a proposal lived in the coroutine waiting on the tap. On a

@@ -584,11 +584,11 @@ _REACHED = {"sent", "opened", "already_running"}  # ones that reached a pane
 # so it runs at once. Voice keeps acting directly — a tap would end hands-free use — except
 # on a window long idle and out of the conversation (_stale).
 _CONSENT = {"type_in_pane", "press_key", "resume_session", "send_image_to_pane"}
-# Typing a new message while a card waits answers it: the user moved on, so the model is
-# told not to retry and to take the new turn (queued behind this one) instead.
+# A new request (typed, or a new GPT-Live delegation) while a card waits answers it: the
+# user moved on, so the model is told not to retry and to take the new turn instead.
 _DECLINED = {"declined": "the user declined",
-             "superseded": "the user sent a new message instead of answering; do not retry "
-                           "this, answer their new message (it follows)"}
+             "superseded": "the user made a new request instead of answering; do not retry "
+                           "this, answer their new request (it follows)"}
 # A card whose connection dropped before the user answered (iOS drops the socket on every
 # lock, the tunnel relay every hour) stays up on the phone, so the daemon keeps what Send
 # needs, for the same chat reconnecting: (actor, session, proposal) -> (parked at, call,
@@ -642,6 +642,15 @@ def _disconnect(meter: _Meter) -> None:
     for key, parked in _parked.items():
         if key[:2] == chat:
             parked[4].unseen_since = since
+
+
+def _supersede(meter: _Meter) -> None:
+    """The user moved on to a new request (typed, or GPT-Live's new delegation) while a card
+    waits unanswered (not one tapped and still unwinding): it, and the rest of its turn, are
+    declined, and the model is told to take the new request instead."""
+    for answer in [a for a in meter.approvals.values() if not a.done()]:
+        meter.superseded = True
+        answer.set_result(None)
 
 
 def _tapped(answer: asyncio.Future) -> bool:
@@ -1398,11 +1407,7 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
                     await websocket.send_json({"type": "error", "refused": True, "message": busy})
                     continue
                 meter.keep_images(images)
-                # An unanswered card (not one tapped and still unwinding): this supersedes
-                # it, and the rest of its turn.
-                for answer in [a for a in meter.approvals.values() if not a.done()]:
-                    meter.superseded = True
-                    answer.set_result(None)
+                _supersede(meter)
                 # Parked ones too (their model is gone: nothing to tell it), all recorded
                 # before any is sent, so a socket dying mid-way loses none.
                 claimed = _unpark(meter)
