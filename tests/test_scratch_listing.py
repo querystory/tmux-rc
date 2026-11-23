@@ -302,6 +302,10 @@ def test_a_page_in_progress_changes_the_tag_only_when_it_stops(tmp_path, monkeyp
     assert tag(now, running) == tag(now + 600, running) == tag(now + 600, [{"pane_id": "%1"}])
     assert tag(now, running) != tag(now, [])  # its pane closed: stopped
     assert tag(now, running) != tag(now + scratch.STUCK + 1, running)
+    assert tag(now, []) != tag(now, [{"pane_id": "%1"}])  # its pane back: going again
+    before = tag(now, [])
+    (wip / "meta.json").write_text(json.dumps({"updating": "a new section", "pane": "%3"}))
+    assert tag(now, []) != before  # another agent took it over
 
 
 def test_a_page_whose_writer_moved_changes_the_tag_when_that_writer_stops(tmp_path,

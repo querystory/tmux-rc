@@ -386,8 +386,8 @@ def tag(listed: list[dict], states: list[dict] = ()) -> str:
     changed (its page too, say renamed to its index), its thumbnail, title or description
     landed, an update began or ended, a page was moved to a pane (bind), or a page in
     progress or being updated stopped (by `states`, the panes: its agent's pane closed or
-    went quiet, or it got too old). Only stopping: working and quiet look the same. In no
-    particular order, as the gallery sorts after listing."""
+    went quiet, or it got too old), or may have started again. Only that: working and quiet
+    look the same. In no particular order, as the gallery sorts after listing."""
     panes = {s.get("pane_id"): s for s in states}
 
     def stopped(i: dict) -> bool:  # as its card last read it (resolve), else by its meta.json
@@ -399,8 +399,9 @@ def tag(listed: list[dict], states: list[dict] = ()) -> str:
     return str(hash((*sorted((i["name"], i["href"], i["updated"], i["pending"], i["thumb"],
                               i["title"], i["description"], i["updating"]) for i in listed),
                      json.dumps(_load(BINDINGS, {}), sort_keys=True),
-                     *sorted(i["name"] for i in listed if (i["pending"] or i["updating"])
-                             and stopped(i)))))
+                     # and its meta.json rewritten (another agent took it over) or its pane back
+                     *sorted((i["name"], i["named"], stopped(i), bool(_open(i, panes)))
+                             for i in listed if i["pending"] or i["updating"]))))
 
 
 def items(root: Path) -> list[dict]:
