@@ -677,8 +677,9 @@ def page(root: Path, states: list[dict], profiles: list[dict], style: Path,
     `archived`, the archive's instead (an archived page is still served at its link)."""
     listed = listing(root, archived=archived)
     sidecars([i for i in listed if not (i["pending"] or archived)])  # nothing to shoot yet
+    unresolved = [dict(i) for i in listed]  # as the open gallery's check lists it
     resolve(listed, states, profiles, pane_of)
-    seen = tag(listed, states)  # as the open gallery's check reads it: before links are dressed
+    seen = tag(unresolved, states)  # by the panes resolve read each card from
     for i in listed if archived else ():  # its own link: the name may be taken again since
         i["under"] = f"{scratch_markdown.ARCHIVE}/"
         i["href"] = i["under"] + i["href"]
