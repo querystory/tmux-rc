@@ -1,0 +1,18 @@
+{
+  "description": "Synthetic: a finished auto-mode turn posted an update, then lists two open items; the second ends 'Say \"go\" and I'll start a fresh sign-in.' Waiting on the user, with \"go\" as the reply it asks for.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ Sure\n\n  Called Slack\n\n● I posted the update in #team-orchard as a reply under the Monday status note.\n\n  The tracker already shows Dec 8. Two things are still open:\n  - The calendar invite still shows Nov 18. You or Priya need to move it.\n  - The shared copy of the notes is out of date because the sign-in expired. Say \"go\" and I'll start a fresh\n    sign-in.\n\n✻ Crunched for 8s · done 11:41 AM\n────────────────────────────────────────────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────────────────────────────────────────────\n  ~/src/fernway/lantern on main | Opus 5.5 | dev@example.com | telemetry: •stats\n  session: +12/-3 lines · 14% ctx · 40h02m · $6.10   |  history: 41 prompts · 30 tools\n  ⏵⏵ auto mode on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "optional": true,
+      "answer_style": "text"
+    },
+    "headline": "Asking for the go-ahead to start a fresh sign-in",
+    "offers": [
+      "go"
+    ]
+  }
+}
