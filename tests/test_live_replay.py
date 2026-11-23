@@ -7,6 +7,7 @@ should have: it starts passing the day its gate lands, which fails the suite unt
 marker comes off with it."""
 
 import asyncio
+import os
 
 import pytest
 
@@ -74,6 +75,18 @@ def test_a_refused_call_goes_back_to_the_model_with_its_reason(fc, reason):
     trace, _, _ = _play([[fc]], ["do it"])
     assert [(p["status"], p["reason"]) for _, p in trace.results] == [("rejected", reason)]
     assert trace.keys == [] and trace.sends() == []
+
+
+def test_a_replay_never_records_into_the_users_recordings(monkeypatch):
+    monkeypatch.setenv("TMUXRC_LIVE_RECORD", "1")
+    script, seen = Script([["Hi."]]), []
+
+    def connect(model, prompt):
+        seen.append(os.environ["TMUXRC_LIVE_RECORD"])
+        return script.connect(model, prompt)
+    asyncio.run(replay(Fleet.load(), ["hello"], connect))
+    assert seen == ["0"]
+    assert os.environ["TMUXRC_LIVE_RECORD"] == "1"  # the caller's setting is put back
 
 
 def test_a_tap_on_a_card_whose_pane_was_recycled_types_nothing():

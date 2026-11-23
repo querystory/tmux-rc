@@ -19,6 +19,7 @@ import asyncio
 import contextlib
 import itertools
 import json
+import os
 import subprocess
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -284,6 +285,9 @@ async def replay(fleet: Fleet, steps: list, connect, *, text: bool = False,
             (scratch, "configured", lambda: None),
         ):
             stack.enter_context(mock.patch.object(target, name, value))
+        # A replay is not a session of the user's: kept out of their recordings folder,
+        # whose rotation (live_record.KEEP) a few eval runs would otherwise fill.
+        stack.enter_context(mock.patch.dict(os.environ, {"TMUXRC_LIVE_RECORD": "0"}))
         # The replay's worker threads get a pool of their own, so that all of them can be
         # waited for without shutting down the caller's.
         loop, pool = asyncio.get_running_loop(), ThreadPoolExecutor()
