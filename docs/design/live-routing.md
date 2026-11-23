@@ -45,38 +45,59 @@ sometimes skip.
 Keep the current path (voice front end, backend model, `type_in_pane`) and add checks
 where a send leaves the daemon:
 
-- one pane per user request; a second distinct target is refused with a reason the model
-  can say aloud. "Request" needs a real identity: in GPT-Live a backend completion is not
-  a spoken turn, and a tool result can start another completion for the same request, so
-  the count is keyed to the user's input turn, not to completions. Where that identity
-  is unavailable, a send goes through the card rather than guessing;
-- a send to a pane idle or waiting for more than about an hour (an agent parked on the
-  same question for days is waiting, not idle), or whose age is not established (a pane
-  first seen after a restart has no known start, whatever the watcher stamps), goes through
-  the approval card text mode already has, instead of typing straight in. Three things the card does not do yet
-  are prerequisites in voice: waiting on it must not stall the provider's event stream; a
-  spoken correction must supersede a pending card, as a typed message already does; and
-  the card must be bound to what the pane showed when it was proposed, not only to its
-  process, so a pane that moved on to a different question refuses the send instead of
-  taking it as an answer;
+- one pane per user request; a send to a second pane in the same request is refused
+  with a reason the model can say aloud, which tells the user it goes to one window per
+  request and to say the next one as its own request. "Request" needs a real identity:
+  in GPT-Live a backend completion is not a spoken turn, and a tool result can start
+  another completion for the same request, so the count is keyed to the delegation. The
+  other providers keep no order between the user's transcript and the model's tool calls,
+  so there a request starts at the user's first words or tool call after the model's turn
+  ended or was talked over, not at every transcript fragment;
+- a send to a window idle for more than about an hour, not on the user's screen and not
+  reached earlier in this session, is refused once with its idle age and a reason that
+  sends the model to ask the user. Every call to that window stays refused until the user
+  next speaks, so an Enter queued behind the refused text cannot act alone; after they
+  speak, the next send there goes through. An agent parked on a question is waiting, not
+  idle, and passes;
 - the bare-"yes" rule moves into the shared prompt, so voice and text say the same thing;
 - a fleet question is answered from the pane list when the list holds the evidence, and
   says what it does not know otherwise (the list carries each pane's associations, not a
   complete account of the user's PRs); no relay asks an agent to contact other panes;
-- an instruction relayed as the user's must be the user's words for that request. When
-  the daemon cannot match it against that request's transcript (a paraphrase, or a
-  transcript that has not arrived yet), the send needs the card. Relabelling alone is
-  not enough: a paraphrase can drop a condition the user stated, whatever its label says.
+- a relay labelled as the user's must carry the user's words: at least 80% of the words
+  before any closing "(assistant's note: ...)" must be in what they said, and a relay
+  with none of their words, a note alone, counts as not theirs. Words not transcribed yet
+  get a moment to arrive. The refusal hands back the end of what the user said, so a
+  retry has their words to send, or asks them to say it again. A question the assistant
+  puts to an agent in its own words goes under its own label ("From the assistant").
+  The check runs before anything is shown or sent. Relabelling alone is not enough: a
+  paraphrase can drop a condition the user stated, whatever its label says;
+- every refusal, hold or cancel puts a one-line note on the phone ("Not sent to docs:
+  one window per request"), because the voice may not say so: GPT-Live's stays quiet
+  while its backend retries.
+
+**Why voice has no approval card.** Text mode shows every send as a card and lets the
+next typed message supersede it. The same card cannot hold a voice send for a stale
+window or an unverified relay, for two reasons. A spoken "yes, send it" is not a tap: the
+voice model hands it off as a new request, which supersedes the very card it answers,
+and the backend then sees a bare yes with nothing pending, so voice could never approve
+the card and every attempt would start the loop again. And on Gemini and the other
+providers behind the seam, the receiver would wait on the card inside its event loop, so
+audio, transcripts and the next turn would stop until someone tapped. So voice confirms
+by voice: the gate refuses, the model asks aloud, and the user's answer is the next
+request, which goes through. The seam answers tool calls off its event loop, in order,
+so no slow call stalls the conversation either. Text keeps its card and its supersede,
+and none of these voice gates.
 
 **Fit with the rule that the model owns meaning.** This is the reason (a) is safe to ship
-first. Every check is plumbing or an evidence gate: counting targets per turn, reading a
-pane's idle age, comparing a label against a transcript. None judges what the user meant.
-The two that are about meaning (what a bare yes answers, when to relay a question) go in
-the prompt, where the model owns them. The approval card is reused, so the only new UI is a
-card appearing in voice for a stale pane or an unverified relay.
+first. Every check is plumbing or an evidence gate: counting targets per request, reading
+a window's idle age, matching a label's words against a transcript. None judges what the
+user meant, and whether the user's words keep their meaning stays the model's call. The
+two that are about meaning (what a bare yes answers, when to relay a question) go in the
+prompt, where the model owns them. The only new UI is the note row, which the phone
+already draws.
 
-**Latency:** none added on the common path; a stale-pane send waits for a tap, which is
-the point. **Cost:** none. **Failure mode:** a gate refuses a send the user wanted; the
+**Latency:** none added on the common path; a stale-window send waits for a spoken yes,
+which is the point. **Cost:** none. **Failure mode:** a gate refuses a send the user wanted; the
 model says why and the user names the pane. That is recoverable; a misplaced instruction
 in a live agent is not. **What it leaves open:** the backend can still pick the wrong
 fresh pane, and it still cannot run a multi-step dispatch (open a window, start an agent,
@@ -95,13 +116,13 @@ directory and the request.
 **Latency:** one extra model call per send, a few seconds with a cached prompt, which is
 noticeable in a voice turn but tolerable for an action. **Cost:** small per send, since
 the fleet prompt caches. **Failure mode:** the API is slow or down; the send falls back to
-the approval card, which is a fine default.
+asking the user, which is a fine default.
 
 The problem is the shape. The verifier sees one send, not the conversation: it does not
 know the user corrected the target two turns ago, or that "it" means the PR just
 discussed. So it is a second judge of meaning with less context than the first, and
 when the two disagree there is no principled tiebreak except asking the user, which is
-what (a)'s card already does. It also cannot repair the deeper limit, that the GPT-Live
+what (a)'s refusals already do. It also cannot repair the deeper limit, that the GPT-Live
 backend is chosen from OpenAI's own models: Opus can review a send but cannot become the
 model holding the conversation. The cheaper version of this idea is to raise the existing
 backend's reasoning effort or pick a larger backend model, which the daemon already allows
@@ -210,8 +231,8 @@ already ask for, because a send into a live agent cannot be undone:
 
 | | Latency added to a send | Cost | When it breaks | Model owns meaning? | Reuses |
 |---|---|---|---|---|---|
-| (a) Gates | none; a tap for stale panes | none | refuses a wanted send; user names the pane | yes, gates are evidence only | approval card, shared prompt |
-| (b) Verifier | a few seconds | small | API down: card | splits meaning across two models | provider seam |
+| (a) Gates | none; a spoken yes for stale windows | none | refuses a wanted send; user names the pane | yes, gates are evidence only | note rows, shared prompt |
+| (b) Verifier | a few seconds | small | API down: ask the user | splits meaning across two models | provider seam |
 | (c) Controller | tens of seconds | an agent turn per request | busy or wedged controller: nothing happens | yes | coordinator pattern, control-session design |
 | (d) Hybrid | none for answers; controller time for actions | agent turns for actions only | fast-path requests fall back to (a); the rest ask | yes | all of the above |
 | (e) Claude loop | a few seconds per step | small to moderate | API down: no backend | yes | text mode's loop and cards |
@@ -234,7 +255,7 @@ Then, in order:
 3. **Everything through the controller (c)** only if the replay suite and real use show
    the gated direct path still sends to wrong panes after step 1.
 
-(b) is parked: its value over (a)'s approval card is small, and it judges meaning with
+(b) is parked: its value over (a)'s ask-the-user refusals is small, and it judges meaning with
 less context than the model already holding the conversation. (e) is the alternative to
 step 2 if a controller turn proves too slow for a voice conversation.
 
