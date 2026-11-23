@@ -1591,8 +1591,9 @@ def offered() -> list[live_providers.LiveModel]:
     # is two chances for the halves to disagree.
     table = live_providers.models()
     menu = [m for m in table if m.available()]
-    if os.environ.get("OPENAI_API_KEY") and all(m.label != gpt_live.LABEL for m in table):
-        menu.insert(0, gpt_live.ENTRY)
+    if os.environ.get("OPENAI_API_KEY"):
+        taken = {m.label for m in table}
+        menu[:0] = [m for m in gpt_live.ENTRIES if m.label not in taken]
     return menu
 
 
@@ -1636,7 +1637,7 @@ async def live_mode(websocket: WebSocket) -> None:
     # Which runner, decided by identity rather than by re-reading the label: `offered()`
     # already settled who owns this pick, including a table entry that claimed the
     # adapter's label.
-    use_gpt = model is gpt_live.ENTRY
+    use_gpt = any(model is m for m in gpt_live.ENTRIES)
     await websocket.accept()
     watcher = websocket.app.state.watcher
     # Per-session UUID — the summable key that ties this voice session's cost (emit_live_turn)
