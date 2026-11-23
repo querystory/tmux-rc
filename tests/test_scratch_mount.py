@@ -146,7 +146,8 @@ import sys
 from fastapi.testclient import TestClient
 from types import SimpleNamespace
 from openbus import server
-watcher = server.app.state.watcher = SimpleNamespace(states=[], pane_birth=lambda _: "77")
+watcher = server.app.state.watcher = SimpleNamespace(states=[])
+server.tmux.pane_pid = lambda _pane: "77"  # the incarnation resumed, read before the wait
 server.agent_history.reconcile = lambda: None
 server.app.state.history = server.History(server.Path(sys.argv[1]))
 asked = []
@@ -165,6 +166,7 @@ print(int((to("made")["pane"], to("made")["session"], to("anon")["session"]) == 
 r = c.post("/api/scratch/made/resume")
 print(r.status_code, int(asked == ["s1", "%40"] and (to("made")["pane"], to("made")["birth"],
                                                     to("made")["session"]) == ("%40", "77", None)))
+print(c.post("/api/scratch/made/resume").json()["pane"], len(asked))  # a second device: as it is
 for name in ("lost", "anon"):
     r = c.post(f"/api/scratch/{name}/resume")
     print(r.status_code, r.json()["detail"].replace(" ", "-"))
@@ -183,7 +185,7 @@ def test_resume_reopens_the_makers_conversation_and_sends_the_page_there(tmp_pat
             {"pane": "%7", **({"agent_session": session} if session else {})}))
     env = {"TMUXRC_SCRATCH_DIR": str(scratch), "XDG_STATE_HOME": str(tmp_path / "state")}
     assert _probe(env, tmp_path, RESUME, str) == [
-        "1", "200", "1", "409", "session-directory-is-gone",
+        "1", "200", "1", "%40", "2", "409", "session-directory-is-gone",
         "409", "no-conversation-was-recorded-for-this-page"]
 
 

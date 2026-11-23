@@ -2519,19 +2519,22 @@ if _scratch_dir:
         """Reopen the conversation that made a scratch folder, as Live Mode resumes one
         (live.resume: never a second copy of a running one, whose pane is used as it is),
         wait for its prompt as a restore does, and send the folder's messages to that pane
-        (scratch.bind)."""
+        (scratch.bind), the incarnation resumed: one that closed during the wait is refused."""
         watcher = app.state.watcher
-        session = (await asyncio.to_thread(scratch_maker, name))["session"]
         async with _resuming:
-            found = await live.resume(session, watcher, {}) if session else {
+            to = await asyncio.to_thread(scratch_maker, name)
+            if to["pane"]:  # another device resumed it meanwhile
+                return to
+            found = await live.resume(to["session"], watcher, {}) if to["session"] else {
                 "reason": "no conversation was recorded for this page"}
             if not (pane := found.get("pane_id")):
                 _refuse(request, "scratch_resume", name[:120], 409, found["reason"])
             _audit(request, "scratch_resume", pane, name[:120])
+            birth = await asyncio.to_thread(tmux.pane_pid, pane)
             if found["status"] == "opened":
                 await restore.ready(watcher, pane)
-        return await asyncio.to_thread(scratch_move, name, ScratchPane(
-            pane=pane, birth=watcher.pane_birth(pane) or ""), request)
+        return await asyncio.to_thread(scratch_move, name,
+                                       ScratchPane(pane=pane, birth=birth or ""), request)
 
     def _pins() -> Path:
         return accounts.store_path().with_name("pins.json")  # the state dir: every device's
