@@ -135,7 +135,18 @@ def test_a_fleet_question_scores_clean_only_when_answered_from_the_list(turn, cl
     [case] = [c for c in cases() if c["name"] == "fleet_pr_rollcall"]
     trace, _, _ = _play([turn], [t["say"] for t in case["turns"]])
     assert score(case["turns"][0], trace, 1) == {
-        "target": None, "sends": clean, "answered": clean}
+        "target": None, "sends": clean, "answered": clean, "relay": None}
+
+
+@pytest.mark.parametrize(("words", "clean"), [
+    ("also index the changelog pages.", True),
+    ("Tell the lantern surge pane to also index the changelog pages.", False),  # addressee
+    ("also index the pages.", False),  # the request lost a word
+])
+def test_a_relay_scores_clean_only_with_the_request_and_without_the_addressee(words, clean):
+    [case] = [c for c in cases() if c["name"] == "misheard_window_name"]
+    trace, _, _ = _play([[_relay("%1", words)]], [t["say"] for t in case["turns"]])
+    assert score(case["turns"][0], trace, 1)["relay"] is clean
 
 
 # The routing gates, to come (docs/design/live-routing.md). Each fails today, as the

@@ -111,7 +111,7 @@ def _completed(trace, n: int) -> bool:
 
 def _passed(turns: list[dict]) -> bool:
     return all(t["completed"] and t[k] is not False
-               for t in turns for k in ("target", "sends", "answered"))
+               for t in turns for k in ("target", "sends", "answered", "relay"))
 
 
 def main() -> int:
@@ -144,17 +144,17 @@ def main() -> int:
                    for c in selected}
 
     width = max(map(len, results))
-    print(f"{'case':<{width}}  pass  target  sends  answered")
+    print(f"{'case':<{width}}  pass  target  sends  answered  relay")
     for name, runs in results.items():
         def tally(key, runs=runs):
             scored = [all(t[key] is not False for t in r) for r in runs
                       if any(t[key] is not None for t in r)]
             return f"{sum(scored)}/{len(scored)}" if scored else "-"
         print(f"{name:<{width}}  {sum(map(_passed, runs))}/{len(runs):<3} {tally('target'):<7} "
-              f"{tally('sends'):<6} {tally('answered')}")
+              f"{tally('sends'):<6} {tally('answered'):<9} {tally('relay')}")
         for r in runs:
             for t in r if not _passed(r) else ():
-                print(f"    {t['say']!r} -> {[p for p, _, _ in t['sent']]}"
+                print(f"    {t['say']!r} -> {[(p, x) for p, _, x in t['sent']]}"
                       f"{'' if t['completed'] else ' (model failed)'}: {t['reply'][:160]!r}")
     total = sum(_passed(r) for runs in results.values() for r in runs)
     print(f"\n{total}/{sum(map(len, results.values()))} case runs passed")

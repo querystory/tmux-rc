@@ -316,9 +316,12 @@ def cases() -> list[dict]:
 
 def score(turn: dict, trace: Trace, n: int) -> dict[str, bool | None]:
     """Turn `n` (1-based) of a case against what the replay did: every send went to a pane
-    in `to`, the number of sends is within `sends`, and the reply holds each `answer`
-    string. None where the turn sets no expectation."""
+    in `to`, the number of sends is within `sends`, every send's text holds each `carries`
+    string and none of `omits` (the request rides through, the words that picked the window
+    or corrected the assistant don't), and the reply holds each `answer` string. None where
+    the turn sets no expectation."""
     panes = [pane for pane, _, _ in trace.sends(n)]
+    texts = [text.casefold() for _, _, text in trace.sends(n)]
     low, high = (turn["sends"],) * 2 if isinstance(turn["sends"], int) else turn["sends"]
     reply = trace.reply(n).casefold()
     return {
@@ -326,4 +329,7 @@ def score(turn: dict, trace: Trace, n: int) -> dict[str, bool | None]:
         "sends": low <= len(panes) <= high,
         "answered": all(a.casefold() in reply for a in turn["answer"]) if "answer" in turn
         else None,
+        "relay": all(all(c.casefold() in t for c in turn.get("carries", ()))
+                     and not any(o.casefold() in t for o in turn.get("omits", ()))
+                     for t in texts) if {"carries", "omits"} & turn.keys() else None,
     }

@@ -329,7 +329,11 @@ Two layers share it:
   utterances in `cases.json`, against the real routing prompt and a real model. Each turn
   is scored on the panes it sent to, how many sends it made, and, for a question, whether
   the reply answered it (an answer to a fleet question must come from the pane list, with
-  no relay). There is no judge model: the scores are counts, so a run is cheap to repeat.
+  no relay), and, where a case sets `carries` or `omits`, whether each relay holds the
+  request and leaves out the words that picked the window or corrected the assistant. A
+  misheard window name relayed whole sends the agent looking for a pane that doesn't
+  exist. There is no judge model: the scores are counts and substrings, so a run is cheap
+  to repeat.
 
 The default model is GPT-Live's reasoning backend (`gpt_live.BACKEND`, low effort), driven
 directly over the Responses API with the instructions, tools and effort the live session
@@ -361,6 +365,13 @@ it is the one a plumbing gate (one pane per request) can stop. The stale-pane an
 cases pass in this small fleet; on Nov 20 the fleet held over a hundred panes and the voice
 front end's handoff stood between the user and the backend, neither of which a text replay
 carries. Make a case harder before reading a pass as a fix.
+
+The relay cases (`misheard_window_name`, `correction_carries_a_request`) came from the Nov
+23 session, rebuilt around the invented fleet. Three runs each on the GPT-Live backend,
+production prompt against the `live-relay-request` candidate ("the words that pick the
+window or correct you are for you; deliver the request they carry, in the user's words"):
+`misheard_window_name` 2/3 to 3/3, `correction_carries_a_request` 1/3 to 3/3, every other
+case unchanged (26/33 to 29/33 in all).
 
 ## Inline replies experiment (closing-question buttons: separate call vs the main parse)
 
