@@ -515,8 +515,10 @@ windows the user is actually working in pass it untouched. A new spoken request 
 such a card as a typed one does: it is declined as superseded and the model told why.
 GPT-Live runs tool calls one at a time, so a card left waiting held every later request
 behind it, and the voice kept repeating the card's question while nothing the user said
-could act. The signal is a backend response under a delegation not seen before, since a
-continuation of the card's own request reuses its delegation.
+could act. A new request is a delegation not seen before (its handoff or its backend's
+first response, since the card's own continuation reuses its delegation), or any request
+whose calls queue while the card waits. The rest of the superseded batch is declined too,
+and so is a card parked by a dropped connection, as for a typed turn.
 
 **A card outlives its connection.** Cards used to expire the moment the socket dropped,
 because the daemon's half of a proposal lived in the coroutine waiting on the tap. On a

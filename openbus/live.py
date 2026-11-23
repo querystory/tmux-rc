@@ -497,7 +497,8 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
     try:
         if known:
             ok, pid = (await _approved(websocket, session, call, watcher, meter, rec)
-                       if fc.name in _CONSENT and (meter.text or _stale(meter, call, watcher))
+                       if fc.name in _CONSENT
+                       and (meter.text or meter.superseded or _stale(meter, call, watcher))
                        else (True, None))
             act = _act(websocket, session, call, watcher, meter, rec, ok, pid)
             result = await (_focusing(session, watcher, rec, act) if meter.text else act)
@@ -644,13 +645,20 @@ def _disconnect(meter: _Meter) -> None:
             parked[4].unseen_since = since
 
 
-def _supersede(meter: _Meter) -> None:
-    """The user moved on to a new request (typed, or GPT-Live's new delegation) while a card
+async def _supersede(websocket: WebSocket, meter: _Meter) -> None:
+    """The user moved on to a new request (typed, or a new GPT-Live delegation) while a card
     waits unanswered (not one tapped and still unwinding): it, and the rest of its turn, are
     declined, and the model is told to take the new request instead."""
     for answer in [a for a in meter.approvals.values() if not a.done()]:
         meter.superseded = True
         answer.set_result(None)
+    # Parked ones too (their model is gone: nothing to tell it), all recorded before any is
+    # sent, so a socket dying mid-way loses none.
+    claimed = _unpark(meter)
+    for proposal, parked in claimed:
+        _answer(meter, proposal, None, parked[3])
+    for proposal, _ in claimed:
+        await _tell(websocket, meter, proposal)
 
 
 def _tapped(answer: asyncio.Future) -> bool:
@@ -1407,14 +1415,7 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
                     await websocket.send_json({"type": "error", "refused": True, "message": busy})
                     continue
                 meter.keep_images(images)
-                _supersede(meter)
-                # Parked ones too (their model is gone: nothing to tell it), all recorded
-                # before any is sent, so a socket dying mid-way loses none.
-                claimed = _unpark(meter)
-                for proposal, parked in claimed:
-                    _answer(meter, proposal, None, parked[3])
-                for proposal, _ in claimed:
-                    await _tell(websocket, meter, proposal)
+                await _supersede(websocket, meter)
                 await _transcript(websocket, meter, "user", text, new_segment=True,
                                   images=len(images))
         elif action == "resume" and hasattr(session, "restore"):  # a chat's reconnect

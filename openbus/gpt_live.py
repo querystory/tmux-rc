@@ -334,17 +334,15 @@ class Session:
                 await live._transcript(  # noqa: SLF001 - shared Live adapter internals
                     self.browser, self.meter, role, event["delta"], new_segment=new,
                     start_ms=start, end_ms=self.caption_end[role])
+            elif kind == "session.delegation.created":
+                await self._request(event.get("delegation", {}).get("id"))
             elif kind == "response.event":
                 nested = event.get("event", {})
                 delegation = event.get("delegation_id")
                 nk = nested.get("type")
                 if nk == "response.created":
                     self.calls[delegation] = []
-                    if delegation not in self.delegations:  # a new spoken request: a card
-                        # still waiting would hold it behind the old one (execute runs calls
-                        # one at a time), and the voice would keep repeating its question.
-                        self.delegations.add(delegation)
-                        live._supersede(self.meter)  # noqa: SLF001 - shared Live adapter internals
+                    await self._request(delegation)
                 elif nk == "response.output_item.done":
                     item = nested.get("item", {})
                     if item.get("type") == "function_call":
@@ -356,6 +354,7 @@ class Session:
                 ):
                     calls = self.calls.pop(delegation, [])
                     if nk == "response.completed" and calls:
+                        await self._request(delegation, queued=True)
                         try:
                             self.work.put_nowait(calls)
                         except asyncio.QueueFull:
@@ -375,6 +374,16 @@ class Session:
 
         # Normal WebSocket EOF is a dropped Live session too. Never silently report a stop.
         raise ProviderError({"code": "connection_closed_without_session_closed"})
+
+    async def _request(self, delegation, *, queued=False):
+        """A spoken request the user made after a waiting card supersedes it: execute() runs
+        calls one at a time, so the card would hold the request behind it, and the voice
+        kept repeating its question. A delegation not seen before is one (its handoff, or
+        its backend's first response, whichever comes first; the card's own continuation
+        reuses its id), and so is any request whose calls queue while the card waits."""
+        if queued or delegation not in self.delegations:
+            self.delegations.add(delegation)
+            await live._supersede(self.browser, self.meter)  # noqa: SLF001 - shared Live adapter internals
 
     async def execute(self):
         while True:
