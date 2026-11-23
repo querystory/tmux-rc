@@ -1066,15 +1066,29 @@ $("viewer-resume").onclick = () => {
   if (!moving) moveTo("POST", "resume", {}, "Could not resume its conversation", NO_TIMEOUT); // it waits for the agent's prompt
   text($("viewer-status"), "Resuming its conversation…"); // a tap while it does says so again
 };
+// A footer chip's words, and the × when a tap on it takes something off the message.
+const chipLabel = (chip, label, remove) => { html(chip, `<span>${esc(label)}</span>${remove ? licon("x", 14) : ""}`); chip.title = remove || ""; };
 // What is selected on the page (scratch_markdown.OUT says), quoted into the message at a tap:
-// the quote is how the agent finds the sentence, so nothing else about it is kept.
-$("viewer-quote").onclick = () => { viewerDrafts.get(viewerKey(viewerPane())).insert(document.createTextNode(quotable)); quotable = ""; paintViewerForm(); };
+// the quote is how the agent finds the sentence, so nothing else about it is kept. While it is
+// in the message the chip's × takes it out, the remark staying; a new selection's replaces it.
+function quoteNode(draft) {
+  if (!draft?.quoted) return null;
+  const walk = document.createTreeWalker(draft.editor, NodeFilter.SHOW_TEXT);
+  while (walk.nextNode()) if (walk.currentNode.nodeValue.includes(draft.quoted)) return walk.currentNode;
+  return null;
+}
+$("viewer-quote").onclick = () => {
+  const draft = viewerDrafts.get(viewerKey(viewerPane())), node = quoteNode(draft);
+  if (node) { node.nodeValue = node.nodeValue.replace(draft.quoted, ""); draft.edited(); }
+  if (quotable) draft.insert(document.createTextNode(draft.quoted = quotable));
+  quotable = ""; paintViewerForm();
+};
 // The page as the user sees it goes with each send unless they take it off: the server draws it
 // (the sandboxed frame can't be read from here) at the frame's size (as last seen without the
 // keyboard, which shrinks it) for its width, whole, at the screen's pixel ratio, and the
 // theme the frame is shown in (its color-scheme, which a page's prefers-color-scheme follows),
 // and attaches it as a pasted image.
-const shotChip = (on) => { $("viewer-shot").setAttribute("aria-pressed", on); text($("viewer-shot"), on ? "Screenshot attached ✕" : "Attach screenshot"); };
+const shotChip = (on) => { $("viewer-shot").setAttribute("aria-pressed", on); chipLabel($("viewer-shot"), on ? "Screenshot attached" : "Attach screenshot", on && "Remove the screenshot"); };
 $("viewer-shot").onclick = () => shotChip($("viewer-shot").getAttribute("aria-pressed") !== "true");
 let viewerSize = "";
 const viewerShot = () => $("viewer-shot").getAttribute("aria-pressed") === "true" && `${viewerSize || `${innerWidth}x${innerHeight}`}@${Math.min(3, Math.round(devicePixelRatio) || 1)}${getComputedStyle(viewer).colorScheme.includes("dark") ? " dark" : ""}`;
@@ -1095,7 +1109,8 @@ function paintViewerForm() {
   html($("viewer-move"), (p ? "" : '<option value="">Choose a pane</option>') + panes.filter((q) => AGENT_TOOLS.has(q.tool) || q === p).map((q) => `<option value="${esc(viewerKey(q))}">${esc(paneWhere(q))}</option>`).join(""));
   $("viewer-move").value = p ? viewerKey(p) : ""; paintMove();
   $("viewer-to").hidden = !p; $("viewer-send").setAttribute("aria-disabled", String(!p));
-  $("viewer-quote").hidden = !(p && !p.secret && quotable); text($("viewer-quote"), `Quote ${quotable}`); $("viewer-resume").hidden = !!p || !viewerTo.session;
+  const reply = p && viewerDrafts.get(viewerKey(p)), quoted = quoteNode(reply) && reply.quoted;
+  $("viewer-quote").hidden = !(p && !p.secret && (quotable || quoted)); chipLabel($("viewer-quote"), quotable ? `Quote ${quotable}` : `Quoted ${quoted}`, !quotable && "Remove the quote"); $("viewer-resume").hidden = !!p || !viewerTo.session;
   $("viewer-resume").setAttribute("aria-disabled", String(!!moving));
   if (!p) return form.querySelector("#viewer-reply")?.remove(); // no pane found, or it has closed: the chip picks one
   const { editor } = viewerDrafts.get(viewerKey(p)), frame = $("scratch-viewer").querySelector("iframe");

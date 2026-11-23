@@ -98,8 +98,9 @@ const SHOTS = [
   // app's viewer with the message box to its maker, and the daemon's own page.
   ["mobile-scratch", PHONE, "light", "#view=scratch", stillFrame],
   ["mobile-scratch-page", PHONE, "light", "#view=scratch", openScratch("ab-sweep-interim")],
-  // Feedback on a page (docs/design/scratch-feedback.md): a sentence selected, offered as a quote; a maker whose pane has closed.
+  // Feedback on a page (docs/design/scratch-feedback.md): a sentence selected, offered as a quote, then quoted; a maker whose pane has closed.
   ["mobile-scratch-quote", PHONE, "light", "#view=scratch", openScratch("ab-sweep-interim", "article p")],
+  ["mobile-scratch-quoted", PHONE, "light", "#view=scratch", quoted],
   ["mobile-scratch-stopped", PHONE, "light", "#view=scratch", openScratch("cost-breakdown")],
   ["mobile-scratch-dark", PHONE, "dark", "", scratch],
   ["wide-scratch", WIDE, "light", "#view=scratch", stillFrame],
@@ -126,6 +127,11 @@ async function attachFile(page) {
   const chooser = page.waitForEvent("filechooser");
   await page.click("#attach");
   await (await chooser).setFiles({ name: "checkout-trace.zip", mimeType: "application/zip", buffer: Buffer.from("demo") });
+}
+// That quote taken into the message, a remark typed after it: its chip's × now takes it out.
+async function quoted(page) {
+  await openScratch("ab-sweep-interim", "article p")(page);
+  await page.click("#viewer-quote"); await page.keyboard.type("Worth a chart?");
 }
 // A card's page in the app's viewer, its message box shown once the maker's pane is found;
 // with `select`, that text on the page selected and its Quote chip up.
