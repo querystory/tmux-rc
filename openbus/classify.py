@@ -1089,7 +1089,8 @@ def _auto_mode_trailer(visible: str) -> str:
             'the proposed one first) and any "! command" it hands the user to run here. A '
             'command it wrote without the "!" and asks the user to run here is offered as '
             '"! " then the command on one line, its wrapped rows joined; words meant for '
-            "another pane or tool are no offer]")
+            "another pane or tool are no offer. A list of decisions it puts to the user is one "
+            "question, its prompt the list's own heading as shown]")
 
 
 def _parser_context(pane: Pane, repository: str | None, host_tool: str | None,
