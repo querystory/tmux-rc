@@ -198,6 +198,7 @@ def test_a_handoff_and_the_backends_reply_are_recorded_and_end_the_turn(monkeypa
         response("response.created", response={"id": "r1"}),
         response("response.output_item.done", item=call()),
         response("response.completed", response={"id": "r1", "output": []}),
+        response("response.completed", response={"id": "r1", "output": []}),  # repeated
         response("response.created", response={"id": "r2"}),
         response("response.output_text.delta", delta="Typed it "),
         response("response.output_text.delta", delta="in the shell."),
@@ -205,7 +206,7 @@ def test_a_handoff_and_the_backends_reply_are_recorded_and_end_the_turn(monkeypa
     ])
     s.meter.rec = live_record.start("abcdef01", G.ENTRY)
     asyncio.run(drain(s))
-    assert s.meter.turns == 1  # the call's continuation is the same turn
+    assert s.meter.turns == 1  # the call's continuation is the same turn, a repeat no turn
     s.meter.rec.close()
     s.meter.rec.thread.join()
     [folder] = (tmp_path / "tmux-rc/live-audio").iterdir()

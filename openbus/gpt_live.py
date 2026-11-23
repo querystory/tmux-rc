@@ -197,6 +197,7 @@ class Session:
         self.work = asyncio.Queue(maxsize=16)
         self.caption_end = {}
         self.replies = {}  # delegation id -> the backend's text so far, for the recording
+        self.ended = set()  # response ids already completed: a repeat ends nothing again
         self.pane_hints = {}
         self.last_context = {}
         self.context_lock = asyncio.Lock()
@@ -356,6 +357,10 @@ class Session:
                     "response.failed",
                     "response.incomplete",
                 ):
+                    rid = nested.get("response", {}).get("id")
+                    if rid and rid in self.ended:
+                        continue
+                    self.ended.add(rid)
                     calls = self.calls.pop(delegation, [])
                     self.meter.rec.event("backend", delegation_id=delegation, outcome=nk,
                                          text=self.replies.pop(delegation, ""))
