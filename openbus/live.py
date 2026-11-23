@@ -1180,16 +1180,12 @@ async def _resume_locked(websocket, sid: str, watcher, rec: dict) -> dict:
     title = entry.get("title") or entry["session_id"][:8]
     name = title[:24]
     try:  # tmux can fail here too; report, don't kill the session
-        # After a reboot no server runs: start one with its own session, as Restore does.
-        up = await asyncio.to_thread(tmux.server_running)
-        target = _session_for(await asyncio.to_thread(tmux.list_panes) if up else [], cwd)
-        pane_id = await asyncio.to_thread(tmux.new_window, target, name, argv, cwd) if target \
-            else await asyncio.to_thread(tmux.new_session, name, cwd, argv, name)
+        pane_id, target = await asyncio.to_thread(open_window, name, argv, cwd)
     except Exception as e:
         logger.warning("[live] resume_session failed for %s", entry["session_id"], exc_info=True)
         rec["detail"] = (getattr(e, "stderr", None) or str(e)).strip()[:120]
         return {"status": "error", "reason": "could not open a window", "detail": rec["detail"]}
-    rec.update(pane_id=pane_id, window=name, tmux_session=target or name)
+    rec.update(pane_id=pane_id, window=name, tmux_session=target)
     pid = await _launched_pid(pane_id)
     if pid is None:  # the window closed at once: the command failed to start
         return {"status": "error", "reason": "the resumed session exited immediately"}
@@ -1212,6 +1208,15 @@ async def _launched_pid(pane_id: str) -> str | None:
             return pid
         await asyncio.sleep(_LAUNCH_PID_RETRY_S)
     return None
+
+
+def open_window(name: str, argv: list[str], cwd: str) -> tuple[str, str]:
+    """Run `argv` in a new window `name` starting in `cwd`: its pane and tmux session. After
+    a reboot no server runs: start one with its own session, as Restore does."""
+    target = _session_for(tmux.list_panes() if tmux.server_running() else [], cwd)
+    if target:
+        return tmux.new_window(target, name, argv, cwd), target
+    return tmux.new_session(name, cwd, argv, name), name
 
 
 def _session_for(panes, cwd: str) -> str | None:

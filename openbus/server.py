@@ -93,6 +93,7 @@ from . import (  # noqa: E402
     export,
     expunge,
     fit,
+    mentions,
     plan_usage,
     restore,
     scratch,
@@ -546,6 +547,11 @@ async def lifespan(app: FastAPI):
     app.state.worktrees = Worktrees()
     tasks = [asyncio.create_task(app.state.usage.run(app.state.watcher)),
              asyncio.create_task(app.state.worktrees.run(app.state.watcher))]
+    # Opt-in, and not in single-pane mode, which could not show the windows it opens.
+    if (folder := os.environ.get("TMUXRC_MENTIONS_DIR")) and not target:
+        store = accounts.store_path().with_name("mentions.json")
+        tasks.append(asyncio.create_task(
+            mentions.Mentions(folder, store, _launchers).run(app.state.watcher)))
     try:
         yield
     finally:
