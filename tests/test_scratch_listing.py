@@ -511,6 +511,13 @@ def test_a_page_moved_to_a_pane_goes_there_while_that_pane_lives(tmp_path, monke
     assert scratch.maker(root, "other", states)[0]["pane_id"] == "%6"  # only the page moved
     items, _ = _resolved(root, states)  # its card says so too
     assert (items["plan"]["pane"], items["plan"]["where"]) == ("%8", "s:Billing")
+    # A resume landing after its wait binds only the folder it asked about, not yet moved.
+    other = (root / "other").stat().st_ino
+    for name, inode in (("plan", (root / "plan").stat().st_ino), ("other", other + 1)):
+        with pytest.raises(ValueError, match="moved or replaced"):
+            scratch.bind(root, name, "%8", "41", states, inode)
+    scratch.bind(root, "other", "%8", "41", states, other)
+    assert scratch.maker(root, "other", states)[0]["pane_id"] == "%8"
     # A new pane under the recycled id is another agent: back to the maker.
     states[1]["birth"] = "42"
     assert scratch.maker(root, "plan", states)[0]["pane_id"] == "%6"

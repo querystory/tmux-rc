@@ -268,15 +268,20 @@ def _save(store: Path, data: list | dict) -> None:
     tmp.replace(store)
 
 
-def bind(root: Path, name: str, pane: str, birth: str, states: list[dict]) -> None:
+def bind(root: Path, name: str, pane: str, birth: str, states: list[dict],
+         inode: int = 0) -> None:
     """Send what the scratch viewer says of folder `name` to this open pane, the one with
     this birth (not another under a recycled id), whoever made it: the user moved it. Kept in
-    tmux-rc's state, not meta.json, which the page's agents rewrite."""
+    tmux-rc's state, not meta.json, which the page's agents rewrite. With `inode` (a resume
+    landing after its wait), only if the folder is still that one and nobody moved it since:
+    checked under the lock the save is made under."""
     if not (folder_name(name) and read(root, root / name)):
         raise ValueError("a page is one folder of scratch")
     if not (birth and any(s.get("pane_id") == pane and s.get("birth") == birth for s in states)):
         raise ValueError("that pane has closed")
     with _BIND:
+        if inode and (name in _bound(states) or (root / name).stat().st_ino != inode):
+            raise ValueError("this page was moved or replaced meanwhile")
         kept = {n: b for n, b in _load(BINDINGS, {}).items() if (root / n).is_dir()}
         _save(BINDINGS, {**kept, name: {"pane": pane, "birth": birth}})
 

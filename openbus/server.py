@@ -2509,12 +2509,16 @@ if _scratch_dir:
     @app.put("/api/scratch/{name}/pane")
     def scratch_move(name: str, body: ScratchPane, request: Request) -> dict:
         """Send a scratch folder's messages to this open pane from now on (scratch.bind)."""
+        return _bind(request, "scratch_move", name, body.pane, body.birth)
+
+    def _bind(request: Request, action: str, name: str, pane: str, birth: str,
+              inode: int = 0) -> dict:
         try:
-            scratch.bind(Path(_scratch_dir), name, body.pane, body.birth,
-                         list(app.state.watcher.states))
+            scratch.bind(Path(_scratch_dir), name, pane, birth,
+                         list(app.state.watcher.states), inode)
         except ValueError as e:
-            _refuse(request, "scratch_move", name[:120], 422, str(e))
-        _audit(request, "scratch_move", body.pane, name[:120])
+            _refuse(request, action, name[:120], 422, str(e))
+        _audit(request, action, pane, name[:120])
         return scratch_maker(name)
 
     def _prompt(pane: str, *, opened: bool = False) -> Awaitable:
@@ -2547,17 +2551,16 @@ if _scratch_dir:
         if not (pane := found.get("pane_id")):
             _refuse(request, "scratch_resume", name[:120], 409, found["reason"])
         wait = _prompt(pane, opened=found["status"] == "opened")
-        _audit(request, "scratch_resume", pane, name[:120])
         birth = await asyncio.to_thread(tmux.pane_pid, pane)
         await wait
 
         def land() -> dict:  # a pane picked on the To chip during the wait stands
-            now, went = asked()
-            if not went["pane"] and (now, went["session"]) != (folder, to["session"]):
+            went = scratch_maker(name)
+            if not went["pane"] and went["session"] != to["session"]:
                 _refuse(request, "scratch_resume", name[:120], 409,
                         "this page was replaced while its conversation resumed")
-            return went if went["pane"] else scratch_move(
-                name, ScratchPane(pane=pane, birth=birth or ""), request)
+            return went if went["pane"] else _bind(request, "scratch_resume", name, pane,
+                                                   birth or "", folder)
         return await asyncio.to_thread(land)
 
     def _pins() -> Path:
