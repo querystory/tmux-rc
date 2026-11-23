@@ -20,6 +20,7 @@ AGENTS = ("claude", "codex", "gemini", "omp")  # each takes an opening prompt as
 POLL = 5    # seconds between looks at the folder
 QUIET = 30  # a file rests this long first: a note saved mid-sentence is not yet a request
 OPEN = 5    # windows started here that may be open at once: all an agent's own mentions can cost
+MARK = "@tmuxrc_mention"  # the tmux window option on each window started here
 PROMPT = ("{file} addresses you:\n\n{request}\n\nWrite your answer in that file, directly "
           "beneath that line, and commit it. Name any agent without the @.")
 
@@ -46,11 +47,11 @@ def mentions(text: str) -> list[str]:
 
 
 def windows() -> int:
-    """How many windows a mention started are open: they are the ones named `@agent file`.
-    Counted by id: tmux lists a window once for each session that shares it."""
-    listed = tmux.run("list-windows", "-a", "-F", "#{window_name} #{window_id}") \
+    """How many windows a mention started are open: the ones poll marked, whatever they
+    are named now. Counted by id: tmux lists a window once for each session that shares it."""
+    listed = tmux.run("list-windows", "-a", "-F", f"#{{{MARK}}}#{{window_id}}") \
         if tmux.server_running() else ""
-    return len({w.rsplit(" ", 1)[1] for w in listed.splitlines() if w.startswith("@")})
+    return len({w for w in listed.splitlines() if w.startswith("1")})
 
 
 class Mentions:
@@ -126,6 +127,7 @@ class Mentions:
             argv = ["sh", "-c", f'{command} "$1"', "sh", PROMPT.format(file=file, request=request)]
             try:
                 pane, _ = live.open_window(f"@{agent} {Path(file).stem}"[:40], argv, str(self.root))
+                tmux.run("set-option", "-w", "-t", pane, MARK, "1")
             except Exception as e:  # noqa: BLE001 - the rest of what is due still starts
                 telemetry.audit("mention", "-", "mentions", file, outcome=f"error: {e}"[:80])
                 continue

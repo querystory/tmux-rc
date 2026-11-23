@@ -189,5 +189,6 @@ def test_the_window_runs_the_configured_agent_on_the_request_unparsed(sock, tmp_
     pane = tmux.list_panes()[0]
     tmux.run("split-window", "-d", "-t", pane.id, "sleep 30")
     tmux.run("new-session", "-d", "-s", "other", "-t", pane.session)  # shares its windows
+    tmux.run("rename-window", "-t", pane.id, "renamed")
     assert mentions.windows() == 1
     assert watcher.poll() == []

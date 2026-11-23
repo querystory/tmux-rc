@@ -95,8 +95,9 @@ the wait, half a request starts an agent and the finished one starts another.
 
 **At most five such windows are open at once.** Nothing reliable says whether a person or
 an agent wrote a line: both edit the same files as the same user. So the bound does not
-depend on knowing. The windows a mention opens are named `@agent file`; while five are
-open, further mentions wait, and start when one closes. An agent that addresses an agent
+depend on knowing. The windows a mention opens are named `@agent file` and marked with a
+tmux window option, which a rename leaves in place; while five are open, further mentions
+wait, and start when one closes. An agent that addresses an agent
 that addresses an agent can therefore cost five sessions and then stops until the user
 closes one, where a rate limit would only slow the loop down. The prompt also asks the
 agent to name others without the `@`, which stops the accident; the cap is what holds if
