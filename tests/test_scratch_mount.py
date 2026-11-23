@@ -1,6 +1,7 @@
 """/scratch/ serves TMUXRC_SCRATCH_DIR read-only, and nothing at all unless it is set.
 The mount is decided at import, so each case runs in a fresh interpreter."""
 
+import json
 import os
 import subprocess
 import sys
@@ -140,12 +141,58 @@ if server._scratch_dir:
 """
 
 
-def _probe(env, tmp_path):
+RESUME = """
+import sys
+from fastapi.testclient import TestClient
+from types import SimpleNamespace
+from openbus import server
+watcher = server.app.state.watcher = SimpleNamespace(states=[], pane_birth=lambda _: "77")
+server.agent_history.reconcile = lambda: None
+server.app.state.history = server.History(server.Path(sys.argv[1]))
+asked = []
+async def resume(sid, _watcher, _rec):  # Live Mode's, which opens the window
+    asked.append(sid)
+    if sid != "s1":
+        return {"status": "rejected", "reason": "session directory is gone"}
+    watcher.states = [{"pane_id": "%40", "birth": "77", "session": "s"}]
+    return {"status": "opened", "pane_id": "%40"}
+async def ready(_watcher, pane):
+    asked.append(pane)
+server.live.resume, server.restore.ready = resume, ready
+c = TestClient(server.app)
+to = lambda name: c.get(f"/api/scratch/{name}/pane").json()
+print(int((to("made")["pane"], to("made")["session"], to("anon")["session"]) == (None, "s1", None)))
+r = c.post("/api/scratch/made/resume")
+print(r.status_code, int(asked == ["s1", "%40"] and (to("made")["pane"], to("made")["birth"],
+                                                    to("made")["session"]) == ("%40", "77", None)))
+for name in ("lost", "anon"):
+    r = c.post(f"/api/scratch/{name}/resume")
+    print(r.status_code, r.json()["detail"].replace(" ", "-"))
+"""
+
+
+def test_resume_reopens_the_makers_conversation_and_sends_the_page_there(tmp_path):
+    # The maker's pane has closed: Resume reopens the conversation meta.json records, waits
+    # for its prompt and moves the page to that pane. A conversation that can't come back
+    # says why, and a page with none recorded is not offered one.
+    scratch = tmp_path / "scratch"
+    for name, session in (("made", "s1"), ("lost", "s2"), ("anon", None)):
+        (scratch / name).mkdir(parents=True)
+        (scratch / name / "index.html").write_text("page")
+        (scratch / name / "meta.json").write_text(json.dumps(
+            {"pane": "%7", **({"agent_session": session} if session else {})}))
+    env = {"TMUXRC_SCRATCH_DIR": str(scratch), "XDG_STATE_HOME": str(tmp_path / "state")}
+    assert _probe(env, tmp_path, RESUME, str) == [
+        "1", "200", "1", "409", "session-directory-is-gone",
+        "409", "no-conversation-was-recorded-for-this-page"]
+
+
+def _probe(env, tmp_path, probe=PROBE, read=int):
     env = {**os.environ, "AGENT_HISTORY_DIR": "/nonexistent", **env}  # no real transcripts
-    out = subprocess.run([sys.executable, "-c", PROBE, str(tmp_path / "state" / "h.db")],
+    out = subprocess.run([sys.executable, "-c", probe, str(tmp_path / "state" / "h.db")],
                          stdout=subprocess.PIPE, text=True, check=True, env=env,
                          timeout=60).stdout
-    return [int(code) for code in out.split()]
+    return [read(code) for code in out.split()]
 
 
 def test_scratch_serves_only_inside_the_configured_dir(tmp_path):

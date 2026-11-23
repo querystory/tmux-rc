@@ -97,6 +97,9 @@ const SHOTS = [
   // app's viewer with the message box to its maker, and the daemon's own page.
   ["mobile-scratch", PHONE, "light", "#view=scratch", stillFrame],
   ["mobile-scratch-page", PHONE, "light", "#view=scratch", openScratch("ab-sweep-interim")],
+  // Feedback on a page (docs/design/scratch-feedback.md): a sentence selected, offered as a quote; a maker whose pane has closed.
+  ["mobile-scratch-quote", PHONE, "light", "#view=scratch", openScratch("ab-sweep-interim", "article p")],
+  ["mobile-scratch-stopped", PHONE, "light", "#view=scratch", openScratch("cost-breakdown")],
   ["mobile-scratch-dark", PHONE, "dark", "", scratch],
   ["wide-scratch", WIDE, "light", "#view=scratch", stillFrame],
   // New session's sheet, a file on the pane's composer, and a reply's code blocks with Copy.
@@ -123,13 +126,14 @@ async function attachFile(page) {
   await page.click("#attach");
   await (await chooser).setFiles({ name: "checkout-trace.zip", mimeType: "application/zip", buffer: Buffer.from("demo") });
 }
-// A card's page in the app's viewer, its message box shown once the maker's pane is found.
-function openScratch(name) {
+// A card's page in the app's viewer, its message box shown once the maker's pane is found;
+// with `select`, that text on the page selected and its Quote chip up.
+function openScratch(name, select) {
   return async (page) => {
     await (await stillFrame(page)).locator(`article[data-name="${name}"] h2 a`).click();
-    await stillFrame(page, "#scratch-viewer iframe");
-    await page.waitForSelector("#viewer-form:not([hidden])") // the shot is the reply box: no gallery in its place
-      .catch((e) => { throw Object.assign(new Error(`no reply box: ${e.message}`), { loud: true }); });
+    const shown = await stillFrame(page, "#scratch-viewer iframe");
+    await loud(page.waitForSelector("#viewer-form:not([hidden])"), "no reply box"); // the shot is the reply box: no gallery in its place
+    if (select) { await shown.locator(select).first().selectText(); await loud(page.waitForSelector("#viewer-quote:not([hidden])"), "no quote chip"); }
   };
 }
 

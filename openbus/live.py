@@ -1131,8 +1131,7 @@ async def _resume_session(websocket, args: dict, watcher, rec: dict) -> dict:
     rec["session_id"] = str(sid)[:80]
     if set(args) - {"session_id"} or not isinstance(sid, str) or not sid.strip():
         return {"status": "rejected", "reason": "malformed call"}
-    async with _resume_lock:
-        result = await _resume_locked(websocket, sid.strip(), watcher, rec)
+    result = await resume(sid.strip(), watcher, rec, websocket)
     # Tapping Send on the card asked to go there, so take them; voice has no card, and a
     # model's own open_pane only offers a button.
     if rec.get("consent") == "approved" and result.get("pane_id"):
@@ -1141,7 +1140,14 @@ async def _resume_session(websocket, args: dict, watcher, rec: dict) -> dict:
     return result
 
 
-async def _resume_locked(websocket, sid: str, watcher, rec: dict) -> dict:
+async def resume(sid: str, watcher, rec: dict, websocket=None) -> dict:
+    """Open session `sid` in a new window, or find the pane it already runs in. Shown to the
+    chat on `websocket`; the scratch viewer resumes a page's maker with none."""
+    async with _resume_lock:
+        return await _resume_locked(sid, watcher, rec, websocket)
+
+
+async def _resume_locked(sid: str, watcher, rec: dict, websocket) -> dict:
     if sid in _resumed:
         pane, pid, launched = _resumed[sid]
         # Held while that same process lives in the pane (tmux reuses pane ids).
@@ -1195,8 +1201,9 @@ async def _resume_locked(websocket, sid: str, watcher, rec: dict) -> dict:
         return {"status": "error", "reason": "the resumed session exited immediately"}
     _resumed[sid] = (pane_id, pid, dict(rec))
     watcher.request_reparse(pane_id)  # wakes a full tick, so the new pane is addressable
-    await _delivered(websocket, {"pane_id": pane_id, "label": name,
-                                 "text": f"[resumed {title}]", "submitted": True})
+    if websocket:
+        await _delivered(websocket, {"pane_id": pane_id, "label": name,
+                                     "text": f"[resumed {title}]", "submitted": True})
     return {"status": "opened", "pane_id": pane_id, "window": name}
 
 

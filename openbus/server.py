@@ -2482,10 +2482,11 @@ if _scratch_dir:
         if archived:  # a live folder may have its name since
             return {"title": (scratch.named(scratch.archive(root), name) or {}).get("title")}
         watcher = app.state.watcher
-        pane = scratch.maker(root, name, list(watcher.states),
-                             lambda entry: live.running_pane(entry, watcher)) or {}
+        pane, session = scratch.maker(root, name, list(watcher.states),
+                                      lambda entry: live.running_pane(entry, watcher))
         page = scratch.named(root, name) or scratch.named(scratch.archive(root), name) or {}
-        return {"pane": pane.get("pane_id"), "birth": pane.get("birth"),
+        return {"pane": (pane or {}).get("pane_id"), "birth": (pane or {}).get("birth"),
+                "session": session,  # with no pane, the conversation Resume would reopen
                 "about": scratch.about(root, name), "title": page.get("title")}
 
     @app.get("/api/scratch/{name}/version")
@@ -2510,6 +2511,24 @@ if _scratch_dir:
             _refuse(request, "scratch_move", name[:120], 422, str(e))
         _audit(request, "scratch_move", body.pane, name[:120])
         return scratch_maker(name)
+
+    @app.post("/api/scratch/{name}/resume")
+    async def scratch_resume(name: str, request: Request) -> dict:
+        """Reopen the conversation that made a scratch folder, as Live Mode resumes one
+        (live.resume: never a second copy of a running one, whose pane is used as it is),
+        wait for its prompt as a restore does, and send the folder's messages to that pane
+        (scratch.bind)."""
+        watcher = app.state.watcher
+        session = (await asyncio.to_thread(scratch_maker, name))["session"]
+        found = await live.resume(session, watcher, {}) if session else {
+            "reason": "no conversation was recorded for this page"}
+        if not (pane := found.get("pane_id")):
+            _refuse(request, "scratch_resume", name[:120], 409, found["reason"])
+        _audit(request, "scratch_resume", pane, name[:120])
+        if found["status"] == "opened":
+            await restore.ready(watcher, pane)
+        return await asyncio.to_thread(scratch_move, name, ScratchPane(
+            pane=pane, birth=watcher.pane_birth(pane) or ""), request)
 
     def _pins() -> Path:
         return accounts.store_path().with_name("pins.json")  # the state dir: every device's

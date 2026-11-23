@@ -96,11 +96,25 @@ pixels), so "the chart on the right is wrong" needs no further description;
 **Screenshot attached** toggles it off. The box sends only while
 that very pane is still open, never to another pane that later took its id.
 
+Most remarks are about one sentence. Select it on the page (press and hold, on a phone)
+and a **Quote** chip appears above the box, showing what it caught; a tap puts those words,
+in quotation marks, into your message, and you type the remark after them. The agent finds
+the sentence by its words, so nothing else is stored. It works on Markdown and HTML pages
+alike; a page that navigated away from the one you opened has no chip.
+
 Its **To** chip names that pane. The maker is the one the gallery's card names: for a Codex
 page, whose meta.json names whichever pane started Codex's shared app-server, the pane
 showing the thread its transcript says wrote the page. When no open pane can be confirmed
 the chip reads **Choose a pane**; picking any agent pane there moves the page to it, for
 every device, until that pane closes.
+
+A page outlives its pane. When the maker's pane has closed and tmux-rc knows which
+conversation wrote the page, the box is replaced by **Resume its conversation**: one tap
+reopens that conversation in a new window, in the directory it ran in, and the page's
+messages go there once the agent is at its prompt. A conversation still running somewhere
+is found, never started twice; one that cannot come back (its directory is gone, its
+transcript was deleted) says why, and Choose a pane is still there. Why it works this way:
+[design note](design/scratch-feedback.md).
 
 A page can also offer replies of its own, two ways, and neither sends anything by itself.
 A draft: inside the app's viewer the page posts `{pane, draft}` to its parent, and a page

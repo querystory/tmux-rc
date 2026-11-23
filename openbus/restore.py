@@ -415,6 +415,16 @@ def _free(name: str, taken: set[str]) -> str:
     return f"{name}-restored{n if n > 1 else ''}"
 
 
+async def ready(watcher, pane: str) -> None:
+    """Wait for a just-resumed agent to reach its prompt in `pane`, READY seconds at most."""
+    for _ in range(READY):
+        state = next((s for s in watcher.states if s.get("pane_id") == pane), {})
+        if state.get("activity") in ("idle", "waiting") and state.get("tool") in AGENT_TOOLS:
+            return
+        watcher.request_reparse(pane)
+        await asyncio.sleep(1)
+
+
 async def launch(built: list[tuple[str, dict]], watcher, audit) -> None:
     """Resume each bound agent in its prebuilt pane, PACE at a time: waiting on the user
     first, then working, then by recency. Each resume is typed into the pane's shell, so
@@ -449,13 +459,7 @@ async def launch(built: list[tuple[str, dict]], watcher, audit) -> None:
             await asyncio.to_thread(tmux.run, "send-keys", "-t", pane, "-l", line)
             await asyncio.to_thread(tmux.run, "send-keys", "-t", pane, "Enter")
             audit("restore_resume", pane, sid, "ok")
-            for _ in range(READY):  # its slot passes on at its prompt, or after READY
-                state = next((s for s in watcher.states if s.get("pane_id") == pane), {})
-                if state.get("activity") in ("idle", "waiting") and \
-                        state.get("tool") in AGENT_TOOLS:
-                    return
-                watcher.request_reparse(pane)
-                await asyncio.sleep(1)
+            await ready(watcher, pane)  # its slot passes on at its prompt, or after READY
 
     agents = sorted(((p, e) for p, e in built if e.get("binding")), key=rank)
     await asyncio.gather(*(one(p, e) for p, e in agents))

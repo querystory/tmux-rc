@@ -2,7 +2,7 @@ import { headerPicker, dismissable } from "/m/header-picker.js";
 import { renderAtlas, renderFleet, refreshAtlasHistory, renderHeatView, detailCard, pageHead } from '/m/atlas.js';
 import { renderCaptureLines, linkifyText, besideHeld, keptRows } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
-import { Composer, bindAttach, enterSubmits, sendBlock, block } from "/m/composer.js";
+import { Composer, bindAttach, enterSubmits, sendBlock, block, quoteOf } from "/m/composer.js";
 import { answerBody, pickCursorRow, STALE, UNTAKEN } from "/cursor-pick.js";
 import { setupPush } from "/push.js";
 import { linkGroups, askLink } from "/pr-links.js";
@@ -168,7 +168,7 @@ const reviewing = () => effectiveLayout() !== "focus";
 const terminalVisible = () => reviewing() || view === "terminal";
 const overviewVisible = () => reviewing() || view === "summary";
 const drafts = new Map();
-let viewerTo = null; const viewerDrafts = new Map(); // the scratch viewer's maker and composers: see findMaker
+let viewerTo = null, quotable = ""; const viewerDrafts = new Map(); // the scratch viewer's maker, composers and selection: see findMaker
 // page: a dashboard card's own view (url-state.js PAGES), which replaces the page; leaving
 // it lands on its card (CARDS).
 let dashboard = false, page = null;
@@ -888,6 +888,7 @@ addEventListener("message", (e) => {
   // (askSend). Only that document runs script in its frame (viewScratch), so an ask from the frame
   // is the page the sheet names. Its origin is opaque, so "null".
   if (typeof e.data?.scrolled === "number" && e.source === viewer.querySelector("iframe")?.contentWindow) viewer.querySelector("iframe").scrolled = e.data.scrolled; // where a reload puts it
+  if (typeof e.data?.selected === "string" && e.source === shown?.contentWindow) { quotable = quoteOf(e.data.selected); paintViewerForm(); } // its Quote chip
   if (intent) return e.source === viewer.querySelector("iframe")?.contentWindow && e.origin === "null" && !$("send-dialog").open && askSend(sendIntent(e.data, panes));
   if (/^%\d+$/.test(pane) && [scratchFrame, viewer.querySelector("iframe")].some((f) => f?.contentWindow === e.source)) navigate(pane, "summary", { draft: offered });
   if (e.source !== scratchFrame.contentWindow) return;
@@ -1022,7 +1023,7 @@ for (const load of [loadPins, loadRecent]) { addEventListener("focus", load); lo
 // or the one the user moved the page to with the To chip. A Composer per pane, sent through
 // compose() like the pane's footer and a sidebar Reply.
 async function findMaker(href) {
-  viewerTo = moving = null; paintViewerForm(); text($("viewer-status"), ""); const out = $("viewer-out").href;
+  viewerTo = moving = null; quotable = ""; paintViewerForm(); text($("viewer-status"), ""); const out = $("viewer-out").href;
   const url = new URL(href), [, , top, ...rest] = url.pathname.split("/"); // the page and query it opened at
   const archived = top === ".archive", [folder, ...view] = archived ? rest : [top, ...rest]; // archived: its title, no pane
   const to = folder ? { ...await request(`/api/scratch/${folder}/pane${archived ? "?archived=1" : ""}`).catch(() => ({})), folder: decodeURIComponent(folder), view: view.join("/") + url.search + url.hash } : {};
@@ -1040,22 +1041,33 @@ function useMaker(to) {
 // Picking one moves the page there, for every device, until that pane closes. Send waits for
 // the move (the chip names the pane it goes to till then), and only the latest pick lands, and
 // only on the visit it was made from.
+// Resume, offered when the maker's pane has closed and its conversation is known, moves the
+// page the same way, to the pane that conversation reopens in.
 let moving = null, moveSave = Promise.resolve(); // saved in the order picked, as pins are
 const paintMove = headerPicker($("viewer-move"));
 $("viewer-move-picker").ontoggle = (e) => e.target.querySelector(":checked")?.scrollIntoView({ block: "nearest" });
 const paneWhere = (p) => { const name = paneName(p); return name.startsWith(`${p.session}:`) ? name : `${p.session}:${name}`; };
-$("viewer-move").onchange = async () => {
-  const p = panes.find((q) => viewerKey(q) === $("viewer-move").value), { folder } = viewerTo || {};
-  if (!p || !folder) return;
-  const out = $("viewer-out").href, move = moving = moveSave = moveSave.catch(() => {}).then(() => request(`/api/scratch/${encodeURIComponent(folder)}/pane`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pane: p.pane_id, birth: p.birth }) }));
+async function moveTo(method, path, body, failure, timeout) {
+  const out = $("viewer-out").href, move = moving = moveSave = moveSave.catch(() => {}).then(() => request(`/api/scratch/${encodeURIComponent(viewerTo.folder)}/${path}`, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }, timeout));
   paintViewerForm();
   let failed; const to = await move.catch((e) => { failed = e; });
   // A later pick, another visit, or the page navigated (a page in progress reloading is the same visit: viewerFrame).
   if (moving !== move || !viewer.open || $("viewer-out").href !== out || viewer.querySelector("iframe")?.loads > 1) return;
   moving = null;
-  if (to) return useMaker({ ...viewerTo, ...to });
-  text($("viewer-status"), `Could not move the page: ${failed.detail || failed.message}`); paintViewerForm();
+  text($("viewer-status"), to ? "" : `${failure}: ${failed.detail || failed.message}`);
+  if (to) useMaker({ ...viewerTo, ...to }); else paintViewerForm();
+}
+$("viewer-move").onchange = () => {
+  const p = panes.find((q) => viewerKey(q) === $("viewer-move").value);
+  if (p && viewerTo?.folder) moveTo("PUT", "pane", { pane: p.pane_id, birth: p.birth }, "Could not move the page");
 };
+$("viewer-resume").onclick = () => {
+  if (!moving) moveTo("POST", "resume", {}, "Could not resume its conversation", NO_TIMEOUT); // it waits for the agent's prompt
+  text($("viewer-status"), "Resuming its conversation…"); // a tap while it does says so again
+};
+// What is selected on the page (scratch_markdown.OUT says), quoted into the message at a tap:
+// the quote is how the agent finds the sentence, so nothing else about it is kept.
+$("viewer-quote").onclick = () => { viewerDrafts.get(viewerKey(viewerPane())).insert(document.createTextNode(quotable)); quotable = ""; paintViewerForm(); };
 // The page as the user sees it goes with each send unless they take it off: the server draws it
 // (the sandboxed frame can't be read from here) at the frame's size (as last seen without the
 // keyboard, which shrinks it) for its width, whole, at the screen's pixel ratio, and the
@@ -1076,6 +1088,8 @@ function paintViewerForm() {
   html($("viewer-move"), (p ? "" : '<option value="">Choose a pane</option>') + panes.filter((q) => AGENT_TOOLS.has(q.tool) || q === p).map((q) => `<option value="${esc(viewerKey(q))}">${esc(paneWhere(q))}</option>`).join(""));
   $("viewer-move").value = p ? viewerKey(p) : ""; paintMove();
   $("viewer-to").hidden = !p; $("viewer-send").setAttribute("aria-disabled", String(!p));
+  $("viewer-quote").hidden = !(p && !p.secret && quotable); text($("viewer-quote"), `Quote ${quotable}`); $("viewer-resume").hidden = !!p || !viewerTo.session;
+  $("viewer-resume").setAttribute("aria-disabled", String(!!moving));
   if (!p) return form.querySelector("#viewer-reply")?.remove(); // no pane found, or it has closed: the chip picks one
   const { editor } = viewerDrafts.get(viewerKey(p)), frame = $("scratch-viewer").querySelector("iframe");
   if (!form.contains(editor)) { form.querySelector("#viewer-reply")?.remove(); $("viewer-send").before(editor); }

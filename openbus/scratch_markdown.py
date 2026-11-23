@@ -133,7 +133,12 @@ OUT = (b'<style>html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
        # In the app's viewer, where the page is: a reload for its update keeps it (app.js).
        b' addEventListener("scroll", () => parent.postMessage({ scrolled: scrollY }, "*"));'
        b' addEventListener("message", (e) => e.source === parent'
-       b' && typeof e.data?.scroll === "number" && scrollTo(0, e.data.scroll));</script>')
+       b' && typeof e.data?.scroll === "number" && scrollTo(0, e.data.scroll));'
+       # And what is selected, for its Quote chip, once the selection has settled: a drag of
+       # its handles says so many times, and a tap on the chip may clear it on the way.
+       b' let picked; document.addEventListener("selectionchange", () => { clearTimeout(picked);'
+       b' picked = setTimeout(() => parent.postMessage({ selected: String(getSelection()) },'
+       b' "*"), 300); });</script>')
 
 
 async def _out(response: Response) -> Response:
