@@ -86,6 +86,17 @@ def test_question_presence_mismatch_fails():
     assert not ok and any("question" in d for d in diffs)
 
 
+def test_an_optional_question_may_be_missed_but_not_misshapen():
+    optional = {"question": {"answer_style": "text", "optional": True}}
+    assert score_structured({}, optional)[0]
+    assert score_structured({"question": None}, optional)[0]
+    assert score_structured({"question": {"answer_style": "text"}}, optional)[0]
+    assert not score_structured({"question": {"answer_style": "menu"}}, optional)[0]
+    pinned = {"question": {"answer_style": "text", "options": ["go"], "optional": True}}
+    assert not score_structured({"question": {"answer_style": "text", "options": []}}, pinned)[0]
+    assert not score_structured({}, {"question": {"answer_style": "text"}})[0]
+
+
 def test_empty_question_dict_counts_as_present():
     # A bare {} question is truthy to the web UI (renders a broken question view), so it
     # must NOT score as absent: candidate {} vs expected-absent is a mismatch.
