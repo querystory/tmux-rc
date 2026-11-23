@@ -153,12 +153,14 @@ server.app.state.history = server.History(server.Path(sys.argv[1]))
 asked = []
 async def resume(sid, _watcher, _rec):  # Live Mode's, which opens the window
     asked.append(sid)
-    if sid != "s1":
+    if sid == "s2":
         return {"status": "rejected", "reason": "session directory is gone"}
     watcher.states = [{"pane_id": "%40", "birth": "77", "session": "s"}]
     return {"status": "opened", "pane_id": "%40"}
 async def ready(_watcher, pane):
     asked.append(pane)
+    if asked[-2] == "s3":  # its folder deleted and made again by someone else, during the wait
+        (server.Path(server._scratch_dir) / "swap" / "meta.json").write_text('{"pane": "%7"}')
 server.live.resume, server.restore.ready = resume, ready
 c = TestClient(server.app)
 to = lambda name: c.get(f"/api/scratch/{name}/pane").json()
@@ -167,7 +169,7 @@ r = c.post("/api/scratch/made/resume")
 print(r.status_code, int(asked == ["s1", "%40"] and (to("made")["pane"], to("made")["birth"],
                                                     to("made")["session"]) == ("%40", "77", None)))
 print(c.post("/api/scratch/made/resume").json()["pane"], len(asked))  # a second device: as it is
-for name in ("lost", "anon"):
+for name in ("lost", "anon", "swap"):
     r = c.post(f"/api/scratch/{name}/resume")
     print(r.status_code, r.json()["detail"].replace(" ", "-"))
 """
@@ -176,9 +178,10 @@ for name in ("lost", "anon"):
 def test_resume_reopens_the_makers_conversation_and_sends_the_page_there(tmp_path):
     # The maker's pane has closed: Resume reopens the conversation meta.json records, waits
     # for its prompt and moves the page to that pane. A conversation that can't come back
-    # says why, and a page with none recorded is not offered one.
+    # says why, a page with none recorded is not offered one, and a folder replaced while
+    # its conversation resumed is not bound to it.
     scratch = tmp_path / "scratch"
-    for name, session in (("made", "s1"), ("lost", "s2"), ("anon", None)):
+    for name, session in (("made", "s1"), ("lost", "s2"), ("anon", None), ("swap", "s3")):
         (scratch / name).mkdir(parents=True)
         (scratch / name / "index.html").write_text("page")
         (scratch / name / "meta.json").write_text(json.dumps(
@@ -186,7 +189,8 @@ def test_resume_reopens_the_makers_conversation_and_sends_the_page_there(tmp_pat
     env = {"TMUXRC_SCRATCH_DIR": str(scratch), "XDG_STATE_HOME": str(tmp_path / "state")}
     assert _probe(env, tmp_path, RESUME, str) == [
         "1", "200", "1", "%40", "2", "409", "session-directory-is-gone",
-        "409", "no-conversation-was-recorded-for-this-page"]
+        "409", "no-conversation-was-recorded-for-this-page",
+        "409", "this-page-was-replaced-while-its-conversation-resumed"]
 
 
 def _probe(env, tmp_path, probe=PROBE, read=int):

@@ -2521,7 +2521,8 @@ if _scratch_dir:
         """Reopen the conversation that made a scratch folder, as Live Mode resumes one
         (live.resume: never a second copy of a running one, whose pane is used as it is),
         wait for its prompt as a restore does, and send the folder's messages to that pane
-        (scratch.bind), the incarnation resumed: one that closed during the wait is refused."""
+        (scratch.bind), the incarnation resumed: one that closed during the wait is refused,
+        as is a folder that no longer names that conversation (deleted and made again)."""
         watcher = app.state.watcher
         to = await asyncio.to_thread(scratch_maker, name)
         if not (to["pane"] or to["session"]):  # before its lock: only a real page has one
@@ -2541,6 +2542,9 @@ if _scratch_dir:
 
         def land() -> dict:  # a pane picked on the To chip during the wait stands
             now = scratch_maker(name)
+            if not now["pane"] and now["session"] != to["session"]:
+                _refuse(request, "scratch_resume", name[:120], 409,
+                        "this page was replaced while its conversation resumed")
             return now if now["pane"] else scratch_move(
                 name, ScratchPane(pane=pane, birth=birth or ""), request)
         return await asyncio.to_thread(land)
