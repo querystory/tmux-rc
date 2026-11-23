@@ -195,6 +195,7 @@ class Session:
         self.calls = {}
         self.seen_calls = set()
         self.work = asyncio.Queue(maxsize=16)
+        self.running = False  # execute() is between taking a batch and asking to go on
         self.caption_end = {}
         self.pane_hints = {}
         self.last_context = {}
@@ -227,6 +228,12 @@ class Session:
         tools, and the frontend voices the result."""
         if self.closing:
             return
+        # A composer turn has no delegation, so its request is the meter's (live._Meter.asking).
+        # It is a new one only when no earlier turn's response or calls are still running: no
+        # id ties a continuation to its turn, so in an overlap the two share one, and a second
+        # pane is refused rather than reached.
+        if not (self.calls or self.running or not self.work.empty()):
+            self.meter.answered = True
         await self.send({"type": "response.item.create",
                          "item": live_providers.openai_message("user", text, images)})
         await self.send({"type": "response.create"})
@@ -366,10 +373,6 @@ class Session:
                         )
                     # These are backend completions, not spoken turn boundaries.
                     self.meter._emit(final=False)  # noqa: SLF001 - shared Live adapter internals
-                    # A composer turn has no delegation, so its request is the meter's: it is
-                    # over once a response completes with no call left to continue.
-                    if delegation is None and not (nk == "response.completed" and calls):
-                        self.meter.answered = True
 
         # Normal WebSocket EOF is a dropped Live session too. Never silently report a stop.
         raise ProviderError({"code": "connection_closed_without_session_closed"})
@@ -377,6 +380,7 @@ class Session:
     async def execute(self):
         while True:
             delegation, calls = await self.work.get()
+            self.running = True
             for item in calls:
                 if self.closing:
                     return
@@ -402,6 +406,7 @@ class Session:
                 # In Live this continues the backend, independent of frontend
                 # speech. Waiting for a voice-response.done event would deadlock.
                 await self.send({"type": "response.create"})
+            self.running = False
 
     async def close(self):
         self.closing = True
