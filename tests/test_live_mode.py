@@ -1427,8 +1427,9 @@ def test_voice_reaches_one_pane_per_request(monkeypatch):
 
 def test_a_turn_end_starts_the_next_request(monkeypatch):
     """GPT-Live has no seam receiver, and a typed turn there has no delegation id: a turn's
-    end (end_turn) makes the next words a request of their own, and a typed turn always is
-    one, even sent while the last turn still runs."""
+    end (end_turn) makes the next words a request of their own. A typed turn sent while the
+    last turn still runs joins it until that turn ends, so a call of the running turn can't
+    borrow the new request to reach a second pane: in the overlap the gate fails closed."""
     monkeypatch.setattr(L.telemetry, "emit_live_turn", lambda **k: None)
     meter = L._Meter("s", "a", P._DEFAULT[0])
     first = meter.asking()
@@ -1441,4 +1442,6 @@ def test_a_turn_end_starts_the_next_request(monkeypatch):
         async def send_text(self, text, images=()):
             pass
     _run(L._forward_client(client, Typed(), meter))  # typed while that turn still runs
-    assert meter.asking() == first + 2
+    assert meter.asking() == first + 1
+    meter.end_turn()
+    assert meter.asking() == first + 2  # its own calls, once that turn is over
