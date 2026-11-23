@@ -134,6 +134,10 @@ def test_pane_block_names_window_prefers_title_hides_id_role():
          "tool": "shell", "activity": "running"}, None)
     assert '## "shell · shell" (id=%2)' in untitled
     assert "window name" not in untitled  # the heading already is the label
+    refined = L._pane_block(
+        {"pane_id": "%3", "window_index": "3", "title": None, "label": "Receipt OCR tuning",
+         "window_name": "tax-return", "tool": "claude", "activity": "idle"}, None)
+    assert 'window name: "tax-return"' in refined  # a parse refined the label away from it
 
 
 def test_pane_name_adds_the_window_only_to_tell_twins_apart():
