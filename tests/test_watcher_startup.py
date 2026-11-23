@@ -214,14 +214,16 @@ def test_new_pane_is_visible_before_it_is_classified(inventory, monkeypatch):
     presence-before-parse guarantee startup gets."""
     w, panes = inventory
     _classified(w, monkeypatch, panes)
-    panes.append(W.tmux.Pane("work", "2", "agent-2", "0", "%2", "node", "Task 2",
+    panes.append(W.tmux.Pane("work", "2", "agent-2", "0", "%2", "claude", "Task 2",
                              pid="102", window_active="0", pane_active="0"))
 
     def while_blocked():
-        # The new pane is already published, with identity, awaiting classification.
+        # The new pane is already published, with identity, awaiting classification:
+        # the agent its process proves, but no activity until the model reads it.
         assert [s["pane_id"] for s in w.states] == ["%0", "%1", "%2"]
         new = w.states[-1]
         assert new["activity"] == "unknown" and new["label"] == panes[-1].label
+        assert new["tool"] == "claude"
         # ...and the panes already classified did NOT flicker back to unknown.
         assert [s["activity"] for s in w.states[:2]] == ["idle", "idle"]
 
