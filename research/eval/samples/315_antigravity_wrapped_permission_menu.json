@@ -1,0 +1,22 @@
+{
+  "description": "Invented Antigravity CLI permission picker at phone width, under a turn's tool rows: numbered rows 2 and 3 wrap onto unindented lines. The menu's own rows are its options (one tap each), never question.items.",
+  "current_command": "agy",
+  "capture": "\n      ▄▀▀▄        Antigravity CLI 1.5.14\n     ▀▀▀▀▀▀       Google AI Pro\n    ▀▀▀▀▀▀▀▀      Gemini 4 Neon (Medium) \n   ▄▀▀    ▀▀▄     ~/tidepool\n  ▄▀▀      ▀▀▄\n\n> /model                                          \n  ⎿  Model set to Gemini 4 Neon (Medium)\n\n───────────────────────────────────────────────   \n> Can you check whether the tide table feed still\n  has the harbor column?\n\n○ Thought for 25.3s (Checking the feed format...) \n● Explored 2 files, 2 searches (tide_feed.py...)  \n● Ran (head -5 data/harbor.csv)    \n● Explored 5 searches (+2 · harbor column...) \n○ Ran 4 commands (+3 · wc -l data/harbor.csv...)   \n○ Running (ls data/...) (ctrl+o to expand)   \n\nCommand                                           \n──────────────────────────────────────────────────\n\nRequesting permission for:                        \n   curl -s                        \nhttps://tides.example.org/feeds/harbor.csv\n\nRun this command?\n> 1. Yes, run command\n  2. Yes, and always allow in this conversation\nfor commands that start with 'curl -s\nhttps://tides.example.org/feeds/harbor.csv'\n  3. Yes, and always allow for commands that start\nwith 'curl -s\nhttps://tides.example.org/feeds/harbor.csv'\n(Persist to settings.json)\n  4. No, cancel\n\n  ↑/↓ Navigate · tab Amend · ctrl+g edit/expand co\nesc to cancel               Gemini 4 Neon · medium",
+  "expected": {
+    "tool": "antigravity",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "present": true,
+      "answer_style": "menu",
+      "options": [
+        "Yes, run command",
+        "Yes, and always allow in this conversation for commands that start with 'curl -s https://tides.example.org/feeds/harbor.csv'",
+        "Yes, and always allow for commands that start with 'curl -s https://tides.example.org/feeds/harbor.csv' (Persist to settings.json)",
+        "No, cancel"
+      ],
+      "items": null
+    },
+    "headline": "Asking to run curl on the harbor tide feed"
+  }
+}

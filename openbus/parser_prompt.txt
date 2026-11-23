@@ -150,7 +150,7 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
   "question": {"prompt": "...", "options": ["..."], "answer_style": "text"|"menu"|"cursor",
                "selected": <int|null>,   // cursor style: index of the ❯-highlighted option
                "free_text": <int>,   // index of an option that only opens the agent's own free-text field
-               "items": ["1. ..."],   // when it names rows of a list above it ("do 1 and 2?", "A or B?"): exactly the rows it names
+               "items": ["1. ..."],   // when a typed question names rows of a list above it ("do 1 and 2?", "A or B?"): exactly the rows it names
                "subject": "...",   // with "items": the heading or lead-in line just above that list
                "link": "https://...",   // the URL in "links" this question asks the user to open, if any
                "keymap": {"next": "Down", "prev": "Up", "select": "Enter", "search": true|false}},
@@ -373,7 +373,8 @@ survey at most as a minor event.
   questions.
 - "menu": the screen shows a NUMBERED widget — each option is prefixed with its own
   digit (1. 2. 3.) or is a y/n confirmation — so ONE keystroke picks it. The digit must
-  be visible on screen; do not infer numbering from list order.
+  be visible on screen; do not infer numbering from list order. The widget's own rows
+  go in "options" alone, each row's words after its digit, wrapped lines and all.
 - "cursor": the screen shows a HIGHLIGHTED list you move through — a ❯/> marker or an
   inverse/colored row — and the rows carry NO digits. Nothing you can type picks a row
   here: a digit and the row's text both land in the picker's search box. Claude Code's
