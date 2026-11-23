@@ -1492,51 +1492,64 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
 async def _receiver(websocket: WebSocket, session, watcher, meter: _Meter) -> None:
     """Model → client: voice audio, both transcripts, tool calls, barge-in. Also meters
     the session — takes each usage event into `meter` and emits a per-turn OTel record
-    at every turn boundary."""
+    at every turn boundary. A turn's calls and its end run in order off this loop, so audio
+    and the transcript a relay is checked against (_honest) keep arriving meanwhile."""
     meter.superseded = False  # a reconnect drops the turn it belonged to
-    calls = None  # the latest tool call; each is answered after the one before it
+    me, turn, failed = asyncio.current_task(), None, []  # turn: its latest step, run in order
+
+    def done(task: asyncio.Task) -> None:  # a step that raised fails the receiver, as inline
+        if not (task.cancelled() or failed) and task.exception():
+            failed.append(task.exception())
+            me.cancel()
+
+    def then(step) -> asyncio.Task:
+        task = asyncio.create_task(_after(turn, step))
+        _background(task)
+        task.add_done_callback(done)
+        return task
     try:
         async for ev in session.events():
             if ev.kind == "usage":
                 meter.usage.set(ev.usage)
-            elif ev.kind == "tool_call":  # answered off this loop, in order: audio and the
-                # transcript a relay is checked against (_honest) keep arriving meanwhile
+            elif ev.kind == "tool_call":
                 meter.note(f"[typed] {ev.call.args}")
-                calls = asyncio.create_task(_after(calls, _handle_tool_call(
-                    websocket, session, ev.call, watcher, meter)))
-                _background(calls)  # its failure is logged even with no turn end to raise it
+                turn = then(_handle_tool_call(websocket, session, ev.call, watcher, meter))
             elif ev.kind == "audio":
                 meter.rec.model(ev.data, 24000)  # the seam's providers all speak 24 kHz
                 await websocket.send_json(
                     {"type": "audio", "data": base64.b64encode(ev.data).decode()})
             elif ev.kind == "transcript":
                 await _transcript(websocket, meter, ev.role, ev.text)
-            elif ev.kind == "turn_complete":
-                if calls:  # a turn ends once its calls are answered
-                    await calls
-                meter.superseded = False
-                meter.end_turn()
-                await websocket.send_json({"type": "turn_complete"})
+            elif ev.kind == "turn_complete":  # once its calls are answered
+                turn = then(_turn_complete(websocket, meter))
             elif ev.kind == "interrupted":
                 await websocket.send_json({"type": "interrupted"})
     except asyncio.CancelledError:
-        if calls:
-            calls.cancel()  # a card one waits on parks, as on a drop
+        if failed:
+            raise failed[0] from None
+        if turn:
+            turn.cancel()  # a card one waits on parks, as on a drop
         raise
     finally:
-        if calls:  # a provider that dropped mid-turn: the calls it made still finish
-            await asyncio.wait([calls])
+        if turn:  # a provider that dropped mid-turn: the calls it made still finish
+            await asyncio.wait([turn])
 
 
-async def _after(previous: asyncio.Task | None, call) -> None:
-    """Run `call` once the call before it is answered, so a turn's calls keep their order."""
+async def _after(previous: asyncio.Task | None, step) -> None:
+    """Run `step` once the step before it is done."""
     if previous:
         try:
             await previous
         except BaseException:
-            call.close()  # never started: the turn already failed
+            step.close()  # never started: the turn already failed
             raise
-    await call
+    await step
+
+
+async def _turn_complete(websocket: WebSocket, meter: _Meter) -> None:
+    meter.superseded = False
+    meter.end_turn()
+    await websocket.send_json({"type": "turn_complete"})
 
 
 def _view(meter: _Meter, data: dict) -> None:

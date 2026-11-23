@@ -1435,15 +1435,35 @@ def test_a_relay_waits_for_a_transcript_that_lands_after_its_call(monkeypatch):
     class Session(_Session):
         async def events(self):
             yield P.Event("tool_call", call=relay)
+            yield P.Event("turn_complete")  # OpenAI Realtime ends a response at its call
             await asyncio.sleep(0.3)  # the call is being answered meanwhile
             yield P.Event("transcript", role="user", text="rerun the tests")
-            yield P.Event("turn_complete")
 
     typed, session = [], Session()
     monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append(a))
     monkeypatch.setattr(L.telemetry, "emit_action", lambda **k: None)
     monkeypatch.setattr(L.telemetry, "emit_live_turn", lambda **k: None)
-    _run(L._receiver(_WS(), session, _Watcher(), meter))
+    ws = _WS()
+    _run(L._receiver(ws, session, _Watcher(), meter))
     for task in list(L._tasks):  # the post-type refresh
         task.cancel()
     assert session.responses[0][1]["status"] == "sent" and typed
+    kinds = [m["type"] for m in ws.sent]
+    assert kinds.index("typed") < kinds.index("turn_complete")  # the turn ends after its call
+
+
+def test_a_tool_call_that_raises_fails_the_receiver(monkeypatch):
+    """Off the loop, a call that raises still ends the receiver with its error, so the
+    session reconnects as it did when calls ran inline."""
+    class Session(_Session):
+        async def events(self):
+            yield P.Event("tool_call", call=P.ToolCall("c", "type_in_pane", {}))
+            await asyncio.sleep(5)  # a provider waiting on the answer
+
+    async def boom(*_a, **_k):
+        raise RuntimeError("tool bug")
+
+    monkeypatch.setattr(L, "_handle_tool_call", boom)
+    with pytest.raises(RuntimeError, match="tool bug"):
+        _run(asyncio.wait_for(L._receiver(_WS(), Session(), _Watcher(),
+                                          L._Meter("s", "a", P._DEFAULT[0])), 2))
