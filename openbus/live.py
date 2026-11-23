@@ -1442,6 +1442,7 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
                     _answer(meter, proposal, None, parked[3])
                 for proposal, _ in claimed:
                     await _tell(websocket, meter, proposal)
+                meter.answered = True  # a typed turn is a request of its own, even mid-turn
                 await _transcript(websocket, meter, "user", text, new_segment=True,
                                   images=len(images))
         elif action == "resume" and hasattr(session, "restore"):  # a chat's reconnect
