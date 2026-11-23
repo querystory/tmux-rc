@@ -1492,8 +1492,9 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
 async def _receiver(websocket: WebSocket, session, watcher, meter: _Meter) -> None:
     """Model → client: voice audio, both transcripts, tool calls, barge-in. Also meters
     the session — takes each usage event into `meter` and emits a per-turn OTel record
-    at every turn boundary. A turn's calls and its end run in order off this loop, so audio
-    and the transcript a relay is checked against (_honest) keep arriving meanwhile."""
+    at every turn boundary. In voice a turn's calls and its end run in order off this loop,
+    so audio and the transcript a relay is checked against (_honest) keep arriving
+    meanwhile; a typed turn's words are in before its calls, and its frames keep order."""
     meter.superseded = False  # a reconnect drops the turn it belonged to
     me, turn, failed = asyncio.current_task(), None, []  # turn: its latest step, run in order
 
@@ -1502,18 +1503,21 @@ async def _receiver(websocket: WebSocket, session, watcher, meter: _Meter) -> No
             failed.append(task.exception())
             me.cancel()
 
-    def then(step) -> asyncio.Task:
-        task = asyncio.create_task(_after(turn, step))
-        _background(task)
-        task.add_done_callback(done)
-        return task
+    async def then(step) -> None:
+        nonlocal turn
+        if meter.text:
+            await step
+            return
+        turn = asyncio.create_task(_after(turn, step))
+        _background(turn)
+        turn.add_done_callback(done)
     try:
         async for ev in session.events():
             if ev.kind == "usage":
                 meter.usage.set(ev.usage)
             elif ev.kind == "tool_call":
                 meter.note(f"[typed] {ev.call.args}")
-                turn = then(_handle_tool_call(websocket, session, ev.call, watcher, meter))
+                await then(_handle_tool_call(websocket, session, ev.call, watcher, meter))
             elif ev.kind == "audio":
                 meter.rec.model(ev.data, 24000)  # the seam's providers all speak 24 kHz
                 await websocket.send_json(
@@ -1521,7 +1525,7 @@ async def _receiver(websocket: WebSocket, session, watcher, meter: _Meter) -> No
             elif ev.kind == "transcript":
                 await _transcript(websocket, meter, ev.role, ev.text)
             elif ev.kind == "turn_complete":  # once its calls are answered
-                turn = then(_turn_complete(websocket, meter))
+                await then(_turn_complete(websocket, meter))
             elif ev.kind == "interrupted":
                 await websocket.send_json({"type": "interrupted"})
     except asyncio.CancelledError:
