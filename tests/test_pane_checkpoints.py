@@ -119,10 +119,12 @@ def test_a_failed_first_read_leaves_the_restored_clock(monkeypatch, tmp_path, st
     monkeypatch.setattr(W, "CARD_VERSION", W.CARD_VERSION + 1)
     read = {"activity": "unknown", "parse_ok": False}
     w, _ = daemon(monkeypatch, db, now=20_000.0, activity="19000", read=read)
-    w._tick()  # and fails again, now over its own unread card
-    assert card(w)["state_since"] == since
+    for _ in range(W.PARSE_RETRIES):  # fails again over its own unread card, then is
+        w._tick()                      # retired, and an unchanged tick reuses that card
+        assert card(w)["state_since"] == since
     read.clear()
     read["activity"] = state
+    w.request_reparse("%1")
     w._tick()
     assert (card(w)["activity"], card(w)["state_since"]) == (state, since)
 

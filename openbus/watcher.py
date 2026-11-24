@@ -1454,7 +1454,12 @@ class Watcher:
         waiting clock, the SAME question persisting keeps it counting. Cosmetic screen
         churn (a spinner/clock that trips the fingerprint) does NOT reset it, so
         time-in-state stays honest even across re-parses. Persisted per pane so an
-        unchanged re-parse leaves it put and the clock keeps climbing."""
+        unchanged re-parse leaves it put and the clock keeps climbing. A failed read with
+        nothing to show ("unknown"), fresh or cached, is no reading: it leaves the clock to
+        the next read that succeeds. One that keeps a card keys it as usual (a fallback can
+        move it)."""
+        if not self._parse_valid.get(pane_id) and state.get("activity") == "unknown":
+            return self._state_since.get(pane_id, now)
         key = self._pending_key(state)
         if self._state_key.get(pane_id) != key:
             # Restart amnesia (#129): these clocks live in daemon memory, so a restart
@@ -1836,12 +1841,7 @@ class Watcher:
         state["idle_seconds"] = idle
         # When this pane entered its current activity/question state — the client ticks
         # `now - state_since` live so idle/waiting durations stay honest between parses.
-        # A failed read with nothing to show ("unknown") is no reading: it leaves the clock
-        # to the next read that succeeds. One that keeps a card keys it as usual (a fallback
-        # can move it).
-        state["state_since"] = self._state_since_for(pane.id, state, now, idle_seed) \
-            if self._parse_valid[pane.id] or state.get("activity") != "unknown" \
-            else self._state_since.get(pane.id, now)
+        state["state_since"] = self._state_since_for(pane.id, state, now, idle_seed)
         state["updated_at"] = now
         state["last_activity_at"] = last_activity
         # parsed_at advances ONLY on a real LLM parse (this path), unlike updated_at
