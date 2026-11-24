@@ -82,6 +82,24 @@ def test_only_a_folder_with_an_index_is_published(root):
     assert BUCKET == {} and "publish" not in _meta(root)
 
 
+def test_a_linked_index_is_not_published(root):
+    (root / "tea notes/index.md").rename(root / "tea notes/report.md")
+    (root / "tea notes/index.md").symlink_to("report.md")  # export leaves links out
+    with pytest.raises(SystemExit):
+        P.cli(["publish", "tea notes"], WEB_DIR)
+    assert BUCKET == {}
+
+
+def test_an_unreadable_record_refuses_rather_than_forget_the_copy(root):
+    P.cli(["publish", "tea notes"], WEB_DIR)
+    assert P.hosted("tea notes") and not P.hosted("other")
+    P.store().write_text("[")
+    assert P.hosted("other")  # a delete tries, and its failure is pushed
+    with pytest.raises(SystemExit, match="unreadable"):
+        P.unpublish("tea notes")
+    assert BUCKET and P.store().read_text() == "["
+
+
 def test_an_archived_folder_unpublishes_too(root, capsys):
     P.cli(["publish", "tea notes"], WEB_DIR)
     (root / ".archive").mkdir()

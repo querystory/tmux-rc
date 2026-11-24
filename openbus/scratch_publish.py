@@ -8,6 +8,7 @@ is sent, by a record of what was, so the writer needs no permission to list the 
 import argparse
 import fcntl
 import hashlib
+import json
 import logging
 import mimetypes
 import os
@@ -65,8 +66,31 @@ def _target() -> tuple[str, str]:
     return target.rstrip("/"), base.rstrip("/")
 
 
-def _record() -> Path:
+def store() -> Path:
     return accounts.store_path().with_name("published.json")  # {prefix/folder: {file: sha256}}
+
+
+def _inventory() -> dict:
+    """The record, {} before the first copy. One unreadable refuses: it alone finds what is
+    hosted, and rewriting it would lose that."""
+    try:
+        record = json.loads(store().read_text())
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError):
+        record = None
+    if not isinstance(record, dict):
+        raise SystemExit(f"{store()} is unreadable: fix it, or remove what it lists "
+                         "by hand and delete it")
+    return record
+
+
+def hosted(name: str) -> bool:
+    """Whether folder `name` has a copy at the target, by the record (not its meta.json)."""
+    try:
+        return bool(_inventory().get(f"{_target()[0]}/{name}"))
+    except SystemExit:  # not configured, or a record that refuses: unpublish says so
+        return bool(os.environ.get("TMUXRC_SCRATCH_PUBLISH"))
 
 
 def url(name: str) -> str:
@@ -76,29 +100,31 @@ def url(name: str) -> str:
 def _sync(name: str, out: Path | None) -> None:
     """Make the copy at the target match `out` (None: nothing), sending only what changed."""
     target = _target()[0]
-    _record().parent.mkdir(parents=True, exist_ok=True)
+    store().parent.mkdir(parents=True, exist_ok=True)
     # one copy at a time, the CLI's and the daemon's alike: each reads and rewrites the record
-    with _record().with_suffix(".lock").open("a") as lock:
+    with store().with_suffix(".lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        record = scratch.load(_record(), {})
+        record = _inventory()
         was = record.get(f"{target}/{name}", {})
         now = {f.relative_to(out).as_posix(): hashlib.sha256(f.read_bytes()).hexdigest()
                for f in (out.rglob("*") if out else ()) if f.is_file()}
         sent = [r for r, digest in now.items() if was.get(r) != digest]
         # whatever may be sent is on record first (as unknown), so a failure midway leaves
         # nothing hosted that unpublish cannot find
-        scratch.save(_record(), {**record, f"{target}/{name}": {**was, **dict.fromkeys(sent, "")}})
+        scratch.save(store(), {**record, f"{target}/{name}": {**was, **dict.fromkeys(sent, "")}})
         driver = DRIVER(target)
         for rel in sent:
             driver.put(f"{name}/{rel}", out / rel)
         for rel in was.keys() - now.keys():
             driver.drop(f"{name}/{rel}")
         record[f"{target}/{name}"] = now
-        scratch.save(_record(), {k: v for k, v in record.items() if v})
+        scratch.save(store(), {k: v for k, v in record.items() if v})
 
 
 def _indexed(card: dict | None) -> bool:
-    return bool(card) and not card["pending"] and card["href"].endswith("/")  # it has one
+    # it has one, and not a link, which export leaves out
+    return bool(card) and not card["pending"] and card["href"].endswith("/") and not card[
+        "page"].is_symlink()
 
 
 def publish(root: Path, name: str, web: Path) -> str:

@@ -2470,10 +2470,9 @@ if _scratch_dir:
         """Archive, unarchive or delete (from the archive) the gallery's selected folders."""
         try:
             root = Path(_scratch_dir)
-            published = lambda r, n: (scratch.named(r, n) or {}).get("publish")  # noqa: E731
             # deleted, a published folder's copy goes too, unless a live one of its name has it
-            gone = {n for n in body.names if body.action == "delete" and published(
-                scratch.archive(root), n) and not published(root, n)}
+            gone = {n for n in body.names if body.action == "delete" and scratch_publish.hosted(
+                n) and not (scratch.named(root, n) or {}).get("publish")}
             done = scratch.act(root, body.action, body.names)
             scratch_sidecars.forget(done)
             for name in gone.intersection(done):
