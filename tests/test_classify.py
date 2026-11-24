@@ -2187,7 +2187,8 @@ def test_a_draft_under_a_blank_first_row_is_not_fresh():
     bad = {"tool": "claude", "activity": "waiting", "fresh": True,
            "question": {"prompt": "Which bed first?", "answer_style": "text"}}
     seen = []
-    reads = [bad, {"tool": "claude", "activity": "idle", "fresh": True}]
+    fresh = {"tool": "claude", "activity": "idle", "fresh": True}
+    reads = [bad, fresh]
     def read(_system, user, **_k):
         seen.append(user)
         return reads.pop(0)
@@ -2195,5 +2196,5 @@ def test_a_draft_under_a_blank_first_row_is_not_fresh():
     assert "plant the tomatoes first" in seen[-1]
     assert not {"fresh", "resumable"} & r.keys()
     typed = _NEW_SESSION.replace("❯ ", "❯ plant the tomatoes first")
-    r = classify(_pane("claude"), typed, _llm({"tool": "claude", "activity": "idle", "fresh": True}))
+    r = classify(_pane("claude"), typed, _llm(fresh))
     assert not {"fresh", "resumable"} & r.keys()
