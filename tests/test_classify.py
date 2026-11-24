@@ -1568,6 +1568,22 @@ def test_an_offer_the_model_returns_is_a_user_wait():
     assert classify(_pane("claude"), screen, _llm({"activity": "idle"}))["activity"] == "idle"
 
 
+def test_a_sent_offer_is_spent():
+    # Sent, the command is echoed under the turn's stamp with its output: done, not offered.
+    handed = _auto_screen("Run it yourself:\n\n  ! make deploy")
+    sent = handed.replace("\n\n❯", "\n\n! make deploy\n  ⎿  Uploading 3 files…\n\n❯")
+    read = {"tool": "claude", "activity": "waiting", "waiting_on": "user",
+            "offers": ["! make deploy"]}
+    result = classify(_pane("claude"), sent, _llm(read))
+    assert (result["activity"], result.get("waiting_on"), result.get("offers")) == (
+        "idle", None, None)
+    # Only that command: another offer still waits on the user.
+    both = {**read, "offers": ["! make deploy", "! make smoke"]}
+    two = sent.replace("  ! make deploy\n", "  ! make deploy\n  ! make smoke\n", 1)
+    result = classify(_pane("claude"), two, _llm(both))
+    assert (result["activity"], result.get("offers")) == ("waiting", ["! make smoke"])
+
+
 def test_an_unsent_draft_keeps_the_handed_over_offer():
     # The input box's draft, a "!" one too, is not part of the final message.
     handed = _auto_screen("Run it yourself:\n\n  ! make deploy")

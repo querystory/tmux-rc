@@ -84,6 +84,18 @@ _USER_ROW_RE = re.compile(_PROMPT_ROW + "[ \\xa0]*[^\\s│]", re.MULTILINE)
 _INPUT_BOX_RE = re.compile(r"^[ \t]*╭?[─━]{3,}.*\n[ \t│]*[❯!]", re.MULTILINE)
 
 
+def _ran(offers: list[str], text: str) -> list[str]:
+    """The offered commands the user already ran: each is on screen again below Claude's
+    finished turn, under its stamp (where bash mode echoes a sent command and its output),
+    not only in the message that handed it over."""
+    view = _ask_view(text)
+    *_, turn = [None, *_CLAUDE_TURN_RE.finditer(view)]
+    if not turn or turn["live"]:
+        return []
+    after = _below_turn(view, turn.end())
+    return [o for o in offers if _quoted(o.removeprefix("! "), after)]
+
+
 def _below_turn(visible: str, end: int) -> str:
     """What the user did after a finished turn: the rows between its stamp and the input
     box. The box's own row is left out, since its unsent draft is not an answer."""
@@ -1437,7 +1449,12 @@ def classify(
             and result.get("activity") in ("idle", "unknown", None)):
         result["activity"] = "running"
     blocked = result.get("activity") == "quota_blocked"  # its ask already dropped
-    if (offers := screen_offers(result.pop("offers", None), text)) and not blocked:
+    offers = screen_offers(result.pop("offers", None), text)
+    ran = _ran(offers, text) if result.get("tool") == "claude" else []
+    if ran == offers and ran and not result.get("question") and result.get("activity") == "waiting":
+        result["activity"] = "idle"  # what the turn handed over is done: nothing waits on them
+        result.pop("waiting_on", None)
+    if (offers := [o for o in offers if o not in ran]) and not blocked:
         result["offers"] = [_from_reply(offer, reply) for offer in offers]
     # An agent's text question the model gave no replies for gets its buttons from their own
     # call; not a shell's (its program reads its own input, "y" rather than "Yes"), nor a
