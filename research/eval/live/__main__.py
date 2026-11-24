@@ -35,6 +35,8 @@ class Backend(live_chat._Chat):  # the text sessions' own tool loop
     in a live session too; what this leaves out is the voice front end's handoff."""
 
     def __init__(self, model: LiveModel, system: str, client, effort: str) -> None:
+        # Its instructions as gpt_live builds them: without the note for a model that speaks.
+        system = system.replace(live._SPOKEN_NOTE, "")
         super().__init__(model, f"{system}\n\n{gpt_live.BACKEND_PROMPT}")
         self._client, self._effort = client, effort
 
