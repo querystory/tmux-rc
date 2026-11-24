@@ -1,0 +1,12 @@
+{
+  "description": "Synthetic: a finished auto-mode turn reports a merge and, in passing, notes that another session's question is still open. That question belongs to the other session and the turn asks the user nothing, so the pane is idle with no offer.",
+  "current_command": "claude",
+  "capture": "❯ merge #412\n\u001e[visible screen]\u001f\n❯ merge #412\n\n  Ran 3 shell commands\n\n● #412 is in the merge queue at position 1. I'm\n  watching it and will refresh the tracker page\n  when it merges.\n\n✻ Sautéed for 1m 1s · done 10:40 AM\n\n● Background command \"Wait for #412 to leave the\n  merge queue\" completed (exit code 0)\n\n  Ran 1 shell command\n\n● #412 merged into main as 9c1e5a2, and the tracker\n  page now shows it as merged.\n\n  That was the last open PR on the page, so all of\n  today's fixes are in main. garden-7's watering\n  question is still open: whether to keep the\n  sprinklers on the twice-daily schedule instead\n  of switching them to once a day. That would be a\n  separate follow-up PR now.\n\n  https://example.org/scratch/garden-tracker/\n\n✻ Cooked for 6s · done 10:51 AM\n──────────────────────────────────────────────────\n❯ \n──────────────────────────────────────────────────\n  ~/src/garden | Opus 5.5 | robin@example.com\n  session: +310/-42 lines · 8% ctx · 6h12m\n  ⏵⏵ auto mode on (shift+tab to cycle)\n",
+  "expected": {
+    "tool": "claude",
+    "activity": "idle",
+    "waiting_on": null,
+    "offers": null,
+    "headline": "PR #412 merged; the tracker page shows all of today's fixes in main"
+  }
+}
