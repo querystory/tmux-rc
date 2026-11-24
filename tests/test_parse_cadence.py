@@ -636,6 +636,7 @@ def test_failed_parse_keeps_an_open_codex_turn_running(monkeypatch):
     w._forced_this_tick = set()
     state = w._tick_pane(pane)
     assert state["activity"] == "running" and state["headline"] == "Done"
+    assert w._state_key[pane.id][0] == "running", "the fallback's activity keys the clock"
     assert pane.id not in w._prev_fp, "the unread screen is still retried"
     for text in ("Run it?  1. Yes  2. No", "Run it?  1. Yes  2. No  3. Later"):
         frame[0] = text

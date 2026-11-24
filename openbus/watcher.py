@@ -65,8 +65,8 @@ CHECKPOINT_EVENTS = 100
 # A dead tmux server's checkpoints are the only record of what it ran (after a reboot,
 # say). Keep them all until the server's newest activity is this old.
 DEAD_SERVER_RETENTION = 30 * 86400
-# Bump when classification or the fingerprint changes meaning: stored cards then miss
-# their hash once and every pane is re-read, instead of restoring an older parser's card.
+# Bump when classification changes meaning: every pane's stored card is then read again,
+# instead of restoring an older parser's card. Its clocks stand while its screen does.
 CARD_VERSION = 100
 # LLM parse cadence. We capture every tick (cheap, for the snapshot buffer) but only
 # PARSE when the content fingerprint CHANGED vs. the last parse (or on a forced reparse).
@@ -1210,14 +1210,20 @@ class Watcher:
         return self._parse_valid.get(pane_id, False)
 
     def frame_fp(self, text: str, question: dict | None = None) -> str:
-        """A capture's hash, as _tick_pane keys its parses. The parser version and LLM mode
-        are mixed in so a stored card from a different classifier misses on restart. With
-        a menu `question`, only its own rows, verbatim (classify.question_rows): the
-        normalized screen can't tell "sleep 10s" from "sleep 20s", and an answer token
-        must, yet output still streaming above the menu must not make it look stale."""
+        """A capture's hash, as _tick_pane keys its parses. The screen alone: a checkpoint
+        keeps its clocks across a parser change, and only its card is versioned
+        (_card_version). With a menu `question`, only its own rows, verbatim
+        (classify.question_rows): the normalized screen can't tell "sleep 10s" from
+        "sleep 20s", and an answer token must, yet output still streaming above the menu
+        must not make it look stale."""
         rows = question_rows(question, text) if isinstance(question, dict) else ""
-        return hashlib.sha256(
-            f"{CARD_VERSION}:{self.use_llm}\n{rows or _fingerprint(text)}".encode()).hexdigest()
+        return hashlib.sha256((rows or _fingerprint(text)).encode()).hexdigest()
+
+    @property
+    def _card_version(self) -> str:
+        """What a stored card was read by: a card from another classifier or LLM mode is
+        read again on restart, though its screen and clocks still stand."""
+        return f"{CARD_VERSION}:{self.use_llm}"
 
     def pane_input_generation(self, pane_id: str) -> int:
         """Monotonic token changed immediately after accepted pane input."""
@@ -1354,27 +1360,29 @@ class Watcher:
 
     def _restore(self, pane, fp: str, now: float) -> dict | None:
         """Consume this pane's preloaded checkpoint; return it only if the screen is
-        unchanged. Its parsed card, if any, then goes back in as if just parsed, so an
-        unchanged screen costs no LLM call. The session's own record (the bootstrap's
-        name and summary, and the activity log) belongs to the process, not the screen,
-        so it comes back whatever the screen shows now or however its last parse went."""
+        unchanged, so its clocks stand. Its parsed card, if this parser wrote it, then goes
+        back in as if just parsed, so an unchanged screen costs no LLM call. The session's
+        own record (the bootstrap's name and summary, and the activity log) belongs to the
+        process, not the screen, so it comes back whatever the screen shows now, however
+        its last parse went and whichever parser wrote it."""
         uid = pane_key(self._server, pane.id, self._birth.get(pane.id))
         row = (self._checkpoints or {}).pop(uid, None)
         same = row is not None and row["fp"] == fp
         card, pid = (row or {}).get("card") or {}, pane.id
         state = card.get("state") if same else None
-        if state:
+        if state:  # an older parser's reading too: a new one that agrees keeps its clock
+            self._state_key[pid] = self._pending_key(state)
+            self._state_since[pid] = min(row["idle_since"] or state.get("state_since") or now,
+                                         now)
+        if state and card.get("version") == self._card_version:
             state.pop("last_activity_at", None)  # the row's column is the source of truth
             state.pop("input_generation", None)  # the last run's counter, not this one's
             self._state[pid], self._prev_fp[pid], self._parse_valid[pid] = state, fp, True
             self._checkpointed[pid] = None  # see _checkpoint
-            self._state_key[pid] = self._pending_key(state)
-            self._state_since[pid] = min(row["idle_since"] or state.get("state_since") or now,
-                                         now)
             if state.get("summary"):
                 self._summary[pid] = state["summary"]
             self._prs[pid] = list(state.get("prs") or [])
-        if state or card.get("boot"):
+        if card:  # its log and counter, whatever the screen or parser
             self.events_log[pid] = card["events"]
             # The counter the phone last saw, never a smaller one it could match again.
             self._events_seq[pid] = card.get("events_seq",
@@ -1416,6 +1424,7 @@ class Watcher:
                     # A card from a failed parse describes an older screen: store no state,
                     # so a restart re-parses instead of restoring it against this hash.
                     "card": {
+                        "version": self._card_version,
                         "state": dict(s) if valid else None,  # a later read updates s
                         "events": self.events_log.get(p.id, [])[-CHECKPOINT_EVENTS:],
                         "events_seq": s.get("events_seq", 0),
@@ -1445,7 +1454,12 @@ class Watcher:
         waiting clock, the SAME question persisting keeps it counting. Cosmetic screen
         churn (a spinner/clock that trips the fingerprint) does NOT reset it, so
         time-in-state stays honest even across re-parses. Persisted per pane so an
-        unchanged re-parse leaves it put and the clock keeps climbing."""
+        unchanged re-parse leaves it put and the clock keeps climbing. A failed read with
+        nothing to show ("unknown"), fresh or cached, is no reading: it leaves the clock to
+        the next read that succeeds. One that keeps a card keys it as usual (a fallback can
+        move it)."""
+        if not self._parse_valid.get(pane_id) and state.get("activity") == "unknown":
+            return self._state_since.get(pane_id, now)
         key = self._pending_key(state)
         if self._state_key.get(pane_id) != key:
             # Restart amnesia (#129): these clocks live in daemon memory, so a restart

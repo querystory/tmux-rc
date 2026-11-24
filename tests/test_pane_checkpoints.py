@@ -16,7 +16,7 @@ SCREEN = f"old scrollback\n{W.tmux.VISIBLE_SCREEN}\n› done, tests pass"
 
 
 def daemon(monkeypatch, db, *, screen=SCREEN, pid="101", now=10_000.0, activity="9000",
-           history=None, listed=True, server=lambda **_kwargs: "boot:1", prs=()):
+           history=None, listed=True, server=lambda **_kwargs: "boot:1", read=None):
     pane = W.tmux.Pane("work", "0", "agent", "0", "%1", "node", "Task", pid=pid,
                        window_activity=activity)
     monkeypatch.setattr(W.tmux, "server_running", lambda: True)
@@ -31,8 +31,9 @@ def daemon(monkeypatch, db, *, screen=SCREEN, pid="101", now=10_000.0, activity=
     def parse(pane, text, llm_fn=None, **_kwargs):
         calls.append("parse")
         return {"pane_id": pane.id, "activity": "idle", "tool": "codex",
-                "headline": "Fixed the flaky test", "working_prs": list(prs),
-                "events": [{"text": "ran the suite"}], "parse_ok": "unreadable" not in text}
+                "headline": "Fixed the flaky test", "working_prs": [],
+                "parse_ok": "unreadable" not in text, **(read or {}),
+                "events": [{"text": "ran the suite"}]}
 
     def boot(*_args, **_kwargs):
         calls.append("bootstrap")
@@ -90,14 +91,42 @@ def test_changed_screen_or_recycled_pid_falls_back(monkeypatch, tmp_path, change
     assert uids == {f"boot:1:%1:{change.get('pid', '101')}"}
 
 
+@pytest.mark.parametrize("state", ["idle", "waiting"])
 @pytest.mark.parametrize("bump", [0, 1])
-def test_a_card_version_bump_drops_prs_an_older_parser_saved(monkeypatch, tmp_path, bump):
+def test_a_card_version_bump_drops_the_card_but_keeps_the_clocks(monkeypatch, tmp_path, bump,
+                                                                  state):
+    """A new parser reads the card again; the screen is the same, so the pane has not
+    moved since: tmux's activity (a resize or footer redraw at 19000) is not its age."""
     db = tmp_path / "h.db"
-    daemon(monkeypatch, db, prs=[{"repo": "acme/demo", "number": 212}])  # a guessed repo
+    pr = {"repo": "acme/demo", "number": 212}  # a guessed repo
+    first, _ = daemon(monkeypatch, db, read={"activity": state, "working_prs": [pr]})
+    since = card(first)["state_since"]  # tmux's 9000 when idle, else when first seen
     monkeypatch.setattr(W, "CARD_VERSION", W.CARD_VERSION + bump)
-    w, calls = daemon(monkeypatch, db, now=20_000.0, activity="19000")
-    assert calls == (["parse"] if bump else [])
-    assert w._prs.get("%1", []) == ([] if bump else [{"repo": "acme/demo", "number": 212}])
+    w, calls = daemon(monkeypatch, db, now=20_000.0, activity="19000",
+                      read={"activity": state})
+    assert calls == (["parse"] if bump else [])  # the session's name stands too (#739)
+    assert w._prs.get("%1", []) == ([] if bump else [pr])
+    assert (card(w)["last_activity_at"], card(w)["state_since"]) == (9000.0, since)
+
+
+@pytest.mark.parametrize("state", ["idle", "waiting"])
+def test_a_failed_first_read_leaves_the_restored_clock(monkeypatch, tmp_path, state):
+    """The new parser's first reads fail (a timeout): they are no reading, so the retry
+    that agrees with the stored card still keeps its clock."""
+    db = tmp_path / "h.db"
+    first, _ = daemon(monkeypatch, db, read={"activity": state})
+    since = card(first)["state_since"]
+    monkeypatch.setattr(W, "CARD_VERSION", W.CARD_VERSION + 1)
+    read = {"activity": "unknown", "parse_ok": False}
+    w, _ = daemon(monkeypatch, db, now=20_000.0, activity="19000", read=read)
+    for _ in range(W.PARSE_RETRIES):  # fails again over its own unread card, then is
+        w._tick()                      # retired, and an unchanged tick reuses that card
+        assert card(w)["state_since"] == since
+    read.clear()
+    read["activity"] = state
+    w.request_reparse("%1")
+    w._tick()
+    assert (card(w)["activity"], card(w)["state_since"]) == (state, since)
 
 
 def test_a_restart_keeps_the_sessions_name_over_a_failed_parse(monkeypatch, tmp_path):
