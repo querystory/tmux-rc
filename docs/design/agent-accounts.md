@@ -102,9 +102,7 @@ alike; see [sidebar.md](sidebar.md).
   beside the "State" and "Search" chips (`State ● Working ✕  Account ● Work ✕  Search "api" ✕`,
   the search in the URL as `q=api`), so one line says everything narrowing the list; a phone's
   list shows no chips (the button's count and the list's foot say it), and on its dashboard
-  (no search there) the account's chip sits under the header. It applies to the list, the strip and the dashboard, Open loops included:
-  a loop shows only if a pane on the account holds it, so a PR or worktree with no pane,
-  which no account owns, is hidden while filtered.
+  (no search there) the account's chip sits under the header. It applies to the list, the strip and the dashboard.
   It lives in the URL beside the state filter as comma lists
   (`#filter=working,finished&acct=claude-work,claude`, each account its dir less its usual `~/.`:
   unique, unchanged by a rename, and readable; a comma inside a dir is escaped), not in localStorage: reload, a shared link and

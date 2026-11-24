@@ -36,11 +36,13 @@ _TITLE = re.compile(r"<title[^>]*>([^<]*)", re.IGNORECASE)
 # ends a path in prose, markdown, JSON or a URL.
 _MENTION = r"(scratch|SCRATCH_[A-Z_]+)/[^]/\"'\\<>()[{}`,;:*|?#[:space:]]+"
 _RETRY = 600
+_FRESH = 86400  # a miss is retried while its folder is this young: after that, never found
 _LOCK = threading.Lock()
 _ACT = threading.Lock()  # one Archive, Restore or Delete batch at a time
 _BIND = threading.Lock()  # one bind() read-merge-replace at a time
 _META = threading.Lock()  # one meta.json read-merge-replace at a time (authors, descriptions)
 _missed: dict[tuple, float] = {}  # when each (name, inode, update mark) was last not found
+_BASIS: dict[tuple, tuple] = {}  # (name, inode): what its card's state was read from (resolve)
 _found: dict[tuple, str] = {}  # for a refusing meta.json, or a listing older than it
 _reconciled = [0.0]
 _PAGE = Path(__file__).resolve().parent / "scratch.html"
@@ -380,17 +382,27 @@ def listing(root: Path, *, archived: bool = False) -> list[dict]:
     return items(archive(root)) if archived else items(root)
 
 
-def tag(listed: list[dict]) -> str:
+def tag(listed: list[dict], states: list[dict] = ()) -> str:
     """What the open gallery compares to see that it changed: a folder came, went or
     changed (its page too, say renamed to its index), its thumbnail, title or description
-    landed, an update began or ended, a page was moved to a pane (bind), or (by the minute)
-    a page in progress or being updated may have stopped. In no particular order,
-    as the gallery sorts after listing."""
+    landed, an update began or ended, a page was moved to a pane (bind), or a page in
+    progress or being updated stopped (by `states`, the panes: its agent's pane closed or
+    went quiet, or it got too old), or may have started again. Only that: working and quiet
+    look the same. In no particular order, as the gallery sorts after listing."""
+    panes = {s.get("pane_id"): s for s in states}
+
+    def stopped(i: dict) -> bool:  # as its card last read it (resolve), else by its meta.json
+        pane, birth, named = (_BASIS.get((i["name"], i["inode"]))
+                              or _basis(panes, _open(i, panes), i["pane"]))
+        now = panes.get(pane)  # that pane, not another under its recycled id
+        return progress(now if now and now.get("birth") == birth else None, named,
+                        i["since"]) == "stopped"
     return str(hash((*sorted((i["name"], i["href"], i["updated"], i["pending"], i["thumb"],
                               i["title"], i["description"], i["updating"]) for i in listed),
                      json.dumps(load(BINDINGS, {}), sort_keys=True),
-                     any(i["pending"] or i["updating"] for i in listed)
-                     and int(time.time() // 60))))
+                     # and its meta.json rewritten (another agent took it over) or its pane back
+                     *sorted((i["name"], i["named"], stopped(i), bool(_open(i, panes)))
+                             for i in listed if i["pending"] or i["updating"]))))
 
 
 def items(root: Path) -> list[dict]:
@@ -454,8 +466,11 @@ def _writers(todo: list[dict]) -> None:
     with _LOCK:  # a second request waits for the first's search instead of repeating it
         for i in todo:
             i["session_id"] = i["session_id"] or _found.get(keys[i["name"]])
-        due = {i["name"]: i["since"] for i in todo if not i["session_id"]
-               and now - _missed.get(keys[i["name"]], 0) > _RETRY}
+        # Searched once, then again only while young: an old miss's retry grepped weeks of
+        # transcripts for seconds, every _RETRY, holding up the gallery's every load.
+        due = {i["name"]: i["since"] for i in todo if not i["session_id"] and (
+            (key := keys[i["name"]]) not in _missed
+            or (now - _missed[key] > _RETRY and now - i["since"] < _FRESH))}
         if due and now - _reconciled[0] > _RETRY:  # a running session's entry can be days old
             agent_history.reconcile()
             _reconciled[0] = now
@@ -577,12 +592,30 @@ def _progress(listed: list[dict], states: list[dict]) -> dict:
     """Each item's `state` (progress, read while one is pending), and its `pane` while that
     pane is still open. Returns the panes by id."""
     panes = {s.get("pane_id"): s for s in states}
-    for i in listed:  # a pane id from before a tmux restart names some other pane now
-        if (pane := panes.get(i["pane"])) and not made_in(pane, i["named"]):
-            pane = None
-        i["state"] = progress(pane, i["pane"], i["since"])
-        i["pane"] = pane and i["pane"]
+    for i in listed:
+        pane = _open(i, panes)
+        _read(i, panes, pane, i["pane"])
+        i["pane"] = pane
     return panes
+
+
+def _open(i: dict, panes: dict) -> str | None:
+    """The pane i's meta.json names, while it is open and still that pane: an id from
+    before a tmux restart names some other pane now."""
+    pane = panes.get(i["pane"])
+    return i["pane"] if pane and made_in(pane, i["named"]) else None
+
+
+def _basis(panes: dict, pane: str | None, named: str | None) -> tuple:
+    """What a state is read from: `pane` (open, or None) as it is now, and the pane its
+    writer was `named` in."""
+    return pane, (panes.get(pane) or {}).get("birth"), named
+
+
+def _read(i: dict, panes: dict, pane: str | None, named: str | None) -> None:
+    """i's `state` by `pane` and `named` (_basis), kept with it for resolve to note."""
+    i["basis"] = _basis(panes, pane, named)
+    i["state"] = progress(panes.get(pane), named, i["since"])
 
 
 def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
@@ -618,10 +651,11 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
             at, i["sure"] = moved, True
         if at != i["pane"]:
             named = at or (None if s.get("running") else i["pane"])
-            i["pane"], i["state"] = at, progress(panes.get(at), named, i["since"])
+            i["pane"] = at
+            _read(i, panes, at, named)
         if (pane := panes.get(i["pane"])) is not None:
             if s:  # its session, found in a new pane: its page comes along as that pane does
-                i["state"] = progress(pane, i["pane"], i["since"])
+                _read(i, panes, i["pane"], i["pane"])
             _author(i, pane.get("tool"), account.get(i["pane"]) or {})
             i["where"] = where(pane)
             continue
@@ -630,6 +664,8 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
         i["pane"] = None
         _author(i, s.get("harness"), acct)
         i["where"] = s.get("title") or ""
+    # Noted only now, as each card reads: a _progress alone (opened's) knows less.
+    _BASIS.update({(i["name"], i["inode"]): i["basis"] for i in listed})
     return panes
 
 
@@ -650,9 +686,10 @@ def page(root: Path, states: list[dict], profiles: list[dict], style: Path,
     thumbnails and descriptions (scratch_sidecars.queue) and `docs` its documentation;
     `archived`, the archive's instead (an archived page is still served at its link)."""
     listed = listing(root, archived=archived)
-    seen = tag(listed)  # as the open gallery's check lists it: before the links are dressed
     sidecars([i for i in listed if not (i["pending"] or archived)])  # nothing to shoot yet
+    unresolved = [dict(i) for i in listed]  # as the open gallery's check lists it
     resolve(listed, states, profiles, pane_of)
+    seen = tag(unresolved, states)  # by the panes resolve read each card from
     for i in listed if archived else ():  # its own link: the name may be taken again since
         i["under"] = f"{scratch_markdown.ARCHIVE}/"
         i["href"] = i["under"] + i["href"]

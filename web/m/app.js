@@ -8,6 +8,7 @@ import { setupPush } from "/push.js";
 import { linkGroups, askLink } from "/pr-links.js";
 import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, AGENT_TOOLS, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf, tabTitle, tabIconKey, isRunning, sendIntent } from "/m/pane-model.js";
 import { tabIcon } from "/tab-icon.js";
+import { digestHtml } from "/m/digest.js";
 import { parseHash, formatHash, dropOneShots, historyMode, PAGES, scratchUrl } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { dragToDismiss } from "/m/drag-dismiss.js";
@@ -16,7 +17,6 @@ import { setupSidebar, SHOW, SORTS } from "/m/sidebar.js";
 import { renderUsage, renderStrip, byUrgency, shownUsage, moreUsage, staleUsage } from "/m/usage.js";
 import { renderUsageView, usageDays } from "/m/usage-view.js";
 import { setupAccounts } from "/m/accounts.js";
-import { renderLoops, renderLoopsCard } from "/m/loops.js";
 import { setupRestore } from "/m/restore.js";
 import { renderGraphView, renderGraphCard, hideIdle } from "/m/graph.js";
 
@@ -33,7 +33,11 @@ const LONG_POLL_TIMEOUT_MS = 35000;
 const NO_TIMEOUT = 2 ** 31 - 1;
 // How long a delivered answer holds its card (spinner, options disabled) when the pane's
 // question never changes — an ignored key — before we trust the pane's own state again.
+// Past it the hold lasts until the card has been read off another screen (its `frame`
+// moves), up to ANSWER_GIVE_UP_MS: a watcher tick over many panes can
+// outlast 15s, and letting go before that read put the answered menu back on the card.
 const ANSWER_PENDING_MS = 15000;
+const ANSWER_GIVE_UP_MS = 60000;
 // Being this close to the bottom of the terminal counts as following it, so a frame
 // keeps the view pinned to the tail; further up, the user is reading and we leave it.
 const FOLLOW_SLACK_PX = 48;
@@ -103,7 +107,6 @@ const LUCIDE = {
   pin: '<path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>',
   download: '<path d="M12 15V3M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/>',
   activity: '<path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/>',
-  listTodo: '<rect x="3" y="5" width="6" height="6" rx="1"/><path d="m3 17 2 2 4-4M13 6h8M13 12h8M13 18h8"/>',
   files: '<path d="M20 7h-3a2 2 0 0 1-2-2V2"/><path d="M9 18a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h7l4 4v10a2 2 0 0 1-2 2Z"/><path d="M3 7.6v12.8A1.6 1.6 0 0 0 4.6 22h9.8"/>',
   bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/>',
 };
@@ -169,7 +172,7 @@ let viewerTo = null; const viewerDrafts = new Map(); // the scratch viewer's mak
 // page: a dashboard card's own view (url-state.js PAGES), which replaces the page; leaving
 // it lands on its card (CARDS).
 let dashboard = false, page = null;
-const CARDS = { heat: "heat-card", usage: "usage-panel", loops: "loops-card", graph: "graph-card" };
+const CARDS = { heat: "heat-card", usage: "usage-panel", graph: "graph-card" };
 const dashboardVisible = () => !active && (WIDE.matches || dashboard);
 let panes = [], statePanes = [], paneIds = null, accountsAt = 0, active = null, view = "summary", filter = [], loaded = false, booted = false, tmuxRunning = true;
 let focusPushComposer = false, linked = null; // linked: a link's draft, offered once its pane's state is in (offerDraft)
@@ -324,7 +327,9 @@ const hashFor = (id = null, nextView = "summary", acct = accounts.key()) => {
 const plainClick = (e) => !(e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey); // a modified click opens a tab
 const inApp = (go) => (e) => { if (!plainClick(e)) return; e.preventDefault(); go(); };
 // A pane's row (either layout's) or rail icon, as its link.
-const paneLink = (a, id) => { a.href = `#${hashFor(id)}`; a.onclick = inApp(() => navigate(id)); };
+const paneLink = (a, id) => { a.href = `#${hashFor(id)}`; a.onclick = inApp(() => { leaveChatFull(); navigate(id); }); };
+// A full-screen chat (live.js) covers the work column: going somewhere, even the pane under it, leaves it.
+const leaveChatFull = () => $("voice-dialog").classList.contains("max") && $("voice-max").click();
 // Every user-driven move goes through here: the URL is written first, then the view is
 // routed synchronously (pushState/replaceState fire no hashchange). Back/Forward and edits
 // by hand reach route() through hashchange instead. Never call this from a poll.
@@ -401,6 +406,7 @@ function route() {
   if (state.q !== $("search").value.trim()) $("search").value = state.q; // a reload, a link or Back: typing writes the URL, not this
   if (accounts.follow(state.acct)) paintUsage(); // the strip and meters are filtered too
   if (page !== wasPage) { $("dash-page").replaceChildren(); $("dash-page")._signature = null; } // each view builds afresh
+  if (changed || page !== wasPage || state.compose || state.draft) leaveChatFull(); // a push or draft link asks for the pane
   // The viewer shows the URL's page (a link, a reload, a "Ready" push, Forward), and only on Scratch:
   // Back, a push or Safari's swipe off it closes the viewer.
   const opening = page === "scratch" && scratchUrl(state.open, location.href);
@@ -433,7 +439,7 @@ function route() {
     const id = active;
     // A dead deep link selects before state can say so; a 404 is the gone-pane path, and a
     // rejection after the user moved on must not overwrite whatever notice that left.
-    post(paneUrl(id, "select")).catch((error) => {
+    post(paneUrl(id, followPhone === "on" ? "select" : "select?follow=0")).catch((error) => {
       if (error.status === 404) leaveMissingPane(id);
       else if (stillOnPane(location.hash, id)) notice("Could not focus this pane on the host.");
     });
@@ -472,7 +478,7 @@ function updateRow(button, pane) {
   html(button.querySelector(".row-acct"), accounts.badge(pane.pane_id));
   text(button.querySelector(".row-details"), [pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
 }
-const renderSidebar = setupSidebar({ licon, reconcile, text, html, renderItems, logos: LOGOS, navigate, paneLink, notice, badge: accounts.badge,
+const renderSidebar = setupSidebar({ licon, reconcile, text, html, renderItems, logos: LOGOS, navigate, paneLink, leaveChatFull, notice, badge: accounts.badge,
   active: () => active, wide: () => WIDE.matches, sending: () => sending, answers: answerOptions, answered: isAnswered, picked, asks, badgeOf, answer, compose, offers: (p) => offersOf(p).filter(isCommand), copy: copyText, linkPair,
   setFilter: (value) => { filter = value; stayPut(); }, setAgents: scope.pick,
   setSession: scope.pickSession, clearAll: clearFilters, outside: (p) => outside.has(p.pane_id), sort: () => sort, setSort, repaint: () => renderList() });
@@ -589,7 +595,6 @@ const renderLanding = steady(() => {
   if (page === "heat") return renderHeatView($("dash-page"), $("session-atlas")._scope || {}, licon, closePage);
   if (page === "usage") return paintUsage();
   if (page === "scratch") return scratchPage();
-  if (page === "loops") return renderLoops(cardView("Open loops", loopsView), accounts.loops(loops), navigate, licon);
   if (page === "graph") return renderGraphView(cardView("Fleet graph", graphView), panes.filter(accounts.matches), graphCtx); // the account filter scopes it, as the atlas
   paintUsage(); // follows the tool chips
   // With panes, the atlas speaks for itself (its filter row is labelled); the heading is
@@ -605,7 +610,6 @@ const renderLanding = steady(() => {
     navigate();
     $("sessions").scrollTop = $("sb-scroll").scrollTop = $("side-list").scrollTop = 0;
   }, licon, [$("landing-cards")], $("heat-card"), () => openPage("heat"), $("radar-card"), accounts.sessionBadge);
-  renderLoopsCard($("loops-card"), accounts.loops(loops), openLane, licon);
   renderGraphCard($("graph-card"), panes.filter(accounts.matches), graphCtx);
 });
 
@@ -813,7 +817,7 @@ const refreshHistory = (force) => refreshAtlasHistory(request, () => { if (dashb
 // The wide sidebar keeps them all unless the same setting is Off, the one choice Settings
 // offers there: someone paying per token has no plan limits to watch.
 const USAGE_MODES = { auto: "Auto", on: "On", off: "Off" };
-let usage = [], loops = null, cachedAt = 0, usageMode = "auto", usagePast = 0, cachedSeq = 0;
+let usage = [], cachedAt = 0, usageMode = "auto", usagePast = 0, cachedSeq = 0;
 try { const saved = localStorage.getItem("tmuxrc-usage"); if (Object.hasOwn(USAGE_MODES, saved)) usageMode = saved; } catch {}
 // A strip's last card: the quiet meters' "+N" and, when a reading was kept through failed
 // reads, how old, once rather than on every card. Redrawn only when changed or wiped.
@@ -858,24 +862,11 @@ const usageView = document.createElement("section");
 usageView.className = "atlas-panel usage-view";
 usageView.ariaLabel = "Plan usage over time";
 detailCard($("usage-panel"), "Plan usage", "", () => openPage("usage"));
-const loopsView = document.createElement("section");
-loopsView.id = "landing-loops";
-loopsView.ariaLabel = "Open loops";
-detailCard($("loops-card"), "Open loops", "", () => openPage("loops"));
+$("digest-card").onclick = (e) => { if (!e.target.closest("a")) $("digest-card").querySelector("a").click(); }; // anywhere else opens the daily page
 // The Fleet graph (graph.js): the card's at a glance, the view's to pan, zoom and regroup.
 const graphView = Object.assign(document.createElement("section"), { className: "fg-view", ariaLabel: "Fleet graph" });
 const graphCtx = { icon: licon, logos: LOGOS, open: (id) => navigate(id), owner: accounts.owner, several: accounts.any };
 detailCard($("graph-card"), "Fleet graph", "", () => openPage("graph"));
-// A lane's count on the card opens the view at that lane, unfolded.
-function openLane(lane) {
-  openPage("loops");
-  const at = loopsView.querySelector(`[data-lane="${lane}"]`);
-  if (!at) return;
-  at.open = true; at.scrollIntoView(); at.firstChild.focus({ preventScroll: true });
-  // A phone's bar sticks over the page's top, however many rows of chips it has: clear it.
-  const bar = $("dash-page").querySelector(":scope > .landing-head"), under = bar ? bar.getBoundingClientRect().bottom - at.getBoundingClientRect().top : 0;
-  if (under > 0) $("landing").scrollTop -= under + 12;
-}
 // The scratch gallery, in the content area so the app stays put (the page is sandboxed, so a frame).
 const scratchFrame = Object.assign(document.createElement("iframe"), { src: "/scratch/", title: "Scratch", className: "scratch-frame" });
 // Its Grid/List sits on its filter's line. The sandboxed page cannot keep the choice, or read
@@ -1152,17 +1143,20 @@ function cardView(title, node) {
   if (!$("dash-page").contains(node)) $("dash-page").replaceChildren(pageHead(title, licon, closePage), node);
   return node;
 }
-// Plan usage and open loops are both cached by the server; a minute is fresh enough.
+// Plan usage is cached by the server; a minute is fresh enough. As it is for the Digest's card,
+// there once its writer has run (its summary and the weekly page are 404s until then).
 async function refreshCached(force) {
   if (!force && Date.now() - cachedAt < 60000) return;
   cachedAt = Date.now(); usagePast = page === "usage" && usageDays();
   const seq = ++cachedSeq;
   // The accounts with the meters, not after: drawn before them, several accounts' meters
   // stand as one tall grid for a moment before folding into their strip.
-  const [u, l] = await Promise.allSettled([request(usagePast ? `/api/usage?past=${usagePast}` : "/api/usage"), request("/api/open-loops"), accounts.refresh()]);
+  const [d, w, u] = await Promise.allSettled([request("/scratch/digest-daily/summary.json").then(digestHtml), fetch($("digest-weekly").href, { method: "HEAD", signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }),
+    request(usagePast ? `/api/usage?past=${usagePast}` : "/api/usage"), accounts.refresh()]);
   if (seq !== cachedSeq) return; // a forced fetch overlapped this one: only the latest answers land
+  if (d.value) html($("digest-body"), d.value); // unread or unreadable: no card
+  show("digest-card", d.value); show("digest-weekly", w.value?.ok);
   if (u.status === "fulfilled") usage = u.value.accounts || [];
-  if (l.status === "fulfilled") loops = l.value;
   paintUsage(); render();
 }
 
@@ -1528,6 +1522,9 @@ const FIT_PICKS = { "": "Default", width: "Width", tall: "Tall", off: "Off" };
 const stored = (k, fallback) => { try { return localStorage.getItem(k) ?? fallback; } catch { return fallback; } };
 const store = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
 let fitDefault = stored("tmuxrc-fit-default", "auto"), tallRows = Number(stored("tmuxrc-tall-rows", 500)) || 500;
+// Desktop follows phone: opening a pane here focuses it in tmux on the host too. Per browser, on by default.
+let followPhone = stored("tmuxrc-desktop-follows", "on");
+const setFollowPhone = (v) => { followPhone = v; store("tmuxrc-desktop-follows", v); paintSettings(); };
 let fitPicks = {}; try { fitPicks = JSON.parse(stored("tmuxrc-fit-picks", "{}")) || {}; } catch {}
 const paneKey = (id) => `${id}:${panes.find((p) => p.pane_id === id)?.birth ?? ""}`;
 const fitMode = (id) => fitPicks[paneKey(id)] || fitDefault;
@@ -2010,14 +2007,24 @@ function badgeOf(pane) {
 }
 // Holds pane `id`'s card under `pending` at once, "Sending…" and not Needs you. The returned
 // settle(sent) ends the send: delivered, "Sent, waiting for the agent" until the pane's next
-// state or ANSWER_PENDING_MS; not sent, the options are live again (the notice says why).
+// state or ANSWER_PENDING_MS (see there); not sent, the options are live again (the notice says why).
 function hold(id, pending) {
+  const frame = () => panes.find((p) => p.pane_id === id)?.frame;
   pending.note = "Sending…"; pendingAnswers.set(id, pending); render();
   return (sent) => {
     if (pendingAnswers.get(id) !== pending || sent && pending.sent) return; // moved on, or said already
     if (!sent) { pendingAnswers.delete(id); render(); return; }
     pending.sent = true; pending.note = "Sent, waiting for the agent"; render();
-    setTimeout(() => { if (pendingAnswers.get(id) === pending) { pendingAnswers.delete(id); render(); } }, ANSWER_PENDING_MS);
+    // Read at delivery, not the tap: a cursor walk's moves are parsed before its select lands.
+    // A wall-clock deadline, so a page woken from suspension lets go at once.
+    const unread = frame(), until = Date.now() + ANSWER_GIVE_UP_MS;
+    const expire = (ms) => setTimeout(() => {
+      if (pendingAnswers.get(id) !== pending) return;
+      const left = until - Date.now();
+      if (frame() === unread && left > 0) { expire(Math.min(ANSWER_PENDING_MS, left)); return; }
+      pendingAnswers.delete(id); render();
+    }, ms);
+    expire(ANSWER_PENDING_MS);
   };
 }
 // A tap holds its card at once: the tapped option spins, the rest go grey, and the card
@@ -2471,6 +2478,7 @@ function paintSettings() {
   choices("sort", SORTS, sort, setSort);
   choices("pin-needs", { on: "On", off: "Off" }, pinNeeds ? "on" : "off", setPinNeeds);
   choices("fit-default", FIT_DEFAULTS, fitDefault, setFitDefault);
+  choices("desktop-follows", { on: "On", off: "Off" }, followPhone, setFollowPhone);
   $("tall-rows").value = tallRows;
   show("sort-row", !WIDE.matches); // wide, the filter menu's Sort by sets it
 }
@@ -2832,7 +2840,8 @@ async function teleport() {
     // No timeout: the daemon asks claude.ai first, and a request given up on here could
     // still open its window, which a retry would then open twice.
     const data = await post("/api/teleport", { cloud, session: $("launch-session").value, account: launchPick.account("claude") }, NO_TIMEOUT);
-    $("teleport-id").value = ""; $("launch-dialog").close(); openLaunched(data.pane_id);
+    $("teleport-id").value = ""; syncTeleportButton();
+    $("launch-dialog").close(); openLaunched(data.pane_id);
     if (data.also?.length) notice(`Only ${data.repo} is checked out for this session. It also worked in ${data.also.join(", ")}.`, 10000);
   } catch (error) { text($("launch-error"), error.detail || "The session could not be teleported. Check sessions before retrying."); }
   finally { launching = false; }
@@ -2845,6 +2854,10 @@ $("teleport-go").onclick = () => {
   if (!launchAccounts) return text($("launch-error"), "The accounts could not be loaded. Close and try again.");
   launchPick.pick("claude", teleport);
 };
+function syncTeleportButton() {
+  $("teleport-go").disabled = !$("teleport-id").value.trim();
+}
+$("teleport-id").oninput = syncTeleportButton;
 $("teleport-id").onkeydown = (e) => { if (e.key === "Enter") $("teleport-go").click(); };
 
 const standalone = () => navigator.standalone || matchMedia("(display-mode: standalone)").matches; // installed, not a browser tab
@@ -3115,10 +3128,13 @@ const moveSheet = (other) => async () => {
 $("move-pane").onclick = moveSheet(false);
 $("move-agent").onclick = moveSheet(true);
 window.addEventListener("hashchange", route);
-// A push tapped while the app is open: sw.js names the address to show, and it is routed
-// here like any move. pushState, not location.hash, so the bare-list "/m" routes too.
-const openLink = (url) => { history.pushState(null, "", url); route(); };
-navigator.serviceWorker?.addEventListener("message", ({ data }) => { if (data?.open) openLink(data.open); });
+// An address to show, routed like any move: a news notice's Open, or a tapped push (sw.js,
+// through live.js). Pushed, not set on location.hash, so the bare-list "/m" routes too; the
+// screen already showing (a cold start opened at it) is replaced, as navigate() would.
+const openLink = (url) => {
+  const how = historyMode(location.hash, new URL(url, location.href).hash);
+  history[`${how}State`](how === "replace" ? history.state : null, "", url); route();
+};
 // Pages that landed (push.py's news in /api/state), each told once: a notice with Open and the
 // Recent pages read again. A notification is the push's alone, so a device that turned them
 // off gets none, and two tabs never show one twice. A first state's news is old.
@@ -3152,7 +3168,7 @@ setupPush($("push"), notice, licon("bell"));
 // /api/state; a stale one whose pane has since closed takes the normal gone-pane path.
 const openOffered = (id, at) => !panes.some((p) => p.pane_id === id) && awaitingLaunch({ id, at }, id)
   ? openLaunched(id, at) : navigate(id);
-const live = setupLiveMode({ request, session: liveSession, licon, wide: WIDE, open: openOffered, report: reportError, onVersion: observeVersion, onChat: () => renderList(), account: accounts.consent, panes: () => panes, logos: LOGOS });
+const live = setupLiveMode({ request, session: liveSession, licon, wide: WIDE, open: openOffered, onLink: openLink, report: reportError, onVersion: observeVersion, onChat: () => renderList(), account: accounts.consent, panes: () => panes, logos: LOGOS });
 // Wide, the top bar's Chat and Voice open New session on that tab, beside the sidebar; nothing
 // starts or docks until something is asked. A conversation already running is just brought back.
 for (const [id, kind] of [["chat", "chat"], ["live-mode", "voice"]]) {

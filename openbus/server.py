@@ -107,10 +107,10 @@ from .classify import picker_digest, picker_read, prompt_gone  # noqa: E402
 from .history import History, default_path, pane_key  # noqa: E402
 from .host_security import TrustedHostMiddleware  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
-from .open_loops import OpenLoops  # noqa: E402
 from .plan_usage import ENV, PlanUsage, canonical  # noqa: E402
 from .push import PushManager, claim_question, contract, pane_input  # noqa: E402
 from .watcher import Watcher, _fingerprint  # noqa: E402
+from .worktrees import Worktrees  # noqa: E402
 
 # One standard, human-readable log format for ALL loggers (uvicorn included — main()
 # passes log_config=None so its loggers propagate here instead of using its own):
@@ -545,9 +545,9 @@ async def lifespan(app: FastAPI):
                                                            app.state.push.sender.send)))
     app.state.push.start()
     app.state.usage = PlanUsage(app.state.history, profiles=accounts.metered)
-    app.state.loops = OpenLoops()
+    app.state.worktrees = Worktrees()
     tasks = [asyncio.create_task(app.state.usage.run(app.state.watcher)),
-             asyncio.create_task(app.state.loops.run(app.state.watcher))]
+             asyncio.create_task(app.state.worktrees.run(app.state.watcher))]
     try:
         yield
     finally:
@@ -874,13 +874,6 @@ def get_usage(past: float = 0):
     return {"accounts": usage.report(past=past) if usage else []}
 
 
-@app.get("/api/open-loops")
-def get_open_loops():
-    """Waiting on you / Moving / Dropped, by workstream, from cached GitHub and git state."""
-    loops = getattr(app.state, "loops", None)
-    return loops.report(list(app.state.watcher.states)) if loops else {"lanes": None}
-
-
 @app.get("/api/state")
 async def get_state(v: int | None = None):
     """Deck state for the phone. With `?v=<version>` this LONG-POLLS: it holds until the
@@ -902,9 +895,9 @@ async def get_state(v: int | None = None):
     # thread's in-place updates (the fast tmux_active flip) can't mutate objects mid-encode.
     version = w.state_version()
     panes = [dict(s) for s in w.states]
-    if loops := getattr(app.state, "loops", None):  # the Fleet graph's Repo and Worktree lenses
+    if held := getattr(app.state, "worktrees", None):  # the Fleet graph's Repo and Worktree lenses
         for s in panes:
-            s["worktree"] = loops.where(s.get("cwd"))
+            s["worktree"] = held.where(s.get("cwd"))
     # Each question carries what a push nonce binds: its contract digest and the input
     # generation its parse captured, plus that parse's frame. A menu answer names all
     # three, and /send refuses it once the pane holds a different ask, has taken input
@@ -946,7 +939,7 @@ def push_config():
 @app.post("/api/push/subscribe")
 def push_subscribe(body: PushSubscriptionBody, request: Request):
     try:
-        app.state.push.subscribe(body.model_dump())
+        app.state.push.subscribe(body.model_dump(), request.headers.get("origin"))
     except ValueError as exc:
         _audit(request, "push_subscribe", "push", outcome=f"rejected: {exc}")
         raise HTTPException(400, str(exc)) from exc
@@ -1796,17 +1789,19 @@ def new_session(body: NewSessionBody, request: Request):
 
 
 @app.post("/api/panes/{pane_id}/select")
-def select(pane_id: str, request: Request):
-    """Focus this pane in tmux itself — tapping a card on the phone follows on host."""
+def select(pane_id: str, request: Request, follow: bool = True):
+    """The app opened this pane; unless the phone's Desktop follows phone is off (follow=0),
+    tmux focuses it too, so the host follows."""
     if (pane := tmux.find_pane(pane_id)) is None:
         _audit(request, "select_pane", pane_id, outcome="rejected: pane not found")
         raise HTTPException(404, "pane not found")
-    try:
-        tmux.select_pane(pane_id)
-    except Exception as e:
-        _audit(request, "select_pane", pane_id, outcome=f"error: {e}"[:80])
-        raise
-    _audit(request, "select_pane", pane_id)
+    if follow:
+        try:
+            tmux.select_pane(pane_id)
+        except Exception as e:
+            _audit(request, "select_pane", pane_id, outcome=f"error: {e}"[:80])
+            raise
+        _audit(request, "select_pane", pane_id)
     # The app selects the pane it opens: a visit, keyed as History keys a pane, so a recycled
     # id (or one after a reboot) is some other pane; by its own pid, which the watcher may not
     # know yet (a pane just launched).
@@ -2453,9 +2448,9 @@ if _scratch_dir:
         to fetches would need CORS for the opaque origin "null", which every agent page
         shares, or the app's own origin, for a page that renders agent-written text."""
         if seen is not None:
-            listed = await asyncio.to_thread(scratch.listing, Path(_scratch_dir),
-                                             archived=archived is not None)
-            return Response(None, 204) if seen == scratch.tag(listed) else Response(
+            now = await asyncio.to_thread(lambda: scratch.tag(scratch.listing(
+                Path(_scratch_dir), archived=archived is not None), list(app.state.watcher.states)))
+            return Response(None, 204) if seen == now else Response(
                 _PIXEL, media_type="image/gif")
         use_llm = getattr(app.state.watcher, "use_llm", False)
         return HTMLResponse(await asyncio.to_thread(lambda: scratch.page(

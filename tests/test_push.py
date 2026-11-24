@@ -229,6 +229,31 @@ def test_sender_vapid_contact_default_and_override(monkeypatch, override):
     assert sent[0]["vapid_claims"]["sub"] == (override or "mailto:tmux-rc@openbus.io")
 
 
+def test_apple_devices_get_a_declarative_push_that_ios_opens_itself(tmp_path, monkeypatch):
+    sent = []
+    monkeypatch.setattr(push, "webpush", lambda **kwargs: sent.append(
+        (kwargs["subscription_info"]["endpoint"], json.loads(kwargs["data"]))))
+    manager = push.PushManager.__new__(push.PushManager)
+    manager.store = push.PushStore(tmp_path / "push.json")
+    manager.subscribe(subscription(), "https://app.example.org")
+    manager.subscribe(subscription("https://fcm.googleapis.com/fcm/send/x"), "https://app.example.org")
+    manager.subscribe(subscription("https://web.push.apple.com/Q2/no-origin"))
+    payload = {"title": "Question", "body": "Ship it?", "tag": "block:%7", "url": "/m#pane=%257",
+               "actions": [{"action": "answer:0", "title": "Yes"}], "nonce": "n"}
+    sender = object.__new__(push.PushSender)
+    for item in manager.store.subscriptions():
+        sender._deliver(item, payload, "test-key")
+        sender._deliver(item, {**payload, "chat": "card"}, "test-key")
+    declarative = {"web_push": 8030, "notification": {
+        "title": "Question", "body": "Ship it?", "tag": "block:%7",
+        "navigate": "https://app.example.org/m#pane=%257"}}
+    assert sent == [(subscription()["endpoint"], declarative),
+                    (subscription()["endpoint"], {**payload, "chat": "card"})] + [
+        (endpoint, body) for endpoint in ("https://fcm.googleapis.com/fcm/send/x",
+                                          "https://web.push.apple.com/Q2/no-origin")
+        for body in (payload, {**payload, "chat": "card"})]
+
+
 def test_option_mapping_matches_card_semantics():
     question = {"answer_style": "menu", "options": ["Yes", "No"]}
     assert push.option_keys(question, 0) == "1"
@@ -1014,11 +1039,12 @@ def test_a_page_being_updated_notifies_once_its_mark_is_gone(tmp_path, monkeypat
     (root / "page" / "report.html").unlink()  # first seen mid-rewrite, pending
     (root / "page" / "report.pdf").write_text("pdf")
     meta.write_text('{"title": "Mock", "updating": "v3"}')
+    os.utime(meta, ns=(2, 2))
     service.landed()
     meta.write_text('{"title": "Mock"}')
     os.utime(meta, ns=(3, 3))
     service.landed()
-    os.utime(root / "page" / "report.pdf", (0, 0))  # the minute has passed
+    os.utime(root / "page" / "report.pdf", (100, 100))  # the minute has passed
     service.landed()
     assert [p["title"] for p in sender.payloads] == ["Updated: page", "Updated: Mock"]
     # A folder replaced under its name mid-revision: the old one's wait goes with it.
@@ -1030,6 +1056,25 @@ def test_a_page_being_updated_notifies_once_its_mark_is_gone(tmp_path, monkeypat
     (root / "new").rename(root / "page")
     service.landed()
     assert service._waiting == {} and len(sender.payloads) == 2
+    # A mark that comes and goes with the page untouched (a script tagging every folder its
+    # glob matched) is no update: only meta.json changed.
+    meta = root / "page" / "meta.json"
+    meta.write_text('{"title": "Mock", "updating": "v5"}')
+    service.landed()
+    meta.write_text('{"title": "Mo')  # half-written: the mark is not gone yet
+    service.landed()
+    (root / "page" / "report.html").write_text("page v6")  # rewritten after all, and the
+    meta.write_text('{"title": "Mock"}')  # mark gone, both before the next scan
+    service.landed()
+    assert len(sender.payloads) == 3  # a mark caught half-written still waits for its page
+    meta.write_text('{"title": "Mock", "updating": "v7"}')
+    os.utime(meta, (200, 200))  # in the very tick its page was last written:
+    os.utime(root / "page" / "report.html", (200, 200))  # no sign of a write since
+    service.landed()
+    meta.write_text('{"title": "Mock"}')
+    service.landed()
+    service.landed()
+    assert service._waiting == {} and len(sender.payloads) == 3
 
 
 def test_a_page_made_between_two_scans_still_notifies(tmp_path, monkeypatch):

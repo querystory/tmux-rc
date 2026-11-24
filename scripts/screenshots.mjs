@@ -42,14 +42,12 @@ const SHOTS = [
   ["wide-usage-detail", WIDE, "dark", "#view=usage"],
   ["wide-usage-7d", WIDE, "light", "#view=usage", pickRange("7d")],
   ["wide-chat", WIDE, "light", "#pane=%259", chat("Which panes need me?")],
+  ["wide-chat-full", WIDE, "light", "#pane=%259", async (page) => { await chat("Which panes need me?")(page); await page.click("#voice-max"); }],
   ["wide-subagents", WIDE, "dark", "#pane=%259", showSubagents],
-  ["wide-open-loops", WIDE, "dark", "#view=loops", showLoops],
   ["wide-sessions", WIDE, "light", "#view=dashboard", reach(".atlas-multiples")],
-  ["mobile-open-loops", PHONE, "light", "#view=loops", showLoops],
   // The Fleet graph (docs/design/fleet-graph.md): the Worktree lens wide, the default on a phone, under its bar.
   ["wide-graph", WIDE, "light", "#view=graph", (page) => page.click('.fg-lenses [data-lens="worktree"]')],
   ["mobile-graph", PHONE, "dark", "#view=graph"],
-  ["mobile-loops-card", PHONE, "dark", "#view=dashboard", reach("#loops-card [data-lane]")],
   ["mobile-sessions", PHONE, "dark", "#view=dashboard", reach(".atlas-multiples")],
   ["wide-activity", WIDE, "light", "#view=dashboard", reach(".atlas-pulse", true)],
   ["mobile-activity", PHONE, "dark", "#view=dashboard", reach(".atlas-pulse", true)],
@@ -71,6 +69,7 @@ const SHOTS = [
   ["mobile-expunge", PHONE, "light", "#pane=%259", confirmExpunge],
   ["mobile-shell-menu", PHONE, "dark", "#pane=%256", (page) => page.click("#pane-menu-button")],
   ["mobile-chat-open", PHONE, "light", "", chat("Let's go back to window 1", "#voice-log .voice-open button")],
+  ["mobile-chat-typed", PHONE, "light", "", chat("Ask e2e triage to rerun it headed", "#voice-log .voice-open button")],
   ["mobile-chat-consent", PHONE, "light", "", chat("Tell e2e triage to rerun it headed", "#voice-log .propose .open")],
   ["mobile-chat-resume", PHONE, "light", "", chat("Resume the checkout session")],
   ["mobile-chat-minimized", PHONE, "light", "", async (page) => { await chat("Which panes need me?")(page); await page.click("#voice-close"); }],
@@ -302,12 +301,12 @@ async function noTmux(page, ready = ".start-session:not([hidden])") {
 // Just after a reboot: no tmux, and the demo fleet's dead server on offer.
 function afterReboot(page) { return noTmux(page, ".restore-pane"); }
 
-// Bring a dashboard node to the top once it, and the Open loops card above it (which arrives
-// after the page), have drawn; a base that predates either shoots the page as it is. `end`
+// Bring a dashboard node to the top once it has drawn; a base that predates it shoots the
+// page as it is. `end`
 // scrolls to the page's foot instead (Activity, which grows from its strip there).
 function reach(selector, end = false) {
   return async (page) => {
-    for (const node of ["#loops-card [data-lane]", selector]) await page.locator(node).first().waitFor({ timeout: 5000 }).catch(() => {});
+    await page.locator(selector).first().waitFor({ timeout: 5000 }).catch(() => {});
     await settle(page, "reach"); // the panels above settle their height first
     await page.locator(selector).first().evaluate((el, end) => {
       const pane = document.getElementById("landing"); // scroll the dashboard, never the page
@@ -323,11 +322,6 @@ function reach(selector, end = false) {
     }
   };
 }
-// The Open loops page, once its lanes arrive.
-async function showLoops(page) {
-  await page.locator("#landing-loops summary").first().waitFor({ timeout: 5000 }).catch(() => {});
-}
-
 // The sub-agents count's switch is on by default; show their lines under activity cards too.
 // The usage strip arrives later and shortens the list, so it is waited for before scrolling:
 // otherwise the card is centred in whichever height the list had at that moment.

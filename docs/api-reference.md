@@ -31,7 +31,6 @@ shaped for the phone and carries only the events new since the last parse.
 | `GET /api/panes/{id}/history` | Colored scrollback rows above a live frame (`?before=&lines=`) |
 | `GET /api/history` | Fleet activity over time; `?before=<epoch ms>` pages back |
 | `GET /api/usage` | Each Claude and Codex account's plan windows, trend and projection ([design](design/plan-usage.md)) |
-| `GET /api/open-loops` | Waiting on you / Moving / Dropped, by workstream ([design](design/open-loops.md)) |
 | `GET /api/recent` | Panes and scratch pages last opened |
 | `GET /api/version` | Web-asset hash plus feature flags the client gates on (`live_enabled`, `docs`, `scratch`) |
 
@@ -44,7 +43,7 @@ shaped for the phone and carries only the events new since the last parse.
 | `POST /api/panes/{id}/image` | Attach one image (clipboard paste, falling back to a path) |
 | `POST /api/panes/{id}/click`, `/wheel` | Mouse click and scroll for apps that take them |
 | `POST /api/panes/{id}/fit` | Fit the pane's window width to the phone ([fit width](design/fit-width.md)) |
-| `POST /api/panes/{id}/select` | Focus the pane in tmux on the host |
+| `POST /api/panes/{id}/select` | Record opening the pane and focus it in tmux on the host; `?follow=0` (Settings, Desktop follows phone off) skips the focus, so voice and chat "here" stays tmux's active pane |
 | `POST /api/panes/{id}/rename` | Rename the pane, its session, or both |
 | `POST /api/panes/{id}/close` | Kill the window that contains the pane |
 | `GET`/`POST /api/panes/{id}/expunge` | Preview, then kill the window and delete the agent session's local files ([design](design/expunge.md)) |
