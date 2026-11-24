@@ -103,10 +103,19 @@ tail of the activity log, and the bootstrap's summary and name.
 
 On a hash match the card goes back into memory as though it had just been parsed and
 bootstrapped, so the unchanged screen costs no LLM call and the summary refresh waits
-its normal cadence. On a mismatch nothing is restored and the pane is read as today.
-A card is only stored alongside the hash it was parsed from. After a failed parse the
-watcher shows the previous card over a newer screen, so that row stores the clocks but
-no card, and a restart re-reads the screen. Writes also happen when a new parse,
+its normal cadence. On a mismatch the parsed card is not restored and the screen is
+read as today. A parsed card is only stored alongside the hash it was parsed from.
+After a failed parse the watcher shows the previous card over a newer screen, so that
+row stores no parsed card, and a restart re-reads the screen.
+
+The bootstrap's name and summary, and the activity log, are different: they describe
+the session, and the row's key already pins the same process, so they come back on any
+restart, whatever the screen shows or however its last parse went. Tying them to the
+hash meant every busy pane lost its title on each restart and waited, untitled, for the
+deep-read queue (one pane a tick) to reach it again, a quarter of an hour on a large
+fleet; a pane whose screen kept failing to parse lost it on every restart. The cost of
+keeping them is a name that can trail the session by one refresh, which the summary
+refresh corrects once new activity lands. Writes also happen when a new parse,
 bootstrap summary or idle summary lands, which is still only a handful a minute.
 
 This reverses the earlier rejection below of persisting pane state. The
