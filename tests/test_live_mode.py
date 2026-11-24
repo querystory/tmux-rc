@@ -1601,6 +1601,57 @@ def test_the_session_ending_while_a_drop_drains_stops_the_call(monkeypatch):
     assert _run(run()) == [] and reached == []
 
 
+def test_a_queued_call_keeps_the_request_it_came_in(monkeypatch):
+    """A call waiting behind a running one serves the request it was made in, so the user
+    talking over the model meanwhile cannot let the rest of one request reach a second pane;
+    the next turn's call is the next request."""
+    seen = []
+
+    class Session(_Session):
+        async def events(self):
+            yield P.Event("tool_call", call=P.ToolCall("c", "type_in_pane", {}))
+            yield P.Event("tool_call", call=P.ToolCall("c", "type_in_pane", {}))
+            await asyncio.sleep(0.05)  # the first call is still running
+            yield P.Event("interrupted")
+            yield P.Event("turn_complete")
+            yield P.Event("tool_call", call=P.ToolCall("c", "type_in_pane", {}))
+
+    async def handle(_ws, _s, _fc, _w, meter, request=None):
+        seen.append(meter.asking() if request is None else request)
+        await asyncio.sleep(0.1)
+
+    monkeypatch.setattr(L, "_handle_tool_call", handle)
+    _run(L._receiver(_WS(), Session(), _Watcher(), L._Meter("s", "a", P._DEFAULT[0])))
+    assert seen == [1, 1, 2]
+
+
+def test_the_session_ending_stops_a_running_call_behind_an_unstarted_one(monkeypatch):
+    """The session ending before the newest step has started still stops the call running
+    ahead of it: cancelling that step alone would never reach it."""
+    reached = []
+
+    class Session(_Session):
+        async def events(self):
+            yield P.Event("tool_call", call=P.ToolCall("c", "type_in_pane", {}))
+            await asyncio.sleep(0.05)  # running
+            yield P.Event("tool_call", call=P.ToolCall("c", "type_in_pane", {}))
+            raise asyncio.CancelledError  # the session ends before that one starts
+
+    async def slow(*_a, **_k):
+        await asyncio.sleep(0.2)
+        reached.append("typed")
+
+    monkeypatch.setattr(L, "_handle_tool_call", slow)
+
+    async def run():
+        meter = L._Meter("s", "a", P._DEFAULT[0])
+        await asyncio.gather(L._receiver(_WS(), Session(), _Watcher(), meter),
+                             return_exceptions=True)
+        await asyncio.sleep(0.3)
+    _run(run())
+    assert reached == []
+
+
 def test_a_tool_call_that_raises_fails_the_receiver(monkeypatch):
     """Off the loop, a call that raises still ends the receiver with its error, so the
     session reconnects as it did when calls ran inline."""

@@ -1582,6 +1582,7 @@ async def _receiver(websocket: WebSocket, session, watcher, meter: _Meter) -> No
     meter.superseded = False  # a reconnect drops the turn it belonged to
     meter.answered = True
     me, turn, failed = asyncio.current_task(), None, []  # turn: its latest step, run in order
+    steps: set[asyncio.Task] = set()  # every step not yet done: one not started can't pass on
 
     def done(task: asyncio.Task) -> None:  # a step that raised fails the receiver, as inline
         if not (task.cancelled() or failed) and task.exception():  # (until it is ending)
@@ -1596,20 +1597,30 @@ async def _receiver(websocket: WebSocket, session, watcher, meter: _Meter) -> No
         turn = asyncio.create_task(_after(turn, step))
         _background(turn)
         turn.add_done_callback(done)
+        steps.add(turn)
+        turn.add_done_callback(steps.discard)
+        turn.add_done_callback(lambda _: step.close())  # one never started, or a no-op
+
+    async def stop() -> None:
+        for task in steps:
+            task.cancel()
+        await asyncio.wait(list(steps))
     try:
         async for ev in session.events():
             if ev.kind == "usage":
                 meter.usage.set(ev.usage)
             elif ev.kind == "tool_call":
                 meter.note(f"[typed] {ev.call.args}")
-                await then(_handle_tool_call(websocket, session, ev.call, watcher, meter))
+                await then(_handle_tool_call(  # the request it came in, however long it waits
+                    websocket, session, ev.call, watcher, meter, meter.asking()))
             elif ev.kind == "audio":
                 meter.rec.model(ev.data, 24000)  # the seam's providers all speak 24 kHz
                 await websocket.send_json(
                     {"type": "audio", "data": base64.b64encode(ev.data).decode()})
             elif ev.kind == "transcript":
                 await _transcript(websocket, meter, ev.role, ev.text)
-            elif ev.kind == "turn_complete":  # once its calls are answered
+            elif ev.kind == "turn_complete":  # sent once its calls are answered
+                meter.answered = True
                 await then(_turn_complete(websocket, meter))
             elif ev.kind == "interrupted":  # the user talked over it: their next words are new
                 meter.answered = True
@@ -1619,33 +1630,27 @@ async def _receiver(websocket: WebSocket, session, watcher, meter: _Meter) -> No
     except asyncio.CancelledError:  # the session ending, or a step that raised
         if failed:
             raise failed[0] from None
-        if turn:
-            turn.cancel()
+        if steps:
+            await stop()
         raise
     finally:  # a stream that dropped mid-turn: the calls it made finish first, as inline
         failed.append(None)  # ones did, so none runs on into the reconnect
-        if turn:
+        if steps:
             try:
-                await asyncio.wait([turn])
+                await asyncio.wait(list(steps))
             except asyncio.CancelledError:  # the session ended meanwhile: they stop with it
-                turn.cancel()
-                await asyncio.wait([turn])
+                await stop()
                 raise
 
 
 async def _after(previous: asyncio.Task | None, step) -> None:
     """Run `step` once the step before it is done."""
     if previous:
-        try:
-            await previous
-        except BaseException:
-            step.close()  # never started: the turn already failed
-            raise
+        await previous
     await step
 
 
 async def _turn_complete(websocket: WebSocket, meter: _Meter) -> None:
-    meter.answered = True  # after its calls: words still arriving until then are its request
     meter.superseded = False
     meter.end_turn()
     await websocket.send_json({"type": "turn_complete"})
