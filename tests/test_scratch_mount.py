@@ -100,7 +100,7 @@ os.environ.update(TMUXRC_SCRATCH_PUBLISH="gs://b/p", TMUXRC_SCRATCH_PUBLISH_URL=
 server.scratch_publish.later = lambda job, name, tell: None
 server.app.state.push = SimpleNamespace(sender=SimpleNamespace(send=None))
 g = act("publish", "sub").json() == {"done": ["sub"]} and c.get("/scratch/").text
-print(int('class="publishing"' in g and 'href="https://pub.example/sub/"' in g),
+print(int('class="publishing"' in g and 'href="https://pub.example/sub/" target="_blank"' in g),
       act("publish", "wip").status_code,
       int(act("unpublish", "sub").json() == {"done": ["sub"]}
           and "pub.example" not in c.get("/scratch/").text))

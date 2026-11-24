@@ -110,7 +110,8 @@ def _sync(root: Path, name: str, web: Path | None) -> None:
         if not (_copyable(card) if web else not (card and card["publish"])):
             return
         if web:
-            scratch.export(root / name, out := Path(tmp) / name, web)
+            scratch.export(root / name, out := Path(tmp) / "folder" / name, web)  # a folder
+            # may be named index.html: its export never meets the root's page
         record = scratch.load(_record(), {})
         was = record.get(f"{target}/{name}", {})
         now = {f.relative_to(out).as_posix(): hashlib.sha256(f.read_bytes()).hexdigest()

@@ -161,6 +161,11 @@ def test_the_index_lists_what_is_published_while_anything_is(root):
     BUCKET["index.html"] = b"as sent"
     P.publish(root, "rye", WEB_DIR)  # nothing listed changed: not sent again
     assert BUCKET["index.html"] == b"as sent"
+    (root / "index.html").mkdir()  # a folder named as the root's page is staged apart
+    (root / "index.html/index.html").write_text("<title>Odd</title>")
+    P.cli(["publish", "index.html"], WEB_DIR)
+    assert "Odd" in BUCKET["index.html"].decode() and "index.html/index.html" in BUCKET
+    P.cli(["unpublish", "index.html"], WEB_DIR)
     P.cli(["unpublish", "tea notes"], WEB_DIR)
     assert "tea%20notes" not in BUCKET["index.html"].decode()
     with pytest.raises(ValueError, match="not a folder"):  # a path is never one, and one

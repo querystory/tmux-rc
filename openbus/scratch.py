@@ -756,7 +756,7 @@ def _card(i: dict) -> str:
             + (f' aria-label="{e["title"]}: {label}"' if label else "")  # the thumb's
             + f'>{e["title"]}</a></h2>'
             + (f'<p class="desc">{e["description"]}</p>' if i["description"] else "")
-            + (f'<p class="pub"><a href="{e["publish"]}" data-icon="globe">'
+            + (f'<p class="pub"><a href="{e["publish"]}" target="_blank" data-icon="globe">'
                f'{e["publish"].split("//", 1)[-1]}</a></p>'
                if str(i["publish"]).startswith(("https://", "http://")) else "")
             + (f'<p class="pub failed" data-icon="alert">Publish failed: {e["publish_failed"]}</p>'
