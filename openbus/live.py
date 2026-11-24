@@ -165,6 +165,8 @@ class _Meter:
         self.request = 0
         self.answered = True  # the model's turn ended since the current request began
         self.reached: dict = {}
+        self.used: set[str] = set()  # panes an action reached this session (_stale)
+        self.asked: dict[str, dict] = {}  # long-idle panes refused until the user speaks (_stale)
         self.started = time.monotonic()
         self._lines: list[str] = []
         # Extra OTel fields a provider adapter wants folded into each record (GPT-Live
@@ -511,14 +513,16 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
     result = {"status": "error", "reason": "aborted"} if known else {
         "status": "rejected", "reason": "unknown tool"}
     try:
-        if known and (refused := _other_pane(meter, request, call)):
+        if known and (refused := _other_pane(meter, request, call)
+                                or _stale(meter, call, watcher)):
             result = refused
         elif known:
             ok, pid = (await _approved(websocket, session, call, watcher, meter, rec)
                        if meter.text and fc.name in _CONSENT else (True, None))
             act = _act(websocket, session, call, watcher, meter, rec, ok, pid)
             result = await (_focusing(session, watcher, rec, act) if meter.text else act)
-            if result["status"] == "sent":  # input went in
+            if result["status"] == "sent":  # input went in: the window is in the conversation
+                meter.used.add(rec["pane_id"])
                 meter.reached.setdefault(request, rec["pane_id"])
                 if len(meter.reached) > REQUESTS_KEPT:
                     del meter.reached[next(iter(meter.reached))]
@@ -548,6 +552,32 @@ def _other_pane(meter: _Meter, request, fc) -> dict | None:
         f"one window per request; this one already reached id={held}, so send nothing more for "
         "it: tell the user it goes to one window per request and ask them to say the next one "
         "as its own request")}
+
+
+STALE_SECONDS = 3600
+
+
+def _stale(meter: _Meter, fc, watcher) -> dict | None:
+    """Refuse, once, a voice action on a window idle over STALE_SECONDS that is neither on the
+    user's screen nor one this session already reached: a topic match once sent work to a
+    window idle for days, and the prompt's "confirm a long-idle pane" went unheeded. The
+    refusal sends the model to ask the user, and once they have spoken the next send there
+    goes through, so voice confirms by voice; until then every call there is refused, so the
+    rest of the request (an Enter after the refused text) cannot act without them. The
+    windows the user is working in pass untouched."""
+    pane = _pane_arg(fc)
+    if fc.name in _CONSENT and pane in meter.asked:  # held, whatever the window printed since
+        return meter.asked[pane]
+    d = next((d for d in watcher.digest() if d["pane_id"] == pane), None)
+    idle = (d or {}).get("idle_seconds")
+    if (meter.text or fc.name not in _CONSENT or not d or d.get("activity") != "idle"
+            or d.get("tmux_active") or pane in meter.used
+            or not isinstance(idle, (int, float)) or idle <= STALE_SECONDS):
+        return None
+    meter.asked[pane] = {"status": "rejected", "reason": (
+        f"idle {_fmt_age(idle)}; confirm with the user first that they want it in "
+        f"{_pane_name(d)}, and once they say so, send it again")}
+    return meter.asked[pane]
 
 
 # The running action's _focusing hook, which _delivered calls as its delivery shows.
@@ -608,7 +638,8 @@ _NOT_DONE = {"rejected", "declined"}  # a gate's or the user's no: nothing was s
 # The tools that change a pane. In a text session each waits for the user to tap Send on
 # what it would do (the control plane's risk tiers: docs/design/agentic-control-plane.md):
 # a typed request is read and answered, never acted on unasked. find_sessions only reads,
-# so it runs at once. Voice keeps acting directly — a tap would end hands-free use.
+# so it runs at once. Voice keeps acting directly — a tap would end hands-free use — but a
+# window long idle and out of the conversation is refused once, to be confirmed aloud (_stale).
 _CONSENT = {"type_in_pane", "press_key", "resume_session", "send_image_to_pane"}
 # Typing a new message while a card waits answers it: the user moved on, so the model is
 # told not to retry and to take the new turn (queued behind this one) instead.
@@ -1383,6 +1414,8 @@ async def _transcript(websocket: WebSocket, meter: _Meter, role: str, text: str,
     meter.rec.event("transcript", role=role, text=text, **extra)
     if role == "user":
         meter.asking()
+        meter.used.update(meter.asked)  # their say on a long-idle window held for it (_stale)
+        meter.asked.clear()
     await websocket.send_json({"type": "transcript", "role": role, "text": text, **extra})
 
 

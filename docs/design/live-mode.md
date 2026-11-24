@@ -508,7 +508,18 @@ sits in `_handle_tool_call`, the one choke point every Live tool call already pa
 through, so no tool can skip it. find_sessions only reads, so it runs at once. This is the
 control plane's risk-tier idea (agentic-control-plane.md) applied at the smallest scale.
 Voice keeps acting directly, because a tap would end hands-free use and the spoken "Typing
-X into Y" announcement is voice's confirmation.
+X into Y" announcement is voice's confirmation. The exception is a window idle over an hour
+that is not on the user's screen and that the session has not reached yet: a send there is
+refused, and the model is told to confirm it with the user. Every call there stays refused
+until the user speaks, so the rest of the request (an Enter after the refused text) cannot
+act for them, and the send after their yes goes through hands-free. Matching a topic once sent work to a window idle for days, and the
+prompt's own "confirm a long-idle pane" was ignored, so the check moved into code. It
+first waited on the same card as a typed turn, which failed in voice: nothing told the
+voice a card was up, so a spoken "yes" arrived as a new request and cancelled the card it
+answered; GPT-Live runs tool calls one at a time, so a waiting card held every later
+request behind it; and the seam's providers answer tool calls inside their event loop, so
+Gemini went silent until the tap. A refusal has none of these: voice confirms by voice, in
+the conversation it is already having.
 
 **A card outlives its connection.** Cards used to expire the moment the socket dropped,
 because the daemon's half of a proposal lived in the coroutine waiting on the tap. On a

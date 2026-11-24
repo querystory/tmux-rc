@@ -1435,3 +1435,38 @@ def test_voice_reaches_one_pane_per_request(monkeypatch):
     text = L._Meter("s", "a", P._DEFAULT[0], text=True)  # typed chat: each send has a card
     assert L._other_pane(text, 1, _FC(args={"pane_id": "%2", "text": "x"})) is None
 
+
+def test_voice_sends_to_a_long_idle_window_are_refused_once(monkeypatch):
+    """Voice types at once into the window on screen or one idle a minute, but a send to a
+    window idle for hours that the session has not reached is refused, with no card, so the
+    model asks the user aloud: every call there is refused until they speak (an Enter after
+    the refused text too, however fresh the window looks by then), and the next send after
+    their yes goes hands-free."""
+    class Idle(_Watcher):
+        def __init__(self, idle):
+            super().__init__()
+            self.idle = idle
+
+        def digest(self):
+            return [{**d, "idle_seconds": self.idle} if d["pane_id"] == "%2" else d
+                    for d in super().digest()]
+
+    meter = L._Meter("s1", "tester", P._DEFAULT[0])
+    shell = _FC(args={"pane_id": " %2 ", "text": "ls"})  # as sent, spaces and all
+    assert not L._stale(meter, shell, Idle(60))
+    assert not L._stale(meter, _FC(args={"pane_id": "%1", "text": "x"}), Idle(7200))  # ACTIVE
+    text = L._Meter("s1", "tester", P._DEFAULT[0], text=True)  # typed: every send has a card
+    assert not L._stale(text, shell, Idle(7200))
+    typed, ws, session = [], _WS(), _Session()
+    monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append(a))
+    monkeypatch.setattr(L.telemetry, "emit_action", lambda **k: None)
+    enter = _FC("press_key", {"pane_id": "%2", "key": "Enter"})
+    for fc, idle in ((shell, 7200), (enter, 5)):  # output since makes it fresh: still held
+        _run(L._handle_tool_call(ws, session, fc, Idle(idle), meter))
+    _run(L._transcript(ws, meter, "user", "yes, there"))
+    _run(L._handle_tool_call(ws, session, shell, Idle(7200), meter))
+    refused, held, sent = (p for _, p in session.responses)
+    assert refused["status"] == held["status"] == "rejected"
+    assert refused["reason"].startswith("idle 2h; confirm with the user first")
+    assert sent["status"] == "sent" and typed == [("%2", "ls", True, True)]
+    assert not any(m["type"] == "propose" for m in ws.sent)
