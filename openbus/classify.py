@@ -20,7 +20,7 @@ import re
 import subprocess
 import textwrap
 from functools import lru_cache
-from itertools import islice
+from itertools import islice, product
 from pathlib import Path
 
 from .tmux import (
@@ -93,9 +93,12 @@ def _ran(offers: list[str], text: str) -> list[str]:
     *_, turn = [None, *_CLAUDE_TURN_RE.finditer(view)]
     if not turn or turn["live"]:
         return []
-    rows = ["".join(row.split()) for row in _below_turn(view, turn.end()).split("\n")]
-    echoed = {"".join(rows[i:j]) for i in range(len(rows)) for j in range(i + 1, i + 4)}
-    return [o for o in offers if o.startswith("! ") and "".join(o.split()) in echoed]
+    rows = [" ".join(row.split()) for row in _below_turn(view, turn.end()).split("\n")]
+    # Spaces within a row are the command's; a wrap that fell on one keeps it on neither row.
+    echoed = {rows[i] + "".join(gap + row for gap, row in zip(gaps, rows[i + 1:j], strict=True))
+              for i in range(len(rows)) for j in range(i + 1, min(i + 4, len(rows) + 1))
+              for gaps in product(("", " "), repeat=j - i - 1)}
+    return [o for o in offers if o.startswith("! ") and " ".join(o.split()) in echoed]
 
 
 def _below_turn(visible: str, end: int) -> str:
