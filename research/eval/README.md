@@ -299,6 +299,80 @@ python -m research.eval
 (`set -a; . ./.env; set +a` loads them from the repo `.env`; the unquoted OTEL-token
 line errors under `source` — export the three vars directly if so.)
 
+## Live Mode replay (`research/eval/live/`)
+
+**Why.** On Nov 20, six of fifteen voice relays reached a wrong or stale pane, and one
+spoken question fanned out to four agents that each messaged the whole fleet. None of it
+was a recognition error: the model's routing chose those panes, and nothing in the
+plumbing stopped it. Live Mode had tests for its pieces (the context builder, the
+dispatch guards, the reconnect loop) but none for a conversation: what reaches which
+pane after this turn, then that one.
+
+**How.** A replay plays a scripted conversation through `live.live_mode`, the daemon's
+own socket handler, and swaps only its three ends: the phone (a scripted socket that
+speaks each turn once the last one is answered), the fleet (`fleet.json`, invented panes
+that stand in for the watcher and answer the few tmux calls a send makes), and the model,
+through the provider seam `live_providers.connect`. Everything between them is
+production code, so a gate added anywhere on the path is exercised without the test
+knowing where it lives. A separate mock of the routing would test something else: the
+harnesses in `research/live-eval/` score a hand-written prompt that production never sends.
+
+Two layers share it:
+
+- **`tests/test_live_replay.py`, in `make test`.** The model is a `Script`: each user
+  turn is answered with listed tool calls, so the test asserts plumbing alone: which pane
+  got what under which label, the consent card, the reason a refused call hands back,
+  and what a provider drop or a phone reconnect does to a pending send. Routing gates not
+  built yet are strict xfails written as the behaviour they should have, so each one
+  fails the suite the day its gate lands, until its marker is removed.
+- **`python -m research.eval.live`, billed and opt-in.** The same conversations, written as
+  utterances in `cases.json`, against the real routing prompt and a real model. Each turn
+  is scored on the panes it sent to, how many sends it made, and, for a question, whether
+  the reply answered it (an answer to a fleet question must come from the pane list, with
+  no relay), and, where a case sets `carries` or `omits`, whether each relay holds the
+  request and leaves out the words that picked the window or corrected the assistant. A
+  misheard window name relayed whole sends the agent looking for a pane that doesn't
+  exist. There is no judge model: the scores are counts and substrings, so a run is cheap
+  to repeat.
+
+The default model is GPT-Live's reasoning backend (`gpt_live.BACKEND`, low effort), driven
+directly over the Responses API with the instructions, tools and effort the live session
+gives it: in a voice session a typed turn goes straight to it, and it makes every routing
+call. What that leaves out is the voice front end's handoff, which needs audio. `--model
+gemini-*` runs a Vertex chat model the daemon's text mode uses; `--effort` and `--prompt`
+(a candidate `live_prompt.txt`) are for A/B. Keys come from
+`~/.config/tmux-rc/openai.env`, as for the daemon; Vertex takes the same three variables
+as above.
+
+Baseline on main (b49ca13c), three runs each:
+
+| case | GPT-Live backend (gpt-5.6-luna, low) | Gemini 3 Flash (Vertex) |
+|---|---|---|
+| `fleet_pr_rollcall` | 0/3: relayed to 7 panes every run | 0/3: relayed to 5 to 8 panes |
+| `topic_matches_a_stale_pane` | 3/3 | 3/3 |
+| `go_for_it_with_nothing_pending` | 3/3 | 3/3 |
+| `correction_names_the_right_pane` | 3/3 | 1/3: keys pressed in the rejected pane first |
+| `correction_without_a_target` | 3/3 | 2/3: a key pressed in the rejected pane |
+| `named_window` | 3/3 | 2/3: interrupted the pane, then sent |
+| `pr_number_routing` | 3/3 | 3/3 |
+| `answer_from_screen` | 3/3 | 3/3 |
+| `answer_a_named_menu` | 3/3 | 3/3 |
+| total | 24/27 | 20/27 |
+
+A keypress counts as a send: pressing Escape in a pane the user just rejected is still an
+action there. The fan-out is the failure that reproduces on both models, every run, and
+it is the one a plumbing gate (one pane per request) can stop. The stale-pane and bare-yes
+cases pass in this small fleet; on Nov 20 the fleet held over a hundred panes and the voice
+front end's handoff stood between the user and the backend, neither of which a text replay
+carries. Make a case harder before reading a pass as a fix.
+
+The relay cases (`misheard_window_name`, `correction_carries_a_request`) came from the Nov
+23 session, rebuilt around the invented fleet. Three runs each on the GPT-Live backend,
+production prompt against the `live-relay-request` candidate ("the words that pick the
+window or correct you are for you; deliver the request they carry, in the user's words"):
+`misheard_window_name` 2/3 to 3/3, `correction_carries_a_request` 1/3 to 3/3, every other
+case unchanged (26/33 to 29/33 in all).
+
 ## Inline replies experiment (closing-question buttons: separate call vs the main parse)
 
 **Question.** A turn that ends on "Should I …?" gets accept/decline reply buttons from a

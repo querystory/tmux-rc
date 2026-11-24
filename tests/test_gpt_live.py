@@ -255,7 +255,7 @@ def test_duplicate_tool_call_stops_without_typing():
     async def run():
         s = session()
         s.seen_calls.add("call-1")
-        s.work.put_nowait([call()])
+        s.work.put_nowait(("delegation-1", [call()]))
         with pytest.raises(RuntimeError, match="duplicate input"):
             await s.execute()
         assert not s.ws.sent
@@ -314,6 +314,7 @@ def test_continuous_transcripts_keep_roles_and_gaps_without_triggering_tools():
     assert s.browser.messages[2]["new_segment"]
     assert s.browser.messages[3]["sample_rate"] == 16000
     assert s.work.empty() and not s.ws.sent
+    assert list(s.meter.heard) == ["hello", "again"]  # what a relay's label is checked against
 
 
 @pytest.mark.parametrize("disconnected", [False, True])
@@ -519,7 +520,7 @@ def test_full_tool_queue_reports_overload_without_running_more_actions():
         response("response.completed", response={"id": "r1", "output": []}),
     ])
     for _ in range(s.work.maxsize):
-        s.work.put_nowait([call()])
+        s.work.put_nowait(("delegation-1", [call()]))
     with pytest.raises(G.ProviderError, match=r"^GPT-Live: terminal_queue_full$"):
         asyncio.run(s.receive())
     assert not s.ws.sent
@@ -616,3 +617,88 @@ def test_a_missing_key_is_an_error_not_a_stop(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     with pytest.raises(L.live_providers.Unreachable, match="OPENAI_API_KEY"):
         asyncio.run(G.run_session(Browser(), Watcher(), L._Meter("test", "test", G.ENTRY)))
+
+
+def test_one_delegation_types_into_one_pane(monkeypatch):
+    """GPT-Live's request is its delegation, not the transcript, which streams meanwhile."""
+    typed = []
+    monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append(a))
+    monkeypatch.setattr(L.tmux, "server_uid", lambda: "test")
+    monkeypatch.setattr(L.telemetry, "emit_action", lambda **kw: None)
+    monkeypatch.setattr(L, "_labels", lambda w: {"%1": "shell", "%2": "docs"})
+
+    async def run():
+        s = session()
+        worker = asyncio.create_task(s.execute())
+        for batch in [("delegation-1", [call("c1", {"pane_id": "%1", "text": "w"})]),
+                      ("delegation-2", [call("c2", {"pane_id": "%2", "text": "x"})]),
+                      ("delegation-1", [call("c3", {"pane_id": "%2", "text": "y"})])]:
+            s.work.put_nowait(batch)
+            await asyncio.wait_for(s.ws.continued.wait(), 1)  # the batch's continuation
+            s.ws.continued.clear()
+        for task in [worker, *L._tasks]:
+            task.cancel()
+        await asyncio.gather(worker, *list(L._tasks), return_exceptions=True)
+        return s
+
+    s = asyncio.run(run())
+    assert typed == [("%1", "w", True, True), ("%2", "x", True, True)]  # interleaved: A, B, A
+    assert json.loads(s.ws.sent[-2]["item"]["output"])["status"] == "rejected"
+
+
+def test_two_composer_turns_are_two_requests(monkeypatch):
+    """A composer turn has no delegation id, so its request is the meter's: a turn typed once
+    the last one has finished is a new one and can reach another pane. One typed while an
+    earlier turn is still going (its calls, or the continuation they asked for, even after a
+    later turn's own reply has ended) shares its request: fail closed."""
+    typed = []
+    monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append(a))
+    monkeypatch.setattr(L.tmux, "server_uid", lambda: "test")
+    monkeypatch.setattr(L.telemetry, "emit_action", lambda **kw: None)
+    monkeypatch.setattr(L, "_labels", lambda w: {"%1": "shell", "%2": "docs"})
+
+    def composer(kind, **fields):
+        return {**response(kind, **fields), "delegation_id": None}
+
+    async def turn(s, n, pane, *, finish=True):
+        await s.send_text("now there")
+        s.ws.continued.clear()  # the turn's own response.create
+        await L._transcript(s.browser, s.meter, "user", "now there")
+        s.ws.events = [composer("response.created", response={"id": f"r{n}"}),
+                       composer("response.output_item.done", item=call(f"c{n}", {
+                           "pane_id": pane, "text": "x"})),
+                       composer("response.completed", response={"id": f"r{n}"}),
+                       {"type": "session.closed"}]
+        await drain(s)
+        await asyncio.wait_for(s.ws.continued.wait(), 1)  # its calls ran; asked to go on
+        s.ws.continued.clear()
+        if finish:  # the continuation ends the turn, calling nothing more
+            s.ws.events = [composer("response.completed", response={"id": f"r{n}+"}),
+                           {"type": "session.closed"}]
+            await drain(s)
+
+    async def run():
+        s = session()
+        worker = asyncio.create_task(s.execute())
+        await turn(s, 1, "%1")
+        await turn(s, 2, "%2")  # the first turn is over: a request of its own
+        await turn(s, 3, "%1", finish=False)
+        await s.send_text("and here")  # before that continuation's response even starts
+        assert not s.meter.answered
+        s.ws.events = [composer("response.completed", response={"id": "r4"}),  # it answers
+                       {"type": "session.closed"}]
+        await drain(s)
+        await s.send_text("and there")  # the third turn's continuation is still to come
+        assert not s.meter.answered
+        for n in ("3+", "5"):  # that continuation, then the last turn's reply, end both
+            s.ws.events = [composer("response.completed", response={"id": f"r{n}"}),
+                           {"type": "session.closed"}]
+            await drain(s)
+        await s.send_text("now somewhere else")
+        assert s.meter.answered
+        for task in [worker, *L._tasks]:
+            task.cancel()
+        await asyncio.gather(worker, *list(L._tasks), return_exceptions=True)
+
+    asyncio.run(run())
+    assert [t[0] for t in typed] == ["%1", "%2", "%1"]
