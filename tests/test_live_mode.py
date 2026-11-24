@@ -1440,7 +1440,8 @@ def test_voice_sends_to_a_long_idle_window_are_refused_once(monkeypatch):
     """Voice types at once into the window on screen or one idle a minute, but a send to a
     window idle for hours that the session has not reached is refused, with no card, so the
     model asks the user aloud: every call there is refused until they speak (an Enter after
-    the refused text too), and the next send after their yes goes hands-free."""
+    the refused text too, however fresh the window looks by then), and the next send after
+    their yes goes hands-free."""
     class Idle(_Watcher):
         def __init__(self, idle):
             super().__init__()
@@ -1460,8 +1461,8 @@ def test_voice_sends_to_a_long_idle_window_are_refused_once(monkeypatch):
     monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append(a))
     monkeypatch.setattr(L.telemetry, "emit_action", lambda **k: None)
     enter = _FC("press_key", {"pane_id": "%2", "key": "Enter"})
-    for fc in (shell, enter):
-        _run(L._handle_tool_call(ws, session, fc, Idle(7200), meter))
+    for fc, idle in ((shell, 7200), (enter, 5)):  # output since makes it fresh: still held
+        _run(L._handle_tool_call(ws, session, fc, Idle(idle), meter))
     _run(L._transcript(ws, meter, "user", "yes, there"))
     _run(L._handle_tool_call(ws, session, shell, Idle(7200), meter))
     refused, held, sent = (p for _, p in session.responses)

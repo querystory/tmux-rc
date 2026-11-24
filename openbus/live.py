@@ -166,7 +166,7 @@ class _Meter:
         self.answered = True  # the model's turn ended since the current request began
         self.reached: dict = {}
         self.used: set[str] = set()  # panes an action reached this session (_stale)
-        self.asked: set[str] = set()  # long-idle panes refused until the user speaks (_stale)
+        self.asked: dict[str, dict] = {}  # long-idle panes refused until the user speaks (_stale)
         self.started = time.monotonic()
         self._lines: list[str] = []
         # Extra OTel fields a provider adapter wants folded into each record (GPT-Live
@@ -566,16 +566,18 @@ def _stale(meter: _Meter, fc, watcher) -> dict | None:
     rest of the request (an Enter after the refused text) cannot act without them. The
     windows the user is working in pass untouched."""
     pane = _pane_arg(fc)
+    if fc.name in _CONSENT and pane in meter.asked:  # held, whatever the window printed since
+        return meter.asked[pane]
     d = next((d for d in watcher.digest() if d["pane_id"] == pane), None)
     idle = (d or {}).get("idle_seconds")
     if (meter.text or fc.name not in _CONSENT or not d or d.get("activity") != "idle"
             or d.get("tmux_active") or pane in meter.used
             or not isinstance(idle, (int, float)) or idle <= STALE_SECONDS):
         return None
-    meter.asked.add(pane)
-    return {"status": "rejected", "reason": (
+    meter.asked[pane] = {"status": "rejected", "reason": (
         f"idle {_fmt_age(idle)}; confirm with the user first that they want it in "
         f"{_pane_name(d)}, and once they say so, send it again")}
+    return meter.asked[pane]
 
 
 # The running action's _focusing hook, which _delivered calls as its delivery shows.
@@ -1412,7 +1414,7 @@ async def _transcript(websocket: WebSocket, meter: _Meter, role: str, text: str,
     meter.rec.event("transcript", role=role, text=text, **extra)
     if role == "user":
         meter.asking()
-        meter.used |= meter.asked  # their say on a long-idle window held for it (_stale)
+        meter.used.update(meter.asked)  # their say on a long-idle window held for it (_stale)
         meter.asked.clear()
     await websocket.send_json({"type": "transcript", "role": role, "text": text, **extra})
 
