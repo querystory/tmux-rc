@@ -124,7 +124,7 @@ async def main():
     meter = live._Meter("gpt-live-smoke", "smoke", gpt_live.ENTRY)
     actions = []
     with (
-        patch.object(live.tmux, "send_keys", side_effect=lambda *a: actions.append(a)),
+        patch.object(live.tmux, "send_keys", side_effect=lambda *a, **_: actions.append(a)),
         patch.object(live.tmux, "server_uid", return_value="smoke"),
     ):
         async with asyncio.timeout(60):

@@ -1,0 +1,15 @@
+{
+  "description": "Synthetic: a finished auto-mode turn reports one PR merged, then says another PR is still waiting for the user's go-ahead to merge; a background agent's \"finished\" note prints below the message, and a tall window leaves many blank rows above the empty input box. The go-ahead is left to the user: waiting on the user.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ how are the two fixes doing\n\n● #40 is merged to main (4be1c09), and integration is up to date with it. It only touches the stylesheet, so a\n  page reload picks it up.\n\n  - Copilot: its last review is on the final commit, with no open issues.\n  - Merge: all checks were green and it went through the queue at 14:47 UTC.\n\n  #41, the tooltip fix, is still waiting for your go-ahead. Copilot approved it and it's already in integration,\n  but it isn't merged to main.\n\n● Agent \"Tooltip fix\" finished · 4m 55s\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n────────────────────────────────────────────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────────────────────────────────────────────\n  ~/src/fernway/lantern on main | Opus 5.5 | dev@example.com | telemetry: •stats\n  session: +12/-3 lines · 14% ctx · 40h02m · $6.10   |  history: 41 prompts · 30 tools\n  ⏵⏵ auto mode on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "optional": true,
+      "answer_style": "text"
+    },
+    "headline": "Asking for the go-ahead to merge the tooltip fix #41"
+  }
+}
