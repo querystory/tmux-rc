@@ -52,6 +52,15 @@ current.frameMs = null;
 current.clearPending();
 tap.port.onmessage({data: new Float32Array(4096).fill(0.75)});
 assert.equal(sent.length, 2);
+// Audio dropped for socket backlog is counted and told to the server on the next frame.
+current.muted = false; current.frameMs = 40;
+current.ws.bufferedAmount = 1e6;
+tap.port.onmessage({data: new Float32Array(320)});
+current.ws.bufferedAmount = 0;
+tap.port.onmessage({data: new Float32Array(640)});
+assert.equal(sent.length, 3);
+assert.equal(sent[2].lost_ms, 20);
+assert.equal(sent[1].lost_ms, 0);
 """
     module = Path(__file__).resolve().parents[1] / "web/m/live.js"
     result = subprocess.run(["node", "-e", script, str(module)],
@@ -641,6 +650,55 @@ def test_open_buttons_sit_under_the_reply_in_one_bubble():
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_a_pane_the_chat_messaged_opens_from_its_card_and_the_reply():
+    """The pane on a "Sent to terminal" card is a tap target, and the turn's reply offers
+    an Open button for each pane the turn messaged, once, whatever order its rows came in."""
+    _run_live(r"""
+(async () => {
+  const log = document.getElementById('voice-log');
+  await live.refresh();
+  document.getElementById('chat').onclick(); await flush();
+  const say = (message) => sockets[0].onmessage({data: JSON.stringify(message)});
+  const send = (text) => {
+    sandbox.Composer.prototype.segments = () => [{text}];
+    document.getElementById('voice-compose').onsubmit({preventDefault() {}});
+  };
+  const typed = (pane_id, label) => say({type: 'typed', label, pane_id, text: 'ls', payload: 'ls'});
+  const reply = (text) => say({type: 'transcript', role: 'model', text});
+  const last = () => log.children.findLast((row) => row.dataset.role === 'model');
+  const buttons = () => last().lastChild.children.map((b) => b.textContent);
+  say({type: 'status', status: 'listening'});
+  // Deliveries ahead of the text, two to one pane, one splitting the reply, and an open_pane.
+  send('check both'); typed('%1', 'api'); typed('%2', 'web');
+  reply('Asked both.'); typed('%1', 'api'); reply('Waiting.');
+  say({type: 'open_pane', pane_id: '%1', label: 'api'});
+  say({type: 'turn_complete'});
+  assert.deepEqual(log.children.map((row) => row.dataset.role),
+    ['typed', 'typed', 'model', 'typed', 'model']);
+  assert.equal(log.children[2].children.length, 2); // heading and text: the buttons go last
+  assert.deepEqual(buttons(), ['Open api', 'Open web']);
+  last().lastChild.firstChild.onclick();
+  const tag = {dataset: {pane: '%1', at: '1'}};
+  const click = new Event('click');
+  const closest = (s) => s === '.voice-pane[data-pane]' ? tag : null;
+  Object.defineProperty(click, 'target', {value: {closest}});
+  log.dispatchEvent(click);
+  assert.deepEqual(opened, ['%1', '%1']);
+  // A delivery out of any turn (a parked card approved) is its card alone; the next turn's
+  // reply gets its own button.
+  typed('%1', 'api');
+  send('again'); reply('Again.'); typed('%1', 'api'); say({type: 'turn_complete'});
+  assert.deepEqual(buttons(), ['Open api']);
+  // A dropped connection ends the turn: what it delivered offers nothing to the next.
+  send('more'); typed('%2', 'web');
+  say({type: 'status', status: 'reconnecting'}); say({type: 'status', status: 'listening'});
+  send('next'); reply('Next.'); say({type: 'turn_complete'});
+  assert.equal(last().children.length, 2);
+})().catch(error => {console.error(error); process.exitCode = 1;});
+""", {"version": "v", "live_enabled": True, "live_models": [{"label": "Sonnet", "text": True}]})
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
 def test_chat_shows_a_working_row_until_each_turn_is_answered():
     _run_live(r"""
 (async () => {
@@ -674,8 +732,9 @@ def test_chat_shows_a_working_row_until_each_turn_is_answered():
   assert.deepEqual(roles(), ['user', 'propose', 'typed', 'typing']);
   const typed = document.getElementById('voice-log').children
     .find((row) => row.dataset.role === 'typed').lastChild.innerHTML;
-  assert.equal(typed, '<div class="voice-act">Typed into <span class="voice-pane">'
-    + '<img src="/claude.png" alt="claude"><strong>work</strong><span> · api</span></span>'
+  assert.equal(typed.replace(/ data-at="\d+"/, ''), '<div class="voice-act">Typed into '
+    + '<button type="button" class="voice-pane" data-pane="%1" title="Open">'
+    + '<img src="/claude.png" alt="claude"><strong>work</strong><span> · api</span></button>'
     + '<blockquote>ls <kbd>⏎ Enter</kbd></blockquote></div>');
   assert.match(bubble.title, /new messages, responding/);
   // A reply can come ahead of more work in the same turn: the row stays until it completes.

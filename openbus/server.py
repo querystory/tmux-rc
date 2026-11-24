@@ -936,7 +936,7 @@ def push_config():
 @app.post("/api/push/subscribe")
 def push_subscribe(body: PushSubscriptionBody, request: Request):
     try:
-        app.state.push.subscribe(body.model_dump())
+        app.state.push.subscribe(body.model_dump(), request.headers.get("origin"))
     except ValueError as exc:
         _audit(request, "push_subscribe", "push", outcome=f"rejected: {exc}")
         raise HTTPException(400, str(exc)) from exc
@@ -2454,9 +2454,9 @@ if _scratch_dir:
         to fetches would need CORS for the opaque origin "null", which every agent page
         shares, or the app's own origin, for a page that renders agent-written text."""
         if seen is not None:
-            listed = await asyncio.to_thread(scratch.listing, Path(_scratch_dir),
-                                             archived=archived is not None)
-            return Response(None, 204) if seen == scratch.tag(listed) else Response(
+            now = await asyncio.to_thread(lambda: scratch.tag(scratch.listing(
+                Path(_scratch_dir), archived=archived is not None), list(app.state.watcher.states)))
+            return Response(None, 204) if seen == now else Response(
                 _PIXEL, media_type="image/gif")
         return HTMLResponse(await asyncio.to_thread(lambda: scratch.page(
             Path(_scratch_dir), *_who(), _sidecars,

@@ -12,6 +12,7 @@
       "! systemctl --user restart tmux-rc"
     ],
     "question": {
+      "optional": true,
       "answer_style": "text"
     }
   }
