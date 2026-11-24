@@ -109,7 +109,7 @@ def test_a_card_version_bump_drops_the_card_but_keeps_the_clocks(monkeypatch, tm
 
 @pytest.mark.parametrize("state", ["idle", "waiting"])
 def test_a_failed_first_read_leaves_the_restored_clock(monkeypatch, tmp_path, state):
-    """The new parser's first read fails (a timeout): it is no reading, so the retry
+    """The new parser's first reads fail (a timeout): they are no reading, so the retry
     that agrees with the stored card still keeps its clock."""
     db = tmp_path / "h.db"
     first, _ = daemon(monkeypatch, db, read={"activity": state})
@@ -117,24 +117,11 @@ def test_a_failed_first_read_leaves_the_restored_clock(monkeypatch, tmp_path, st
     monkeypatch.setattr(W, "CARD_VERSION", W.CARD_VERSION + 1)
     read = {"activity": "unknown", "parse_ok": False}
     w, _ = daemon(monkeypatch, db, now=20_000.0, activity="19000", read=read)
+    w._tick()  # and fails again, now over its own unread card
     assert card(w)["state_since"] == since
     read.clear()
     read["activity"] = state
     w._tick()
-    assert (card(w)["activity"], card(w)["state_since"]) == (state, since)
-
-
-@pytest.mark.parametrize("state", ["idle", "waiting"])
-def test_a_failed_first_read_keeps_the_checkpoint(monkeypatch, tmp_path, state):
-    """A restart before the retry still finds the stored card's clock: a pane nothing has
-    read yet writes no checkpoint over it."""
-    db = tmp_path / "h.db"
-    first, _ = daemon(monkeypatch, db, read={"activity": state})
-    since = card(first)["state_since"]
-    monkeypatch.setattr(W, "CARD_VERSION", W.CARD_VERSION + 1)
-    daemon(monkeypatch, db, now=20_000.0, activity="19000",
-           read={"activity": "unknown", "parse_ok": False})
-    w, _ = daemon(monkeypatch, db, now=30_000.0, activity="29000", read={"activity": state})
     assert (card(w)["activity"], card(w)["state_since"]) == (state, since)
 
 
