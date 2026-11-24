@@ -1574,7 +1574,7 @@ def test_a_sent_offer_is_spent():
     sent = handed.replace("\n\n❯", "\n\n! make deploy\n  ⎿  Uploading 3 files…\n\n❯")
     read = {"tool": "claude", "activity": "waiting", "waiting_on": "user",
             "offers": ["! make deploy"]}
-    result = classify(_pane("claude"), sent, _llm(read))
+    result = classify(_pane("claude"), sent, _llm({**read}))  # classify edits its read
     assert (result["activity"], result.get("waiting_on"), result.get("offers")) == (
         "idle", None, None)
     # Only that command: another offer still waits on the user.
@@ -1582,6 +1582,11 @@ def test_a_sent_offer_is_spent():
     two = sent.replace("  ! make deploy\n", "  ! make deploy\n  ! make smoke\n", 1)
     result = classify(_pane("claude"), two, _llm(both))
     assert (result["activity"], result.get("offers")) == ("waiting", ["! make smoke"])
+    # A longer command, or output that names it, is not the command sent.
+    for other in ("! make deployment", "  ⎿  next: ! make deploy"):
+        unsent = handed.replace("\n\n❯", f"\n\n{other}\n\n❯")
+        result = classify(_pane("claude"), unsent, _llm({**read}))
+        assert (result["activity"], result.get("offers")) == ("waiting", ["! make deploy"])
 
 
 def test_an_unsent_draft_keeps_the_handed_over_offer():
