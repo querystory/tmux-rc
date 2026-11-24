@@ -12,6 +12,7 @@ Rationale: docs/design/live-mode.md § Text mode.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import contextlib
 import json
@@ -81,6 +82,7 @@ class _Chat:
         self._inbox: Queue[tuple] = Queue(maxsize=TURNS_QUEUED)
         self._context: deque[str] = deque(maxlen=CONTEXT_KEPT)
         self._answers: list[tuple[ToolCall, dict]] = []
+        self._answered = asyncio.Event()  # set by each answer; a new one per wait
         self._usage = [0] * len(Split._fields)
         self._starts: list[int] = []  # where each kept turn begins in history
         self._restored = ""  # a restored transcript, leading the next turn
@@ -117,6 +119,7 @@ class _Chat:
 
     async def send_tool_result(self, call: ToolCall, payload: dict) -> None:
         self._answers.append((call, payload))
+        self._answered.set()
 
     async def events(self):
         """A turn the model did not finish (failed, empty) is closed in history with
@@ -171,15 +174,17 @@ class _Chat:
                 if not calls:
                     break
                 acted = True
-                # live._receiver runs each call to completion (consent included) and
-                # answers it through send_tool_result before asking for the next event,
-                # so every answer is in by the time this generator resumes. A call made
-                # after tools were withdrawn is answered as refused, never run.
+                # live._receiver answers each call (consent included) off its event loop,
+                # through send_tool_result: wait for every answer before going on. A call
+                # made after tools were withdrawn is answered as refused, never run.
                 for call in calls:
                     if last:
                         self._answers.append((call, _REFUSED))
                     else:
                         yield Event("tool_call", call=call)
+                while len(self._answers) < len(calls):
+                    self._answered = asyncio.Event()  # bound to this turn's event loop
+                    await self._answered.wait()
                 self._results(self._answers)
                 self._answers = []
             else:  # quiet or still calling on the last step: closed, as a quiet turn is

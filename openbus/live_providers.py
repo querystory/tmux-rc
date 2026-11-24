@@ -813,9 +813,13 @@ class _OpenAISession:
             elif t == "response.created":
                 self._active, self._asked = True, None
             elif t == "response.done":
-                self._add_usage((ev.get("response") or {}).get("usage") or {})
+                response = ev.get("response") or {}
+                self._add_usage(response.get("usage") or {})
                 yield Event("usage", usage=Split(*self._usage))
-                yield Event("turn_complete")
+                # A response that called a tool goes on once it is answered (send_tool_result
+                # asks for the follow-up): the turn, and the user's request, are not over.
+                if not any(o.get("type") == "function_call" for o in response.get("output") or ()):
+                    yield Event("turn_complete")
                 await self._release()
             elif t == "error":
                 err = ev.get("error") or {}

@@ -119,3 +119,15 @@ test("the owner is focused as soon as it answers, past a suspended or closed win
   assert.equal(owner.focused, 1);
   assert.equal(asleep.focused + gone.focused, 0);
 });
+
+test("a declarative push handed to the worker (iOS before 18.4) shows with its address", async () => {
+  const listeners = {}, shown = [];
+  const self = { addEventListener: (type, fn) => { listeners[type] = fn; },
+    registration: { showNotification: async (title, options) => { shown.push({ title, ...options.data, body: options.body, tag: options.tag }); } } };
+  vm.runInNewContext(source, { self, clients: {}, caches: {}, Response, URL, MessageChannel: Channel, setTimeout });
+  let done;
+  const notification = { title: "Ready: Notes", body: "Its page is ready.", tag: "scratch:notes", navigate: "https://host/m#view=scratch" };
+  listeners.push({ data: { json: () => ({ web_push: 8030, notification }) }, waitUntil: (promise) => { done = promise; } });
+  await done;
+  assert.deepEqual(shown, [{ title: "Ready: Notes", body: "Its page is ready.", tag: "scratch:notes", url: "https://host/m#view=scratch", nonce: null, chat: null }]);
+});

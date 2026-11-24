@@ -53,7 +53,9 @@ shows it as **Scratch**: a tab in the phone's tab bar, a place in the wide sideb
   name, only when the app ships that glyph: the menu is same-origin with the API, so the
   app never draws markup a page supplies.
 - **Stays current**: an open gallery asks every five seconds whether anything changed and
-  reloads if so, except while a filter is being typed or cards are selected.
+  reloads if so, except while a filter is being typed or cards are selected. So a page
+  rebuilt on a timer should write its files only when what they say changed: each write
+  reloads every open gallery and has its thumbnail drawn again.
 
 ## A link handed out before its page
 

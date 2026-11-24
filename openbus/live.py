@@ -157,6 +157,17 @@ class _Meter:
             maxlen=TURNS_KEPT + TURNS_QUEUED + 1)
         self.usage = _LiveUsage(model.rates)
         self.turns = 0
+        # Which user request this is, and the pane each recent request's voice actions
+        # reached, by request: GPT-Live's delegations can interleave. On the seam the first
+        # of the user's words or a tool call after the model's turn ended starts the next
+        # one (asking): a provider's transcript keeps no order against its tool calls, so
+        # words arriving after or between the calls of one turn are still its request.
+        self.request = 0
+        self.answered = True  # the model's turn ended since the current request began
+        self.reached: dict = {}
+        self.used: set[str] = set()  # panes an action reached this session (_stale)
+        self.asked: dict[str, dict] = {}  # long-idle panes refused until the user speaks (_stale)
+        self.heard: deque[str] = deque(maxlen=400)  # the user's recent transcript (_not_theirs)
         self.started = time.monotonic()
         self._lines: list[str] = []
         # Extra OTel fields a provider adapter wants folded into each record (GPT-Live
@@ -164,6 +175,12 @@ class _Meter:
         # providers, which report everything through `usage`.
         self.details: dict = {}
         self.rec = live_record.Recorder()  # off until live_mode starts one for a voice session
+
+    def asking(self) -> int:
+        """The request being made now, the next one if the model's turn ended since."""
+        if self.answered:
+            self.request, self.answered = self.request + 1, False
+        return self.request
 
     def keep_images(self, images: list[tuple[str, bytes]]) -> None:
         """Number a delivered turn's images (a turn without any still ages the older ones)."""
@@ -408,16 +425,16 @@ def _pane_context(watcher, screens: str) -> str:
 
 
 # Appended in a text session, whose relayed messages are labelled by how the user really
-# said them. The prompt's example label is the one place the relay prefix is taught.
+# said them: _system_prompt swaps the prompt's example label, the one place the relay prefix
+# is taught.
 _TEXT_NOTE = (
     "\nThis session is typed, not spoken: the user types to you and reads your replies. "
-    'Keep them short and plain. Label relayed messages "(via text)". Actions that change '
+    "Keep them short and plain. Actions that change "
     "a pane (type_in_pane, press_key, resume_session, send_image_to_pane) are shown to the "
     "user to approve first; a declined one did not happen, so don't retry it unless the user "
     "asks. Act first, then say briefly what you sent and where; don't narrate what you're "
     "about to do before calling a tool, and never say what a pane did unless an update "
-    'shows it. A bare "yes" or "ok" answers only a question you asked in this conversation; '
-    "with none, ask what they mean instead of acting. A [Current pane] line names the pane "
+    "shows it. A [Current pane] line names the pane "
     "this conversation is on; only the one at the very end of a turn counts. A PENDING "
     "QUESTION that is a menu takes the one key that picks a row (its digit, or y/n), typed "
     "alone with press_enter false. Pasted images are numbered in the turn text; to give one "
@@ -450,12 +467,24 @@ def _scratch_index(watcher) -> str:
     return "\n".join(map(line, listed))
 
 
-def _system_prompt(watcher, *, text: bool = False) -> str:
+# Appended for a model that speaks to the user itself. GPT-Live's backend doesn't: it hands
+# its results to a voice that has speaking rules of its own (gpt_live.VOICE_PROMPT).
+_SPOKEN_NOTE = (
+    "\nYou are a voice. Keep replies to one or two spoken sentences, in plain words, the kind "
+    "of thing that sounds natural read aloud, skipping markdown, code, and long identifiers. "
+    "Announce briefly in voice before you type (\"Typing 'make test' into tmux-rc-dev\"): the "
+    "spoken line is short; the typed text is full."
+)
+
+
+def _system_prompt(watcher, *, text: bool = False, spoken: bool = True) -> str:
     """Blocking (_scratch_index): run it off the event loop."""
     stamp = time.strftime("%Y-%m-%d %H:%M %Z")
     prompt = _load_prompt("live_prompt.txt")
     if text:
         prompt = prompt.replace("(via voice)", "(via text)") + _TEXT_NOTE
+    elif spoken:
+        prompt += _SPOKEN_NOTE
     pages = _scratch_index(watcher)
     return (
         f"{prompt}\nNow: {stamp}"
@@ -473,13 +502,16 @@ def _audit(meter: _Meter, action: str, pane_id: str = "-", **kw) -> None:
     )
 
 
-async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _Meter) -> None:
+async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _Meter,
+                            request=None) -> None:
     """Run one tool call, audit it, and answer the model tersely. The ONE place every
     Live tool call is recorded: the handler notes what it touched in `rec` (pane, detail,
     content, ids) and the outcome comes from its answer, so no path goes unaudited — a
     call that raises (say, the socket dropping after the keys went in) is audited too,
-    with whatever `rec` already shows it did."""
+    with whatever `rec` already shows it did. `request` names the user request the call
+    serves, when the provider knows it better than the latest transcript does."""
     started, rec = time.monotonic(), {}
+    request = meter.asking() if request is None else request
     # Pin an omitted image_number to the latest image NOW: the user approves the thumbnail
     # on the card, and a turn pasted while it waits must not change which image is sent.
     call = fc
@@ -494,14 +526,71 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
     result = {"status": "error", "reason": "aborted"} if known else {
         "status": "rejected", "reason": "unknown tool"}
     try:
-        if known:
+        if known and (refused := _other_pane(meter, request, call)
+                                or _stale(meter, call, watcher) or await _honest(meter, call)):
+            result = refused
+        elif known:
             ok, pid = (await _approved(websocket, session, call, watcher, meter, rec)
                        if meter.text and fc.name in _CONSENT else (True, None))
             act = _act(websocket, session, call, watcher, meter, rec, ok, pid)
             result = await (_focusing(session, watcher, rec, act) if meter.text else act)
+            if result["status"] == "sent":  # input went in: the window is in the conversation
+                meter.used.add(rec["pane_id"])
+                meter.reached.setdefault(request, rec["pane_id"])
+                if len(meter.reached) > REQUESTS_KEPT:
+                    del meter.reached[next(iter(meter.reached))]
     finally:
         _audit_call(meter, fc.name if known else "unknown_tool", result, started, rec)
+    if known and not meter.text and fc.name in _CONSENT and result["status"] in _NOT_DONE:
+        # The phone shows what the voice did not do too: the voice may not say so (GPT-Live's
+        # stays quiet while its backend retries). A reason's first clause is the user's.
+        name = _labels(watcher).get(_pane_arg(call)) or "a window"
+        await websocket.send_json({"type": "transcript", "role": "note", "text": (
+            f"Not sent to {name}: {result['reason'].split(';')[0]}")})
     await session.send_tool_result(fc, result)
+
+
+REQUESTS_KEPT = 32  # requests whose pane is remembered: far more than can still be running
+
+
+def _other_pane(meter: _Meter, request, fc) -> dict | None:
+    """Refuse a voice action on a second pane in one user request. Voice acts without a card,
+    and one spoken question once fanned out to several agents, each of which then messaged
+    the whole fleet; the user, not the model, says when one request should reach two windows.
+    A resume only opens a window, idle: it goes, and typing into it is what this holds."""
+    held = meter.reached.get(request)
+    if meter.text or fc.name not in _CONSENT - {"resume_session"} or held in (None, _pane_arg(fc)):
+        return None
+    return {"status": "rejected", "reason": (
+        f"one window per request; this one already reached id={held}, so send nothing more for "
+        "it: tell the user it goes to one window per request and ask them to say the next one "
+        "as its own request")}
+
+
+STALE_SECONDS = 3600
+
+
+def _stale(meter: _Meter, fc, watcher) -> dict | None:
+    """Refuse, once, a voice action on a window idle over STALE_SECONDS that is neither on the
+    user's screen nor one this session already reached: a topic match once sent work to a
+    window idle for days, and the prompt's "confirm a long-idle pane" went unheeded. The
+    refusal sends the model to ask the user, and once they have spoken the next send there
+    goes through, so voice confirms by voice; until then every call there is refused, so the
+    rest of the request (an Enter after the refused text) cannot act without them. The
+    windows the user is working in pass untouched."""
+    pane = _pane_arg(fc)
+    if fc.name in _CONSENT and pane in meter.asked:  # held, whatever the window printed since
+        return meter.asked[pane]
+    d = next((d for d in watcher.digest() if d["pane_id"] == pane), None)
+    idle = (d or {}).get("idle_seconds")
+    if (meter.text or fc.name not in _CONSENT or not d or d.get("activity") != "idle"
+            or d.get("tmux_active") or pane in meter.used
+            or not isinstance(idle, (int, float)) or idle <= STALE_SECONDS):
+        return None
+    meter.asked[pane] = {"status": "rejected", "reason": (
+        f"idle {_fmt_age(idle)}; confirm with the user first that they want it in "
+        f"{_pane_name(d)}, and once they say so, send it again")}
+    return meter.asked[pane]
 
 
 # The running action's _focusing hook, which _delivered calls as its delivery shows.
@@ -545,6 +634,8 @@ async def _act(websocket, session, call, watcher, meter: _Meter, rec: dict, ok, 
 
 
 def _audit_call(meter: _Meter, name: str, result: dict, started: float, rec: dict) -> None:
+    # The recording keeps it whole (local only), so what was heard lines up with what was done.
+    meter.rec.event("tool", tool=name, rec=rec, result=result)
     status, reason = result["status"], result.get("reason")
     _audit(
         meter, f"live_{name}",
@@ -556,10 +647,12 @@ def _audit_call(meter: _Meter, name: str, result: dict, started: float, rec: dic
 
 _DONE = {"sent", "ok", "opened", "button_shown"}  # a call's outcomes that went as asked
 _REACHED = {"sent", "opened", "already_running"}  # ones that reached a pane
+_NOT_DONE = {"rejected", "declined"}  # a gate's or the user's no: nothing was sent
 # The tools that change a pane. In a text session each waits for the user to tap Send on
 # what it would do (the control plane's risk tiers: docs/design/agentic-control-plane.md):
 # a typed request is read and answered, never acted on unasked. find_sessions only reads,
-# so it runs at once. Voice keeps acting directly — a tap would end hands-free use.
+# so it runs at once. Voice keeps acting directly — a tap would end hands-free use — but a
+# window long idle and out of the conversation is refused once, to be confirmed aloud (_stale).
 _CONSENT = {"type_in_pane", "press_key", "resume_session", "send_image_to_pane"}
 # Typing a new message while a card waits answers it: the user moved on, so the model is
 # told not to retry and to take the new turn (queued behind this one) instead.
@@ -851,12 +944,11 @@ async def _dispatch(
     if fc.name == "read_scratch":
         return await asyncio.to_thread(_read_scratch, args, rec)
 
-    # Keep the RAW value as well as the coerced one: str() turns a dict or an int into a
-    # perfectly plausible-looking string, and the guards below have to reject a wrong TYPE
-    # rather than silently accept its repr. A model parroting our own tool response back
-    # as a new call is exactly how a dict arrives here.
-    raw_pane_id = args.get("pane_id")
-    pane_id = str(raw_pane_id or "").strip()
+    # The guards below (_keystrokes) check the RAW value as well as this coerced one: str()
+    # turns a dict or an int into a plausible-looking string, and they must reject a wrong
+    # TYPE rather than accept its repr. A model parroting our own tool response back as a new
+    # call is exactly how a dict arrives here.
+    pane_id = _pane_arg(fc)
     labels = _labels(watcher)
 
     send_args, what, submitted = _keystrokes(fc, pane_id)
@@ -906,6 +998,61 @@ async def _dispatch(
     return _sent(label)
 
 
+# How much of a relay labelled as the user's must be words they said: speech noise may drop out
+# and a misheard word may be fixed, but a brief the model wrote is not theirs. Words not heard
+# yet get HEARD_WAIT_SECONDS to arrive: the seam's providers (Gemini, OpenAI Realtime) keep
+# no order between the user's transcript and the model's tool calls.
+HEARD_SHARE = 0.8
+HEARD_WAIT_SECONDS = 1.5
+
+
+async def _honest(meter: _Meter, fc) -> dict | None:
+    """Refuse a voice relay labelled as the user's that does not carry their words, before
+    any card, with what they did say, so a retry has their words to send."""
+    text = (fc.args if isinstance(fc.args, dict) else {}).get("text")
+    if meter.text or fc.name != "type_in_pane" or not isinstance(text, str):
+        return None
+    deadline = time.monotonic() + HEARD_WAIT_SECONDS
+    while _not_theirs(meter, text):
+        if time.monotonic() >= deadline:
+            said = " ".join("".join(meter.heard).split())[-300:]
+            return {"status": "rejected", "reason": (
+                "not the user's words as transcribed; what they said ends "
+                f"{json.dumps(said, ensure_ascii=False)}. Send their words after the label, "
+                "and if that isn't what they asked, ask them to say it again")}
+        await asyncio.sleep(0.1)
+    return None
+
+
+def _not_theirs(meter: _Meter, text: str) -> bool:
+    """Whether a voice relay labelled "From the user" carries words the user didn't say. Agents
+    take that label as the user's authority, and a voice backend that sees only a handoff
+    once sent its own briefs under it. An "(assistant's note: ...)" that ends the relay is the
+    model's by its own label, and a relay with no words of the user's before it is not theirs.
+    Whether the words keep the user's meaning is the model's
+    judgement; this only checks whose words they are. Fragments are joined both ways, since
+    some providers stream words split."""
+    label, colon, said = text.strip().partition(":")
+    if not colon or not label.startswith("From the user"):
+        return False
+    own, _, note = said.partition("(assistant's note")
+    if not _closes_last(note):  # a note ends the relay; anything after it is checked
+        own = said
+    words = _words(own)
+    heard = {*_words("".join(meter.heard)), *_words(" ".join(meter.heard))}
+    return not words or sum(w in heard for w in words) < HEARD_SHARE * len(words)
+
+
+def _closes_last(text: str) -> bool:
+    """Whether the parenthesis already open before `text` closes at its very end."""
+    depth = 1
+    for i, ch in enumerate(text):
+        depth += (ch == "(") - (ch == ")")
+        if depth == 0:
+            return not text[i + 1:].strip()
+    return False
+
+
 def _typed(args: dict) -> tuple[str, bool] | None:
     """A well-formed type_in_pane's (text, press_enter), else None. Never coerce press_enter:
     bool("false") is True and would submit an unsent command, so a non-bool is malformed."""
@@ -913,6 +1060,11 @@ def _typed(args: dict) -> tuple[str, bool] | None:
     ok = (isinstance(args.get("pane_id"), str) and isinstance(text, str) and text.strip()
           and isinstance(enter, bool) and not set(args) - {"pane_id", "text", "press_enter"})
     return (text, enter) if ok else None
+
+
+def _pane_arg(fc) -> str:
+    """The pane a call names, as _dispatch and every gate before it read it."""
+    return str((fc.args if isinstance(fc.args, dict) else {}).get("pane_id") or "").strip()
 
 
 def _sent(label: str) -> dict:
@@ -1328,6 +1480,11 @@ async def _transcript(websocket: WebSocket, meter: _Meter, role: str, text: str,
         logger.info("[live] %s: %s", role, text)
     meter.note(f"{role}: {text}")
     meter.rec.event("transcript", role=role, text=text, **extra)
+    if role == "user":
+        meter.heard.append(text)
+        meter.asking()
+        meter.used.update(meter.asked)  # their say on a long-idle window held for it (_stale)
+        meter.asked.clear()
     await websocket.send_json({"type": "transcript", "role": role, "text": text, **extra})
 
 
@@ -1419,25 +1576,84 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
 async def _receiver(websocket: WebSocket, session, watcher, meter: _Meter) -> None:
     """Model → client: voice audio, both transcripts, tool calls, barge-in. Also meters
     the session — takes each usage event into `meter` and emits a per-turn OTel record
-    at every turn boundary."""
+    at every turn boundary. In voice a turn's calls and its end run in order off this loop,
+    so audio and the transcript a relay is checked against (_honest) keep arriving
+    meanwhile; a typed turn's words are in before its calls, and its frames keep order."""
     meter.superseded = False  # a reconnect drops the turn it belonged to
-    async for ev in session.events():
-        if ev.kind == "usage":
-            meter.usage.set(ev.usage)
-        elif ev.kind == "tool_call":
-            meter.note(f"[typed] {ev.call.args}")
-            await _handle_tool_call(websocket, session, ev.call, watcher, meter)
-        elif ev.kind == "audio":
-            meter.rec.model(ev.data, 24000)  # the seam's providers all speak 24 kHz
-            await websocket.send_json({"type": "audio", "data": base64.b64encode(ev.data).decode()})
-        elif ev.kind == "transcript":
-            await _transcript(websocket, meter, ev.role, ev.text)
-        elif ev.kind == "turn_complete":
-            meter.superseded = False
-            meter.end_turn()
-            await websocket.send_json({"type": "turn_complete"})
-        elif ev.kind == "interrupted":
-            await websocket.send_json({"type": "interrupted"})
+    meter.answered = True
+    me, turn, failed = asyncio.current_task(), None, []  # turn: its latest step, run in order
+    steps: set[asyncio.Task] = set()  # every step not yet done: one not started can't pass on
+
+    def done(task: asyncio.Task) -> None:  # a step that raised fails the receiver, as inline
+        if not (task.cancelled() or failed) and task.exception():  # (until it is ending)
+            failed.append(task.exception())
+            me.cancel()
+
+    async def then(step) -> None:
+        nonlocal turn
+        if meter.text:
+            await step
+            return
+        turn = asyncio.create_task(_after(turn, step))
+        _background(turn)
+        turn.add_done_callback(done)
+        steps.add(turn)
+        turn.add_done_callback(steps.discard)
+        turn.add_done_callback(lambda _: step.close())  # one never started, or a no-op
+
+    async def stop() -> None:
+        for task in steps:
+            task.cancel()
+        await asyncio.wait(list(steps))
+    try:
+        async for ev in session.events():
+            if ev.kind == "usage":
+                meter.usage.set(ev.usage)
+            elif ev.kind == "tool_call":
+                meter.note(f"[typed] {ev.call.args}")
+                await then(_handle_tool_call(  # the request it came in, however long it waits
+                    websocket, session, ev.call, watcher, meter, meter.asking()))
+            elif ev.kind == "audio":
+                meter.rec.model(ev.data, 24000)  # the seam's providers all speak 24 kHz
+                await websocket.send_json(
+                    {"type": "audio", "data": base64.b64encode(ev.data).decode()})
+            elif ev.kind == "transcript":
+                await _transcript(websocket, meter, ev.role, ev.text)
+            elif ev.kind == "turn_complete":  # sent once its calls are answered
+                meter.answered = True
+                await then(_turn_complete(websocket, meter))
+            elif ev.kind == "interrupted":  # the user talked over it: their next words are new
+                meter.answered = True
+                await websocket.send_json({"type": "interrupted"})
+        if turn:  # the stream ended: its last calls finish, and one that raises fails this
+            await asyncio.wait([turn])
+    except asyncio.CancelledError:  # the session ending, or a step that raised
+        if failed:
+            raise failed[0] from None
+        if steps:
+            await stop()
+        raise
+    finally:  # a stream that dropped mid-turn: the calls it made finish first, as inline
+        failed.append(None)  # ones did, so none runs on into the reconnect
+        if steps:
+            try:
+                await asyncio.wait(list(steps))
+            except asyncio.CancelledError:  # the session ended meanwhile: they stop with it
+                await stop()
+                raise
+
+
+async def _after(previous: asyncio.Task | None, step) -> None:
+    """Run `step` once the step before it is done."""
+    if previous:
+        await previous
+    await step
+
+
+async def _turn_complete(websocket: WebSocket, meter: _Meter) -> None:
+    meter.superseded = False
+    meter.end_turn()
+    await websocket.send_json({"type": "turn_complete"})
 
 
 def _view(meter: _Meter, data: dict) -> None:
