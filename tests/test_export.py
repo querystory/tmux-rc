@@ -206,13 +206,14 @@ def test_nested_places_stay_their_parts(home, monkeypatch):
     (old / "share/tmux-rc/previews").mkdir(parents=True, exist_ok=True)
     (old / "share/tmux-rc/previews/pages").symlink_to(old / "pages")
     write(old / "share/tmux-rc/previews/other.txt")
+    write(old / "share/tmux-rc/live-audio/s-1/mic.wav")  # recordings, in the data dir here
     out = io.BytesIO()
     assert export.export(out, []) == []  # its agents weren't asked for
     with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
         names = tar.getnames()
     assert {"data/previews/other.txt", "accounts.json"} <= set(names)
     assert not [n for n in names if "push.json" in n or "pages" in n or "data/acc" in n
-                or "profiles/" in n]
+                or "profiles/" in n or "live-audio" in n]
 
     new = home("new")
     for var, path in (("XDG_STATE_HOME", "share"), ("XDG_DATA_HOME", "share"),
