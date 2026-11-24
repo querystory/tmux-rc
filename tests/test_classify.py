@@ -2177,3 +2177,23 @@ def test_a_corrective_read_decides_fresh():
         r = classify(_pane("claude"), f"{VISIBLE_SCREEN}\n{_NEW_SESSION}",
                      lambda *_a, _r=reads, **_k: _r.pop(0))
         assert (r.get("fresh"), reads) == (fresh, [])
+
+
+def test_a_draft_under_a_blank_first_row_is_not_fresh():
+    # Shift+Enter first, then words: the prompt row is blank and the draft goes on below it.
+    # The re-read sees the whole input box, and the session is not fresh: Resume would land
+    # its command after the draft.
+    screen = _NEW_SESSION.replace("❯ \n", "❯ \n  plant the tomatoes first\n")
+    bad = {"tool": "claude", "activity": "waiting", "fresh": True,
+           "question": {"prompt": "Which bed first?", "answer_style": "text"}}
+    seen = []
+    reads = [bad, {"tool": "claude", "activity": "idle", "fresh": True}]
+    def read(_system, user, **_k):
+        seen.append(user)
+        return reads.pop(0)
+    r = classify(_pane("claude"), f"{VISIBLE_SCREEN}\n{screen}", read)
+    assert "plant the tomatoes first" in seen[-1]
+    assert not {"fresh", "resumable"} & r.keys()
+    typed = _NEW_SESSION.replace("❯ ", "❯ plant the tomatoes first")
+    r = classify(_pane("claude"), typed, _llm({"tool": "claude", "activity": "idle", "fresh": True}))
+    assert not {"fresh", "resumable"} & r.keys()

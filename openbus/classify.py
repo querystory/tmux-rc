@@ -263,6 +263,18 @@ _STEPPER_RE = re.compile(r"‹ (.*?) ›")
 # session list included), never a question. A real picker replaces the box with a ❯ cursor.
 _EMPTY_INPUT_RE = re.compile(_PROMPT_ROW + r"[ \xa0\t│]*$(?![\s\S]*" + _PROMPT_ROW + ")",
                              re.MULTILINE)
+
+
+def _input_end(visible: str, box: re.Match) -> int:
+    """Where the input box an empty prompt row (_EMPTY_INPUT_RE) opens ends: past the rows a
+    draft begun on a blank first row goes on to, up to a blank row or the box's edge."""
+    end = box.end()
+    for row in visible[end + 1:].split("\n"):
+        if not row.strip(" \t\xa0│╰╯─━"):
+            break
+        end += len(row) + 1
+    return end
+
 # omp blocks that are never a live question: a completed Ask receipt, plain or boxed, from
 # its "? Ask" header through its chosen radios (a pending Ask is a "╭─ Ask" dialog with no
 # "?"); the queued outgoing-input bands ("Steering · 1", "After yield · 2"); and the "⎋"
@@ -672,7 +684,8 @@ def _ground_visible_fields(
     # Below an idle input box is only chrome: the re-read never sees it, so a list there
     # cannot be read as the question again.
     box = _EMPTY_INPUT_RE.search(visible)
-    evidence = (visible[:box.end()] if box else visible) if bad_action else identity_chrome
+    evidence = (visible[:_input_end(visible, box)] if box else visible) if bad_action \
+        else identity_chrome
     receipt = None
     if bad_question and host_tool == "omp" and (
         (omp := OMP_TITLE_RE.match(pane.title)) and omp["state"] not in (None, "!")
@@ -1221,10 +1234,15 @@ def _ground_fresh(result: dict, visible: str) -> None:
     """Keep the model's "fresh" (an agent at its welcome screen with an empty input box, no
     conversation yet) where its own other fields agree: a known agent, idle, nothing asked.
     "resumable" is the card's Resume and its sessions, offered wherever the session is fresh;
-    each recent session must be on screen, as everything else the card shows is."""
+    each recent session must be on screen, as everything else the card shows is. Claude
+    Code's and Codex's input box must be empty on screen too, down to its end: Resume types
+    its command into it, which after a draft would go out with it as one prompt."""
     fresh, recent = result.pop("fresh", None), result.pop("recent_sessions", None)
     result.pop("resumable", None)
-    if not (fresh is True and result.get("tool") in _AGENT_TOOLS
+    tool = result.get("tool")
+    box = _EMPTY_INPUT_RE.search(visible)
+    empty = tool not in ("claude", "codex") or bool(box and _input_end(visible, box) == box.end())
+    if not (fresh is True and empty and tool in _AGENT_TOOLS
             and result.get("activity") == "idle"
             and not any(result.get(k) for k in ("question", "rewind", "offers"))):
         return
