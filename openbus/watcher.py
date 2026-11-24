@@ -1376,7 +1376,9 @@ class Watcher:
             self._prs[pid] = list(state.get("prs") or [])
         if state or card.get("boot"):
             self.events_log[pid] = card["events"]
-            self._events_seq[pid] = (state or {}).get("events_seq", len(card["events"]))
+            # The counter the phone last saw, never a smaller one it could match again.
+            self._events_seq[pid] = card.get("events_seq",
+                                             (card.get("state") or {}).get("events_seq", 0))
             self._recent_events[pid] = [(e["text"], e["ts"]) for e in card["events"][-30:]]
         if card.get("boot"):
             self._boot[pid] = {**card["boot"], "events": [], "ts": now,
@@ -1416,6 +1418,7 @@ class Watcher:
                     "card": {
                         "state": dict(s) if valid else None,  # a later read updates s
                         "events": self.events_log.get(p.id, [])[-CHECKPOINT_EVENTS:],
+                        "events_seq": s.get("events_seq", 0),
                         "boot": boot and {k: boot.get(k) for k in ("summary", "name", "tool")},
                     },
                 })
