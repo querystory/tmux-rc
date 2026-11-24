@@ -285,6 +285,28 @@ def test_context_is_quiet_bounded_deduplicated_and_backend_keeps_full_screen():
     assert not any(e["type"] == "response.create" for e in s.ws.sent)
 
 
+def test_an_idle_panes_age_ticking_sends_no_hint_and_each_hint_is_recorded():
+    """Only news reaches the voice: a pane idle a minute longer is not a change. Each hint
+    sent is in the recording, to match against a transcript the provider attributes to
+    the user."""
+    async def run():
+        s = session()
+        events = []
+        s.meter.rec.event = lambda kind, **fields: events.append((kind, fields))
+        pane = {"pane_id": "%1", "label": "orchard tests", "activity": "idle"}
+        for idle, headline in ((120, "waiting"), (180, "waiting"), (240, "tests pass")):
+            s.watcher.digest = lambda idle=idle, headline=headline: [
+                {**pane, "idle_seconds": idle, "headline": headline}]
+            await s.send_context("[tmux update] something")
+        return s, events
+
+    s, events = asyncio.run(run())
+    hints = [e["content"] for e in s.ws.sent if e["type"] == "session.thinking.append"]
+    assert len(hints) == 2 and "tests pass" in hints[1]
+    assert not any("idle for" in h for h in hints)
+    assert [f["text"] for k, f in events if k == "hint"] == hints
+
+
 def test_continuous_transcripts_keep_roles_and_gaps_without_triggering_tools():
     s = session(
         [
