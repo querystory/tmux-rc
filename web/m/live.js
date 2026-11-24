@@ -245,21 +245,41 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
     row.append(actions); current.proposals.set(id, { row, actions, card }); badge();
     actions.scrollIntoView?.({ block: "nearest" }); // a card waiting on the user is never left clipped
   }
-  // A button to a pane, going exactly where its row in the list goes (the caller's
-  // navigate). A phone minimizes the sheet on the way, a docked panel stays put, out of full screen.
+  // Going to a pane from the chat, exactly where its row in the list goes (the caller's
+  // navigate). A phone minimizes the sheet on the way, a docked panel stays put, out of full
+  // screen. `at`: when the way there was offered, as one offered moments ago may name a
+  // window state lacks yet.
+  function go(pane_id, at) {
+    if (!docked()) hide(); else if (dialog.classList.contains("max")) $("voice-max").click();
+    open(pane_id, at);
+  }
   function openButton(pane_id, label) {
     const button = document.createElement("button"); button.type = "button"; button.className = "open";
     button.textContent = label; button.insertAdjacentHTML("beforeend", licon("chevron", 16));
-    const at = Date.now(); // a button offered moments ago may name a window state lacks yet
-    button.onclick = () => { if (!docked()) hide(); else if (dialog.classList.contains("max")) $("voice-max").click(); open(pane_id, at); };
+    button.dataset.pane = pane_id;
+    const at = Date.now();
+    button.onclick = () => go(pane_id, at);
     return button;
+  }
+  // A pane named on a card (paneTag) opens it too.
+  log.addEventListener("click", (event) => {
+    const tag = event.target.closest?.(".voice-pane[data-pane]");
+    if (tag) go(tag.dataset.pane, +tag.dataset.at);
+  });
+  // This turn's replies (a delivery between two splits it), the last one if it has one yet,
+  // and an Open button under it, once per pane in the whole turn.
+  const turnReplies = () => [...log.children].filter((row) => row.dataset.role === "model" && !row.dataset.done);
+  const turnReply = () => turnReplies().at(-1);
+  function chip(row, pane_id, label) {
+    const offered = turnReplies().flatMap((reply) => [...reply.querySelector(".voice-open")?.children || []]);
+    const holder = () => row.querySelector(".voice-open") || row.appendChild(Object.assign(document.createElement("div"), { className: "voice-open" }));
+    return offered.find((button) => button.dataset.pane === pane_id) || holder().appendChild(openButton(pane_id, `Open ${label}`));
   }
   // open_pane: the button goes under this turn's reply, in the same bubble, whether it lands
   // before the text (the usual order) or after. `auto` (a resume the user just tapped Send
   // on) also takes that path at once.
   function offer({ pane_id, label, auto }) {
-    const button = openButton(pane_id, `Open ${label}`), row = add("model", "");
-    (row.querySelector(".voice-open") || row.appendChild(Object.assign(document.createElement("div"), { className: "voice-open" }))).append(button);
+    const button = chip(turnReply() || add("model", ""), pane_id, label);
     if (auto) button.click();
   }
   // A pane as its sidebar row shows it, never by tmux id: its tool's logo, its name, its
@@ -271,9 +291,11 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
   // `window`: the daemon's " · window N" for a pane another one reads the same as (live._pane_name).
   function paneTag(id, label, window = "") {
     const pane = panes().find((p) => p.pane_id === id);
-    if (!pane) return `<strong>${esc(label || id)}</strong>${esc(window)}`;
-    const logo = Object.hasOwn(logos, pane.tool) ? logos[pane.tool] : "/tmux-logomark.svg";
-    return `<span class="voice-pane"><img src="${logo}" alt="${esc(pane.tool || "tmux")}"><strong>${esc(paneName(pane))}</strong>${sessionOf(pane) ? `<span> · ${esc(sessionOf(pane))}</span>` : ""}${window && `<span>${esc(window)}</span>`}</span>`;
+    const logo = pane && (Object.hasOwn(logos, pane.tool) ? logos[pane.tool] : "/tmux-logomark.svg");
+    const name = pane ? `<img src="${logo}" alt="${esc(pane.tool || "tmux")}"><strong>${esc(paneName(pane))}</strong>${sessionOf(pane) ? `<span> · ${esc(sessionOf(pane))}</span>` : ""}`
+      : `<strong>${esc(label || id)}</strong>`;
+    // A button: tapping the pane opens it (the log's click handler).
+    return `<button type="button" class="voice-pane" data-pane="${esc(id)}" data-at="${Date.now()}" title="Open">${name}${window && `<span>${esc(window)}</span>`}</button>`;
   }
   // What a card or a typed line does to a pane, drawn rather than told: the verb, the pane,
   // a key as a keycap, typed text quoted under it. `done`: it happened (past tense). The
@@ -321,8 +343,11 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
     clearTimeout(current.retry); try { current.ws.close(); } catch {}
     connect(current);
   }
-  // A dropped connection takes the daemon's queued turns with it; ending the chat, its cards too.
-  function drop(current) { current.turns = 0; badge(); }
+  // A finished turn's rows grow no more, nor take the next turn's Open buttons.
+  const finish = () => [...log.children].forEach((row) => { row.dataset.done = "true"; });
+  // A dropped connection takes the daemon's queued turns with it, and so ends the turn under
+  // way; ending the chat, its cards too.
+  function drop(current) { current.turns = 0; current.delivered.clear(); finish(); badge(); }
   function expire(current) {
     [...current.proposals.keys()].forEach((id) => settle(current, id, "Expired"));
     drop(current);
@@ -440,7 +465,11 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
     let pending = new Float32Array(0);
     current.clearPending = () => { pending = new Float32Array(0); };
     tap.port.onmessage = ({ data }) => {
-      if (run !== current || !current.listening || (current.muted && !current.frameMs) || current.ws?.readyState !== WebSocket.OPEN || current.ws.bufferedAmount > MAX_SOCKET_BACKLOG) { pending = new Float32Array(0); return; }
+      const live = run === current && current.listening && !(current.muted && !current.frameMs);
+      if (!live || current.ws?.readyState !== WebSocket.OPEN || current.ws.bufferedAmount > MAX_SOCKET_BACKLOG) {
+        if (live) current.lost = (current.lost || 0) + pending.length + data.length; // told to the server's recording
+        pending = new Float32Array(0); return;
+      }
       const joined = new Float32Array(pending.length + data.length);
       joined.set(pending);
       // A worklet message captured before the toggle can arrive after mute.
@@ -463,7 +492,8 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
       const bytes = new Uint8Array(pcm.buffer);
       let binary = "";
       for (let i = 0; i < bytes.length; i += CHAR_CHUNK) binary += String.fromCharCode(...bytes.subarray(i, i + CHAR_CHUNK));
-      current.ws.send(JSON.stringify({ action: "audio", data: btoa(binary) }));
+      current.ws.send(JSON.stringify({ action: "audio", data: btoa(binary), lost_ms: Math.round((current.lost || 0) * 1000 / rate) }));
+      current.lost = 0;
     };
     source.connect(tap); tap.connect(mute); mute.connect(current.destination);
     current.nodes = [source, tap, mute];
@@ -504,13 +534,18 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
         audioStatus(current);
       } else if (message.type === "transcript") add(message.role, message.text, message.new_segment, "images" in message ? current.thumbs.shift() : []);
       else if (message.type === "turn_complete") {
-        [...log.children].forEach((row) => { row.dataset.done = "true"; });
+        // The reply offers each pane the turn messaged, once its rows are all in, so the
+        // buttons sit under its text whatever order the deliveries and the text came in.
+        for (const [pane_id, label] of current.delivered) chip(turnReply() || add("model", ""), pane_id, label);
+        current.delivered.clear(); finish();
         current.turns = Math.max(0, current.turns - 1); badge(); // a queued turn may follow
       }
       else if (message.type === "typed") {
         heard.add(message.label);
         add("typed", `${message.label}: ${message.text}`).lastChild.innerHTML = drawn(message)
           ? action({ ...message, enter: message.submitted }, true) : `${paneTag(message.pane_id, message.label)}: ${esc(message.text)}`;
+        // A delivery out of any turn (a parked card approved after a reconnect) is its card alone.
+        if (current.turns || !current.text) current.delivered.set(message.pane_id, message.label);
       }
       else if (message.type === "error") {
         // A refused turn gets no answer; any other error ends the session's turns.
@@ -545,7 +580,7 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
   }
   async function start() {
     const token = ++sequence;
-    const current = { model: $("voice-model").value, text: mode === "text", proposals: new Map(), sending: new Map(), thumbs: [], pending: [], turns: 0, nodes: [], queued: new Set(), playAt: 0, tries: 0, up: false, listening: false, muted: false };
+    const current = { model: $("voice-model").value, text: mode === "text", proposals: new Map(), sending: new Map(), delivered: new Map(), thumbs: [], pending: [], turns: 0, nodes: [], queued: new Set(), playAt: 0, tries: 0, up: false, listening: false, muted: false };
     run = current; dialog.classList.remove("beside"); log.replaceChildren(); heard.clear(); status(current.text ? "Connecting..." : "Connecting microphone..."); paint();
     if (current.text) {
       $("voice-switch").value = current.model;

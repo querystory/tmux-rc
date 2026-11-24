@@ -12,8 +12,8 @@ import starlette.websockets
 from fastapi.testclient import TestClient
 
 import openbus.live_providers as P
+from openbus import gpt_live, server
 from openbus import live as L
-from openbus import server
 
 DEFAULTS = P._DEFAULT + P._CHAT_DEFAULT  # a table naming no chat model gets text's defaults
 
@@ -132,13 +132,11 @@ def test_version_lists_offered_labels_with_hints(monkeypatch):
 def test_only_chat_entries_are_text_models(monkeypatch):
     """Text lists chat models and Voice the rest: the realtime models that could reply in
     text are small, and a typed request deserves a real chat model."""
-    from openbus import gpt_live
-
     assert P.LiveModel("Flash", "gemini-3-flash-preview", "vertex-chat").text
     assert P.LiveModel("Sonnet", "claude-sonnet-5-5", "anthropic").text
     assert not P.LiveModel("GPT", "gpt-realtime", "openai").text
     assert not P.LiveModel("Gemini", "gemini-live-2.5-flash-native-audio").text
-    assert not gpt_live.ENTRY.text
+    assert not any(m.text for m in gpt_live.ENTRIES)
     rated = P._coerce({"label": "Sonnet", "model": "m", "backend": "anthropic",
                        "rates": {"text_in": 2, "text_out": 10}})
     assert rated.hint == "Anthropic · $2/$10 per 1M text"
@@ -165,9 +163,10 @@ def test_gpt_live_joins_the_menu_on_its_key_alone(monkeypatch):
     without = offered()
     monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
     with_key = offered()
-    assert [m["label"] for m in with_key] == ["GPT-Live 1"] + [m["label"] for m in without]
-    # First means default: no label picks GPT-Live, while an explicit pick still wins.
-    assert L.pick(None).label == "GPT-Live 1"
+    gpt = [m.label for m in gpt_live.ENTRIES]
+    assert [m["label"] for m in with_key] == gpt + [m["label"] for m in without]
+    # First means default: no label picks the newest GPT-Live; an explicit pick wins.
+    assert L.pick(None).label == "GPT-Live 1.1"
     assert L.pick("Gemini 2.5").label == "Gemini 2.5"
     assert L.pick(None, text=True).label == "Gemini 3 Flash"  # voice only; Chat unchanged
     # Its own hint, not a rate card: GPT-Live bills voice by the MINUTE, so rendering the
@@ -202,7 +201,7 @@ def test_a_configured_entry_may_claim_gpt_lives_label_and_wins_it(monkeypatch):
     }]))
     labels = [m["label"] for m in TestClient(server.app).get("/api/version").json()["live_models"]
               if not m["text"]]
-    assert labels == ["GPT-Live 1"]
+    assert labels == ["GPT-Live 1.1", "GPT-Live 1"]  # 1.1 is still the adapter's
     assert L.pick("GPT-Live 1").model == "gemini-live-2.5-flash-native-audio"
 
 
@@ -222,7 +221,8 @@ def test_a_keyless_entry_still_owns_its_label_against_gpt_live(monkeypatch):
     ]))
     labels = [m["label"] for m in TestClient(server.app).get("/api/version").json()["live_models"]
               if not m["text"] and not m.get("unavailable")]
-    assert labels == ["Gemini 2.5"]  # neither the keyless entry nor the adapter squatting it
+    # Neither the keyless entry nor the adapter squatting it; 1.1's label is the adapter's.
+    assert labels == ["GPT-Live 1.1", "Gemini 2.5"]
     assert L.pick("GPT-Live 1") is None
     # The key lands: the label resolves to the model the operator named, never the adapter.
     monkeypatch.setenv("GEMINI_API_KEY", "k")

@@ -229,6 +229,31 @@ def test_sender_vapid_contact_default_and_override(monkeypatch, override):
     assert sent[0]["vapid_claims"]["sub"] == (override or "mailto:tmux-rc@openbus.io")
 
 
+def test_apple_devices_get_a_declarative_push_that_ios_opens_itself(tmp_path, monkeypatch):
+    sent = []
+    monkeypatch.setattr(push, "webpush", lambda **kwargs: sent.append(
+        (kwargs["subscription_info"]["endpoint"], json.loads(kwargs["data"]))))
+    manager = push.PushManager.__new__(push.PushManager)
+    manager.store = push.PushStore(tmp_path / "push.json")
+    manager.subscribe(subscription(), "https://app.example.org")
+    manager.subscribe(subscription("https://fcm.googleapis.com/fcm/send/x"), "https://app.example.org")
+    manager.subscribe(subscription("https://web.push.apple.com/Q2/no-origin"))
+    payload = {"title": "Question", "body": "Ship it?", "tag": "block:%7", "url": "/m#pane=%257",
+               "actions": [{"action": "answer:0", "title": "Yes"}], "nonce": "n"}
+    sender = object.__new__(push.PushSender)
+    for item in manager.store.subscriptions():
+        sender._deliver(item, payload, "test-key")
+        sender._deliver(item, {**payload, "chat": "card"}, "test-key")
+    declarative = {"web_push": 8030, "notification": {
+        "title": "Question", "body": "Ship it?", "tag": "block:%7",
+        "navigate": "https://app.example.org/m#pane=%257"}}
+    assert sent == [(subscription()["endpoint"], declarative),
+                    (subscription()["endpoint"], {**payload, "chat": "card"})] + [
+        (endpoint, body) for endpoint in ("https://fcm.googleapis.com/fcm/send/x",
+                                          "https://web.push.apple.com/Q2/no-origin")
+        for body in (payload, {**payload, "chat": "card"})]
+
+
 def test_option_mapping_matches_card_semantics():
     question = {"answer_style": "menu", "options": ["Yes", "No"]}
     assert push.option_keys(question, 0) == "1"

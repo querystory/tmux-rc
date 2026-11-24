@@ -98,6 +98,8 @@ strictness is correct:
 - `question.reply_buttons` — opt-in: the model-written reply buttons must be an accept
   ("Yes…") then a decline ("No…"); their wording is not pinned. Pinned `false`, there
   must be none (a handed-over `! command` is not a question to reply to).
+- `question.optional` — opt-in: an absent question passes too. A handed-over `! command`
+  is the ask through its Send it (the offer), so the model may also quote it as a question.
 - `buttons_at_most` — opt-in: how many reply buttons the card may draw (the question's
   options and the offers, together), so a list put to the user stays one ask's few replies.
 - `question.prompt_excludes` — opt-in list of strings the question's prompt must not
@@ -226,6 +228,17 @@ actually hit:
 | `137_claude_working_on_usage_limit_handling` | synthetic: a live spinner while editing code that handles "usage limit reached" → running, no reset time |
 | `138_claude_quota_blocked_after_a_closing_question` | synthetic: an auto-mode turn ending "Want me to merge…?", then the limit hit → `quota_blocked`, no question, not Needs you |
 | `156_claude_decision_list_with_defaults_is_one_ask` | synthetic: a finished auto-mode turn sets out seven decisions with proposed defaults → one text user-wait, at most three reply buttons, none a list row |
+| `220_claude_api_error_stops_the_turn` | synthetic: Claude Code's "⎿ API Error: 529" ends an auto-mode turn mid-task → a text user-wait to retry, the error as headline |
+| `221_claude_report_closing_line_quotes_a_question` | synthetic: an auto-mode report whose last line ends in a quoted "…?" (a FAQ title it added) → idle, nothing asked |
+| `222_claude_report_ready_to_merge_heading_answered` | synthetic: an auto-mode status report whose last row, "Blocked? No. Ready to merge?", is checklist labels the report answers above → idle, nothing asked |
+| `223_claude_closing_question_outside_auto_mode` | synthetic: a finished turn in accept-edits mode ends "Should I also bump the version?" → a text user-wait with reply buttons |
+| `224_claude_go_ahead_above_agent_note_in_a_tall_window` | synthetic: "still waiting for your go-ahead" on a PR, a background agent's finished note below, a tall window's blank rows → text user-wait (fails today on flash-lite and 3.5-flash) |
+| `225_claude_tell_me_who_mid_paragraph` | synthetic: "Tell me who should review it and I'll add them" mid-paragraph → text user-wait |
+| `226_claude_tell_me_who_with_a_draft_in_the_box` | synthetic: "Tell me who and I'll add them" with an unsent answer in the box → text user-wait, the draft no offer |
+| `227_claude_merge_first_when_ready_under_a_draft` | synthetic: "Merge #88 first when you're ready" after an agent note, an unrelated draft in the box → user-wait (fails today on flash-lite and 3.5-flash) |
+| `228_claude_your_call_above_an_idle_compaction` | synthetic: "Merging any of the PRs remains your call" above re-read rows and an idle-compaction note → user-wait (fails today on flash-lite and 3.5-flash) |
+| `229_claude_say_go_in_a_list_of_open_items` | synthetic: 'Say "go" and I'll start a fresh sign-in' in a list of open items → user-wait offering "go" |
+| `265_claude_ok_to_merge_after_a_review_in_a_waiting_list` | synthetic: a "Still waiting on:" list with another person's approval, then the user's OK to merge and a question, under an unsent draft → user-wait |
 | `255_claude_bang_row_showing_code_is_no_offer` | synthetic: a finished auto-mode turn shows a `! grep` guard line as code → no offer, idle |
 | `256_claude_handoff_sent_with_its_bang` | synthetic: a finished auto-mode turn hands over `! rm -rf …` to run here → the offer keeps its `! ` |
 
