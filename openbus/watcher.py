@@ -1398,8 +1398,9 @@ class Watcher:
         for s, p in zip(states, panes, strict=True):
             with self._pane_lock(p.id):  # never half way through an input-driven read
                 fp = self._seen_fp.get(p.id)
-                if fp is None or s is not self._state.get(p.id):
-                    continue  # this tick failed for the pane; keep its last checkpoint
+                if fp is None or s is not self._state.get(p.id) or "parsed_at" not in s:
+                    continue  # this tick failed for the pane, or none has read it yet:
+                    # keep its last checkpoint (an older parser's card and clocks)
                 valid = self._parse_valid.get(p.id, False)
                 idle_since = s.get("state_since") if s.get("activity") == "idle" else None
                 key = (fp, idle_since, valid, s.get("parsed_at"), s.get("events_seq"),
@@ -1830,9 +1831,11 @@ class Watcher:
         state["idle_seconds"] = idle
         # When this pane entered its current activity/question state — the client ticks
         # `now - state_since` live so idle/waiting durations stay honest between parses.
-        # A failed read is no reading: it leaves the clock to the next one that succeeds.
+        # A failed read with no card to keep is no reading: it leaves the clock to the next
+        # read that succeeds. One that keeps a card keys it as usual (a fallback can move it).
         state["state_since"] = self._state_since_for(pane.id, state, now, idle_seed) \
-            if self._parse_valid[pane.id] else self._state_since.get(pane.id, now)
+            if self._parse_valid[pane.id] or previous is not None \
+            else self._state_since.get(pane.id, now)
         state["updated_at"] = now
         state["last_activity_at"] = last_activity
         # parsed_at advances ONLY on a real LLM parse (this path), unlike updated_at

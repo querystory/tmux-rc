@@ -124,6 +124,20 @@ def test_a_failed_first_read_leaves_the_restored_clock(monkeypatch, tmp_path, st
     assert (card(w)["activity"], card(w)["state_since"]) == (state, since)
 
 
+@pytest.mark.parametrize("state", ["idle", "waiting"])
+def test_a_failed_first_read_keeps_the_checkpoint(monkeypatch, tmp_path, state):
+    """A restart before the retry still finds the stored card's clock: a pane nothing has
+    read yet writes no checkpoint over it."""
+    db = tmp_path / "h.db"
+    first, _ = daemon(monkeypatch, db, read={"activity": state})
+    since = card(first)["state_since"]
+    monkeypatch.setattr(W, "CARD_VERSION", W.CARD_VERSION + 1)
+    daemon(monkeypatch, db, now=20_000.0, activity="19000",
+           read={"activity": "unknown", "parse_ok": False})
+    w, _ = daemon(monkeypatch, db, now=30_000.0, activity="29000", read={"activity": state})
+    assert (card(w)["activity"], card(w)["state_since"]) == (state, since)
+
+
 def test_database_failure_falls_back(monkeypatch, tmp_path):
     db = tmp_path / "h.db"
     daemon(monkeypatch, db)
