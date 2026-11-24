@@ -22,20 +22,23 @@ import websockets
 
 from . import live, live_providers
 
-MODEL = "gpt-live-1"
-LABEL = "GPT-Live 1"
-# GPT-Live's stand-in table entry. The adapter owns a whole SESSION, not the connection
-# the seam knows how to open, so it is deliberately not in the configured table — but
-# live.offered() puts it first in the one menu the picker and the socket share, and _Meter is
-# constructed from a table entry, so it needs to BE one. It lives here beside the label and
-# id it is built from rather than repeating those two strings in live.py. The rate card is
-# never consulted — the adapter installs its own Usage, which prices voice by duration —
-# so the entry states its own hint rather than letting a per-1M card be rendered for a
-# model that does not bill that way.
-ENTRY = live_providers.LiveModel(
-    label=LABEL, model=MODEL, backend="openai",
-    flags={"hint": "OpenAI · $0.05/min + backend"},
+# GPT-Live's stand-in table entries, newest first: the first offered is the default. The
+# adapter owns a whole SESSION, not the connection the seam knows how to open, so they are
+# deliberately not in the configured table — but live.offered() puts them first in the one
+# menu the picker and the socket share, and _Meter is constructed from a table entry, so
+# each needs to BE one. The rate card is never consulted — the adapter installs its own
+# Usage, which prices voice by duration — so each entry states its own hint rather than
+# letting a per-1M card be rendered for a model that does not bill that way. 1.1 speaks the
+# same protocol at the same price (better transcription and accent consistency); 1 stays
+# pickable, since the two have separate concurrent-session limits.
+ENTRIES = tuple(
+    live_providers.LiveModel(
+        label=label, model=model, backend="openai",
+        flags={"hint": "OpenAI · $0.05/min + backend"},
+    )
+    for label, model in (("GPT-Live 1.1", "gpt-live-1.1"), ("GPT-Live 1", "gpt-live-1"))
 )
+ENTRY = ENTRIES[0]
 BACKEND = "gpt-5.6-luna"
 URL = "wss://api.openai.com/v1/live/sessions"
 logger = logging.getLogger(__name__)
@@ -192,6 +195,10 @@ class Session:
         self.calls = {}
         self.seen_calls = set()
         self.work = asyncio.Queue(maxsize=16)
+        # Composer turns not yet over. Each asks for one response, and each response that
+        # calls a tool is followed by one continuation, so a turn is over at the first of its
+        # responses to end with no call; which turn a response belongs to never matters.
+        self.composing = 0
         self.caption_end = {}
         self.pane_hints = {}
         self.last_context = {}
@@ -224,6 +231,13 @@ class Session:
         tools, and the frontend voices the result."""
         if self.closing:
             return
+        # A composer turn has no delegation, so its request is the meter's (live._Meter.asking).
+        # It is a new one only when no earlier composer turn is still going: no id ties a
+        # continuation to its turn, so in an overlap they share one, and a second pane is
+        # refused rather than reached.
+        if not self.composing:
+            self.meter.answered = True
+        self.composing += 1
         await self.send({"type": "response.item.create",
                          "item": live_providers.openai_message("user", text, images)})
         await self.send({"type": "response.create"})
@@ -308,11 +322,13 @@ class Session:
                 raise ProviderError({"code": "session_closed_by_provider"})
             if kind == "error":
                 # Error messages may quote context; expose codes, not arbitrary content.
+                self.meter.rec.event("error", provider_event=event)  # local: kept whole
                 raise ProviderError(event)
             if kind == "session.output_audio.delta":
                 # Live streams continuous audio; it has no Realtime speech-start /
                 # output-done events. Do not infer interruptions from transcripts:
                 # brief user backchannels can intentionally overlap model speech.
+                self.meter.rec.model(base64.b64decode(event["delta"]), 16000)
                 await self.browser.send_json(
                     {"type": "audio", "data": event["delta"], "sample_rate": 16000}
                 )
@@ -325,15 +341,9 @@ class Session:
                 # Display grouping only: never use transcript timing to trigger tools.
                 new = start - self.caption_end.get(role, start) > 1500
                 self.caption_end[role] = event.get("end_ms", start)
-                self.meter.note(role + ": " + event["delta"])
-                await self.browser.send_json(
-                    {
-                        "type": "transcript",
-                        "role": role,
-                        "text": event["delta"],
-                        "new_segment": new,
-                    }
-                )
+                await live._transcript(  # noqa: SLF001 - shared Live adapter internals
+                    self.browser, self.meter, role, event["delta"], new_segment=new,
+                    start_ms=start, end_ms=self.caption_end[role])
             elif kind == "response.event":
                 nested = event.get("event", {})
                 delegation = event.get("delegation_id")
@@ -352,12 +362,14 @@ class Session:
                     calls = self.calls.pop(delegation, [])
                     if nk == "response.completed" and calls:
                         try:
-                            self.work.put_nowait(calls)
+                            self.work.put_nowait((delegation, calls))
                         except asyncio.QueueFull:
                             # Keep receiving voice while tools run; do not block
                             # the audio receiver or leave a long delayed-action queue.
                             raise ProviderError({"code": "terminal_queue_full"}) from None
-                    elif nk != "response.completed":
+                    elif delegation is None:  # a composer turn is over
+                        self.composing = max(0, self.composing - 1)
+                    if nk != "response.completed":
                         await self.browser.send_json(
                             {
                                 "type": "error",
@@ -373,7 +385,7 @@ class Session:
 
     async def execute(self):
         while True:
-            calls = await self.work.get()
+            delegation, calls = await self.work.get()
             for item in calls:
                 if self.closing:
                     return
@@ -389,8 +401,9 @@ class Session:
                     args = None
                 fc = SimpleNamespace(id=cid, name=item.get("name"), args=args)
                 self.meter.note(f"[typed] {args}")
+                # One delegation is one user request, whatever the transcript does meanwhile.
                 await live._handle_tool_call(  # noqa: SLF001 - shared Live adapter internals
-                    self.browser, self, fc, self.watcher, self.meter
+                    self.browser, self, fc, self.watcher, self.meter, delegation
                 )
             if not self.closing:
                 # All outputs must precede continuation, even if a backend emits
@@ -425,7 +438,7 @@ async def run_session(browser, watcher, meter):
         raise live_providers.Unreachable(
             "Set OPENAI_API_KEY in ~/.config/tmux-rc/openai.env and restart.")
     backend = os.environ.get("TMUXRC_GPT_LIVE_BACKEND", BACKEND)
-    # meter.model is already ENTRY (live.live_mode built the meter from it), and the
+    # meter.model is already the picked entry (live.live_mode built the meter from it), and the
     # provider it names is what the shared emit path reports — passing "provider" here
     # too would collide with that keyword argument.
     meter.details = {"backend_model": backend, "voice_seconds": 0.0, "usage_final": False}
@@ -438,7 +451,7 @@ async def run_session(browser, watcher, meter):
             {
                 "type": "session.start",
                 "session": {
-                    "model": MODEL,
+                    "model": meter.model.model,
                     "instructions": VOICE_PROMPT,
                     "audio": {
                         "format": {"type": "audio/pcm", "rate": 16000},
@@ -463,6 +476,7 @@ async def run_session(browser, watcher, meter):
         async with asyncio.timeout(20):
             event = json.loads(await ws.recv())
             if event.get("type") == "error":
+                meter.rec.event("error", provider_event=event)  # local: kept whole
                 raise ProviderError(event)
             if event.get("type") != "session.started":
                 raise RuntimeError("GPT-Live session startup failed")

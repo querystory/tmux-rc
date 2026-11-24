@@ -15,7 +15,7 @@ For the supported iPhone workflow, follow [Live Mode + notifications setup](../i
 Safari or Chrome → Add to Home Screen → launch the installed app. The guide covers microphone
 and push permissions, screen timeout, lock/background audio interruptions, and recovery.
 
-## GPT-Live 1
+## GPT-Live
 
 `openbus/gpt_live.py` adds OpenAI's full-duplex voice frontend with managed Responses
 delegation to `gpt-5.6-luna`. It reuses the existing pane-context updater, microphone
@@ -24,13 +24,18 @@ stay in the backend prompt; the voice prompt covers conversation and delegation.
 
 Configure `OPENAI_API_KEY` in `~/.config/tmux-rc/openai.env`, outside every checkout.
 Set `TMUXRC_LIVE_MODE=1` in the daemon environment (or root `.env`) and restart the
-daemon to load both settings. GPT-Live 1 then appears first in the picker and is the
-default voice model; picking another entry by its label still wins — but it is NOT a `TMUXRC_LIVE_MODELS` entry and cannot be
+daemon to load both settings. GPT-Live 1.1 and GPT-Live 1 then appear first in the picker,
+1.1 as the default voice model; picking another entry by its label still wins — but it is NOT a `TMUXRC_LIVE_MODELS` entry and cannot be
 one: the seam opens a *connection* and hands it to the shared coroutines, whereas this
 adapter owns the whole *session*. So it is routed by label ahead of the table lookup and
 put first in `/api/version`'s menu under the same "only if its key is set" rule the table
 entries follow; the two lists have to agree on what is selectable, or the socket would
 refuse the one pick the menu just offered.
+1.1 is the default because it is a strict improvement on 1 at the same price: OpenAI
+reports more accurate transcription and a steadier accent across languages, over the same
+session protocol, so the two differ only in the model id `session.start` sends. 1 stays in
+the picker rather than being dropped, because each model has its own concurrent-session
+limit and a regression in the newer one should be one tap away from a comparison.
 `TMUXRC_GPT_LIVE_VOICE` chooses the voice (default `marin`).
 `TMUXRC_GPT_LIVE_BACKEND` chooses the Responses model; changing it requires explicit
 input/cached/output prices (see `.env.example`). This adapter reaches OpenAI directly —
@@ -344,6 +349,37 @@ parsing. It gets its own accounting rather than being folded into the parser's:
 - **Status bar.** Session cost folds into `llm.usage_totals()` at session end as a
   distinct `live` bucket, so the top-bar `$cost` is total (parser + voice) with the
   tooltip splitting the two; a `🎙<n>` chip shows how many voice sessions ran.
+
+## Session recordings (local debugging)
+
+Bad voice quality has too many suspects to judge from the transcript the phone shows:
+the phone's resampling, frames lost to a socket backlog, bursts and gaps on the tunnel,
+the provider's speech recognition. So every voice session is recorded, on by default,
+under `~/.local/state/tmux-rc/live-audio/` (beside `history.sqlite3`, honouring
+`XDG_STATE_HOME`), one folder per session named by start time and session id:
+
+- `mic.wav` is the PCM exactly as the phone sent it, so listening to it separates "the
+  phone sent garbage" from "the model misheard". Frames the server did not forward are
+  in it too, because it is the phone's side of the story.
+- `frames.jsonl` is one line per frame: arrival time, size, whether it was forwarded or
+  why not (a reconnect backoff, an undecodable frame), and how much audio the phone
+  itself dropped before sending it (its `lost_ms`, counted when the socket backlog
+  overflows). Bursts, gaps and losses show up there rather than as mystery static.
+- `model.wav` is the provider's voice at its own rate; `events.jsonl` holds the
+  transcript deltas with any provider timing, each tool call (its name, target, full text
+  and result, so what was heard lines up with what was done in one file), errors (the
+  provider's full error event, which the browser never sees) and session start and end.
+
+These files hold the user's voice and everything said, so they stay on this machine:
+never in the repo, scratch, telemetry or an export. The folders are private to the user
+(mode 0700). Retention is the newest 30 sessions within 2 GB, pruned when a session
+starts, because the point is the last few bad sessions, not an archive. Set
+`TMUXRC_LIVE_RECORD=0` to turn recording off. Writes run in order on the recorder's own
+thread, timestamped on arrival, and a disk that falls far behind or fails only logs once
+and stops that recording: a debugging aid must never stall the audio it is meant to
+diagnose, or be the thing that ends a session. "Forwarded" in `frames.jsonl` means handed
+to the provider adapter; a send that fails ends the connection, which `events.jsonl` records.
+Text sessions are not recorded: there is no audio to debug.
 
 ## Model providers (side-by-side)
 

@@ -1,0 +1,15 @@
+{
+  "description": "Synthetic: a finished auto-mode turn says two PRs are ready and ends \"Merge #88 first when you're ready\", after a background agent's finished note; the user has an unrelated unsent draft in the box. Merging is left to the user: waiting on the user.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n❯ any news\n\n● Agent \"Spacing fix\" finished · 11h 40m 27s\n\n● Nothing new: the spacing agent finished, and its report is the one I already passed on. Both PRs are clean\n  and running on integration: #88 (Send button) and #89 (spacing). Merge #88 first when you're ready.\n\n✻ Churned for 2s · done 5:51 PM\n────────────────────────────────────────────────────────────────────────────────────────────────────\n❯ ok tell me when it's live\n────────────────────────────────────────────────────────────────────────────────────────────────────\n  ~/src/fernway/lantern on main | Opus 5.5 | dev@example.com | telemetry: •stats\n  session: +12/-3 lines · 14% ctx · 40h02m · $6.10   |  history: 41 prompts · 30 tools\n  ⏵⏵ auto mode on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "optional": true,
+      "answer_style": "text"
+    },
+    "headline": "Both PRs #88 and #89 are ready; merge #88 first"
+  }
+}
