@@ -73,21 +73,12 @@ _CLAUDE_TURN_RE = re.compile(
     r"(?:(?P<live>…[ \t]*\((?:\d+[hms]|esc to interrupt))| for \d+[hms][\dhms ]*(?:[·│]|$))",
     re.MULTILINE,
 )
-# A provider error that aborted the turn, per tool: Codex's "■ Selected model is at
-# capacity…" (not its "■ Conversation interrupted"), Claude Code's "⎿ API Error: 529 …".
-_TURN_ERROR_RE = {
-    "codex": re.compile(r"^[ \t]*■[ \t]+(?!.*\binterrupted\b)(?P<text>.*\S)", re.MULTILINE),
-    "claude": re.compile(r"^[ \t]*⎿[ \t]*(?P<text>API Error\b.*\S)", re.MULTILINE),
-}
 # A prompt row, bare or inside Claude's box ("│ ❯ …"); with text after it, the user typed.
 _PROMPT_ROW = f"^[ \\t│]*[{PROMPT_GLYPHS}]"
 # Codex's live composer: a › row with no transcript cell ("• …") under it. An earlier
 # turn's row is always followed by Codex's reply to it, and a shell's ❯ is no composer.
 _CODEX_COMPOSER_RE = re.compile(r"^[ \t]*›(?![\s\S]*^• )", re.MULTILINE)
 _USER_ROW_RE = re.compile(_PROMPT_ROW + "[ \\xa0]*[^\\s│]", re.MULTILINE)
-# Claude Code's bash mode echoes a command typed after "!" (no prompt glyph) and runs it
-# without starting a turn, so below a finished turn it is the user acting on that turn.
-_BASH_ROW_RE = re.compile(r"^[ \t│]*! +\S", re.MULTILINE)
 # Claude's input box: its top rule (flat, or framed from a ╭ corner), then its prompt row
 # (❯, or "!" in bash mode).
 _INPUT_BOX_RE = re.compile(r"^[ \t]*╭?[─━]{3,}.*\n[ \t│]*[❯!]", re.MULTILINE)
@@ -563,7 +554,7 @@ def _ask_view(text: str) -> str:
     if re.search(bullet, _AGENT_LIST_RE.sub("", visible)):
         return visible
     *_, start = [None, *re.finditer(bullet, plain := _visible(history) if mark else "")]
-    message = plain[start.end():] if start else ""  # from its first word, as _final_message reads
+    message = plain[start.end():] if start else ""  # from its first word
     if not message or _USER_ROW_RE.search(message):
         return visible
     # The boundary sat between two rows: joined without the blank row it would leave, so
@@ -856,47 +847,12 @@ def _restate(question: dict, replies_fn) -> str | None:
 
 
 _CONTEXT_ENTRY_RE = re.compile(r"(?i)\(?\d+%\s*(?:ctx|context)\b.*")
-_LIST_ITEM_RE = re.compile(r"[-*•]\s+|\d+[.)]\s+")
 # A box's side bars, a block quote's left bar (Claude Code draws "▎"), and the bar Claude
 # Code draws down the right of its transcript.
 _FRAME_BARS_RE = re.compile(r"(?m)^[ \t]*[│┃▎▍▌][ \t]?|[ \t]*[│┃][ \t]*$")
 # A terminal hyperlink as the capture spells it (tmux._materialize_links): "[label](url)".
 _LINK_TARGET_RE = re.compile(
     r"\[((?:[^][\n]|\[[^][\n]*\])*)\]\((?:[^()\s]|\([^()\s]*\))*\)")
-
-
-def _final_paragraph(message: str) -> str:
-    """The message's last paragraph as one line: terminal wrapping splits a long question
-    across rows. Reading back from the end it stops at a blank row, and at a list item (kept
-    when it is the last row or the rows after it are its indented continuation)."""
-    rows: list[str] = []
-    for row in reversed(message.splitlines()):
-        text = row.strip()
-        if not text:
-            if rows:
-                break
-            continue
-        if _LIST_ITEM_RE.match(text):
-            indent = len(row) - len(row.lstrip())
-            if not rows or len(rows[-1]) - len(rows[-1].lstrip()) > indent:
-                rows.append(row)  # the item itself, or the one the wrapped rows continue
-            break
-        rows.append(row)
-    return " ".join(r.strip() for r in reversed(rows))
-
-
-def _final_message(visible: str, tool: str) -> str | None:
-    """A finished turn's final assistant message, up to its stamp or through the provider
-    error that stopped it, or None while it runs. Anything typed after: the user acted."""
-    error_re = _TURN_ERROR_RE[tool]
-    turns = _CLAUDE_TURN_RE.finditer(visible) if tool == "claude" else ()
-    stop = max([*turns, *error_re.finditer(visible)], key=re.Match.start, default=None)
-    if stop is None or stop.groupdict().get("live") or _USER_ROW_RE.search(visible, stop.end()):
-        return None
-    end = stop.end() if stop.re is error_re else stop.start()
-    # The turn's final assistant message, without the bars framing its rows: a bar left on
-    # a blank row joins paragraphs, and one after a "?" hides that the row asks.
-    return _FRAME_BARS_RE.sub("", visible[:end].rsplit("\n● ", 1)[-1])
 
 
 @lru_cache(maxsize=256)
@@ -957,7 +913,7 @@ def _invited(reply: str, view: str) -> bool:
     return False
 
 
-def screen_offers(offers: object, text: str, copied: object = ()) -> list[str]:
+def screen_offers(offers: object, text: str) -> list[str]:
     """The model's offers that hold up on `text`, three at most: each is on the screen
     (_quoted), and a `! command` is one bash reads whole and that does not end in a line
     continuation (which bash -n accepts). Classify's gate, and the watcher's on a screen it
@@ -967,9 +923,7 @@ def screen_offers(offers: object, text: str, copied: object = ()) -> list[str]:
     that `! ` even where the model's copy dropped it: it is what makes Send it run the
     command rather than say it to the agent. Any other sighting (an older turn, a reply to
     type) leaves it as is. A reply ("delete it" for "I'd delete this job, unless you want to
-    keep it") is the user's words, so it is on the screen word by word rather than whole.
-    Text the model `copied` (its copyables, on one line) that is such a handed-over command
-    is offered too, as the model sometimes keeps it a copyable only."""
+    keep it") is the user's words, so it is on the screen word by word rather than whole."""
     listed = offers if isinstance(offers, list) else ()
     visible = _ask_view(text)
     # The final assistant message (from its bullet, or the top when the view begins inside
@@ -981,9 +935,6 @@ def screen_offers(offers: object, text: str, copied: object = ()) -> list[str]:
     flat = lambda texts: (re.sub(r"[ \t]*\n[ \t]*", " ", o.strip())  # noqa: E731
                           for o in texts if isinstance(o, str))
     whole = [f"! {o}" if not o.startswith("!") and handed(f"! {o}") else o for o in flat(listed)]
-    # A copyable keeps its real newlines (the model joins wraps), so one with rows is no line.
-    whole += [o for o in (o if o.startswith("! ") else f"! {o}" for o in flat(
-        c for c in copied if isinstance(c, str) and "\n" not in c.strip())) if handed(o)]
     # A reply is the user's own words for the final message's ask ("merge PR #5144" for
     # "Approvals to merge PR #5385 and PR #5144"), read off one paragraph (_invited). A
     # `! command` the agent wrote without its "!" is on the screen as the command alone.
@@ -993,48 +944,6 @@ def screen_offers(offers: object, text: str, copied: object = ()) -> list[str]:
     kept = [o for o in dict.fromkeys(whole)
             if shown(o) and not (o.startswith("! ") and (o.endswith("\\") or not _parses(o[2:])))]
     return [o for o in kept if f"! {o}" not in kept][:3]  # the command, not its plain copy too
-
-
-def _final_ask(visible: str, tool: str, message: str, offers: list[str], waiting: bool = False,
-               ) -> dict | None:
-    """What a finished turn leaves blocked on the user: a provider error to retry, or in
-    auto mode (where the agent stops only when it needs the user) a closing question or a
-    `! command` handed over to run on a row of its own, or anything the message offers, or
-    (`waiting`: the model read the turn as waiting on the user without quoting its ask) the
-    closing paragraph, so the wait has something to answer."""
-    lines = [line.strip() for line in message.splitlines() if line.strip()]
-    if not lines:
-        return None
-    if error := _TURN_ERROR_RE[tool].match(lines[-1]):
-        return {"prompt": error["text"], "answer_style": "text", "options": ["try again"]}
-    if "auto mode" not in (m[1] for m in _CLAUDE_MODE_RE.finditer(visible)):
-        return None
-    # An offered command ending the message hands it over, its own "?" or wrapped rows and
-    # all: read on the whole last paragraph (a wrapped "* glob" row is no list item there).
-    blocks = re.split(r"\n\s*\n", message.strip())
-    paragraphs = [" ".join(p.split()) for p in blocks]
-    # An offer as a whole word or command: "push" is not offered by "unpushed".
-    offered = "|".join(rf"(?<!\w){re.escape(' '.join(o.split()))}(?!\w)" for o in offers)
-    paragraph = paragraphs[-1]
-    if not (offered and re.search(rf"(?:{offered})\Z", paragraph)):
-        closing = _final_paragraph(message)
-        if closing.rstrip("*_\"'`)").endswith("?"):
-            return {"prompt": closing, "answer_style": "text"}
-        # An offer elsewhere (a command, a reply asked for): the paragraph holding it.
-        paragraph = next((p for p in reversed(paragraphs)
-                          if offered and re.search(offered, p)), None)
-        if paragraph is None:
-            # A `! command` row hands over its whole paragraph (a narrow pane wraps the
-            # command over several rows) with the one leading into it, each row's own
-            # spacing kept ('a  b' is the command's).
-            handoff = next((i for i in reversed(range(len(blocks)))
-                            if _BASH_ROW_RE.search(blocks[i])), None)
-            if handoff is None:  # the closing paragraph the model read as waiting on the user
-                return {"prompt": closing, "answer_style": "text"} if waiting else None
-            paragraph = " ".join(row.strip() for block in blocks[max(handoff - 1, 0):handoff + 1]
-                                 for row in block.splitlines() if row.strip())
-    # Not a question: no reply buttons, since "Yes, proceed" typed back runs nothing.
-    return {"prompt": paragraph, "answer_style": "text", "options": []}
 
 
 def _clean_options(raw: object, *prompts: str) -> list[str]:
@@ -1047,17 +956,6 @@ def _clean_options(raw: object, *prompts: str) -> list[str]:
                 and o.strip().casefold() not in repeats):
             picks.setdefault(o.strip().lower(), o.strip())
     return list(picks.values())
-
-
-def _same_question(model_q: object, ask: dict) -> dict:
-    """The parser's own question when the deterministic ask that replaces it is the same
-    question (one prompt contains the other), else {}: its suggested replies and the rows
-    it cites are kept."""
-    if not isinstance(model_q, dict) or model_q.get("answer_style", "text") != "text":
-        return {}
-    old, new = str(model_q.get("prompt", "")).strip(), ask["prompt"]
-    return model_q if old and (
-        old.casefold() in new.casefold() or new.casefold() in old.casefold()) else {}
 
 
 # What kind of question it is, and so what the buttons are, is the model's call: one small
@@ -1532,48 +1430,25 @@ def classify(
     elif state and result.get("activity") != "compacting":
         result["activity"] = "running"
         result.pop("parse_ok", None)
-    # Claude's final message is read on the ask view: a long one begins above the viewport.
-    view = _ask_view(text) if result.get("tool") == "claude" else visible
     # A turn Codex's own rollout has open is running: its "Working" row hides while a message
     # prints mid-turn, which reads as a finished turn on screen. A failed parse stays one,
     # to be retried: the open turn may be waiting on an approval the parse missed.
     if (result.get("tool") == "codex" and turn_live and not result.get("question")
             and result.get("activity") in ("idle", "unknown", None)):
         result["activity"] = "running"
-    # Each agent's own turn chrome only: a shell or Claude printing "■ Build failed" is not
-    # a Codex error, and Claude chrome quoted inside Codex is not Codex's turn.
-    # The finished turn's own chrome is authoritative over any model question: nothing was
-    # typed after it, so a live menu (whose ❯/› rows would count as typed) is ruled out.
-    tool = result.get("tool")
-    blocked = result.get("activity") == "quota_blocked"  # its ask already dropped (_unblocked_ask)
-    final = not blocked and tool in _TURN_ERROR_RE and _final_message(view, tool)
-    # Only Claude Code's finished turn hands a command over as `! command`; a "!" row in a
-    # running turn's tool output or another program is bash's own. In auto mode, where the
-    # agent stops only when it needs the user, its handoff row is the turn's ask (_final_ask);
-    # elsewhere the row may just show code, so the model's own offer is needed.
-    cps = result.get("copyables")
-    copied = [c.get("text") for c in cps if isinstance(c, dict)] if (
-        isinstance(cps, list) and tool == "claude" and final
-        and claude_mode(visible) == "auto mode") else []
-    if (offers := screen_offers(result.pop("offers", None), text, copied)) and not blocked:
-        result["offers"] = offers = [_from_reply(offer, reply) for offer in offers]
-    # The model's own read of this screen (not an activity carried over a failed parse) that
-    # the turn waits on the user, where no question of its own survived grounding.
-    waiting = ("parse_ok" not in result and not result.get("question")
-               and result.get("activity") == "waiting" and result.get("waiting_on") != "external")
-    if final and (ask := _final_ask(visible, tool, final, offers, waiting)):
-        if ask.get("options") == ["try again"]:
-            result["headline"] = ask["prompt"]  # A stopped provider error outranks old progress.
-        own = _same_question(result.get("question"), ask)
-        if "options" not in ask and (
-            options := _clean_options(own.get("options"), str(own.get("prompt", "")).strip(),
-                                      ask["prompt"])[:4]
-            or _reply_options(ask["prompt"], replies_fn)
-        ):
-            ask["options"] = options
-        ask.update({k: own[k] for k in ("items", "subject", "link") if k in own})
-        result["question"] = ask
-        result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.
+    blocked = result.get("activity") == "quota_blocked"  # its ask already dropped
+    if (offers := screen_offers(result.pop("offers", None), text)) and not blocked:
+        result["offers"] = [_from_reply(offer, reply) for offer in offers]
+    # An agent's text question the model gave no replies for gets its buttons from their own
+    # call; not a shell's (its program reads its own input, "y" rather than "Yes"), nor a
+    # handed-over `! command`, whose Send it runs it ("Yes" typed back runs nothing).
+    question = result.get("question")
+    if (isinstance(question, dict) and question.get("answer_style", "text") == "text"
+            and not question.get("options") and result.get("tool") != "shell"
+            and not any(o.startswith("! ") for o in result.get("offers", ()))
+            and (asked := _question_prompt(question))
+            and (options := _reply_options(asked.strip(), replies_fn))):
+        question["options"] = options
     if result.get("tool") == "claude" and _tabbed_panel_open(visible):
         # Authoritative over the model, a failed parse included: the screen is a settings
         # panel, so nothing is asked. Only a turn the model saw still running stays running
@@ -1802,6 +1677,7 @@ def classify(
 
     # The agent's own code blocks beat the model's re-typing of them (see transcript.py);
     # the model's picks remain for shells and for replies with no code.
+    cps = result.get("copyables")
     good = list(islice(_valid(_code_blocks(reply), transcript=True), 3)) or (
         list(islice(_valid(cps), 3)) if isinstance(cps, list) else [])
     question = result.get("question")
