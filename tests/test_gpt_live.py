@@ -285,6 +285,24 @@ def test_context_is_quiet_bounded_deduplicated_and_backend_keeps_full_screen():
     assert not any(e["type"] == "response.create" for e in s.ws.sent)
 
 
+def test_a_fleet_snapshot_replaces_the_backends_pane_state_instead_of_piling_up():
+    """Appended, every snapshot stayed in the backend's conversation and each later request
+    re-read them all. Each one now rebuilds its instructions around the panes as they are."""
+    async def run():
+        s = session()
+        for label in ("orchard", "quarry"):
+            s.watcher.digest = lambda label=label: [{"pane_id": "%1", "label": label}]
+            await s.send_context(f"[tmux update] current pane state: {label}")
+        return s.ws.sent
+
+    sent = asyncio.run(run())
+    assert not any(e["type"] == "response.item.create" for e in sent)
+    prompts = [e["session"]["delegation"]["responses"]["instructions"]
+               for e in sent if e["type"] == "session.update"]
+    assert len(prompts) == 2 and all(p.endswith(G.BACKEND_PROMPT) for p in prompts)
+    assert '"quarry"' in prompts[1] and '"orchard"' not in prompts[1]
+
+
 def test_continuous_transcripts_keep_roles_and_gaps_without_triggering_tools():
     s = session(
         [
@@ -565,8 +583,8 @@ def test_concurrent_snapshot_dedup_survives_post_action_context():
         await asyncio.gather(s.send_context(snapshot), s.send_context(snapshot))
         await s.send_context(action)
         await s.send_context(snapshot)
-        updates = [e for e in s.ws.sent if e["type"] == "response.item.create"]
-        assert len(updates) == 2
+        updates = [e for e in s.ws.sent if e["type"] in ("session.update", "response.item.create")]
+        assert [e["type"] for e in updates] == ["session.update", "response.item.create"]
         assert len([e for e in s.ws.sent if e["type"] == "session.thinking.append"]) == 1
 
     asyncio.run(run())
