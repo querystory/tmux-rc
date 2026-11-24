@@ -457,16 +457,18 @@ def _session_chrome(text: str) -> list[str]:
     input_row = max((i for i, line in enumerate(lines)
                      if re.match(r"^\s*[›❯](?:\s|$)", line)), default=-1)
     candidates = lines[max(input_row + 1, len(lines) - 4):]
-    chrome = []
+    # Claude Code prints its title on a rule: the input box's top border, or above status.
+    rules = [lines[input_row - 1]] if input_row > 0 else []
+    status = []
     status_rows = [(i, line, re.match(r"^\s*(?:~/|/)", line))
                    for i, line in enumerate(candidates)
                    if re.match(r"^\s*(?:~/|/)", line) or _codex_model_segments(line)]
     if status_rows:
         i, line, path_status = status_rows[-1]  # The bottommost recognized row is live chrome.
-        if (path_status and i
-                and re.match(r"^\s*[─━]+\s+\S", candidates[i - 1])):
-            chrome.append(candidates[i - 1])  # Claude title immediately above status.
-        chrome.append(line)
+        if path_status and i:
+            rules.append(candidates[i - 1])
+        status = [line]
+    chrome = [row for row in rules if re.match(r"^\s*[─━]+\s+\S", row)] + status
     renames = [line for line in strip_dim(text).splitlines()
                if re.match(r"^\s*[•●]\s+Thread renamed to \S", line)]
     if renames:
@@ -477,7 +479,7 @@ def _session_chrome(text: str) -> list[str]:
 def _session_evidence(text: str) -> str:
     titles = []
     for line in _session_chrome(text):
-        match = re.match(r"^\s*[─━]+\s+(\S.*?)\s*$", line)
+        match = re.match(r"^\s*[─━]+\s+(\S.*?)[\s─━]*$", line)
         if match:
             titles.append(match.group(1))
             continue
@@ -513,10 +515,28 @@ def _canonical_session(name, visible: str) -> str | None:
     return matches[0] if len(matches) == 1 else None
 
 
+def _unsuggested(text: str, mark: str = "") -> str:
+    """The capture minus the words of the greyed suggestion an agent shows in its empty
+    input box: a prompt the tool offers, that nobody typed, so no read of the screen can
+    quote it. The model's payload keeps an empty `mark` where it was, since a suggestion
+    in the box is itself a sign of a welcome screen."""
+    kept, i = [], 0
+    while (start := text.find(PLACEHOLDER_OPEN, i)) >= 0:
+        # Only a pair on one row, as _mark_placeholder writes it, is a suggestion, and its
+        # words run to the first closer: an opener among them is one of its words.
+        end = text.find(PLACEHOLDER_CLOSE, start)
+        if end < 0 or "\n" in text[start:end]:
+            kept.append(text[i:start + len(PLACEHOLDER_OPEN)])
+            i = start + len(PLACEHOLDER_OPEN)
+        else:
+            kept.append(text[i:start] + mark)
+            i = end + len(PLACEHOLDER_CLOSE)
+    return "".join(kept) + text[i:]
+
+
 def _visible(text: str) -> str:
     """The live viewport as the phone renders it, minus greyed input placeholders."""
-    screen = text.rsplit(VISIBLE_SCREEN, 1)[-1]
-    return strip_dim(re.sub(f"{PLACEHOLDER_OPEN}.*?{PLACEHOLDER_CLOSE}", "", screen))
+    return strip_dim(_unsuggested(text.rsplit(VISIBLE_SCREEN, 1)[-1]))
 
 
 def _question_prompt(question) -> str | None:
@@ -1243,7 +1263,7 @@ def _empty_composer(text: str, tool: str) -> bool:
     hint, a dim border) is blanked in place, so both keep the same rows and columns. An
     agent whose composer this cannot find whole is never proven empty."""
     screen = text.rsplit(VISIBLE_SCREEN, 1)[-1]
-    screen = re.sub(f"{PLACEHOLDER_OPEN}.*?{PLACEHOLDER_CLOSE}", "", screen)
+    screen = _unsuggested(screen)
     shown = strip_dim(screen).split("\n")
     typed = _DIM_SPAN_RE.sub(lambda m: re.sub(r"[^\n]", " ", m[1]), screen)
     typed = typed.replace(DIM_CLOSE, "").split("\n")
@@ -1353,7 +1373,8 @@ def classify(
     heuristic dict."""
     visible = _visible(text)
     process_tool = _host_tool(pane)
-    payload = _with_recent_events(_with_prior(text, prior or []), recent_events or [])
+    payload = _unsuggested(_with_prior(text, prior or []), PLACEHOLDER_OPEN + PLACEHOLDER_CLOSE)
+    payload = _with_recent_events(payload, recent_events or [])
     # Ground truth the model can't hallucinate past: tmux's foreground process for the
     # pane. Anchors tool identity when screen CONTENT mentions agents/models (a server
     # log printing gemini-… lines is not the Gemini CLI).
