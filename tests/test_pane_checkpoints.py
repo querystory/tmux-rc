@@ -32,7 +32,7 @@ def daemon(monkeypatch, db, *, screen=SCREEN, pid="101", now=10_000.0, activity=
         calls.append("parse")
         return {"pane_id": pane.id, "activity": "idle", "tool": "codex",
                 "headline": "Fixed the flaky test", "working_prs": list(prs),
-                "events": [{"text": "ran the suite"}]}
+                "events": [{"text": "ran the suite"}], "parse_ok": "unreadable" not in text}
 
     def boot(*_args, **_kwargs):
         calls.append("bootstrap")
@@ -81,7 +81,8 @@ def test_changed_screen_or_recycled_pid_falls_back(monkeypatch, tmp_path, change
     db = tmp_path / "h.db"
     daemon(monkeypatch, db)
     w, calls = daemon(monkeypatch, db, now=20_000.0, activity="19000", **change)
-    assert calls == ["parse", "bootstrap"]
+    # A new screen is the same session: only a new process is deep-read again.
+    assert calls == (["parse", "bootstrap"] if "pid" in change else ["parse"])
     assert card(w)["last_activity_at"] == card(w)["state_since"] == 19000.0
     with w.history.connect() as db_:
         uids = {r[0] for r in db_.execute("SELECT uid FROM pane_checkpoints")}
@@ -95,8 +96,28 @@ def test_a_card_version_bump_drops_prs_an_older_parser_saved(monkeypatch, tmp_pa
     daemon(monkeypatch, db, prs=[{"repo": "acme/demo", "number": 212}])  # a guessed repo
     monkeypatch.setattr(W, "CARD_VERSION", W.CARD_VERSION + bump)
     w, calls = daemon(monkeypatch, db, now=20_000.0, activity="19000")
-    assert calls == (["parse", "bootstrap"] if bump else [])
+    assert calls == (["parse"] if bump else [])
     assert w._prs.get("%1", []) == ([] if bump else [{"repo": "acme/demo", "number": 212}])
+
+
+def test_a_restart_keeps_the_sessions_name_over_a_failed_parse(monkeypatch, tmp_path):
+    """The bootstrap names the session, not the screen: a pane whose last parse failed,
+    or whose screen moved on, keeps its title and log across a restart instead of
+    waiting its turn in the deep-read queue behind every other pane."""
+    db = tmp_path / "h.db"
+    daemon(monkeypatch, db)
+    seen = card(daemon(monkeypatch, db, screen="› unreadable", now=15_000.0)[0])["events_seq"]
+    published, publish = [], W.Watcher._publish_states
+    monkeypatch.setattr(W.Watcher, "_publish_states", lambda self, states, **kwargs: (
+        published.append([s and s.get("bootstrap_title") for s in states]),
+        publish(self, states, **kwargs)))
+    w, calls = daemon(monkeypatch, db, screen="› readable again", now=20_000.0)
+    assert calls == ["parse"]
+    assert published[1] == ["Flaky test"], "named once read, not at the tick's end"
+    assert w.states[0]["bootstrap_title"] == "Flaky test"
+    assert card(w)["session_summary"] == "Hunting a flaky test"
+    assert w.events_log["%1"][0]["text"] == "found the race"
+    assert card(w)["events_seq"] > seen, "a counter the phone already saw hides new events"
 
 
 def test_database_failure_falls_back(monkeypatch, tmp_path):
