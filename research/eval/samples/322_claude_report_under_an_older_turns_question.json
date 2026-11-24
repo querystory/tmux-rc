@@ -1,0 +1,12 @@
+{
+  "description": "Synthetic: an earlier turn asked whether to open a PR; the user answered with a new request instead, and the latest auto-mode turn is a finished report on that request. The old question is history, so the pane is idle.",
+  "current_command": "claude",
+  "capture": "● Do you want me to open the PR that moves the\n  pantry sync to the new scheduler?\n\n✻ Brewed for 2m 4s · done 3:02 PM\n\n❯ first turn the eval report into a styled page with charts\n\u001e[visible screen]\u001f\n❯ first turn the eval report into a styled page with charts\n\n  Read 2 files, ran 3 shell commands\n\n● Rebuilt the report as a styled page; checking the\n  renders for layout problems now.\n\n  Read 3 files, ran 4 shell commands · 1 failed\n\n● I rebuilt the report as a styled page with charts,\n  at the same link:\n  https://example.org/scratch/pantry-sync-eval/\n  - Top: a verdict and three headline numbers.\n  - One card per sync job, current → new scheduler.\n  - Charts: run time per job, and monthly cost.\n  - Phone: the job table turns into a list.\n\n  I checked it at desktop and phone width and fixed\n  two overlapping labels. The Markdown version is\n  still in the same folder as report.md.\n\n✻ Cooked for 4m 18s · done 4:13 PM\n──────────────────────────────────────────────────\n❯ \n──────────────────────────────────────────────────\n  ~/src/garden | Opus 5.5 | robin@example.com\n  session: +310/-42 lines · 8% ctx · 6h12m\n  ⏵⏵ auto mode on (shift+tab to cycle)\n",
+  "expected": {
+    "tool": "claude",
+    "activity": "idle",
+    "waiting_on": null,
+    "offers": null,
+    "headline": "Rebuilt the pantry sync eval report as a styled page with charts"
+  }
+}

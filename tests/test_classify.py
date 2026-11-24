@@ -1009,6 +1009,28 @@ def test_failed_question_retry_does_not_retire_the_screen():
         assert result["parse_ok"] is False
 
 
+def test_reread_is_told_when_the_question_was_not_on_screen():
+    # A list quoted whole with a row abridged is on no row: the re-read hears why, and
+    # quotes the heading. A question that is on screen but rejected for another reason
+    # (a file's line behind a gutter) gets no such note.
+    screen = ("\x1e[visible screen]\x1f\n● Decisions for you:\n  1. Plant the beans?\n"
+              "  2. Water twice a day? Dry soil cracks.\n  3. Net the berries?\n")
+    whole = "Decisions for you: 1. Plant the beans? 2. Water twice a day? 3. Net the berries?"
+    calls = []
+    def read(_prompt, text):
+        calls.append(text)
+        return {"tool": "claude",
+                "question": {"prompt": "Decisions for you:" if len(calls) > 1 else whole}}
+    result = classify(_pane("claude"), screen, read)
+    assert "not on this screen word for word" in calls[1]
+    assert result["question"]["prompt"] == "Decisions for you:"
+    calls.clear()
+    classify(_pane("bun"), "\x1e[visible screen]\x1f\n  12│Which color?\n ⠙ 3m > ◒ GPT-5.5",
+             lambda _p, text: calls.append(text) or {"tool": "omp",
+                                                     "question": {"prompt": "Which color?"}})
+    assert len(calls) == 2 and "word for word" not in calls[1]
+
+
 def test_failed_question_retry_keeps_only_the_viewport_links():
     now, old = {"href": "https://auth.example.com/now"}, {"href": "https://example.com/old"}
     for retry_links, want in (([now], [now]), (None, None), (3, None)):
