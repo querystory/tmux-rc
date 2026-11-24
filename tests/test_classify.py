@@ -1582,6 +1582,12 @@ def test_a_sent_offer_is_spent():
     two = sent.replace("  ! make deploy\n", "  ! make deploy\n  ! make smoke\n", 1)
     result = classify(_pane("claude"), two, _llm(both))
     assert (result["activity"], result.get("offers")) == ("waiting", ["! make smoke"])
+    # Wrapped in a narrow pane, the echo is still that command.
+    wrapped = sent.replace("\n! make deploy\n", "\n! make deploy TARGET=\nstaging\n").replace(
+        "  ! make deploy", "  ! make deploy TARGET=staging")
+    result = classify(_pane("claude"), wrapped,
+                      _llm({**read, "offers": ["! make deploy TARGET=staging"]}))
+    assert (result["activity"], result.get("offers")) == ("idle", None)
     # A longer command, or output that names it, is not the command sent.
     for other in ("! make deployment", "  ⎿  next: ! make deploy"):
         unsent = handed.replace("\n\n❯", f"\n\n{other}\n\n❯")

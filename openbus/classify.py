@@ -85,15 +85,17 @@ _INPUT_BOX_RE = re.compile(r"^[ \t]*╭?[─━]{3,}.*\n[ \t│]*[❯!]", re.MUL
 
 
 def _ran(offers: list[str], text: str) -> list[str]:
-    """The offered `! command`s the user already ran: each is a whole row again below
+    """The offered `! command`s the user already ran: each fills whole rows again below
     Claude's finished turn, under its stamp, where bash mode echoes a sent command above
-    its output. A longer command, or output that mentions it, is no such row."""
+    its output (wrapped over up to three rows in a narrow pane). A longer command, or
+    output that mentions it, fills no such rows."""
     view = _ask_view(text)
     *_, turn = [None, *_CLAUDE_TURN_RE.finditer(view)]
     if not turn or turn["live"]:
         return []
-    rows = {row.strip(" \t\xa0│") for row in _below_turn(view, turn.end()).split("\n")}
-    return [o for o in offers if o.startswith("! ") and o in rows]
+    rows = ["".join(row.split()) for row in _below_turn(view, turn.end()).split("\n")]
+    echoed = {"".join(rows[i:j]) for i in range(len(rows)) for j in range(i + 1, i + 4)}
+    return [o for o in offers if o.startswith("! ") and "".join(o.split()) in echoed]
 
 
 def _below_turn(visible: str, end: int) -> str:
