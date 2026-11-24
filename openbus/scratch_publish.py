@@ -7,6 +7,7 @@ is sent, by a record of what was, so the writer needs no permission to list the 
 An index.html at the prefix lists what is published, while anything is."""
 
 import argparse
+import contextlib
 import fcntl
 import hashlib
 import json
@@ -121,18 +122,26 @@ def _index(root: Path, names: list[str]) -> bytes:
             '</ul>').encode()
 
 
-def _sync(root: Path, name: str, web: Path | None) -> None:
-    """Make the copy at the target match the folder's export now (`web` None: nothing),
-    sending only what changed, and the index what is then published."""
-    target = _target()[0]
+@contextlib.contextmanager
+def _alone():
+    """One copy at a time, the CLI's and the daemon's alike: each reads and rewrites the
+    record, and exports under the lock, so an older snapshot never lands over a newer one,
+    nor its outcome over a newer one's."""
     store().parent.mkdir(parents=True, exist_ok=True)
-    # one copy at a time, the CLI's and the daemon's alike: each reads and rewrites the record,
-    # and exports under the lock, so an older snapshot never lands over a newer one
-    with store().with_suffix(".lock").open("a") as lock, tempfile.TemporaryDirectory() as tmp:
+    with store().with_suffix(".lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
+def _sync(root: Path, name: str, web: Path | None) -> bool:
+    """Make the copy at the target match the folder's export now (`web` None: nothing),
+    sending only what changed, and the index what is then published; whether it did. The
+    caller holds _alone()."""
+    target = _target()[0]
+    with tempfile.TemporaryDirectory() as tmp:
         card = scratch.named(root, name)  # a job superseded (opted out, or in again) does nothing
         if not (_copyable(card) if web else not (card and card["publish"])):
-            return
+            return False
         if web:
             scratch.export(root / name, out := Path(tmp) / "folder" / name, web)  # a folder
             # may be named index.html: its export never meets the root's page
@@ -166,6 +175,7 @@ def _sync(root: Path, name: str, web: Path | None) -> None:
                 driver.drop("index.html")
             record[f"{target}/"] = {"index.html": digest} if page else {}
         scratch.save(store(), {k: v for k, v in record.items() if v})
+    return True
 
 
 def _indexed(card: dict | None) -> bool:
@@ -184,12 +194,13 @@ def publish(root: Path, name: str, web: Path) -> str:
     if not _copyable(card := scratch.named(root, name)):
         raise SystemExit(f"{name} is not published, has no index, or is being updated: it "
                          "is copied once it is ready")
-    try:
-        _sync(root, name, web)
-    except (Exception, SystemExit) as e:
-        _failed(root, name, card["inode"], str(e)[:300])
-        raise
-    _failed(root, name, card["inode"], None)
+    with _alone():
+        try:
+            if _sync(root, name, web):
+                _failed(root, name, card["inode"], None)
+        except (Exception, SystemExit) as e:
+            _failed(root, name, card["inode"], str(e)[:300])
+            raise
     return url(name)
 
 
@@ -206,7 +217,8 @@ def _without(meta: dict, *fields: str) -> dict:
 
 
 def unpublish(root: Path, name: str) -> None:
-    _sync(root, name, None)
+    with _alone():
+        _sync(root, name, None)
 
 
 def opt(root: Path, name: str, on: bool) -> str:

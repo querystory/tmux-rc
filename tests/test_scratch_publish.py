@@ -158,6 +158,10 @@ def test_a_failed_copy_is_pushed_and_never_raises(root, monkeypatch):
     assert len(BUCKET) == 1 and _meta(root)["publish_failed"] == "403 Forbidden"  # its card's
     monkeypatch.setenv("TMUXRC_SCRATCH_PUBLISH", "gs://bkt/people/ada")
     monkeypatch.setattr(Fake, "fail", 0)
+    with monkeypatch.context() as m:  # a job superseded under the lock leaves it be
+        m.setattr(P, "_sync", lambda *a: False)
+        P.publish(root, "tea notes", WEB_DIR)
+    assert _meta(root)["publish_failed"]
     P.publish(root, "tea notes", WEB_DIR)  # copied at last: the failure goes
     assert "publish_failed" not in _meta(root)
     P.cli(["unpublish", "tea notes"], WEB_DIR)  # what was sent before a refusal is on record
