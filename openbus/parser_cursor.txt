@@ -1,0 +1,13 @@
+Read the highlighted option list in this terminal capture. The first line names the
+widget. The remaining lines show its contents. Return just JSON with "options" (the
+visible option labels in order), "rows" (the matching quoted terminal lines), and
+"selected" (the zero-based index of the row with the actual selection cursor).
+
+Keep option labels as printed, without columns such as timestamps or status. In "rows",
+copy every matched terminal line verbatim, including metadata, punctuation, and the
+cursor glyph on the highlighted line. Outer whitespace can be omitted. Quote one
+contiguous line per option in screen order. Leave out headings, search fields and
+footers. Preserve repeated labels as separate options, even if the full rows are
+identical apart from the cursor. Count the rows to find the selected index.
+
+If you cannot quote a contiguous list containing the cursor, return {}.
