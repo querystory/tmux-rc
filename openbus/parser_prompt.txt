@@ -321,8 +321,10 @@ input dialog/approval prompt still needs input even when other work is visible.
 "question.prompt" quotes the current visible question verbatim. Put the list rows it names
 in "question.items" and other supporting context in "tables", so the question stands alone
 on a phone.
-Include "question" only when waiting on the user (a widget awaiting input, or a finished
-turn's final message that asks them to act or decide); "rewind" only when the restore
+Include "question" only when waiting on the user (a widget awaiting input, a finished
+turn's final message that asks them to act or decide, or a turn a provider error stopped,
+which waits on the user to try again: Claude Code's "⎿ API Error: …" or Codex's "■ …"
+notice, quoted); "rewind" only when the restore
 picker is shown.
 "rewind" vs a "cursor" question — both are ❯-marked scrollable lists of past items, so
 be precise: "rewind" is ONLY Claude Code's Esc-Esc RESTORE-history picker, which rewinds
