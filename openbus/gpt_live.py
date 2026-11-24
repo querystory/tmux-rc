@@ -246,22 +246,21 @@ class Session:
                 await self._send_context(text)
 
     async def _send_context(self, text):
-        # The shared updater coalesces changes (2.5s); skip repeated snapshots too. A fleet
-        # snapshot replaces the backend's instructions (its prompt with the panes as they
-        # stand now) instead of joining its conversation, where every request re-read every
-        # past one. Frontend appends are limited to 500 tokens: a 480-byte UTF-8 prefix is
-        # conservatively within that bound even for terminal noise/non-English text. It is
-        # only a hint; pane answers delegate.
+        # The shared updater coalesces changes (2.5s); skip repeats too. A fleet snapshot
+        # replaces the backend's instructions instead of joining its conversation, where
+        # every request re-read every past one: the prompt is rebuilt with the panes (all
+        # screens, scratch pages) as they stand now, and compared whole. Frontend appends
+        # are limited to 500 tokens: a 480-byte UTF-8 prefix is conservatively within that
+        # bound even for terminal noise/non-English text. It is only a hint; pane answers
+        # delegate.
         snapshot = text.startswith("[tmux update] current pane state:")
+        if snapshot:
+            text = await asyncio.to_thread(backend_instructions, self.watcher)
         if text != self.last_context.get(snapshot):
-            if snapshot:
-                prompt = await asyncio.to_thread(backend_instructions, self.watcher)
-                event = {"type": "session.update", "session": {"delegation": {
-                    "type": "responses", "responses": {"instructions": prompt}}}}
-            else:
-                event = {"type": "response.item.create",
-                         "item": live_providers.openai_message("user", text)}
-            await self.send(event)
+            await self.send({"type": "session.update", "session": {"delegation": {
+                "type": "responses", "responses": {"instructions": text}}}} if snapshot
+                else {"type": "response.item.create",
+                      "item": live_providers.openai_message("user", text)})
             self.last_context[snapshot] = text
         # Changed digests keep every pane represented without feeding full screens
         # into the voice model's small context window or repeating unchanged panes.

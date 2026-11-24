@@ -281,6 +281,23 @@ def test_a_fleet_snapshot_replaces_the_backends_pane_state_instead_of_piling_up(
     assert '"quarry"' in prompts[1] and '"orchard"' not in prompts[1]
 
 
+def test_a_repeated_snapshot_still_updates_state_it_does_not_show(monkeypatch):
+    """A scratch page or an inactive pane's screen is in the backend's prompt but not in
+    the snapshot text, so a repeat of that text must still carry a change to either."""
+    pages = iter(["", "orchard-plan"])
+    monkeypatch.setattr(G.live, "_scratch_index", lambda w: next(pages))
+
+    async def run():
+        s = session()
+        for _ in range(2):
+            await s.send_context("[tmux update] current pane state: same")
+        return [e for e in s.ws.sent if e["type"] == "session.update"]
+
+    updates = asyncio.run(run())
+    assert len(updates) == 2
+    assert "orchard-plan" in updates[1]["session"]["delegation"]["responses"]["instructions"]
+
+
 def test_context_is_quiet_bounded_deduplicated_and_backend_keeps_full_screen():
     async def run():
         s = session()
