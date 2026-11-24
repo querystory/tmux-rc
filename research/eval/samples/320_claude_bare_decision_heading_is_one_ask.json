@@ -1,0 +1,22 @@
+{
+  "description": "Synthetic: a finished auto-mode turn ends with a bare 'Decisions for you:' heading over eight numbered decision rows, some two sentences long, with no question sentence of its own. The whole list is one ask, put by its heading: a text question with at most three whole-list replies, never a list-long prompt that abridges a row, nor one invented offer per row.",
+  "current_command": "claude",
+  "repository": "example-org/garden",
+  "title": "✳ Seed swap launch planning",
+  "capture": "❯ Plan the seed swap launch and tell me what you need from me\n\u001e[visible screen]\u001f\n❯ Plan the seed swap launch and tell me what you need from me\n\n  Ran 3 shell commands\n\n● The plan page is ready. It has the sign-up form copy, the table layout and a\n  phased plan. I didn't contact the hall or submit the booking form.\n\n  Phases, each with its test for being done:\n  0. A ~$15 market trial with five volunteers.\n  1. Build the sign-up site.\n  2. Book the hall.\n\n  Decisions for you:\n  1. Create the repo?\n  2. Run the ~$15 market trial?\n  3. Book the hall weekly for about $120 a month during the pilot? The committee\n     scores reliability, so a week we cancel would count against us.\n  4. Reply-to address for the reminder emails: yours or a shared alias?\n  5. Site address, for example swap.example.org?\n  6. Limits. Proposed: ten packets in / ten out, and three per variety.\n  7. Who holds the keys on swap days?\n  8. A review of the waiver, the association's exact name, and whether we have\n     a current insurance certificate to show the hall.\n\n  https://example.org/scratch/seed-swap-plan/\n\n✻ Cogitated for 5m 30s · done 1:08 PM\n────────────────────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────────────────────\n  ~/src/garden | Opus 5.5 | robin@example.com\n  session: +96/-4 lines · 11% ctx · 4m · $2.10\n  ⏵⏵ auto mode on (shift+tab to cycle)\n",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "parse_ok": true,
+    "question": {
+      "answer_style": "text",
+      "prompt_excludes": [
+        "Create the repo?",
+        "Who holds the keys"
+      ]
+    },
+    "buttons_at_most": 3,
+    "headline": "Seed swap plan is ready; eight decisions wait on the user"
+  }
+}
