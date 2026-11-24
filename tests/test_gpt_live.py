@@ -314,6 +314,7 @@ def test_continuous_transcripts_keep_roles_and_gaps_without_triggering_tools():
     assert s.browser.messages[2]["new_segment"]
     assert s.browser.messages[3]["sample_rate"] == 16000
     assert s.work.empty() and not s.ws.sent
+    assert list(s.meter.heard) == ["hello", "again"]  # what a relay's label is checked against
 
 
 @pytest.mark.parametrize("disconnected", [False, True])
