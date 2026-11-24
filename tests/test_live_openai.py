@@ -437,3 +437,15 @@ def test_handshake_rejection_is_unreachable_not_retryable(monkeypatch):
             str(e)
             == "deployment 'gpt-realtime-2.1' not found on foo.cognitiveservices.azure.com"
         )
+
+
+def test_a_response_that_called_a_tool_does_not_end_the_turn():
+    """Realtime ends a response at its tool call and continues in a new one once the result
+    is in. The turn, and so the user's request (live._Meter.asking), ends only with a
+    response that called nothing: otherwise the follow-up could reach a second pane."""
+    called = {"type": "response.done",
+              "response": {"output": [{"type": "function_call", "call_id": "c1"}]}}
+    ws = _WS([called, {"type": "response.done", "response": {"output": [{"type": "message"}]}}])
+    assert [e.kind for e in _run(_drain(P._OpenAISession(ws)))] == [
+        "usage", "usage", "turn_complete"]
+

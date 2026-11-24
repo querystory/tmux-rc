@@ -157,6 +157,14 @@ class _Meter:
             maxlen=TURNS_KEPT + TURNS_QUEUED + 1)
         self.usage = _LiveUsage(model.rates)
         self.turns = 0
+        # Which user request this is, and the pane each recent request's voice actions
+        # reached, by request: GPT-Live's delegations can interleave. On the seam the first
+        # of the user's words or a tool call after the model's turn ended starts the next
+        # one (asking): a provider's transcript keeps no order against its tool calls, so
+        # words arriving after or between the calls of one turn are still its request.
+        self.request = 0
+        self.answered = True  # the model's turn ended since the current request began
+        self.reached: dict = {}
         self.started = time.monotonic()
         self._lines: list[str] = []
         # Extra OTel fields a provider adapter wants folded into each record (GPT-Live
@@ -164,6 +172,12 @@ class _Meter:
         # providers, which report everything through `usage`.
         self.details: dict = {}
         self.rec = live_record.Recorder()  # off until live_mode starts one for a voice session
+
+    def asking(self) -> int:
+        """The request being made now, the next one if the model's turn ended since."""
+        if self.answered:
+            self.request, self.answered = self.request + 1, False
+        return self.request
 
     def keep_images(self, images: list[tuple[str, bytes]]) -> None:
         """Number a delivered turn's images (a turn without any still ages the older ones)."""
@@ -473,13 +487,16 @@ def _audit(meter: _Meter, action: str, pane_id: str = "-", **kw) -> None:
     )
 
 
-async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _Meter) -> None:
+async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _Meter,
+                            request=None) -> None:
     """Run one tool call, audit it, and answer the model tersely. The ONE place every
     Live tool call is recorded: the handler notes what it touched in `rec` (pane, detail,
     content, ids) and the outcome comes from its answer, so no path goes unaudited — a
     call that raises (say, the socket dropping after the keys went in) is audited too,
-    with whatever `rec` already shows it did."""
+    with whatever `rec` already shows it did. `request` names the user request the call
+    serves, when the provider knows it better than the latest transcript does."""
     started, rec = time.monotonic(), {}
+    request = meter.asking() if request is None else request
     # Pin an omitted image_number to the latest image NOW: the user approves the thumbnail
     # on the card, and a turn pasted while it waits must not change which image is sent.
     call = fc
@@ -494,14 +511,43 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
     result = {"status": "error", "reason": "aborted"} if known else {
         "status": "rejected", "reason": "unknown tool"}
     try:
-        if known:
+        if known and (refused := _other_pane(meter, request, call)):
+            result = refused
+        elif known:
             ok, pid = (await _approved(websocket, session, call, watcher, meter, rec)
                        if meter.text and fc.name in _CONSENT else (True, None))
             act = _act(websocket, session, call, watcher, meter, rec, ok, pid)
             result = await (_focusing(session, watcher, rec, act) if meter.text else act)
+            if result["status"] == "sent":  # input went in
+                meter.reached.setdefault(request, rec["pane_id"])
+                if len(meter.reached) > REQUESTS_KEPT:
+                    del meter.reached[next(iter(meter.reached))]
     finally:
         _audit_call(meter, fc.name if known else "unknown_tool", result, started, rec)
+    if known and not meter.text and fc.name in _CONSENT and result["status"] in _NOT_DONE:
+        # The phone shows what the voice did not do too: the voice may not say so (GPT-Live's
+        # stays quiet while its backend retries). A reason's first clause is the user's.
+        name = _labels(watcher).get(_pane_arg(call)) or "a window"
+        await websocket.send_json({"type": "transcript", "role": "note", "text": (
+            f"Not sent to {name}: {result['reason'].split(';')[0]}")})
     await session.send_tool_result(fc, result)
+
+
+REQUESTS_KEPT = 32  # requests whose pane is remembered: far more than can still be running
+
+
+def _other_pane(meter: _Meter, request, fc) -> dict | None:
+    """Refuse a voice action on a second pane in one user request. Voice acts without a card,
+    and one spoken question once fanned out to several agents, each of which then messaged
+    the whole fleet; the user, not the model, says when one request should reach two windows.
+    A resume only opens a window, idle: it goes, and typing into it is what this holds."""
+    held = meter.reached.get(request)
+    if meter.text or fc.name not in _CONSENT - {"resume_session"} or held in (None, _pane_arg(fc)):
+        return None
+    return {"status": "rejected", "reason": (
+        f"one window per request; this one already reached id={held}, so send nothing more for "
+        "it: tell the user it goes to one window per request and ask them to say the next one "
+        "as its own request")}
 
 
 # The running action's _focusing hook, which _delivered calls as its delivery shows.
@@ -558,6 +604,7 @@ def _audit_call(meter: _Meter, name: str, result: dict, started: float, rec: dic
 
 _DONE = {"sent", "ok", "opened", "button_shown"}  # a call's outcomes that went as asked
 _REACHED = {"sent", "opened", "already_running"}  # ones that reached a pane
+_NOT_DONE = {"rejected", "declined"}  # a gate's or the user's no: nothing was sent
 # The tools that change a pane. In a text session each waits for the user to tap Send on
 # what it would do (the control plane's risk tiers: docs/design/agentic-control-plane.md):
 # a typed request is read and answered, never acted on unasked. find_sessions only reads,
@@ -853,12 +900,11 @@ async def _dispatch(
     if fc.name == "read_scratch":
         return await asyncio.to_thread(_read_scratch, args, rec)
 
-    # Keep the RAW value as well as the coerced one: str() turns a dict or an int into a
-    # perfectly plausible-looking string, and the guards below have to reject a wrong TYPE
-    # rather than silently accept its repr. A model parroting our own tool response back
-    # as a new call is exactly how a dict arrives here.
-    raw_pane_id = args.get("pane_id")
-    pane_id = str(raw_pane_id or "").strip()
+    # The guards below (_keystrokes) check the RAW value as well as this coerced one: str()
+    # turns a dict or an int into a plausible-looking string, and they must reject a wrong
+    # TYPE rather than accept its repr. A model parroting our own tool response back as a new
+    # call is exactly how a dict arrives here.
+    pane_id = _pane_arg(fc)
     labels = _labels(watcher)
 
     send_args, what, submitted = _keystrokes(fc, pane_id)
@@ -915,6 +961,11 @@ def _typed(args: dict) -> tuple[str, bool] | None:
     ok = (isinstance(args.get("pane_id"), str) and isinstance(text, str) and text.strip()
           and isinstance(enter, bool) and not set(args) - {"pane_id", "text", "press_enter"})
     return (text, enter) if ok else None
+
+
+def _pane_arg(fc) -> str:
+    """The pane a call names, as _dispatch and every gate before it read it."""
+    return str((fc.args if isinstance(fc.args, dict) else {}).get("pane_id") or "").strip()
 
 
 def _sent(label: str) -> dict:
@@ -1330,6 +1381,8 @@ async def _transcript(websocket: WebSocket, meter: _Meter, role: str, text: str,
         logger.info("[live] %s: %s", role, text)
     meter.note(f"{role}: {text}")
     meter.rec.event("transcript", role=role, text=text, **extra)
+    if role == "user":
+        meter.asking()
     await websocket.send_json({"type": "transcript", "role": role, "text": text, **extra})
 
 
@@ -1423,6 +1476,7 @@ async def _receiver(websocket: WebSocket, session, watcher, meter: _Meter) -> No
     the session — takes each usage event into `meter` and emits a per-turn OTel record
     at every turn boundary."""
     meter.superseded = False  # a reconnect drops the turn it belonged to
+    meter.answered = True
     async for ev in session.events():
         if ev.kind == "usage":
             meter.usage.set(ev.usage)
@@ -1435,10 +1489,12 @@ async def _receiver(websocket: WebSocket, session, watcher, meter: _Meter) -> No
         elif ev.kind == "transcript":
             await _transcript(websocket, meter, ev.role, ev.text)
         elif ev.kind == "turn_complete":
+            meter.answered = True
             meter.superseded = False
             meter.end_turn()
             await websocket.send_json({"type": "turn_complete"})
-        elif ev.kind == "interrupted":
+        elif ev.kind == "interrupted":  # the user talked over it: their next words are new
+            meter.answered = True
             await websocket.send_json({"type": "interrupted"})
 
 

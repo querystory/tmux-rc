@@ -195,8 +195,10 @@ def test_explicit_pr_target_precedes_conversational_continuity():
     assert "If no association matches, inspect current pane context or ask which window" in prompt
 
 
-def _dispatch(fc, monkeypatch, watcher=None, meter=_METER, panes=()):
-    w = watcher or _Watcher()
+def _dispatch(fc, monkeypatch, watcher=None, meter=None, panes=()):
+    """One call on a fresh meter unless one is given: a shared one would carry the panes an
+    earlier test's request reached into the next (_other_pane)."""
+    w, meter = watcher or _Watcher(), meter or L._Meter("s1", "tester", P._DEFAULT[0])
     ws, session = _WS(), _Session()
     typed = []
     monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append(a))
@@ -796,7 +798,9 @@ def test_press_key_rejects_unknown_key(monkeypatch):
 def test_unknown_pane_is_rejected(monkeypatch):
     fc = _FC(args={"pane_id": "%99", "text": "hi"})
     _, ws, session, typed = _dispatch(fc, monkeypatch)
-    assert typed == [] and ws.sent == []
+    assert typed == []  # and the phone hears why, not only the model
+    assert ws.sent == [{"type": "transcript", "role": "note",
+                        "text": "Not sent to a window: unknown pane"}]
     assert session.responses[0][1]["status"] == "rejected"
 
 
@@ -1380,3 +1384,43 @@ def test_typing_at_a_password_prompt_says_why_it_was_refused(monkeypatch):
     _run(L._handle_tool_call(_WS(), session, fc, _Watcher(), _METER))
     assert "password field" in str(session.responses)
     assert audits and "hunter2" not in str(audits)
+
+
+def test_voice_reaches_one_pane_per_request(monkeypatch):
+    """One spoken request types into one pane: a second pane is refused untyped, with a reason
+    that sends the model back to the user and a note on the phone; the same pane, or the next
+    request, still goes. A transcript fragment landing between two calls of one turn (the
+    seam's providers keep no order between the two) does not open a new request."""
+    meter = L._Meter("s", "a", P._DEFAULT[0])
+    to = lambda pane, text="status?": P.ToolCall("c", "type_in_pane",  # noqa: E731
+                                                 {"pane_id": pane, "text": text})
+
+    class Session(_Session):
+        async def events(self):
+            yield P.Event("tool_call", call=to("%1"))  # before any word of it is heard
+            yield P.Event("transcript", role="user", text="ask both panes their status")
+            yield P.Event("tool_call", call=to("%2"))
+            yield P.Event("tool_call", call=to(" %1"))  # the pane it reached, however spelled
+            yield P.Event("turn_complete")
+            yield P.Event("transcript", role="user", text="now the shell")
+            yield P.Event("tool_call", call=to("%2", "ls"))
+
+    typed, ws, session = [], _WS(), Session()
+    monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append(a))
+    monkeypatch.setattr(L.telemetry, "emit_action", lambda **k: None)
+    _run(L._receiver(ws, session, _Watcher(), meter))
+    for task in list(L._tasks):  # the post-type refreshes
+        task.cancel()
+    assert [t[0] for t in typed] == ["%1", "%1", "%2"]
+    meter.answered = False  # a provider that dropped mid-turn: the reconnect ends that turn
+    _run(L._receiver(_WS(), Session(), _Watcher(), meter))
+    assert typed[3][0] == "%1"
+    refused = session.responses[1][1]
+    assert refused["status"] == "rejected" and "its own request" in refused["reason"]
+    assert {"type": "transcript", "role": "note",
+            "text": "Not sent to shell: one window per request"} in ws.sent
+    resume = _FC("resume_session", {"session_id": "s-1"})  # opens a window, typing nothing
+    assert L._other_pane(meter, 1, resume) is None
+    text = L._Meter("s", "a", P._DEFAULT[0], text=True)  # typed chat: each send has a card
+    assert L._other_pane(text, 1, _FC(args={"pane_id": "%2", "text": "x"})) is None
+
