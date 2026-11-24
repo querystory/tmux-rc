@@ -1,0 +1,15 @@
+{
+  "description": "Synthetic: a finished auto-mode turn lists PRs that are green and not merged and ends \"Merging any of the PRs remains your call\"; below it Claude Code re-reads files and prints an idle-compaction note. The merge decision is left to the user: waiting on the user.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n● #318 is green too: 15 checks pass on head 6e64ec0.\n\n  Everything from the request is complete:\n  - #315 green, Copilot clean, not merged.\n  - #318 green after the route-coverage exemption.\n  - Stack PRs #320 and #322 carry the #315 fix forward, checked and pushed.\n\n  Merging any of the PRs remains your call.\n\n✻ Crunched for 7s · done 9:02 AM\n  ⎿  Read lantern/build.py (55 lines)\n  ⎿  Read docs/design/stack.md (163 lines)\n\n● Compacted while idle, before the prompt cache expired · turn off with \"idleCompaction\": false in settings.json\n────────────────────────────────────────────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────────────────────────────────────────────\n  ~/src/fernway/lantern on main | Opus 5.5 | dev@example.com | telemetry: •stats\n  session: +12/-3 lines · 14% ctx · 40h02m · $6.10   |  history: 41 prompts · 30 tools\n  ⏵⏵ auto mode on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "optional": true,
+      "answer_style": "text"
+    },
+    "headline": "PRs #315 and #318 are green; merging is the user's call"
+  }
+}

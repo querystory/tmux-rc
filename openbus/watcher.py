@@ -67,7 +67,7 @@ CHECKPOINT_EVENTS = 100
 DEAD_SERVER_RETENTION = 30 * 86400
 # Bump when classification or the fingerprint changes meaning: stored cards then miss
 # their hash once and every pane is re-read, instead of restoring an older parser's card.
-CARD_VERSION = 100
+CARD_VERSION = 101
 # LLM parse cadence. We capture every tick (cheap, for the snapshot buffer) but only
 # PARSE when the content fingerprint CHANGED vs. the last parse (or on a forced reparse).
 # `changed` compares against _prev_fp, which is written only on a SUCCESSFUL parse — so a
@@ -891,7 +891,7 @@ class Watcher:
             states[index] = s
             if prepublish:
                 s["tmux_active"] = p.id == focused
-                s["events_seq"] = self._events_seq.get(p.id, 0)
+                self._finish(s, p)  # a restored name shows from the first publish
                 self._publish_states(states, record_history=False)
         # Mark the pane tmux currently has focused, so the phone can default its
         # selection to the pane the user is actually on (not just the top-sorted one).
@@ -1354,14 +1354,16 @@ class Watcher:
 
     def _restore(self, pane, fp: str, now: float) -> dict | None:
         """Consume this pane's preloaded checkpoint; return it only if the screen is
-        unchanged. Its card, if any, goes back in as if just parsed and bootstrapped,
-        so an unchanged screen costs no LLM call."""
+        unchanged. Its parsed card, if any, then goes back in as if just parsed, so an
+        unchanged screen costs no LLM call. The session's own record (the bootstrap's
+        name and summary, and the activity log) belongs to the process, not the screen,
+        so it comes back whatever the screen shows now or however its last parse went."""
         uid = pane_key(self._server, pane.id, self._birth.get(pane.id))
         row = (self._checkpoints or {}).pop(uid, None)
-        if not row or row["fp"] != fp:
-            return None
-        if card := row["card"]:
-            pid, state = pane.id, card["state"]
+        same = row is not None and row["fp"] == fp
+        card, pid = (row or {}).get("card") or {}, pane.id
+        state = card.get("state") if same else None
+        if state:
             state.pop("last_activity_at", None)  # the row's column is the source of truth
             state.pop("input_generation", None)  # the last run's counter, not this one's
             self._state[pid], self._prev_fp[pid], self._parse_valid[pid] = state, fp, True
@@ -1372,13 +1374,16 @@ class Watcher:
             if state.get("summary"):
                 self._summary[pid] = state["summary"]
             self._prs[pid] = list(state.get("prs") or [])
+        if state or card.get("boot"):
             self.events_log[pid] = card["events"]
-            self._events_seq[pid] = state.get("events_seq", 0)
+            # The counter the phone last saw, never a smaller one it could match again.
+            self._events_seq[pid] = card.get("events_seq",
+                                             (card.get("state") or {}).get("events_seq", 0))
             self._recent_events[pid] = [(e["text"], e["ts"]) for e in card["events"][-30:]]
-            if card["boot"]:
-                self._boot[pid] = {**card["boot"], "events": [], "ts": now,
-                                   "seq": self._events_seq[pid]}
-        return row
+        if card.get("boot"):
+            self._boot[pid] = {**card["boot"], "events": [], "ts": now,
+                               "seq": self._events_seq[pid]}
+        return row if same else None
 
     def _checkpoint(self, states: list[dict], panes) -> None:
         """Write through the panes whose checkpoint would change: a new screen, idle
@@ -1408,13 +1413,14 @@ class Watcher:
                     "uid": pane_key(self._server, p.id, self._birth.get(p.id)),
                     "server": self._server, "fp": fp, "idle_since": idle_since,
                     "last_activity_at": s["last_activity_at"],
-                    # A card from a failed parse describes an older screen: store none, so
-                    # a restart re-parses instead of restoring it against this hash.
+                    # A card from a failed parse describes an older screen: store no state,
+                    # so a restart re-parses instead of restoring it against this hash.
                     "card": {
-                        "state": dict(s),  # a later read updates s in place
+                        "state": dict(s) if valid else None,  # a later read updates s
                         "events": self.events_log.get(p.id, [])[-CHECKPOINT_EVENTS:],
+                        "events_seq": s.get("events_seq", 0),
                         "boot": boot and {k: boot.get(k) for k in ("summary", "name", "tool")},
-                    } if valid else None,
+                    },
                 })
                 keys[p.id] = key
         if not rows:

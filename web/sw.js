@@ -12,6 +12,8 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("push", (event) => {
   let data = {};
   try { data = event.data?.json() || {}; } catch {}
+  // A declarative push (push.py's _declarative) that an iOS before 18.4 hands to the worker.
+  if (data.web_push === 8030) data = { ...data.notification, url: data.notification?.navigate };
   const actions = Array.isArray(data.actions) ? data.actions.slice(0, 2) : [];
   event.waitUntil(self.registration.showNotification(data.title || "tmux-rc", {
     body: data.body || "A session needs your attention",
