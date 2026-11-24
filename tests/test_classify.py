@@ -71,29 +71,32 @@ def test_a_quota_blocked_pane_keeps_nothing_from_the_turn_before():
         "activity"] == "idle"
 
 
-def test_a_handed_over_command_keeps_its_bash_prefix():
+def test_offers_are_the_models_text_held_to_the_screen():
     screen = "● Run it yourself:\n\n  ! gh pr merge 7 --squash\n\n❯ "
-    offered = classify_mod.screen_offers(["gh pr merge 7 --squash", "ship it"], screen)
+    offered = classify_mod.screen_offers(["! gh pr merge 7 --squash", "ship it"], screen)
     assert offered == ["! gh pr merge 7 --squash"]  # "ship it" is not on the screen
-    # Only a whole handed-over row: not part of one, prose punctuation, or shell negation.
-    for row, offer in (("! make deploy --dry-run", "make deploy"),
-                       ("Shipped! make tea", "make tea"),
-                       ("! make deploy\n    --dry-run", "make deploy"),  # its wrapped rest
-                       ("if ! grep -q x f; then echo y; fi", "grep -q x f")):
-        assert classify_mod.screen_offers([offer], f"● Then:\n\n  {row}\n\n❯ ") == [offer]
-    # An older turn's handoff does not turn this turn's reply into a command.
-    for now in ("Now reply with: make tea", "Now reply with: Make tea",
-                "I can make some tea for you. Shall I?"):
-        two_turns = f"● Run it:\n\n  ! make tea\n\n❯ ok\n\n● {now}\n\n❯ "
-        assert classify_mod.screen_offers(["make tea"], two_turns) == ["make tea"]
-    # Nor does the user's own message quoting one; an unsent draft below keeps the handoff.
-    typed = "❯ run this for me:\n\n  ! make tea\n\n● Done, it is queued.\n\n❯ "
-    assert classify_mod.screen_offers(["make tea"], typed) == ["make tea"]
-    draft = "● Run it:\n\n  ! make tea\n\n────────────\n❯ check the result\n────────────\n"
-    assert classify_mod.screen_offers(["make tea"], draft) == ["! make tea"]
-    # A long final message begins above the viewport: its handoff is still this turn's.
-    long = "● Run it:\n\x1e[visible screen]\x1f\n  first rows of it.\n\n  ! make tea\n\n❯ "
-    assert classify_mod.screen_offers(["make tea"], long) == ["! make tea"]
+    # What to send is the model's: an offer without "! " is sent as it gave it.
+    assert classify_mod.screen_offers(["gh pr merge 7 --squash"], screen) == [
+        "gh pr merge 7 --squash"]
+    # A command bash cannot read whole, or one ending in a continuation, is no offer.
+    for row in ("! for k in a b", "! make deploy \\"):
+        assert classify_mod.screen_offers([row], f"● Then:\n\n  {row}\n\n❯ ") == []
+
+
+def test_a_copyable_the_model_sends_is_offered():
+    # Live: a numbered item hands over a wrapped `! command`, notes follow; the model gives
+    # the copyable its `send`, which leads the offers (_fold_sends).
+    name = "155_claude_handoff_mid_list_before_notes"
+    command = _sample(name, "expected")["offers"][0]
+    copyable = {"label": "Command", "text": command[2:], "send": command}
+    result = classify(_pane("claude"), _sample(name),
+                      _llm({"tool": "claude", "activity": "idle", "copyables": [copyable]}))
+    assert result["offers"] == [command] and result["waiting_on"] == "user"
+    # A copyable with no `send` is only copied.
+    del copyable["send"]
+    result = classify(_pane("claude"), _sample(name),
+                      _llm({"tool": "claude", "activity": "idle", "copyables": [copyable]}))
+    assert "offers" not in result
 
 
 def _pane(cmd="bash", title="t"):

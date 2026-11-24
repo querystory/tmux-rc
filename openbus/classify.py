@@ -892,6 +892,11 @@ _LINK_TARGET_RE = re.compile(
     r"\[((?:[^][\n]|\[[^][\n]*\])*)\]\((?:[^()\s]|\([^()\s]*\))*\)")
 
 
+def _one_line(text: str) -> str:
+    """Rows as one line: each row's own spacing kept ('a  b' is a command's), a break a space."""
+    return " ".join(row.strip() for row in text.splitlines() if row.strip())
+
+
 @lru_cache(maxsize=256)
 def _parses(command: str) -> bool:
     """Whether bash reads `command` whole (`bash -n` runs nothing): the first part of a script
@@ -954,24 +959,14 @@ def screen_offers(offers: object, text: str) -> list[str]:
     """The model's offers that hold up on `text`, three at most: each is on the screen
     (_quoted), and a `! command` is one bash reads whole and that does not end in a line
     continuation (which bash -n accepts). Classify's gate, and the watcher's on a screen it
-    does not reparse (its fingerprint ignores a duration). An offer is sent as one line, so
-    a row break the model copied from a wrap is a space. A command the screen hands over
-    as `! command` in the final message, alone on its rows and nowhere else on screen, keeps
-    that `! ` even where the model's copy dropped it: it is what makes Send it run the
-    command rather than say it to the agent. Any other sighting (an older turn, a reply to
-    type) leaves it as is. A reply ("delete it" for "I'd delete this job, unless you want to
-    keep it") is the user's words, so it is on the screen word by word rather than whole."""
+    does not reparse (its fingerprint ignores a duration). What to send, "! " included, is
+    the model's call (_fold_sends). An offer is sent as one line, so a row break the model
+    copied from a wrap is a space. A reply ("delete it" for "I'd delete this job, unless you
+    want to keep it") is the user's words, so it is on the screen word by word rather than
+    whole."""
     listed = offers if isinstance(offers, list) else ()
     visible = _ask_view(text)
-    # The final assistant message (from its bullet, or the top when the view begins inside
-    # it), above any unsent draft; none once the user typed after it.
-    above = _below_turn(visible, 0)
-    reply = above[max(0, ("\n" + above).rfind("\n● ")):]
-    turn = "" if _USER_ROW_RE.search(reply) else reply
-    handed = lambda o: _quoted(o, turn, rows=True) and _quoted(o[2:], visible) == 1  # noqa: E731
-    flat = lambda texts: (re.sub(r"[ \t]*\n[ \t]*", " ", o.strip())  # noqa: E731
-                          for o in texts if isinstance(o, str))
-    whole = [f"! {o}" if not o.startswith("!") and handed(f"! {o}") else o for o in flat(listed)]
+    whole = [_one_line(o) for o in listed if isinstance(o, str)]
     # A reply is the user's own words for the final message's ask ("merge PR #5144" for
     # "Approvals to merge PR #5385 and PR #5144"), read off one paragraph (_invited). A
     # `! command` the agent wrote without its "!" is on the screen as the command alone.
