@@ -1366,15 +1366,17 @@ class Watcher:
         row = (self._checkpoints or {}).pop(uid, None)
         if not row or row["fp"] != fp:
             return None
-        if (card := row["card"]) and card.get("version") == self._card_version:
-            pid, state = pane.id, card["state"]
+        pid, card = pane.id, row["card"]
+        if card:  # an older parser's reading too: a new one that agrees keeps its clock
+            state = card["state"]
+            self._state_key[pid] = self._pending_key(state)
+            self._state_since[pid] = min(row["idle_since"] or state.get("state_since") or now,
+                                         now)
+        if card and card.get("version") == self._card_version:
             state.pop("last_activity_at", None)  # the row's column is the source of truth
             state.pop("input_generation", None)  # the last run's counter, not this one's
             self._state[pid], self._prev_fp[pid], self._parse_valid[pid] = state, fp, True
             self._checkpointed[pid] = None  # see _checkpoint
-            self._state_key[pid] = self._pending_key(state)
-            self._state_since[pid] = min(row["idle_since"] or state.get("state_since") or now,
-                                         now)
             if state.get("summary"):
                 self._summary[pid] = state["summary"]
             self._prs[pid] = list(state.get("prs") or [])

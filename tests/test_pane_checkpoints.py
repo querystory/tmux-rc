@@ -16,7 +16,7 @@ SCREEN = f"old scrollback\n{W.tmux.VISIBLE_SCREEN}\n› done, tests pass"
 
 
 def daemon(monkeypatch, db, *, screen=SCREEN, pid="101", now=10_000.0, activity="9000",
-           history=None, listed=True, server=lambda **_kwargs: "boot:1", prs=()):
+           history=None, listed=True, server=lambda **_kwargs: "boot:1", read=None):
     pane = W.tmux.Pane("work", "0", "agent", "0", "%1", "node", "Task", pid=pid,
                        window_activity=activity)
     monkeypatch.setattr(W.tmux, "server_running", lambda: True)
@@ -31,7 +31,7 @@ def daemon(monkeypatch, db, *, screen=SCREEN, pid="101", now=10_000.0, activity=
     def parse(pane, text, llm_fn=None, **_kwargs):
         calls.append("parse")
         return {"pane_id": pane.id, "activity": "idle", "tool": "codex",
-                "headline": "Fixed the flaky test", "working_prs": list(prs),
+                "headline": "Fixed the flaky test", "working_prs": [], **(read or {}),
                 "events": [{"text": "ran the suite"}]}
 
     def boot(*_args, **_kwargs):
@@ -89,17 +89,22 @@ def test_changed_screen_or_recycled_pid_falls_back(monkeypatch, tmp_path, change
     assert uids == {f"boot:1:%1:{change.get('pid', '101')}"}
 
 
+@pytest.mark.parametrize("state", ["idle", "waiting"])
 @pytest.mark.parametrize("bump", [0, 1])
-def test_a_card_version_bump_drops_the_card_but_keeps_the_clocks(monkeypatch, tmp_path, bump):
+def test_a_card_version_bump_drops_the_card_but_keeps_the_clocks(monkeypatch, tmp_path, bump,
+                                                                  state):
     """A new parser reads the card again; the screen is the same, so the pane has not
     moved since: tmux's activity (a resize or footer redraw at 19000) is not its age."""
     db = tmp_path / "h.db"
-    daemon(monkeypatch, db, prs=[{"repo": "acme/demo", "number": 212}])  # a guessed repo
+    pr = {"repo": "acme/demo", "number": 212}  # a guessed repo
+    first, _ = daemon(monkeypatch, db, read={"activity": state, "working_prs": [pr]})
+    since = card(first)["state_since"]  # tmux's 9000 when idle, else when first seen
     monkeypatch.setattr(W, "CARD_VERSION", W.CARD_VERSION + bump)
-    w, calls = daemon(monkeypatch, db, now=20_000.0, activity="19000")
+    w, calls = daemon(monkeypatch, db, now=20_000.0, activity="19000",
+                      read={"activity": state})
     assert calls == (["parse", "bootstrap"] if bump else [])
-    assert w._prs.get("%1", []) == ([] if bump else [{"repo": "acme/demo", "number": 212}])
-    assert card(w)["last_activity_at"] == card(w)["state_since"] == 9000.0
+    assert w._prs.get("%1", []) == ([] if bump else [pr])
+    assert (card(w)["last_activity_at"], card(w)["state_since"]) == (9000.0, since)
 
 
 def test_database_failure_falls_back(monkeypatch, tmp_path):
