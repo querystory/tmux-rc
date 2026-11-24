@@ -107,8 +107,13 @@ def test_a_restart_keeps_the_sessions_name_over_a_failed_parse(monkeypatch, tmp_
     db = tmp_path / "h.db"
     daemon(monkeypatch, db)
     daemon(monkeypatch, db, screen="› unreadable", now=15_000.0)
+    published, publish = [], W.Watcher._publish_states
+    monkeypatch.setattr(W.Watcher, "_publish_states", lambda self, states, **kwargs: (
+        published.append([s and s.get("bootstrap_title") for s in states]),
+        publish(self, states, **kwargs)))
     w, calls = daemon(monkeypatch, db, screen="› readable again", now=20_000.0)
     assert calls == ["parse"]
+    assert published[1] == ["Flaky test"], "named once read, not at the tick's end"
     assert w.states[0]["bootstrap_title"] == "Flaky test"
     assert card(w)["session_summary"] == "Hunting a flaky test"
     assert w.events_log["%1"][0]["text"] == "found the race"

@@ -891,7 +891,7 @@ class Watcher:
             states[index] = s
             if prepublish:
                 s["tmux_active"] = p.id == focused
-                s["events_seq"] = self._events_seq.get(p.id, 0)
+                self._finish(s, p)  # a restored name shows from the first publish
                 self._publish_states(states, record_history=False)
         # Mark the pane tmux currently has focused, so the phone can default its
         # selection to the pane the user is actually on (not just the top-sorted one).
