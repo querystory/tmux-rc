@@ -202,6 +202,29 @@ def test_the_index_lists_what_is_published_while_anything_is(root):
     assert BUCKET == {}
 
 
+def test_a_target_inside_another_keeps_its_own_records(root, monkeypatch):
+    monkeypatch.setattr(Fake, "__init__", lambda self, target: None)
+    (root / "rye").mkdir()
+    (root / "rye/index.html").write_text("<title>Rye</title>")
+    monkeypatch.setenv("TMUXRC_SCRATCH_PUBLISH", "gs://bkt/people/ada/rye")
+    P.cli(["publish", "tea notes"], WEB_DIR)
+    monkeypatch.setenv("TMUXRC_SCRATCH_PUBLISH", "gs://bkt/people/ada")  # its parent, whose
+    P.cli(["publish", "rye"], WEB_DIR)  # folder rye is named as the first target is
+    assert '<a href="rye/">' in BUCKET["index.html"].decode()
+    assert "tea" not in BUCKET["index.html"].decode()  # the nested target's is not its own
+    P.cli(["unpublish", "rye"], WEB_DIR)
+    record = json.loads(P.store().read_text())
+    assert set(record) == {"gs://bkt/people/ada/rye/", "gs://bkt/people/ada/rye/tea notes"}
+
+
+def test_an_index_on_record_at_its_old_key_moves(root):
+    P.store().parent.mkdir(parents=True)
+    P.store().write_text('{"gs://bkt/people/ada": {"index.html": "old"}}')
+    P.cli(["publish", "tea notes"], WEB_DIR)
+    assert set(json.loads(P.store().read_text())) == {
+        "gs://bkt/people/ada/", "gs://bkt/people/ada/tea notes"} and "index.html" in BUCKET
+
+
 def test_the_gcs_driver_writes_and_deletes_by_name_and_never_lists(tmp_path, monkeypatch):
     calls = []
 

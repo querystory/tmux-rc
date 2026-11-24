@@ -150,17 +150,21 @@ def _sync(root: Path, name: str, web: Path | None) -> None:
         for rel in was.keys() - now.keys():
             driver.drop(f"{name}/{rel}")
         record[f"{target}/{name}"] = now
-        names = sorted(k.removeprefix(f"{target}/") for k, v in record.items()
-                       if v and k.startswith(f"{target}/"))
+        if set(record.get(target, ())) == {"index.html"} and f"{target}/" not in record:
+            record[f"{target}/"] = record.pop(target)  # the index's, before it had its own key
+        # the index is on record at target/, and a folder at target/name: no name holds "/",
+        # so neither is ever another target's, nested in this one or holding it
+        names = sorted(n for k, v in record.items() if v and k.startswith(f"{target}/")
+                       and scratch.folder_name(n := k.removeprefix(f"{target}/")))
         page = _index(root, names) if names else b""
         digest = hashlib.sha256(page).hexdigest() if page else None
-        if not page or (record.get(target) or {}).get("index.html") != digest:
+        if not page or (record.get(f"{target}/") or {}).get("index.html") != digest:
             (index := Path(tmp) / "index.html").write_bytes(page)
             if page:
                 driver.put("index.html", index)
             else:
                 driver.drop("index.html")
-            record[target] = {"index.html": digest} if page else {}
+            record[f"{target}/"] = {"index.html": digest} if page else {}
         scratch.save(store(), {k: v for k, v in record.items() if v})
 
 

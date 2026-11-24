@@ -563,8 +563,8 @@ def publish(d: dict, root: Path) -> None:
         folder = root / f"digest-{name}"
         folder.mkdir(parents=True, exist_ok=True)
         published = {k: v for k, v in load(folder / "meta.json", {}).items()
-                     if k in ("publish", "publish_failed")}
-        (folder / "meta.json").write_text(json.dumps({  # its opt-in kept (scratch_publish)
+                     if k in ("publish", "publish_failed", "updating")}
+        (folder / "meta.json").write_text(json.dumps({  # its opt-in and mark kept
             "title": title, "description": verdict.split(". ")[0], **published,
             "pane": os.environ.get("TMUX_PANE", ""), "created": when.isoformat("T", "seconds")}))
         picks = "".join(f'<input type="radio" name="view" id="{v}"{" checked" * (v == name)}>'
@@ -578,6 +578,9 @@ def publish(d: dict, root: Path) -> None:
         "more": len(d["actions"][3:]),
         "themes": [{"name": t["name"], "state": STATES[t["state"]], "share": round(t["part"], 3)}
                    for t in d["themes"] if t["pieces"] or t["effort"]]}))
+    for name in views:  # every file in place: only now is a copy of it whole (scratch_publish)
+        meta = root / f"digest-{name}/meta.json"
+        meta.write_text(json.dumps({k: v for k, v in load(meta, {}).items() if k != "updating"}))
 
 
 def model():
