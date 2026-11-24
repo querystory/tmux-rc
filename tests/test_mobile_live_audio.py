@@ -52,6 +52,15 @@ current.frameMs = null;
 current.clearPending();
 tap.port.onmessage({data: new Float32Array(4096).fill(0.75)});
 assert.equal(sent.length, 2);
+// Audio dropped for socket backlog is counted and told to the server on the next frame.
+current.muted = false; current.frameMs = 40;
+current.ws.bufferedAmount = 1e6;
+tap.port.onmessage({data: new Float32Array(320)});
+current.ws.bufferedAmount = 0;
+tap.port.onmessage({data: new Float32Array(640)});
+assert.equal(sent.length, 3);
+assert.equal(sent[2].lost_ms, 20);
+assert.equal(sent[1].lost_ms, 0);
 """
     module = Path(__file__).resolve().parents[1] / "web/m/live.js"
     result = subprocess.run(["node", "-e", script, str(module)],
@@ -225,16 +234,21 @@ const navigator = {audioSession, serviceWorker: new EventTarget(), wakeLock: {re
   const stream = {getTracks: () => [track], getAudioTracks: () => [track]};
   streams.push(stream); return stream;
 }}};
-// Cache Storage, where sw.js records a "Chat needs you" tap: by cache name and key.
+// Cache Storage, where sw.js records a notification tap: by cache name and key.
 const tapped = new Map();
+let midRead = null; // a worker write landing between a match() and its json()
 const caches = {open: async (name) => ({
   match: async (key) => {
     const entry = tapped.get(`${name} ${key}`);
-    return entry && {json: async () => entry};
+    const json = async () => { const write = midRead; midRead = null; write?.(); return entry; };
+    return entry === undefined ? undefined : {json};
   },
-  delete: async (key) => tapped.delete(`${name} ${key}`)})};
-const sandbox = {document, window, navigator, caches, AudioContext: Context, WebSocket: Socket,
-  appendChatMarkdown, renderChatText, since, paneName, sessionOf,
+  put: async (key, response) => tapped.set(`${name} ${key}`, await response.text())})};
+// Whether the recorded tap is still unspent (live.js marks each one it acted on).
+const unspent = () =>
+  +!tapped.has(`chat-tap /__spent-tap/${tapped.get('chat-tap /__tapped-chat')?.at}`);
+const sandbox = {document, window, navigator, caches, Response, AudioContext: Context,
+  WebSocket: Socket, appendChatMarkdown, renderChatText, since, paneName, sessionOf,
   AudioWorkletNode: class { constructor() {this.port = {};} connect() {} disconnect() {} },
   Audio: class {
     constructor() {this.paused = true; this.pending = initialPlayPending; outputs.push(this);}
@@ -256,11 +270,12 @@ vm.runInNewContext(source + '\nglobalThis.setup = setupLiveMode; globalThis.Comp
 const version = JSON.parse(process.env.LIVE_VERSION || 'null');
 const wide = Object.assign(new EventTarget(), {matches: false}); // app.js's WIDE query
 const opened = []; // panes app.js was asked to navigate to
+const links = []; // addresses app.js was asked to open (a tapped push's)
 const panes = []; // app.js's pane list
 const live = sandbox.setup({licon: (name) => name, wide, open: (id) => opened.push(id),
-  panes: () => panes, logos: {claude: '/claude.png'},
+  onLink: (url) => links.push(url), panes: () => panes, logos: {claude: '/claude.png'},
   request: async () => { if (!version) throw Error('offline'); return version; }});
-const flush = async () => {for (let i = 0; i < 20; i++) await Promise.resolve();};
+const flush = async () => {for (let i = 0; i < 40; i++) await Promise.resolve();};
 const status = () => document.getElementById('voice-status').textContent;
 """
 
@@ -506,8 +521,9 @@ def test_chat_needs_you_tap_whose_message_was_lost_is_pulled_when_the_page_comes
 (async () => {
   const $ = (id) => document.getElementById(id), dialog = $('voice-dialog');
   // What sw.js records on a tap, `ago` ms back; and the page's reads of it, now and later.
+  let tick = 0; // each tap its own `at`, even within one millisecond
   const record = (chat, ago = 0) =>
-    tapped.set('chat-tap /__tapped-chat', {chat, at: Date.now() - ago});
+    tapped.set('chat-tap /__tapped-chat', {chat, at: Date.now() - ago + ++tick});
   const reads = async () => {
     [...timers].filter((t) => t.name === 'pullTap').forEach((t) => t()); await flush();
   };
@@ -530,10 +546,10 @@ def test_chat_needs_you_tap_whose_message_was_lost_is_pulled_when_the_page_comes
   record('p1', 61000); await back(); // too old: a tap from some other time
   assert.equal(dialog.open, false);
   record('p2'); await back(); // another tab's card: left for that tab
-  assert.equal(dialog.open, false); assert.equal(tapped.size, 1);
+  assert.equal(dialog.open, false); assert.equal(unspent(), 1);
   record('p1'); await back();
   assert.equal(dialog.open, true); assert.equal(actions.scrolled, before + 1);
-  assert.equal(tapped.size, 0); // spent
+  assert.equal(unspent(), 0); // spent
   // Minimized again, a later return to the app leaves it so.
   $('voice-close').onclick(); await back('focus');
   assert.equal(dialog.open, false);
@@ -542,7 +558,55 @@ def test_chat_needs_you_tap_whose_message_was_lost_is_pulled_when_the_page_comes
   const message = Object.assign(new Event('message'), {data: {chat: 'p1'}, ports: []});
   navigator.serviceWorker.dispatchEvent(message); await flush(); await back('pageshow');
   assert.equal(dialog.open, true); assert.equal(actions.scrolled, before + 2);
-  assert.equal(tapped.size, 0);
+  assert.equal(unspent(), 0);
+})().catch((error) => {console.error(error); process.exitCode = 1;});
+""", {"version": "v", "live_enabled": True, "live_models": [{"label": "Sonnet", "text": True}]})
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_tapped_push_address_opens_once_from_the_message_or_the_record():
+    """A scratch page's tap: a booting page (cold start) or one whose message was lost opens
+    it from the record; when both arrive, the tap opens once and is spent."""
+    _run_live(r"""
+(async () => {
+  const url = 'https://test/m#view=scratch&open=%2Fscratch%2Fdemo%2F';
+  const record = (tap) => tapped.set('chat-tap /__tapped-chat', tap);
+  const reads = async () => {
+    [...timers].filter((t) => t.name === 'pullTap').forEach((t) => t()); await flush();
+  };
+  record({open: url, at: 1}); await reads(); // stale: from some other time
+  assert.deepEqual(links, []);
+  record({open: url, at: Date.now()}); await reads(); // the boot's read
+  assert.deepEqual(links, [url]); assert.equal(unspent(), 0);
+  const at = Date.now() + 1;
+  record({open: url, at});
+  const tell = (data) => navigator.serviceWorker.dispatchEvent(
+    Object.assign(new Event('message'), {data, ports: []}));
+  tell({open: url, at});
+  await flush(); // a read that beat its spend:
+  record({open: url, at});
+  window.dispatchEvent(new Event('focus')); await reads();
+  assert.deepEqual(links, [url, url]);
+  // A read that snapshotted an older tap lands after a newer one opened: not reopened.
+  const newer = 'https://test/m#view=scratch&open=%2Fscratch%2Flater%2F';
+  tell({open: newer, at: at + 1});
+  await flush(); record({open: url, at}); await reads();
+  assert.deepEqual(links, [url, url, newer]);
+  // A window not on screen leaves the tap for the one that is.
+  record({open: newer, at: at + 2});
+  document.hidden = true; await reads(); document.hidden = false;
+  assert.deepEqual(links, [url, url, newer]); assert.equal(unspent(), 1);
+  // Spending an older tap leaves a newer record the worker wrote meanwhile.
+  tell({open: url, at: at + 3}); record({open: newer, at: at + 4}); await flush();
+  assert.equal(unspent(), 1); await reads();
+  assert.deepEqual(links, [url, url, newer, url, newer]);
+  // The worker records a newer tap after a spend's read snapshotted the older one: it stays.
+  record({open: url, at: at + 5}); midRead = () => record({open: newer, at: at + 6});
+  tell({open: url, at: at + 5}); await flush();
+  assert.equal(unspent(), 1); await reads();
+  assert.deepEqual(links, [url, url, newer, url, newer, url, newer]);
+  tell({open: url}); // the previous worker's message: no `at`, opened as it always was
+  assert.deepEqual(links, [url, url, newer, url, newer, url, newer, url]);
 })().catch((error) => {console.error(error); process.exitCode = 1;});
 """, {"version": "v", "live_enabled": True, "live_models": [{"label": "Sonnet", "text": True}]})
 
@@ -586,6 +650,55 @@ def test_open_buttons_sit_under_the_reply_in_one_bubble():
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_a_pane_the_chat_messaged_opens_from_its_card_and_the_reply():
+    """The pane on a "Sent to terminal" card is a tap target, and the turn's reply offers
+    an Open button for each pane the turn messaged, once, whatever order its rows came in."""
+    _run_live(r"""
+(async () => {
+  const log = document.getElementById('voice-log');
+  await live.refresh();
+  document.getElementById('chat').onclick(); await flush();
+  const say = (message) => sockets[0].onmessage({data: JSON.stringify(message)});
+  const send = (text) => {
+    sandbox.Composer.prototype.segments = () => [{text}];
+    document.getElementById('voice-compose').onsubmit({preventDefault() {}});
+  };
+  const typed = (pane_id, label) => say({type: 'typed', label, pane_id, text: 'ls', payload: 'ls'});
+  const reply = (text) => say({type: 'transcript', role: 'model', text});
+  const last = () => log.children.findLast((row) => row.dataset.role === 'model');
+  const buttons = () => last().lastChild.children.map((b) => b.textContent);
+  say({type: 'status', status: 'listening'});
+  // Deliveries ahead of the text, two to one pane, one splitting the reply, and an open_pane.
+  send('check both'); typed('%1', 'api'); typed('%2', 'web');
+  reply('Asked both.'); typed('%1', 'api'); reply('Waiting.');
+  say({type: 'open_pane', pane_id: '%1', label: 'api'});
+  say({type: 'turn_complete'});
+  assert.deepEqual(log.children.map((row) => row.dataset.role),
+    ['typed', 'typed', 'model', 'typed', 'model']);
+  assert.equal(log.children[2].children.length, 2); // heading and text: the buttons go last
+  assert.deepEqual(buttons(), ['Open api', 'Open web']);
+  last().lastChild.firstChild.onclick();
+  const tag = {dataset: {pane: '%1', at: '1'}};
+  const click = new Event('click');
+  const closest = (s) => s === '.voice-pane[data-pane]' ? tag : null;
+  Object.defineProperty(click, 'target', {value: {closest}});
+  log.dispatchEvent(click);
+  assert.deepEqual(opened, ['%1', '%1']);
+  // A delivery out of any turn (a parked card approved) is its card alone; the next turn's
+  // reply gets its own button.
+  typed('%1', 'api');
+  send('again'); reply('Again.'); typed('%1', 'api'); say({type: 'turn_complete'});
+  assert.deepEqual(buttons(), ['Open api']);
+  // A dropped connection ends the turn: what it delivered offers nothing to the next.
+  send('more'); typed('%2', 'web');
+  say({type: 'status', status: 'reconnecting'}); say({type: 'status', status: 'listening'});
+  send('next'); reply('Next.'); say({type: 'turn_complete'});
+  assert.equal(last().children.length, 2);
+})().catch(error => {console.error(error); process.exitCode = 1;});
+""", {"version": "v", "live_enabled": True, "live_models": [{"label": "Sonnet", "text": True}]})
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
 def test_chat_shows_a_working_row_until_each_turn_is_answered():
     _run_live(r"""
 (async () => {
@@ -619,8 +732,9 @@ def test_chat_shows_a_working_row_until_each_turn_is_answered():
   assert.deepEqual(roles(), ['user', 'propose', 'typed', 'typing']);
   const typed = document.getElementById('voice-log').children
     .find((row) => row.dataset.role === 'typed').lastChild.innerHTML;
-  assert.equal(typed, '<div class="voice-act">Typed into <span class="voice-pane">'
-    + '<img src="/claude.png" alt="claude"><strong>work</strong><span> · api</span></span>'
+  assert.equal(typed.replace(/ data-at="\d+"/, ''), '<div class="voice-act">Typed into '
+    + '<button type="button" class="voice-pane" data-pane="%1" title="Open">'
+    + '<img src="/claude.png" alt="claude"><strong>work</strong><span> · api</span></button>'
     + '<blockquote>ls <kbd>⏎ Enter</kbd></blockquote></div>');
   assert.match(bubble.title, /new messages, responding/);
   // A reply can come ahead of more work in the same turn: the row stays until it completes.

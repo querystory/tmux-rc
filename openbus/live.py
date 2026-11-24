@@ -35,6 +35,7 @@ from . import (
     accounts,
     agent_history,
     live_providers,
+    live_record,
     llm,
     plan_usage,
     push,
@@ -43,7 +44,7 @@ from . import (
     telemetry,
     tmux,
 )
-from .classify import _host_tool, _load_prompt
+from .classify import _host_tool, _load_prompt, _visible
 from .expunge import codex_names, codex_status_line, codex_status_segments, codex_thread
 from .live_chat import TURNS_KEPT, TURNS_QUEUED
 from .live_providers import KEYS, LiveModel
@@ -162,6 +163,7 @@ class _Meter:
         # adds voice_seconds / usage_final / backend_model). Empty for the seam's own
         # providers, which report everything through `usage`.
         self.details: dict = {}
+        self.rec = live_record.Recorder()  # off until live_mode starts one for a voice session
 
     def keep_images(self, images: list[tuple[str, bytes]]) -> None:
         """Number a delivered turn's images (a turn without any still ages the older ones)."""
@@ -222,20 +224,15 @@ class _Meter:
 
 
 def _screen_tail(watcher, pane_id: str) -> str:
-    """Last SCREEN_TAIL_LINES of a pane's current screen, dim-MARKED — the same
-    ⟪dim⟫-wrapped text the classify parser sees, so the voice model can tell draft/ghost/
-    placeholder runs (composer autocomplete, unsent input) from real output instead of
-    treating them as typed content. Use the stored snapshot text directly, NOT
-    watcher.snapshot_text() — that one strips the markers for the phone's raw render.
-    Empty if none captured yet."""
+    """Last SCREEN_TAIL_LINES of a pane's current screen as plain text, the way the phone
+    shows it: the agent's greyed input suggestion dropped and our ⟪dim⟫ markers off. A
+    text chat model quotes what it is given, so marked text came back into the replies the
+    user reads. Empty if none captured yet."""
     hist = watcher.snapshots.get(pane_id) or []
     if not hist:
         return ""
-    text = hist[-1]["text"] or ""
-    lines = text.rstrip().splitlines()[-SCREEN_TAIL_LINES:]
-    # Char-bound on a MARKER boundary — a raw slice could cut a ⟪dim⟫ token or orphan
-    # a close from its open, garbling the dim signal the model relies on.
-    return tmux.tail_marked("\n".join(lines), SCREEN_TAIL_CHARS)
+    lines = _visible(hist[-1]["text"] or "").rstrip().splitlines()[-SCREEN_TAIL_LINES:]
+    return tmux.tail_marked("\n".join(lines), SCREEN_TAIL_CHARS)  # cut on a line boundary
 
 
 def _fmt_age(sec: float) -> str:
@@ -392,11 +389,8 @@ def _pane_context(watcher, screens: str) -> str:
         # Allocate SCREEN_BUDGET_CHARS priority-first — the active pane, then panes at
         # work, then the least-idle — but RENDER in digest order, which is tmux's own
         # session/window order: the model's pane map must not reshuffle by activity.
-        # The last pane granted may overshoot the budget by at most one tail. A tail
-        # itself can run a few chars past SCREEN_TAIL_CHARS — tail_marked() prefixes a
-        # marker token (⟪dim⟫/⟪placeholder⟫) when the kept text starts inside a marked
-        # run — so the slack is "one tail plus a marker", still bounded and still
-        # simpler than truncating mid-screen.
+        # The last pane granted may overshoot the budget by at most one tail, still
+        # bounded and simpler than truncating mid-screen.
         def prio(d):
             return (not d.get("tmux_active"),
                     d.get("activity") == "idle",
@@ -1333,7 +1327,20 @@ async def _transcript(websocket: WebSocket, meter: _Meter, role: str, text: str,
     if telemetry.QSDEBUG:  # content reaches the journal under the same flag as OTel
         logger.info("[live] %s: %s", role, text)
     meter.note(f"{role}: {text}")
+    meter.rec.event("transcript", role=role, text=text, **extra)
     await websocket.send_json({"type": "transcript", "role": role, "text": text, **extra})
+
+
+def _mic(meter: _Meter, data: dict, dropped: str | None = None) -> bytes:
+    """Decode one browser audio frame and record it; the PCM to forward, b"" if none.
+    lost_ms is mic audio the phone itself dropped (socket backlog) since its last frame."""
+    try:
+        audio = base64.b64decode(data.get("data") or "")
+    except Exception:  # noqa: BLE001 - skip one bad frame, keep streaming
+        audio, dropped = b"", "undecodable"
+    dropped = dropped or ("empty" if not audio else None)
+    meter.rec.mic(audio, dropped, data.get("lost_ms"))
+    return b"" if dropped else audio
 
 
 async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
@@ -1343,14 +1350,8 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
         data = await websocket.receive_json()
         action = data.get("action")
         if action == "audio":
-            raw = data.get("data")
-            if not raw:
-                continue
-            try:
-                audio = base64.b64decode(raw)
-            except Exception:  # noqa: BLE001 - skip one bad frame, keep streaming
-                continue
-            await session.send_audio(audio)
+            if audio := _mic(meter, data):
+                await session.send_audio(audio)
         elif action == "text":
             text = data.get("text")
             text = text.strip() if isinstance(text, str) else ""
@@ -1427,6 +1428,7 @@ async def _receiver(websocket: WebSocket, session, watcher, meter: _Meter) -> No
             meter.note(f"[typed] {ev.call.args}")
             await _handle_tool_call(websocket, session, ev.call, watcher, meter)
         elif ev.kind == "audio":
+            meter.rec.model(ev.data, 24000)  # the seam's providers all speak 24 kHz
             await websocket.send_json({"type": "audio", "data": base64.b64encode(ev.data).decode()})
         elif ev.kind == "transcript":
             await _transcript(websocket, meter, ev.role, ev.text)
@@ -1457,6 +1459,8 @@ async def _hold(websocket: WebSocket, seconds: float, meter: _Meter) -> bool:
             while (data := await websocket.receive_json()).get("action") != "stop":
                 if data.get("action") == "viewing":
                     _view(meter, data)
+                elif data.get("action") == "audio":
+                    _mic(meter, data, "reconnecting")
                 elif data.get("action") == "text":
                     await websocket.send_json(
                         {"type": "error", "refused": True, "message": "Reconnecting; not sent"})
@@ -1545,7 +1549,8 @@ async def _run_session(websocket: WebSocket, watcher, meter: _Meter) -> None:
                                        t.get_name(), exc)
         except (WebSocketDisconnect, live_providers.Unreachable):
             raise  # client gone, or a misconfiguration no retry can fix
-        except Exception:
+        except Exception as e:
+            meter.rec.event("dropped", error=repr(e), attempt=attempt)
             if attempt >= max_reconnects:
                 raise
             backoff = min(2**attempt, 15)
@@ -1579,8 +1584,9 @@ def offered() -> list[live_providers.LiveModel]:
     # is two chances for the halves to disagree.
     table = live_providers.models()
     menu = [m for m in table if m.available()]
-    if os.environ.get("OPENAI_API_KEY") and all(m.label != gpt_live.LABEL for m in table):
-        menu.insert(0, gpt_live.ENTRY)
+    if os.environ.get("OPENAI_API_KEY"):
+        taken = {m.label for m in table}
+        menu[:0] = [m for m in gpt_live.ENTRIES if m.label not in taken]
     return menu
 
 
@@ -1624,7 +1630,7 @@ async def live_mode(websocket: WebSocket) -> None:
     # Which runner, decided by identity rather than by re-reading the label: `offered()`
     # already settled who owns this pick, including a table entry that claimed the
     # adapter's label.
-    use_gpt = model is gpt_live.ENTRY
+    use_gpt = any(model is m for m in gpt_live.ENTRIES)
     await websocket.accept()
     watcher = websocket.app.state.watcher
     # Per-session UUID — the summable key that ties this voice session's cost (emit_live_turn)
@@ -1633,6 +1639,8 @@ async def live_mode(websocket: WebSocket) -> None:
     meter = _Meter(session_id, telemetry.actor(websocket), model, text=text)
     meter.push = getattr(websocket.app.state, "push", None)
     _audit(meter, "live_session", detail="start", mode="text" if text else "voice")
+    if not text:
+        meter.rec = live_record.start(session_id, model)
     outcome, reason = "ok", "stop"
     try:
         await _connect(meter, viewing=websocket.query_params.get("viewing") != "0",  # finally
@@ -1645,6 +1653,7 @@ async def live_mode(websocket: WebSocket) -> None:
         reason = "client gone"  # phone lock / tab close / tunnel drop — the normal ends
     except Exception as e:  # noqa: BLE001 - the session's last stop: report it, never crash the WS
         reason, outcome = "error", f"error: {type(e).__name__}"  # the class, never provider text
+        meter.rec.event("error", error=repr(e))  # local, so the provider's words are kept
         # A model that can't be reached (bad deployment name, rejected key) says exactly
         # what to fix — the user fixes config, not the retry count. Anything else stays a
         # generic line so internal detail never reaches the browser. The adapter's
@@ -1664,6 +1673,8 @@ async def live_mode(websocket: WebSocket) -> None:
         if reason == "stop":  # the user ended the chat, and its cards with it
             _unpark(meter)
         _disconnect(meter)
+        meter.rec.event("end", reason=reason, outcome=outcome)
+        meter.rec.close()
         meter.finish()  # final cumulative OTel record + fold cost into the status bar
         _audit(
             meter, "live_session", detail=f"end: {reason}", outcome=outcome, turns=meter.turns,

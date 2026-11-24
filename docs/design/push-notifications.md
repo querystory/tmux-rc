@@ -170,6 +170,21 @@ registers the worker and subscribes through its `pushManager`. The worker file i
 served no-store so update checks see the current version. Keep this push-only:
 adding asset caching would reintroduce the stale-UI failure mode.
 
+### Taps on iPhone: Declarative Web Push
+
+On an iOS home-screen app, a tap often never reaches the worker's `notificationclick`
+(WebKit bug 268797, open since iOS 16.4): the app just comes forward on its last screen,
+so neither the worker's message nor its recorded tap exists for the page to act on. No
+worker-side change can fix an event that never fires. Apple relays therefore get the
+push as Declarative Web Push (iOS 18.4+), whose `navigate` address iOS opens itself
+without running the worker. Other relays keep the worker path, because their browsers
+show the answer actions the worker posts. WebKit only accepts an absolute `navigate`, and the daemon
+doesn't know the public address it is reached at, so it keeps the `Origin` of the
+page's subscribe request (re-sent on every boot) with the subscription. "Chat needs
+you" stays on the worker path, because a navigation would reload the page and lose the
+chat it holds. An iOS older than 18.4 hands the declarative message to the worker,
+which unwraps it.
+
 ### Subscriptions and keys
 
 Push subscriptions must survive a daemon restart — push exists precisely for when no

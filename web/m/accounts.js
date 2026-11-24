@@ -451,10 +451,6 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     // The URL's accounts in, and out for the next URL; follow says whether they changed.
     key: () => filter, follow: (k) => { if (JSON.stringify(k) === JSON.stringify(filter)) return false; filter = k; paintFilter(); return true; },
     matches,
-    // Open loops under a filter: only what a pane on the account holds (a PR's or worktree's
-    // with no pane belongs to no account, so it is hidden with the rest).
-    loops: (report) => !active().length || !report?.lanes ? report : { ...report, lanes: Object.fromEntries(Object.entries(report.lanes).map(([lane, gs]) =>
-      [lane, gs.map((g) => ({ ...g, items: g.items.filter((i) => [...(i.panes || []), i.pane].some((p) => p && matches(p))) })).filter((g) => g.items.length)])) },
     badge: (paneId) => { const p = ofPane(paneId); return p ? badge(p) : ""; },
     // A session's own default, per provider with several: where its dir differs from the
     // global environment's (under "", which the server folds into every session).

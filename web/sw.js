@@ -1,6 +1,6 @@
 // Push-only service worker. Deliberately NO fetch handler and NO asset caching: every app
 // asset continues to come from the network, preserving tmux-rc's no-stale-UI contract. The
-// one cache entry is the last "Chat needs you" tap, for the page to pull (live.js).
+// one cache holds the last notification tap, for the page to pull, and the taps it spent (live.js).
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
@@ -12,6 +12,8 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("push", (event) => {
   let data = {};
   try { data = event.data?.json() || {}; } catch {}
+  // A declarative push (push.py's _declarative) that an iOS before 18.4 hands to the worker.
+  if (data.web_push === 8030) data = { ...data.notification, url: data.notification?.navigate };
   const actions = Array.isArray(data.actions) ? data.actions.slice(0, 2) : [];
   event.waitUntil(self.registration.showNotification(data.title || "tmux-rc", {
     body: data.body || "A session needs your attention",
@@ -49,15 +51,13 @@ self.addEventListener("notificationclick", (event) => {
         if (response.ok) return;
       } catch {}
     }
-    // iOS can lose the message below to the page it is waking, so a chat tap is recorded
-    // first, for the page to read when it comes back; before the focus, so it is there then.
-    if (data.chat) {
-      try {
-        const tap = new Response(JSON.stringify({ chat: data.chat, at: Date.now() }));
-        await (await caches.open("chat-tap")).put("/__tapped-chat", tap);
-      } catch {}
-    }
+    // iOS can lose the message below to the page it is waking (or still booting, on a cold
+    // start that reopens its last screen), so every tap is recorded first, for the page to
+    // read when it comes back (live.js); before the focus, so it is there then. `at` names
+    // the tap, so the page acts once on it, however both arrive.
     const target = new URL(data.url || "/m", self.location.origin).href;
+    const tap = data.chat ? { chat: data.chat, at: Date.now() } : { open: target, at: Date.now() };
+    try { await (await caches.open("chat-tap")).put("/__tapped-chat", new Response(JSON.stringify(tap))); } catch {}
     const windows = await clients.matchAll({ type: "window", includeUncontrolled: true });
     const apps = windows.filter((client) => {
       try { return new URL(client.url).pathname.startsWith("/m"); } catch { return false; }
@@ -74,7 +74,7 @@ self.addEventListener("notificationclick", (event) => {
       try {
         // iOS will not navigate() an open app to a new hash, so the app routes itself (app.js).
         if (!apps.length) await existing.navigate(target);
-        else if (!data.chat) existing.postMessage({ open: target });
+        else if (!data.chat) existing.postMessage(tap);
         const focused = existing.focus();
         if (data.chat && apps.length && !owner) holdsCard(data.chat)(existing).catch(() => {});
         return focused;

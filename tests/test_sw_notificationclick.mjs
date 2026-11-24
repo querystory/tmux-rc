@@ -5,8 +5,8 @@ import vm from "node:vm";
 
 const source = readFileSync(new URL("../web/sw.js", import.meta.url), "utf8");
 
-// The tap a chat push recorded for the page to pull (live.js), and whether any window had
-// been focused by then.
+// The tap recorded for the page to pull (live.js), and whether any window had been focused
+// by then.
 let recorded;
 
 // Runs sw.js against fake windows and taps a notification for `url` (a chat push also names
@@ -58,7 +58,9 @@ const fakeWindow = (url, { navigate = async () => {}, holds, silent, gone } = {}
 test("an open app is told which pane to open and focused, never navigated", async () => {
   const app = fakeWindow("https://host/m#pane=%251");
   const opened = await tap("/m#pane=%257&from=push", [fakeWindow("https://host/docs/"), app]);
-  assert.deepEqual(app.posted, [{ open: "https://host/m#pane=%257&from=push" }]);
+  const [{ at, ...message }] = app.posted;
+  assert.deepEqual(message, { open: "https://host/m#pane=%257&from=push" });
+  assert.equal(at, recorded.at); // the tap it recorded, so the page opens it once
   assert.deepEqual(app.navigated, []);
   assert.equal(app.focused, 1);
   assert.deepEqual(opened, []);
@@ -90,8 +92,15 @@ test("a chat tap is recorded for the page to pull before any window is focused",
   const { at, ...rest } = recorded;
   assert.deepEqual(rest, { name: "chat-tap", key: "/__tapped-chat", chat: "c1", focused: false });
   assert.ok(at >= start && at <= Date.now());
-  await tap("/m", [fakeWindow("https://host/m")]); // a pane's push records nothing
-  assert.equal(recorded, undefined);
+});
+
+test("a scratch page's tap is recorded for the page to open, even on a cold start", async () => {
+  const url = "/m#view=scratch&open=%2Fscratch%2Fdemo%2F";
+  for (const windows of [[fakeWindow("https://host/m", { silent: true })], []]) {
+    await tap(url, windows);
+    const { at, ...rest } = recorded;
+    assert.deepEqual(rest, { name: "chat-tap", key: "/__tapped-chat", open: `https://host${url}`, focused: false });
+  }
 });
 
 test("with several app windows, only the one holding the card is focused", async () => {
@@ -109,4 +118,16 @@ test("the owner is focused as soon as it answers, past a suspended or closed win
   assert.ok(Date.now() - start < 500); // not held for the suspended window's timeout
   assert.equal(owner.focused, 1);
   assert.equal(asleep.focused + gone.focused, 0);
+});
+
+test("a declarative push handed to the worker (iOS before 18.4) shows with its address", async () => {
+  const listeners = {}, shown = [];
+  const self = { addEventListener: (type, fn) => { listeners[type] = fn; },
+    registration: { showNotification: async (title, options) => { shown.push({ title, ...options.data, body: options.body, tag: options.tag }); } } };
+  vm.runInNewContext(source, { self, clients: {}, caches: {}, Response, URL, MessageChannel: Channel, setTimeout });
+  let done;
+  const notification = { title: "Ready: Notes", body: "Its page is ready.", tag: "scratch:notes", navigate: "https://host/m#view=scratch" };
+  listeners.push({ data: { json: () => ({ web_push: 8030, notification }) }, waitUntil: (promise) => { done = promise; } });
+  await done;
+  assert.deepEqual(shown, [{ title: "Ready: Notes", body: "Its page is ready.", tag: "scratch:notes", url: "https://host/m#view=scratch", nonce: null, chat: null }]);
 });

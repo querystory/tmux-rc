@@ -92,6 +92,23 @@ def _valid_subscription(subscription) -> bool:
     )
 
 
+def _declarative(payload: dict, subscription: dict) -> dict:
+    """The payload as Declarative Web Push for an Apple relay's device whose app origin is known.
+    An iOS home-screen app often never runs the worker's notificationclick for a tap (WebKit bug
+    268797), so a push that leaves its address to sw.js opens the app on its last screen; a
+    declarative one is opened at `navigate` by iOS itself (18.4+; older iOS hands it to sw.js
+    like any push). WebKit takes only an absolute `navigate`, hence the stored origin. Safari
+    shows no actions, so answering from the notification loses nothing there. A chat tap stays
+    the worker's: a navigation would reload away the chat that lives in the open page."""
+    origin = subscription.get("origin")
+    apple = urlparse(subscription["endpoint"]).hostname == "web.push.apple.com"
+    if not origin or not apple or payload.get("chat"):
+        return payload
+    return {"web_push": 8030, "notification": {
+        "title": payload["title"], "body": payload["body"], "tag": payload["tag"],
+        "navigate": origin + payload["url"]}}
+
+
 def default_path() -> Path:
     root = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state")
     return root / "tmux-rc" / "push.json"
@@ -176,6 +193,7 @@ class PushStore:
         with self._lock:
             return [
                 {"endpoint": item["endpoint"], "keys": dict(item["keys"])}
+                | ({"origin": item["origin"]} if item.get("origin") else {})
                 for item in self._load()["subscriptions"]
             ]
 
@@ -300,7 +318,7 @@ class PushSender:
             )}
             webpush(
                 subscription_info=subscription,
-                data=json.dumps(payload, separators=(",", ":")),
+                data=json.dumps(_declarative(payload, subscription), separators=(",", ":")),
                 vapid_private_key=private,
                 vapid_claims=claims,
                 timeout=(3, 7),
@@ -492,6 +510,7 @@ class PushManager:
         self.shoot = shoot  # what queues a landed page's thumbnail (scratch_sidecars.queue)
         self._mtimes: dict[str, tuple] | None = None
         self._waiting: dict[tuple[str, int], str] = {}
+        self._marked: dict[tuple[str, int], float] = {}  # when an update's mark was made
         self._done: set[tuple[str, int]] = set()
         self._ready: dict[tuple, float] = {}  # (pane, birth) -> when its "Ready" went out
         # The last pages that landed, as their push said it, for every open app (/api/state):
@@ -511,14 +530,16 @@ class PushManager:
                 pass
         self.sender.close()
 
-    def subscribe(self, subscription: dict) -> None:
+    def subscribe(self, subscription: dict, origin: str | None = None) -> None:
+        """`origin`: the app's, as the subscribing page sent it, for a declarative push's
+        absolute address (_declarative); the page re-subscribes on every boot (push.js)."""
         if not _valid_subscription(subscription):
             raise ValueError("invalid push subscription")
         endpoint = subscription["endpoint"]
         keys = subscription["keys"]
         self.store.upsert({"endpoint": endpoint, "keys": {
             "p256dh": keys["p256dh"], "auth": keys["auth"],
-        }})
+        }} | ({"origin": origin} if origin and origin.startswith("https://") else {}))
 
     def chat(self, card: str, text: str) -> bool:
         """The chat assistant's card waits on a user who isn't looking (live._nudge). The tap
@@ -571,7 +592,8 @@ class PushManager:
         never seen pending, but was promised all the same (a meta.json tmux-rc generated, or
         one half-written, says no such thing). A page published in one go was never promised
         and does not notify; nor does any folder already there at startup that was not
-        pending. One whose meta.json said `updating` and no longer does sends "Updated"."""
+        pending. One whose meta.json said `updating` and no longer does sends "Updated", if its
+        page was written since that mark: a meta.json changed alone is no update."""
         now = self.clock()
         if not self.scratch:
             return
@@ -581,6 +603,7 @@ class PushManager:
         # Removed: forgotten.
         self._waiting = {k: v for k, v in self._waiting.items() if k[0] in self._mtimes}
         self._done = {k for k in self._done if k[0] in self._mtimes}
+        self._marked = {k: v for k, v in self._marked.items() if k in self._waiting}
         # And an updating one each time: a fresh asset reads as pending for a minute, a change
         # in time alone that no mtime shows.
         waiting = {name for (name, _), verb in self._waiting.items() if verb == "Updated"}
@@ -600,6 +623,10 @@ class PushManager:
                 # a revision that drops its index for a moment is still an update
                 self._waiting[key] = "Updated" if item["revising"] else self._waiting.get(
                     key, "Ready")
+                if item["revising"]:
+                    self._marked.setdefault(key, item["named"])
+            elif verb == "Updated" and item["read"] and item["updated"] <= self._marked.get(key, 0):
+                self._waiting.pop(key)  # its mark came and went, its page untouched: no news
             elif verb and item["read"] and (verb == "Updated" or item["href"].endswith("/")):
                 if message := self._ready_push(item, now, verb):
                     # the app's cursor: a ms clock, strictly increasing however the clock steps
