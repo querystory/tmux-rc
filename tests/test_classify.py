@@ -1139,6 +1139,18 @@ def test_visible_question_is_preserved_without_retry():
     assert result["activity"] == "waiting"
 
 
+def test_question_the_program_wrapped_at_a_hyphen_is_on_screen():
+    # The agent hard-wraps its own prose inside a word ("--dry-" / "run"); the model
+    # rejoins it, and the question must still be found rather than fail the parse.
+    prompt = "Should I rerun the seed import with --dry-run first?"
+    capture = ("history\n\x1e[visible screen]\x1f\n  Should I rerun the seed import with --dry-\n"
+               "  run first?\n\n> \n")
+    result = classify(_pane("agy"), capture, _llm({
+        "tool": "antigravity", "question": {"prompt": prompt, "answer_style": "text"}}))
+    assert result["question"]["prompt"] == prompt
+    assert result.get("parse_ok", True)
+
+
 def test_copyable_table_rows_are_not_duplicated():
     for payload in (
         "PR  State\n12  Open\n13  Merged",

@@ -1,0 +1,15 @@
+{
+  "description": "Invented Antigravity turn ending in a question the agent hard-wrapped inside a hyphenated flag (--dry- / run). The model quotes the flag whole, and the question must still be found on screen and read as waiting.",
+  "current_command": "agy",
+  "capture": "> Can the seed catalog import skip duplicate varieties?\n\u001e[visible screen]\u001f\n> Can the seed catalog import skip duplicate varieties?\n○ Thought for 4.2s (Checking the importer opt...)\n● Explored 1 file (importer.py)\n▸ Thought for 3s, 88 tokens\n  Yes. The importer already keys varieties by\n  their catalog code, so a duplicate is merged\n  rather than added twice.\n\n  Shall I rerun last night's import with --dry-\n  run first, so you can see which rows would\n  merge before anything is written?\n──────────────────────────────────────────────────\n>\n──────────────────────────────────────────────────\n? for shortcuts      auto · Gemini 4 Neon · medium\n",
+  "expected": {
+    "tool": "antigravity",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "parse_ok": true,
+    "question": {
+      "answer_style": "text"
+    },
+    "headline": "Asks whether to rerun the seed catalog import as a dry run first"
+  }
+}
