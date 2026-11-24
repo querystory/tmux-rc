@@ -90,13 +90,16 @@ def test_changed_screen_or_recycled_pid_falls_back(monkeypatch, tmp_path, change
 
 
 @pytest.mark.parametrize("bump", [0, 1])
-def test_a_card_version_bump_drops_prs_an_older_parser_saved(monkeypatch, tmp_path, bump):
+def test_a_card_version_bump_drops_the_card_but_keeps_the_clocks(monkeypatch, tmp_path, bump):
+    """A new parser reads the card again; the screen is the same, so the pane has not
+    moved since: tmux's activity (a resize or footer redraw at 19000) is not its age."""
     db = tmp_path / "h.db"
     daemon(monkeypatch, db, prs=[{"repo": "acme/demo", "number": 212}])  # a guessed repo
     monkeypatch.setattr(W, "CARD_VERSION", W.CARD_VERSION + bump)
     w, calls = daemon(monkeypatch, db, now=20_000.0, activity="19000")
     assert calls == (["parse", "bootstrap"] if bump else [])
     assert w._prs.get("%1", []) == ([] if bump else [{"repo": "acme/demo", "number": 212}])
+    assert card(w)["last_activity_at"] == card(w)["state_since"] == 9000.0
 
 
 def test_database_failure_falls_back(monkeypatch, tmp_path):

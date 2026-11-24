@@ -65,8 +65,8 @@ CHECKPOINT_EVENTS = 100
 # A dead tmux server's checkpoints are the only record of what it ran (after a reboot,
 # say). Keep them all until the server's newest activity is this old.
 DEAD_SERVER_RETENTION = 30 * 86400
-# Bump when classification or the fingerprint changes meaning: stored cards then miss
-# their hash once and every pane is re-read, instead of restoring an older parser's card.
+# Bump when classification changes meaning: every pane's stored card is then read again,
+# instead of restoring an older parser's card. Its clocks stand while its screen does.
 CARD_VERSION = 100
 # LLM parse cadence. We capture every tick (cheap, for the snapshot buffer) but only
 # PARSE when the content fingerprint CHANGED vs. the last parse (or on a forced reparse).
@@ -1210,14 +1210,20 @@ class Watcher:
         return self._parse_valid.get(pane_id, False)
 
     def frame_fp(self, text: str, question: dict | None = None) -> str:
-        """A capture's hash, as _tick_pane keys its parses. The parser version and LLM mode
-        are mixed in so a stored card from a different classifier misses on restart. With
-        a menu `question`, only its own rows, verbatim (classify.question_rows): the
-        normalized screen can't tell "sleep 10s" from "sleep 20s", and an answer token
-        must, yet output still streaming above the menu must not make it look stale."""
+        """A capture's hash, as _tick_pane keys its parses. The screen alone: a checkpoint
+        keeps its clocks across a parser change, and only its card is versioned
+        (_card_version). With a menu `question`, only its own rows, verbatim
+        (classify.question_rows): the normalized screen can't tell "sleep 10s" from
+        "sleep 20s", and an answer token must, yet output still streaming above the menu
+        must not make it look stale."""
         rows = question_rows(question, text) if isinstance(question, dict) else ""
-        return hashlib.sha256(
-            f"{CARD_VERSION}:{self.use_llm}\n{rows or _fingerprint(text)}".encode()).hexdigest()
+        return hashlib.sha256((rows or _fingerprint(text)).encode()).hexdigest()
+
+    @property
+    def _card_version(self) -> str:
+        """What a stored card was read by: a card from another classifier or LLM mode is
+        read again on restart, though its screen and clocks still stand."""
+        return f"{CARD_VERSION}:{self.use_llm}"
 
     def pane_input_generation(self, pane_id: str) -> int:
         """Monotonic token changed immediately after accepted pane input."""
@@ -1354,13 +1360,13 @@ class Watcher:
 
     def _restore(self, pane, fp: str, now: float) -> dict | None:
         """Consume this pane's preloaded checkpoint; return it only if the screen is
-        unchanged. Its card, if any, goes back in as if just parsed and bootstrapped,
-        so an unchanged screen costs no LLM call."""
+        unchanged, so its clocks stand. Its card, if this parser wrote it, goes back in
+        as if just parsed and bootstrapped, so an unchanged screen costs no LLM call."""
         uid = pane_key(self._server, pane.id, self._birth.get(pane.id))
         row = (self._checkpoints or {}).pop(uid, None)
         if not row or row["fp"] != fp:
             return None
-        if card := row["card"]:
+        if (card := row["card"]) and card.get("version") == self._card_version:
             pid, state = pane.id, card["state"]
             state.pop("last_activity_at", None)  # the row's column is the source of truth
             state.pop("input_generation", None)  # the last run's counter, not this one's
@@ -1411,6 +1417,7 @@ class Watcher:
                     # A card from a failed parse describes an older screen: store none, so
                     # a restart re-parses instead of restoring it against this hash.
                     "card": {
+                        "version": self._card_version,
                         "state": dict(s),  # a later read updates s in place
                         "events": self.events_log.get(p.id, [])[-CHECKPOINT_EVENTS:],
                         "boot": boot and {k: boot.get(k) for k in ("summary", "name", "tool")},

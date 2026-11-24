@@ -194,9 +194,16 @@ height is the natural boundary. Rejected in favor of the visible screen.
 **Leaving the fingerprint hash unversioned.** For clocks alone this was enough: a
 deploy that changes normalization mismatches every hash once, which is self-healing.
 Restoring cards changes that. A card from an older parser, or from a daemon running
-without the LLM, would come back on an unchanged screen indefinitely. So the hash
-mixes in a card version, bumped when classification changes meaning, and the LLM
-mode. A bump costs one full re-read, the same as a restart used to.
+without the LLM, would come back on an unchanged screen indefinitely. So the card
+carries a version, bumped when classification changes meaning, and the LLM mode, and
+a card from another version is read again. A bump costs one full re-read.
+
+The version stays out of the hash. Mixed into it, every bump also discarded the clocks
+of every unchanged screen and fell back to `window_activity`, which our own resizes
+and the agents' footer redraws keep fresh: after a deploy, a fleet of panes untouched
+for days all showed the age of the last status-line refresh. The hash answers "has
+the screen moved", the version answers "can this card be reused", and only the first
+decides the clocks.
 
 ## Failure modes
 
