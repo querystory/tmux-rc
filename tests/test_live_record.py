@@ -179,3 +179,21 @@ def test_sessions_starting_together_each_get_a_folder_none_prunes(state, monkeyp
     assert all(r.folder.exists() for r in recs)
     for r in recs:
         done(r)
+
+
+def test_a_tool_call_is_recorded_with_its_target_text_and_result(state, monkeypatch):
+    """Heard and done line up in one file: each call's name, pane, full text and answer."""
+    from tests.test_live_mode import _FC, _Watcher
+    from tests.test_live_mode import _Session as _Answers
+    monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: None)
+    monkeypatch.setattr(L.telemetry, "emit_action", lambda **k: None)
+    meter = L._Meter("abcdef0123456789", None, gpt_live.ENTRY)
+    meter.rec = live_record.start(meter.session, gpt_live.ENTRY)
+    fc = _FC(args={"pane_id": "%1", "text": "run the tests"})
+    asyncio.run(L._handle_tool_call(_WS(), _Answers(), fc, _Watcher(), meter))
+    done(meter.rec)
+    [folder] = state.iterdir()
+    [tool] = [e for e in lines(folder / "events.jsonl") if e["kind"] == "tool"]
+    assert tool["tool"] == "type_in_pane"
+    assert tool["rec"] | {"pane_id": "%1", "keys": "run the tests"} == tool["rec"]
+    assert tool["result"]["status"] == "sent"

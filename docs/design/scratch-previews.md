@@ -35,11 +35,13 @@ its session id is written into the folder's `meta.json`, marked `generated` like
 description: the search runs once per folder, not once per daemon restart, which had made
 the first visit after each restart take seconds. A miss is remembered in memory only and
 retried after ten minutes, because agent-history indexes a session some time after it
-starts. The page stays under the scratch sandbox like every
-other `/scratch/` response: one policy for the whole prefix is easier to trust than an
-exception for one path. That costs it the app's saved theme (no `localStorage` in an
-opaque origin), so it follows the system's, and it inlines the app's colour tokens rather
-than loading the stylesheet with the viewer's cookie.
+starts, but only for a day: a folder still unclaimed by then never will be, and retrying
+it grepped weeks of transcripts for seconds every ten minutes, holding up each load. The
+page stays under the scratch sandbox like every other `/scratch/` response: one policy
+for the whole prefix is easier to trust than an exception for one path. That costs it the
+app's saved theme (no `localStorage` in an opaque origin), so it follows the system's, and
+it inlines the app's colour tokens rather than loading the stylesheet with the viewer's
+cookie.
 
 **Thumbnails and descriptions are sidecar files, made in the background.** A gallery of
 titles alone made people open pages to remember what they were, so each card has a
@@ -123,7 +125,11 @@ folder made after it loaded. Its sandbox forbids fetch, so it can't make a condi
 request. Instead it loads `?seen=<its listing's tag>` as an image every five seconds while
 on screen. The answer is a pixel only when the listing changed, and the page then
 reloads. The tag hashes each folder's name, newest file, whether it is in progress, and
-its thumbnail, so a reload means there is something new to see. Giving the gallery
+its thumbnail, so a reload means there is something new to see. A page in progress
+changes the tag when it stops, read from the panes as its card is. It used to change
+the tag every minute instead, to catch the stop whenever it came. Some page is nearly
+always being made or revised, and three abandoned ones counted forever, so every open
+gallery reloaded about once a minute. Giving the gallery
 fetches was rejected. It would need CORS for the opaque origin, which every agent page
 shares, or the app's own origin for a page that renders agent-written text. A push
 channel was rejected too: the daemon only notices scratch changes on a ten-second scan,
