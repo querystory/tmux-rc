@@ -1470,3 +1470,10 @@ def test_voice_sends_to_a_long_idle_window_are_refused_once(monkeypatch):
     assert refused["reason"].startswith("idle 2h; confirm with the user first")
     assert sent["status"] == "sent" and typed == [("%2", "ls", True, True)]
     assert not any(m["type"] == "propose" for m in ws.sent)
+
+
+def test_a_bare_yes_answers_only_this_conversations_question_in_both_modes():
+    """A spoken "go for it" once went to a pane with nothing pending: the rule text mode had
+    is in the prompt both modes share, once."""
+    for text in (False, True):
+        assert L._system_prompt(_Watcher(), text=text).count("A bare go-ahead") == 1

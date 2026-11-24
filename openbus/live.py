@@ -432,8 +432,7 @@ _TEXT_NOTE = (
     "user to approve first; a declined one did not happen, so don't retry it unless the user "
     "asks. Act first, then say briefly what you sent and where; don't narrate what you're "
     "about to do before calling a tool, and never say what a pane did unless an update "
-    'shows it. A bare "yes" or "ok" answers only a question you asked in this conversation; '
-    "with none, ask what they mean instead of acting. A [Current pane] line names the pane "
+    "shows it. A [Current pane] line names the pane "
     "this conversation is on; only the one at the very end of a turn counts. A PENDING "
     "QUESTION that is a menu takes the one key that picks a row (its digit, or y/n), typed "
     "alone with press_enter false. Pasted images are numbered in the turn text; to give one "
