@@ -108,6 +108,10 @@ def test_a_closed_pane_falls_back_to_the_transcript_once(tmp_path, monkeypatch):
     items, _ = _resolved(tmp_path)
     assert items["gone"]["where"] == "Billing"
     assert calls == [{"gone": 1000, "nobody": 2000}]  # found is stored, a miss waits to retry
+    later = time.time() + scratch._RETRY + 1
+    monkeypatch.setattr(scratch.time, "time", lambda: later)
+    _resolved(tmp_path)
+    assert calls == [{"gone": 1000, "nobody": 2000}]  # nor ever again: a day old, never found
 
 
 def test_a_codex_panes_meta_json_is_checked_against_the_transcript(tmp_path, monkeypatch):
@@ -282,6 +286,45 @@ def test_the_tag_changes_with_what_the_open_gallery_shows(tmp_path):
     seen = tag()
     scratch.act(tmp_path, "archive", ["one"])
     assert tag() != seen
+
+
+def test_a_page_in_progress_changes_the_tag_only_when_it_stops(tmp_path, monkeypatch):
+    """Not with the clock: one being made keeps the open gallery as it is until its agent's
+    pane closes or it gets too old, and one abandoned long ago never reloads it again."""
+    now = time.time()
+    monkeypatch.setattr(scratch, "made_in", lambda *_: True)
+    tag = lambda at, states: (monkeypatch.setattr(scratch.time, "time", lambda: at),  # noqa: E731
+                              scratch.tag(scratch.items(tmp_path), states))[1]
+    _folder(tmp_path, "old", now - scratch.STUCK - 60, {"updating": "more charts", "pane": "%2"})
+    wip = _folder(tmp_path, "wip", now, {"updating": "a new section", "pane": "%1"})
+    os.utime(wip / "meta.json", (now, now))
+    running = [{"pane_id": "%1", "activity": "running"}]
+    assert tag(now, running) == tag(now + 600, running) == tag(now + 600, [{"pane_id": "%1"}])
+    assert tag(now, running) != tag(now, [])  # its pane closed: stopped
+    assert tag(now, running) != tag(now + scratch.STUCK + 1, running)
+    assert tag(now, []) != tag(now, [{"pane_id": "%1"}])  # its pane back: going again
+    before = tag(now, [])
+    (wip / "meta.json").write_text(json.dumps({"updating": "a new section", "pane": "%3"}))
+    assert tag(now, []) != before  # another agent took it over
+
+
+def test_a_page_whose_writer_moved_changes_the_tag_when_that_writer_stops(tmp_path,
+                                                                          monkeypatch):
+    """The card follows its writer to the pane it runs in now (resolve): the tag does too,
+    with no search of its own."""
+    monkeypatch.setattr(agent_history, "writers", lambda _p, due: {n: {"session_id": "t"}
+                                                                  for n in due})
+    monkeypatch.setattr(agent_history, "get_many", lambda _ids: {"t": {
+        "session_id": "t", "harness": "codex", "running": {"thread": "t"}}})
+    _folder(tmp_path, "wip", time.time() - 60, {"updating": "more", "pane": "%6"})
+    writer = [{"pane_id": "%44", "tool": "codex", "activity": "running", "birth": "1"}]
+    page = scratch.page(tmp_path, writer, [], STYLE, pane_of=lambda _e: "%44")  # %6 closed
+    monkeypatch.setattr(agent_history, "writers", lambda *_: pytest.fail("no search"))
+    tag = lambda states: scratch.tag(scratch.items(tmp_path), states)  # noqa: E731
+    assert f"seen={tag(writer)}" in page  # the open gallery's next check: no reload
+    scratch.opened(tmp_path, [("wip", 0)], 1, writer)  # Recent: by meta.json's pane alone
+    assert tag(writer) == tag([{**writer[0], "activity": "idle"}]) != tag([])
+    assert tag(writer) != tag([{**writer[0], "birth": "another"}])  # its id, recycled
 
 
 def test_a_folder_with_only_its_meta_json_is_a_page_being_made(tmp_path, monkeypatch):
