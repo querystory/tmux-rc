@@ -107,6 +107,23 @@ def test_a_card_version_bump_drops_the_card_but_keeps_the_clocks(monkeypatch, tm
     assert (card(w)["last_activity_at"], card(w)["state_since"]) == (9000.0, since)
 
 
+@pytest.mark.parametrize("state", ["idle", "waiting"])
+def test_a_failed_first_read_leaves_the_restored_clock(monkeypatch, tmp_path, state):
+    """The new parser's first read fails (a timeout): it is no reading, so the retry
+    that agrees with the stored card still keeps its clock."""
+    db = tmp_path / "h.db"
+    first, _ = daemon(monkeypatch, db, read={"activity": state})
+    since = card(first)["state_since"]
+    monkeypatch.setattr(W, "CARD_VERSION", W.CARD_VERSION + 1)
+    read = {"activity": "unknown", "parse_ok": False}
+    w, _ = daemon(monkeypatch, db, now=20_000.0, activity="19000", read=read)
+    assert card(w)["state_since"] == since
+    read.clear()
+    read["activity"] = state
+    w._tick()
+    assert (card(w)["activity"], card(w)["state_since"]) == (state, since)
+
+
 def test_database_failure_falls_back(monkeypatch, tmp_path):
     db = tmp_path / "h.db"
     daemon(monkeypatch, db)

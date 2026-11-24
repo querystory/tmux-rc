@@ -1830,7 +1830,9 @@ class Watcher:
         state["idle_seconds"] = idle
         # When this pane entered its current activity/question state — the client ticks
         # `now - state_since` live so idle/waiting durations stay honest between parses.
-        state["state_since"] = self._state_since_for(pane.id, state, now, idle_seed)
+        # A failed read is no reading: it leaves the clock to the next one that succeeds.
+        state["state_since"] = self._state_since_for(pane.id, state, now, idle_seed) \
+            if self._parse_valid[pane.id] else self._state_since.get(pane.id, now)
         state["updated_at"] = now
         state["last_activity_at"] = last_activity
         # parsed_at advances ONLY on a real LLM parse (this path), unlike updated_at
