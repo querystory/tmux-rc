@@ -24,6 +24,7 @@ from . import fit, tmux, transcript
 from .classify import (
     _OMP_CTX_RE,
     _OPENCODE_RUNNING_RE,
+    _host_tool,
     bootstrap,
     classify,
     prompt_gone,
@@ -817,7 +818,6 @@ class Watcher:
         if prepublish:
             # Never seed the parse cache with these placeholders.
             focused = tmux.active_pane_id()
-            blank = {"tool": "unknown", "activity": "unknown", "prs": []}
             shown = {s.get("pane_id"): s for s in self.states}
             for p in panes:
                 # A pane already classified keeps its last state here, so republishing
@@ -829,9 +829,12 @@ class Watcher:
                 # an ask the cache holds unconfirmed (_confirmed) is never published here.
                 prior = None if p.id in fresh else shown.get(p.id)
                 # A placeholder still has an age: tmux's own last activity, until the
-                # pane's first tick (which can be a minute away at startup) replaces it.
+                # pane's first tick (which can be a minute away at startup) replaces it,
+                # and the agent its process proves it runs, so a busy pane that a restart
+                # could not restore keeps its avatar while it reads "Summarizing…".
                 s = {"pane_id": p.id, **(dict(prior) if prior else
-                                         {**blank, "last_activity_at": _activity_ts(p)})}
+                                         {"tool": _host_tool(p) or "unknown", "activity": "unknown",
+                                          "prs": [], "last_activity_at": _activity_ts(p)})}
                 s["tmux_active"] = p.id == focused
                 _stamp_identity(s, p)
                 states.append(s)
