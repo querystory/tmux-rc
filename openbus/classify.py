@@ -24,8 +24,6 @@ from itertools import islice
 from pathlib import Path
 
 from .tmux import (
-    DIM_CLOSE,
-    DIM_OPEN,
     INTERPRETERS,
     OMP_TITLE_RE,
     PLACEHOLDER_CLOSE,
@@ -265,6 +263,24 @@ _STEPPER_RE = re.compile(r"‹ (.*?) ›")
 # session list included), never a question. A real picker replaces the box with a ❯ cursor.
 _EMPTY_INPUT_RE = re.compile(_PROMPT_ROW + r"[ \xa0\t│]*$(?![\s\S]*" + _PROMPT_ROW + ")",
                              re.MULTILINE)
+
+
+def _input_end(visible: str, box: re.Match) -> int:
+    """Where the input box an empty prompt row (_EMPTY_INPUT_RE) opens ends: past the rows a
+    draft begun on a blank first row goes on to, up to the box's edge. A box with a bottom
+    rule (Claude Code's) keeps the draft's blank rows inside it; one without (Codex's)
+    ends at a blank row, under which its footer goes."""
+    rows = visible[box.end() + 1:].split("\n")
+    rule = [bool(r.strip(" \t\xa0│")) and not r.strip(" \t\xa0│╰╯─━") for r in rows]
+    end = stop = box.end()
+    for row, edge in zip(rows, rule, strict=True):
+        stop += len(row) + 1
+        if edge or not (row.strip(" \t\xa0│") or any(rule)):
+            break
+        if row.strip(" \t\xa0│"):
+            end = stop
+    return end
+
 # omp blocks that are never a live question: a completed Ask receipt, plain or boxed, from
 # its "? Ask" header through its chosen radios (a pending Ask is a "╭─ Ask" dialog with no
 # "?"); the queued outgoing-input bands ("Steering · 1", "After yield · 2"); and the "⎋"
@@ -674,7 +690,8 @@ def _ground_visible_fields(
     # Below an idle input box is only chrome: the re-read never sees it, so a list there
     # cannot be read as the question again.
     box = _EMPTY_INPUT_RE.search(visible)
-    evidence = (visible[:box.end()] if box else visible) if bad_action else identity_chrome
+    evidence = (visible[:_input_end(visible, box)] if box else visible) if bad_action \
+        else identity_chrome
     receipt = None
     if bad_question and host_tool == "omp" and (
         (omp := OMP_TITLE_RE.match(pane.title)) and omp["state"] not in (None, "!")
@@ -1219,111 +1236,23 @@ def _fold_sends(result: dict) -> None:
 _AGENT_TOOLS = frozenset(_PROCESS_TOOLS.values())
 
 
-# Each agent's composer, where what the user types goes, found by its geometry on the
-# marker-free screen. Claude Code and Codex: the last ❯/› row, with no draft row under it
-# (a blank row or a rule comes next). Gemini CLI and Antigravity: the ╭…╰ box holding a
-# "> " row. OpenCode: the "┃" rows above its "╹━━━" rule, the last its mode and model
-# ("┃  Build · Claude Opus 5.5 · …").
-_PROMPT_LINE_RE = re.compile(f"^[ \\t│]*[{PROMPT_GLYPHS}]")
-_RULE_LINE_RE = re.compile(r"^[ \t]*(?:[─━]{3,}|╰)")
-_GEMINI_INPUT_RE = re.compile(r"^[ \t]*│[ \t]*>")
-_VIM_NORMAL_RE = re.compile(r"\[NORMAL\]")
-# Codex's footer under its composer: a context readout ("100% context left", "Context 0%
-# used"), or its shortcuts hint alone.
-_CODEX_FOOTER_RE = re.compile(
-    r"(?i)\b\d+% context (?:left|used)\b|\bcontext \d+% (?:left|used)\b|^[ \t]*\? for shortcuts")
-# A dim run, which tmux marks across rows as one: a hint goes on greyed on the next row.
-_DIM_SPAN_RE = re.compile(f"{DIM_OPEN}([\\s\\S]*?)(?:{DIM_CLOSE}|\\Z)")
-
-
-def _empty_composer(text: str, tool: str) -> bool:
-    """Whether the agent's composer is proven empty, a greyed hint aside: a command typed
-    into it then goes out alone, where after a draft it would send both as one prompt.
-    Rows are found on the screen without its markers and read on one whose dim text (a
-    hint, a dim border) is blanked in place, so both keep the same rows and columns. An
-    agent whose composer this cannot find whole is never proven empty."""
-    screen = text.rsplit(VISIBLE_SCREEN, 1)[-1]
-    screen = re.sub(f"{PLACEHOLDER_OPEN}.*?{PLACEHOLDER_CLOSE}", "", screen)
-    shown = strip_dim(screen).split("\n")
-    typed = _DIM_SPAN_RE.sub(lambda m: re.sub(r"[^\n]", " ", m[1]), screen)
-    typed = typed.replace(DIM_CLOSE, "").split("\n")
-    last = lambda rows, pattern: next(  # noqa: E731
-        (i for i in reversed(range(len(rows))) if pattern.match(rows[i])), None)
-    if tool in ("claude", "codex"):
-        row = last(shown, _PROMPT_LINE_RE)
-        if row is None or typed[row].strip(" \t\xa0│").lstrip(PROMPT_GLYPHS).strip(" \t\xa0│"):
-            return False
-        # Every row a draft could reach, blank-led ones included: Claude's down to its box's
-        # bottom rule (none found, not proven), Codex's to the screen's end bar its footer.
-        rows = range(row + 1, len(shown))
-        if tool == "claude":
-            end = next((i for i in rows if _RULE_LINE_RE.match(shown[i])), None)
-            return end is not None and not any(
-                typed[i].strip(" \t\xa0│") for i in range(row + 1, end))
-        # Codex's footer is one row, after a blank one: a draft's words that read like it
-        # ("how context used is calculated") have no percentage, and a second row is text.
-        text = [i for i in rows if typed[i].strip(" \t\xa0│")]
-        return not text or (len(text) == 1 and text[0] > row + 1
-                            and bool(_CODEX_FOOTER_RE.search(shown[text[0]])))
-    if tool in ("gemini", "antigravity"):
-        row = last(shown, _GEMINI_INPUT_RE)
-        # In vim mode's NORMAL a typed "/resume" is keystrokes for the editor, not text.
-        if row is None or any(_VIM_NORMAL_RE.search(r) for r in shown[row:]):
-            return False
-        top = next((i for i in range(row - 1, -1, -1) if shown[i].lstrip().startswith("╭")), None)
-        bottom = next((i for i in range(row + 1, len(shown)) if shown[i].lstrip().startswith("╰")),
-                      None)
-        if top is None or bottom is None:
-            return False
-        rows = [typed[i].strip(" \t│") for i in range(top + 1, bottom)]
-        rows[row - top - 1] = rows[row - top - 1].removeprefix(">")
-        return not any(r.strip(" \t│") for r in rows)
-    if tool == "opencode":
-        end = last(shown, re.compile(r"^[ \t]*╹━"))
-        start = end
-        while start and shown[start - 1].lstrip().startswith("┃"):
-            start -= 1
-        if end is None or end - start < 1:
-            return False
-        return not any(typed[i].strip(" \t┃") for i in range(start, end - 1))  # last: footer
-    return False
-
-
-# Startup banners the model misses as a welcome screen (Codex's bare header, Gemini CLI's
-# version line, drawn again after sign-in), and what any turn leaves under them: a reply
-# (Codex's "• ", Gemini's "✦ ") or the user's echoed prompt (Gemini's "> …"; Codex's is a ›
-# row, which _USER_ROW_RE catches). A banner with neither is a session not begun.
-_BANNER_RE = {"codex": re.compile(r"^[ \t]*>_ OpenAI Codex \(v", re.MULTILINE),
-              "gemini": re.compile(r"^[ \t]*Gemini CLI v\d", re.MULTILINE)}
-_TURN_LEFT_RE = {"codex": re.compile(r"^• ", re.MULTILINE),
-                 "gemini": re.compile(r"^[ \t]*(?:✦|> \S)", re.MULTILINE)}
-
-
-def _ground_fresh(result: dict, text: str, visible: str) -> None:
-    """Keep the model's "fresh" (an agent at its welcome screen, no conversation yet), or
-    read it off a startup banner (_BANNER_RE), only where nothing on screen contradicts
-    it: an idle agent with nothing asked, no turn left on screen (_TURN_LEFT_RE, Claude's
-    stamp), and no prompt row with text (Claude Code's and Codex's, sent or drafted). Its
-    recent sessions must each be on screen, as everything else the card shows is.
-    "resumable" is the card's Resume and its sessions: only over an empty composer
-    (_empty_composer), since Resume types the agent's command into it."""
+def _ground_fresh(result: dict, visible: str) -> None:
+    """Keep the model's "fresh" (an agent at its welcome screen with an empty input box, no
+    conversation yet) where its own other fields agree: a known agent, idle, nothing asked.
+    "resumable" is the card's Resume and its sessions, offered wherever the session is fresh;
+    each recent session must be on screen, as everything else the card shows is. Claude
+    Code's and Codex's input box must be empty on screen too, down to its end: Resume types
+    its command into it, which after a draft would go out with it as one prompt."""
     fresh, recent = result.pop("fresh", None), result.pop("recent_sessions", None)
-    result.pop("resumable", None)  # only the composer check below may say so
+    result.pop("resumable", None)
     tool = result.get("tool")
-    # A turn under the banner rules out the model's "fresh" as much as the banner's.
-    turned = tool in _TURN_LEFT_RE and _TURN_LEFT_RE[tool].search(visible)
-    fresh = not turned and (fresh is True or bool(
-        tool in _BANNER_RE and _BANNER_RE[tool].search(visible)))
-    if not (fresh is True and tool in _AGENT_TOOLS
+    box = _EMPTY_INPUT_RE.search(visible)
+    empty = tool not in ("claude", "codex") or bool(box and _input_end(visible, box) == box.end())
+    if not (fresh is True and empty and tool in _AGENT_TOOLS
             and result.get("activity") == "idle"
-            and not any(result.get(k) for k in ("question", "rewind", "offers"))
-            and not _CLAUDE_TURN_RE.search(visible)
-            and not _USER_ROW_RE.search(visible)):
+            and not any(result.get(k) for k in ("question", "rewind", "offers"))):
         return
-    result["fresh"] = True
-    if not _empty_composer(text, tool):
-        return
-    result["resumable"] = True
+    result["fresh"] = result["resumable"] = True
     shown = " ".join(visible.split()).casefold()
     titles = [" ".join(t.split()) for t in recent if isinstance(t, str)] if isinstance(
         recent, list) else []
@@ -1776,7 +1705,7 @@ def classify(
         result["working_prs"] = working_prs
     else:
         result.pop("working_prs", None)
-    _ground_fresh(result, text, visible)
+    _ground_fresh(result, visible)
     result["pane_id"] = pane.id
     # Prefer the agent's own session name (read from the pane by the LLM, e.g.
     # "tmux-rc-dev") over the tmux-derived label — it's what the user recognizes.
