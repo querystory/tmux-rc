@@ -53,4 +53,5 @@ xcrun simctl push booted "$id" - <<'JSON'
  "actions": [{"action": "answer:0", "title": "Yes"}, {"action": "answer:1", "title": "No"}]}
 JSON
 shot 2 4-push
+shot 3 5-push-later # the banner comes when it comes: one of the two has it
 xcrun simctl spawn booted log show --last 2m --predicate 'process == "Notify"' > "$out/extension.log"
