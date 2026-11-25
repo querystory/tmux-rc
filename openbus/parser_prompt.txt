@@ -382,7 +382,8 @@ survey at most as a minor event.
 DIGITS WIN. Many widgets show a ❯ cursor AND numbered rows (Claude Code's permission
 box: "❯ 1. Yes / 2. Yes, and don't ask again / 3. No"). That is "menu", NOT "cursor" —
 a ❯ alone does not make a cursor list. Choose "cursor" ONLY when there is no digit to
-press. When unsure, prefer "text" (typing the answer is safe; sending a stray digit is
+press, or when a digit only moves the highlight and Enter commits (Codex's folder-trust
+dialog: "› 1. Trust and continue" over "enter continue · esc back"). When unsure, prefer "text" (typing the answer is safe; sending a stray digit is
 not).
 
 For "cursor" ONLY, two extra fields make the list drivable:
