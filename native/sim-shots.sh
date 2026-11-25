@@ -45,7 +45,7 @@ shot 10 2-daemon
 # extensions (Xcode 11.4 release notes), so this shows the banner and not the buttons.
 brew install wix/brew/applesimutils
 applesimutils --booted --bundle "$id" --setPermissions notifications=YES
-xcrun simctl terminate booted "$id"
+sleep 15 # it restarts the home screen, which takes the app down with it
 xcrun simctl push booted "$id" - <<'JSON'
 {"aps": {"alert": {"title": "deploy-notes", "body": "Run the migration now?"}, "sound": "default", "category": "answer", "mutable-content": 1},
  "url": "/m#pane=%251&from=push", "tag": "block:%1", "nonce": "0123456789abcdef0123",

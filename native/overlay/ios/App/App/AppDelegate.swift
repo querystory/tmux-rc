@@ -75,7 +75,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: ["nonce": nonce, "option_index": index])
-        // The login in front of the daemon is a cookie the webview holds.
+        // The login in front of the daemon is a cookie the webview holds. No Origin is sent:
+        // the daemon admits a write without one, and could never list an app's origin.
         WKWebsiteDataStore.default().httpCookieStore.getAllCookies { cookies in
             let configuration = URLSessionConfiguration.ephemeral
             cookies.forEach { configuration.httpCookieStorage?.setCookie($0) }

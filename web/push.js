@@ -71,6 +71,9 @@ export async function setupPush(button, announce = () => {}, bell = "", native =
       body: JSON.stringify(held.toJSON()),
     }).catch(() => null);
     saved = response?.ok ? held.endpoint : null;
+    // A daemon that refuses the app's token holds no APNs key: the device goes back to Off
+    // instead of asking again on every boot.
+    if (native && response?.status === 400) await held.unsubscribe();
     return !!saved;
   };
   const refresh = async () => {
