@@ -1115,29 +1115,55 @@ def test_stale_question_is_reread_from_visible_screen_only():
     assert result["activity"] == "idle"
 
 
-def test_an_ask_the_agent_wrote_past_is_history():
-    """Claude asked, then replied to a background task's notice: its transcript's last
-    message no longer holds the ask, so it is rejected though the viewport shows it, and
-    the re-read sees only the newest message, above the unsent draft."""
+def _kiln_screen(*messages, draft="go green"):
+    rows = "".join(f"● {m}\n\n" for m in messages)
+    return (f"\x1e[visible screen]\x1f\n{rows}" + "─" * 20 + f"\n❯ {draft}\n  ● and glaze it\n"
+            + "─" * 20 + "\n  ~/pots | Opus 5 | 4% ctx\n")
+
+
+def _rereads(capture, asked, reply):
+    """The payloads classify() sends for a screen the model first reads as asking `asked`."""
     calls = []
     def read(_prompt, text):
         calls.append(text)
         if len(calls) == 1:
             return {"tool": "claude", "activity": "waiting", "waiting_on": "user",
-                    "question": {"prompt": "Paint it blue? Say if you'd rather have green."}}
+                    "question": {"prompt": asked}}
         return {"tool": "claude", "activity": "idle", "headline": "The kiln is still firing"}
-    capture = ("\x1e[visible screen]\x1f\n● Paint it blue? Say if you'd rather have green.\n\n"
-               '● Agent "Fire the kiln" is waiting on its own background work · 3m\n\n'
-               "● Nothing new: the kiln is still firing.\n\n" + "─" * 20 + "\n❯ go green\n"
-               "  ● and glaze it\n" + "─" * 20 + "\n  ~/pots | Opus 5 | 4% ctx\n")
+    return calls, classify(_pane("claude"), capture, read, reply=reply)
+
+
+def test_an_ask_the_agent_wrote_past_is_history():
+    """Claude asked, then replied to a background task's notice: its transcript's last
+    message no longer holds the ask, so it is rejected though the viewport shows it, and
+    the re-read reads from that last message, above the unsent draft."""
+    ask, notice = "Paint it blue? Say if you'd rather have green.", (
+        'Agent "Fire the kiln" is waiting on its own background work · 3m')
     newest = "Nothing new: the kiln is still firing."
-    result = classify(_pane("claude"), capture, read, reply=newest)
-    assert len(calls) == 2 and "Paint it blue" not in calls[1] and "go green" not in calls[1]
+    calls, result = _rereads(_kiln_screen(ask, notice, newest), ask, newest)
+    assert len(calls) == 2
+    assert "Paint it blue" not in calls[1] and "go green" not in calls[1] and newest in calls[1]
     assert "question" not in result and result["activity"] == "idle"
-    # A notice under the message that asks is no message: the ask stands.
-    calls.clear()
-    asked = "**Paint it blue?** Say if you'd rather have green."
-    result = classify(_pane("claude"), capture, read, reply=asked)
+    # Nor does an unsent draft quoting the old ask keep it.
+    calls, _ = _rereads(_kiln_screen(ask, notice, newest, draft=ask), ask, newest)
+    assert len(calls) == 2
+    # A newer ask above a notice is what the re-read reads from.
+    green = "Should I switch to green?"
+    calls, _ = _rereads(_kiln_screen(ask, green, notice), ask, green)
+    assert len(calls) == 2 and green in calls[1] and "Paint it blue" not in calls[1]
+
+
+@pytest.mark.parametrize("shown, said", [
+    ("Paint it blue? Say if you'd rather have green.",  # notices under the asking message
+     "**Paint it blue?** Say if you'd rather have green."),
+    ("Merge [#42](https://example.com/42) now?", "Merge [#42](https://example.com/42) now?"),
+    ("Fire the stonewareglazeb\n  atch now?", "Fire the stonewareglazebatch now?"),  # wrapped
+    ("Paint it blue?", "Nothing new: the kiln is still firing."),  # last message not on screen
+])
+def test_an_ask_the_last_message_holds_stands(shown, said):
+    notice = 'Agent "Fire the kiln" finished · 3m'
+    calls, result = _rereads(_kiln_screen(shown, notice, 'Task "Sweep" completed'),
+                             " ".join(shown.split()), said)
     assert len(calls) == 1 and result["activity"] == "waiting"
 
 
