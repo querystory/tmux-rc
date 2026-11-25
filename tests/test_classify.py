@@ -1588,11 +1588,12 @@ def test_a_sent_offer_is_spent():
     result = classify(_pane("claude"), wrapped,
                       _llm({**read, "offers": ["! make deploy TARGET=staging"]}))
     assert (result["activity"], result.get("offers")) == ("idle", None)
-    # Its spaces are its own: an echo of `touch 'ab'` is not `touch 'a b'` sent.
-    quoted = sent.replace("\n! make deploy\n", "\n! touch 'ab'\n").replace(
-        "  ! make deploy", "  ! touch 'a b'")
-    result = classify(_pane("claude"), quoted, _llm({**read, "offers": ["! touch 'a b'"]}))
-    assert (result["activity"], result.get("offers")) == ("waiting", ["! touch 'a b'"])
+    # Its spaces are its own: an echo of `touch 'ab'` or `touch 'a  b'` is not `touch 'a b'`.
+    for echo in ("! touch 'ab'", "! touch 'a  b'"):
+        quoted = sent.replace("\n! make deploy\n", f"\n{echo}\n").replace(
+            "  ! make deploy", "  ! touch 'a b'")
+        result = classify(_pane("claude"), quoted, _llm({**read, "offers": ["! touch 'a b'"]}))
+        assert (result["activity"], result.get("offers")) == ("waiting", ["! touch 'a b'"])
     # A longer command, or output that names it, is not the command sent.
     for other in ("! make deployment", "  ⎿  next: ! make deploy",
                   "! make deploy\n--force\n  ⎿  Uploading 3 files…"):
