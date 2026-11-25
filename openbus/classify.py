@@ -267,12 +267,18 @@ _EMPTY_INPUT_RE = re.compile(_PROMPT_ROW + r"[ \xa0\t│]*$(?![\s\S]*" + _PROMPT
 
 def _input_end(visible: str, box: re.Match) -> int:
     """Where the input box an empty prompt row (_EMPTY_INPUT_RE) opens ends: past the rows a
-    draft begun on a blank first row goes on to, up to a blank row or the box's edge."""
-    end = box.end()
-    for row in visible[end + 1:].split("\n"):
-        if not row.strip(" \t\xa0│╰╯─━"):
+    draft begun on a blank first row goes on to, up to the box's edge. A box with a bottom
+    rule (Claude Code's) keeps the draft's blank rows inside it; one without (Codex's)
+    ends at a blank row, under which its footer goes."""
+    rows = visible[box.end() + 1:].split("\n")
+    rule = [bool(r.strip(" \t\xa0│")) and not r.strip(" \t\xa0│╰╯─━") for r in rows]
+    end = stop = box.end()
+    for row, edge in zip(rows, rule, strict=True):
+        stop += len(row) + 1
+        if edge or not (row.strip(" \t\xa0│") or any(rule)):
             break
-        end += len(row) + 1
+        if row.strip(" \t\xa0│"):
+            end = stop
     return end
 
 # omp blocks that are never a live question: a completed Ask receipt, plain or boxed, from

@@ -2183,18 +2183,19 @@ def test_a_draft_under_a_blank_first_row_is_not_fresh():
     # Shift+Enter first, then words: the prompt row is blank and the draft goes on below it.
     # The re-read sees the whole input box, and the session is not fresh: Resume would land
     # its command after the draft.
-    screen = _NEW_SESSION.replace("❯ \n", "❯ \n  plant the tomatoes first\n")
+    # Blank rows inside the draft are still the box's, down to its bottom rule.
     bad = {"tool": "claude", "activity": "waiting", "fresh": True,
            "question": {"prompt": "Which bed first?", "answer_style": "text"}}
-    seen = []
     fresh = {"tool": "claude", "activity": "idle", "fresh": True}
-    reads = [bad, fresh]
-    def read(_system, user, **_k):
-        seen.append(user)
-        return reads.pop(0)
-    r = classify(_pane("claude"), f"{VISIBLE_SCREEN}\n{screen}", read)
-    assert "plant the tomatoes first" in seen[-1]
-    assert not {"fresh", "resumable"} & r.keys()
+    for gap in ("\n", "\n\n"):
+        screen = _NEW_SESSION.replace("❯ \n", f"❯ {gap}  plant the tomatoes first\n")
+        seen, reads = [], [bad, fresh]
+        def read(_system, user, **_k):
+            seen.append(user)  # noqa: B023
+            return reads.pop(0)  # noqa: B023
+        r = classify(_pane("claude"), f"{VISIBLE_SCREEN}\n{screen}", read)
+        assert "plant the tomatoes first" in seen[-1]
+        assert not {"fresh", "resumable"} & r.keys()
     typed = _NEW_SESSION.replace("❯ ", "❯ plant the tomatoes first")
     r = classify(_pane("claude"), typed, _llm(fresh))
     assert not {"fresh", "resumable"} & r.keys()
