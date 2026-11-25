@@ -596,17 +596,22 @@ def _ask_view(text: str) -> str:
     return message + visible.removeprefix("\n")
 
 
-def _final_message(text: str) -> str:
-    """Claude's final message, from the ask view's last message bullet: the agent has
-    written since every message above it (a one-line reply to a background task's notice
-    is a message too), so their asks are history however much of them the screen shows."""
+def _latest_messages(text: str) -> str:
+    """Claude's newest message and the ● row above it, from the ask view: the only rows a
+    finished turn's ask can stand in. The agent has written since every message above
+    them, so their asks are history however much of them the screen shows. The row above
+    counts because the newest ● row may be a background task's notice printed under the
+    message that asks, while a one-line reply the agent writes to it retires that ask.
+    Bullets are found above the input box, so an unsent draft's or the agent list's
+    never count."""
     view = _ask_view(text)
-    *_, last = [None, *_BULLET_RE.finditer(_AGENT_LIST_RE.sub("", view))]
-    return view[last.start():] if last else view
+    rows = _below_turn(_AGENT_LIST_RE.sub("", view), 0)
+    *_, start, _ = [None, None, *_BULLET_RE.finditer(rows)]
+    return view[start.start():] if start else view
 
 
 def _supported_question(question, text: str, tool, pane: Pane) -> bool:
-    visible = _final_message(text) if tool == "claude" else _visible(text)
+    visible = _latest_messages(text) if tool == "claude" else _visible(text)
     prompt = _question_prompt(question)
     if prompt is None:
         return False
@@ -687,9 +692,10 @@ def _ground_visible_fields(
     box = _EMPTY_INPUT_RE.search(visible)
     evidence = (visible[:box.end()] if box else visible) if bad_action else identity_chrome
     if bad_question and result.get("tool") == "claude":
-        # Claude's ask can only be its final message's, so that is all the re-read sees,
-        # above the input box and any unsent draft: an older ask is not there to quote.
-        evidence = _below_turn(_final_message(text), 0)
+        # Claude's ask can only stand in its newest message (_latest_messages), so that is
+        # all the re-read sees, above the input box and any unsent draft: an older ask is
+        # not there to quote.
+        evidence = _below_turn(_latest_messages(text), 0)
     receipt = None
     if bad_question and host_tool == "omp" and (
         (omp := OMP_TITLE_RE.match(pane.title)) and omp["state"] not in (None, "!")

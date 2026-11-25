@@ -1135,6 +1135,15 @@ def test_an_older_claude_message_ask_is_history():
     assert "question" not in result and result["activity"] == "idle"
 
 
+def test_a_bullet_in_the_draft_does_not_end_the_final_message():
+    asked = {"tool": "claude", "activity": "waiting", "waiting_on": "user",
+             "question": {"prompt": "Paint it blue?"}}
+    capture = ("\x1e[visible screen]\x1f\n● Done with the shelves.\n\n● Paint it blue?\n\n"
+               + "─" * 20 + "\n❯ no, green\n  ● and glaze it\n" + "─" * 20 + "\n  ~/pots\n")
+    result = classify(_pane("claude"), capture, lambda *_: dict(asked))
+    assert result["question"]["prompt"] == "Paint it blue?"
+
+
 @pytest.mark.parametrize("row", [
     '│+246│····prompt = "Which color?"', " ├─   *65│Which color?", "  12│Which color?",
 ])
