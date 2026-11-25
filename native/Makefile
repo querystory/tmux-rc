@@ -1,22 +1,17 @@
-# The native shell (docs/design/native-app.md). The Xcode and Gradle projects are generated,
-# never committed: `cap add` writes them from the Capacitor templates package-lock.json pins,
+# The native shell (docs/design/native-app.md). The Xcode project is generated, never
+# committed: `cap add` writes them from the Capacitor templates package-lock.json pins,
 # and overlay/ holds the few files that are ours. TMUXRC_APP_ID sets the bundle id.
-.PHONY: ios android sim apk archive
+.PHONY: ios sim archive
 
 node_modules: package-lock.json
 	npm ci --ignore-scripts
 	touch $@
 
-ADD = rm -rf $@ && npx cap add $@
-
-android: node_modules
-	$(ADD)
-
 # extension.js adds the notification extension and the push entitlement to the project, the
 # scene shows AppDelegate.swift's own view controller in place of Capacitor's, and the
 # Info.plist key answers App Store Connect's export question (HTTPS only) for every build.
 ios: node_modules
-	$(ADD)
+	rm -rf ios && npx cap add ios
 	cp -R overlay/ios/. ios/
 	node extension.js
 	perl -pi -e 's/CAPBridgeViewController\(\)/ShellViewController()/' ios/App/App/SceneDelegate.swift
@@ -29,9 +24,6 @@ XCODEBUILD = xcodebuild -project ios/App/App.xcodeproj -scheme App
 # Unsigned, for the simulator: proves the project and our Swift compile.
 sim: ios
 	$(XCODEBUILD) -configuration Debug -sdk iphonesimulator -derivedDataPath build/ios CODE_SIGNING_ALLOWED=NO build
-
-apk: android
-	cd android && ./gradlew --no-daemon assembleDebug
 
 # Signed by Xcode's automatic signing with an App Store Connect API key, then uploaded
 # (export.plist's destination). BUILD is the build number, which each upload must raise.

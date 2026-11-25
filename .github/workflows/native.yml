@@ -1,7 +1,7 @@
 name: Native shell
 
 # The phone app in native/ (docs/design/native-app.md). A PR that touches it must still
-# produce both apps; a manual run also signs the iOS one and uploads it to TestFlight.
+# build and run in a simulator; a manual run also signs the iOS one and uploads it to TestFlight.
 on:
   pull_request:
     paths: ["native/**", ".github/workflows/native.yml"]
@@ -31,24 +31,6 @@ jobs:
           path: |
             native/build/ios/Build/Products/Debug-iphonesimulator/App.app
             native/build/shots
-          if-no-files-found: error
-
-  android-apk:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: "24"
-      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
-        with:
-          distribution: temurin
-          java-version: "21"
-      - run: make apk
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: android-debug-apk
-          path: native/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
   # Does nothing useful until the five secrets exist: `make archive` names the first one missing.

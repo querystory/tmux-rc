@@ -33,9 +33,9 @@ running.
 ### Why not the alternatives
 
 - **A hand-written WKWebView wrapper.** It is the same app with the bridge written by us:
-  a script message handler, a plugin registry, the project template, and then all of it
-  again for Android. Capacitor is that code, maintained, and its push plugin already speaks
-  both platforms. What we would save is one dependency; what we would own is its whole job.
+  a script message handler, a plugin registry, the project template, the push plumbing.
+  Capacitor is that code, maintained. What we would save is one dependency; what we would
+  own is its whole job.
 - **React Native, Flutter or SwiftUI.** A rewrite of a UI that works, to be kept in step
   with the web one for ever. Every feature would be built twice and released on Apple's
   schedule. The web app is not the problem; three gaps in iOS's PWA support are.
@@ -73,13 +73,14 @@ about (below).
 
 ### Android
 
-Android builds from the same project and gets the shell: the address page, the PWA in a
-webview, the way back to the address page. It does not get native push here. Capacitor's
-Android runtime injects its bridge only into the bundled origin, so the daemon's page
-cannot see the push plugin, and the daemon has no FCM transport to send through. Android is
-also where the PWA already works: Chrome draws action buttons and
-delivers taps. So the Android app is a convenience until someone needs more, and the
-"nearly free" part is the shell, not the notifications.
+There is no Android app. The same project would build one, and an early cut did, but it
+would be worse than the PWA it replaces. Capacitor's Android runtime injects its bridge only
+into the bundled origin, so the daemon's page could not reach a push plugin, and the daemon
+has no FCM transport to send through. Meanwhile its native interfaces are exposed to every
+page with no origin to check, so the gate above has no Android equivalent without native
+code of its own. Android is also where the PWA already works: Chrome draws action buttons
+and delivers taps. An Android shell waits until it has something to add, and it starts with
+that gate.
 
 ## What native does
 
@@ -165,8 +166,7 @@ the wrong one: it breaks Google's terms and works until it does not. The fix tha
 to sign in where Google allows it, in the system's authentication session, and bring the
 session back:
 
-1. The shell opens a daemon address in an `ASWebAuthenticationSession` (Custom Tabs on
-   Android). The front end runs its login there, in Safari's engine.
+1. The shell opens a daemon address in an `ASWebAuthenticationSession`. The front end runs its login there, in Safari's engine.
 2. The request that finally reaches the daemon carries the front end's session cookie. A
    small daemon endpoint answers it with a redirect to the app's own URL scheme, carrying
    the cookies it was sent.
@@ -227,12 +227,11 @@ taken up together with the relay, since neither matters without the other.
 
 ## Why the native projects are generated
 
-Capacitor's advice is to commit `ios/` and `android/`. Here they are generated at build
-time from the templates the lockfile pins, and the repository holds only what is ours: the
+Capacitor's advice is to commit the native project. Here it is generated at build time
+from the template the lockfile pins, and the repository holds only what is ours: the
 config, the address page, the iOS app delegate, notification extension and entitlement,
 and the build recipe. The
-generated projects are dozens of files nobody reads, a Gradle wrapper binary, and a diff
-on every Capacitor upgrade; committing it would also invite edits in files a
+generated project is files nobody reads and a diff on every Capacitor upgrade; committing it would also invite edits in files a
 regeneration would overwrite. The price is that a customization must be a whole file or a
 scripted change to the project. The notification extension is the costly case: a second
 target is added to the generated project by a script, using the project editor Capacitor's

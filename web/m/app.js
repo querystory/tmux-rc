@@ -3163,14 +3163,12 @@ if (link || tabbed !== null) history.replaceState(null, "", location.pathname + 
 fitViewport(); route(); startState();
 if (link?.length > 500) notice("That link is too long for a draft (over 500 characters). Copy and paste it instead.");
 else if (link) { notice(`Pick a pane for ${link.length > 80 ? `${link.slice(0, 80)}…` : link}`, 0, ["Cancel", renderList]); shared = link; }
-// The native shell (docs/design/native-app.md): on iOS its bridge follows the page here and
-// brings the push plugin; Android's leaves only its message port. Either can go back to the
-// shell's own page, where the daemon's address is set.
+// The native shell (docs/design/native-app.md): its bridge follows the page here and brings
+// the push plugin, and the shell's own page is where the daemon's address is set.
 const shellPlugin = window.Capacitor?.Plugins?.PushNotifications;
 const shellPush = shellPlugin && nativePush(shellPlugin, localStorage, (url, chat) => chat ? live.bringBack(chat) : openLink(url));
 setupPush($("push"), notice, licon("bell"), shellPush);
-const shellHome = window.Capacitor ? "capacitor://localhost" : window.androidBridge ? "https://localhost" : null;
-if (shellHome) { $("shell-home").hidden = false; $("shell-home").onclick = async () => { if (shellPush) await leavePush(shellPush); location.assign(shellHome); }; }
+if (window.Capacitor) { $("shell-home").hidden = false; $("shell-home").onclick = async () => { if (shellPush) await leavePush(shellPush); location.assign("capacitor://localhost"); }; }
 // A chat Open button offered within the launch grace may name a window too new for
 // /api/state; a stale one whose pane has since closed takes the normal gone-pane path.
 const openOffered = (id, at) => !panes.some((p) => p.pane_id === id) && awaitingLaunch({ id, at }, id)
