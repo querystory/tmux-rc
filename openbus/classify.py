@@ -571,7 +571,7 @@ def _omp_asking_view(text: str) -> str:
     return joined.rsplit("\0", 1)[-1]
 
 
-_BULLET_RE = re.compile(r"(?m)^[ \t]*● ")  # a Claude message's first row
+_BULLET_RE = re.compile(r"(?m)^[ \t]*● ")  # a Claude message's, notice's or tool call's first row
 
 
 def _ask_view(text: str) -> str:
@@ -596,22 +596,32 @@ def _ask_view(text: str) -> str:
     return message + visible.removeprefix("\n")
 
 
-def _latest_messages(text: str) -> str:
-    """Claude's newest message and the ● row above it, from the ask view: the only rows a
-    finished turn's ask can stand in. The agent has written since every message above
-    them, so their asks are history however much of them the screen shows. The row above
-    counts because the newest ● row may be a background task's notice printed under the
-    message that asks, while a one-line reply the agent writes to it retires that ask.
-    Bullets are found above the input box, so an unsent draft's or the agent list's
-    never count."""
+def _words(text: str) -> str:
+    """Text as its words alone, so Markdown and the terminal's wraps compare alike."""
+    return " " + " ".join("".join(c if c.isalnum() else " " for c in text.lower()).split()) + " "
+
+
+def _newest_rows(text: str) -> str:
+    """Claude's ask view from its newest ● row above the input box (a draft's or the
+    agent list's bullets are not the screen's): the newest message, notice or tool call."""
     view = _ask_view(text)
-    rows = _below_turn(_AGENT_LIST_RE.sub("", view), 0)
-    *_, start, _ = [None, None, *_BULLET_RE.finditer(rows)]
-    return view[start.start():] if start else view
+    *_, last = [None, *_BULLET_RE.finditer(_below_turn(_AGENT_LIST_RE.sub("", view), 0))]
+    return view[last.start():] if last else view
+
+
+def _superseded_ask(question, text: str, reply: str | None) -> bool:
+    """Whether a Claude question is one the agent has written past: its words are only
+    above the newest ● row, and the agent's last message in its transcript (`reply`) does
+    not hold them. A background task's notice or idle housekeeping printed under the ask
+    is no message, so the reply is still the one that asks; a reply the agent wrote to such
+    a notice is newer, so an ask above it is history."""
+    prompt = _question_prompt(question)
+    return bool(prompt and reply and _words(prompt) not in _words(reply)
+                and not _last_occurrence(prompt, _newest_rows(text)))
 
 
 def _supported_question(question, text: str, tool, pane: Pane) -> bool:
-    visible = _latest_messages(text) if tool == "claude" else _visible(text)
+    visible = _ask_view(text) if tool == "claude" else _visible(text)
     prompt = _question_prompt(question)
     if prompt is None:
         return False
@@ -662,6 +672,7 @@ def _unblocked_ask(result: dict) -> None:
 
 def _ground_visible_fields(
     result: dict, text: str, pane: Pane, llm_fn, prompt: str, host_tool: str | None,
+    reply: str | None = None,
 ) -> None:
     """Validate actionable fields against their UI evidence, retrying once on that slice."""
     if result.get("tool") == "shell":
@@ -672,6 +683,11 @@ def _ground_visible_fields(
         bool(result.get("question")) and (VISIBLE_SCREEN in text or host_tool == "omp")
         and not _supported_question(result["question"], text, result.get("tool"), pane)
     )
+    superseded = (
+        bool(result.get("question")) and VISIBLE_SCREEN in text
+        and result.get("tool") == "claude" and _superseded_ask(result["question"], text, reply)
+    )
+    bad_question = bad_question or superseded
     bad_rewind = (
         bool(result.get("rewind")) and VISIBLE_SCREEN in text
         and not _supported_rewind(result["rewind"], visible)
@@ -691,11 +707,10 @@ def _ground_visible_fields(
     # cannot be read as the question again.
     box = _EMPTY_INPUT_RE.search(visible)
     evidence = (visible[:box.end()] if box else visible) if bad_action else identity_chrome
-    if bad_question and result.get("tool") == "claude":
-        # Claude's ask can only stand in its newest message (_latest_messages), so that is
-        # all the re-read sees, above the input box and any unsent draft: an older ask is
-        # not there to quote.
-        evidence = _below_turn(_latest_messages(text), 0)
+    if superseded:
+        # The re-read reads from the newest ● row, above the input box and any unsent
+        # draft: the superseded ask is not there to quote again.
+        evidence = _below_turn(_newest_rows(text), 0)
     receipt = None
     if bad_question and host_tool == "omp" and (
         (omp := OMP_TITLE_RE.match(pane.title)) and omp["state"] not in (None, "!")
@@ -1443,7 +1458,7 @@ def classify(
     # Before grounding, since a misquoted ask would otherwise send the re-read a viewport
     # cut above the quota notice (the re-read's own ask is dropped inside it).
     _unblocked_ask(result)
-    _ground_visible_fields(result, text, pane, llm_fn, prompt, process_tool)
+    _ground_visible_fields(result, text, pane, llm_fn, prompt, process_tool, reply)
     # OpenCode answer bullets and omp Ask radios are not tasks. Match genuine visible
     # checkbox rows after a bounded re-read, whose replacement fields need grounding too.
     if result.get("tool") in ("opencode", "omp") and "tasks" in result:

@@ -1115,10 +1115,10 @@ def test_stale_question_is_reread_from_visible_screen_only():
     assert result["activity"] == "idle"
 
 
-def test_an_older_claude_message_ask_is_history():
-    """Claude wrote again since it asked (a one-line reply to a background task's notice):
-    the ask is rejected though the viewport shows it, and the re-read sees only the final
-    message, above the unsent draft, so it cannot quote the old ask again."""
+def test_an_ask_the_agent_wrote_past_is_history():
+    """Claude asked, then replied to a background task's notice: its transcript's last
+    message no longer holds the ask, so it is rejected though the viewport shows it, and
+    the re-read sees only the newest message, above the unsent draft."""
     calls = []
     def read(_prompt, text):
         calls.append(text)
@@ -1129,19 +1129,16 @@ def test_an_older_claude_message_ask_is_history():
     capture = ("\x1e[visible screen]\x1f\n● Paint it blue? Say if you'd rather have green.\n\n"
                '● Agent "Fire the kiln" is waiting on its own background work · 3m\n\n'
                "● Nothing new: the kiln is still firing.\n\n" + "─" * 20 + "\n❯ go green\n"
-               + "─" * 20 + "\n  ~/pots | Opus 5 | 4% ctx\n")
-    result = classify(_pane("claude"), capture, read)
+               "  ● and glaze it\n" + "─" * 20 + "\n  ~/pots | Opus 5 | 4% ctx\n")
+    newest = "Nothing new: the kiln is still firing."
+    result = classify(_pane("claude"), capture, read, reply=newest)
     assert len(calls) == 2 and "Paint it blue" not in calls[1] and "go green" not in calls[1]
     assert "question" not in result and result["activity"] == "idle"
-
-
-def test_a_bullet_in_the_draft_does_not_end_the_final_message():
-    asked = {"tool": "claude", "activity": "waiting", "waiting_on": "user",
-             "question": {"prompt": "Paint it blue?"}}
-    capture = ("\x1e[visible screen]\x1f\n● Done with the shelves.\n\n● Paint it blue?\n\n"
-               + "─" * 20 + "\n❯ no, green\n  ● and glaze it\n" + "─" * 20 + "\n  ~/pots\n")
-    result = classify(_pane("claude"), capture, lambda *_: dict(asked))
-    assert result["question"]["prompt"] == "Paint it blue?"
+    # A notice under the message that asks is no message: the ask stands.
+    calls.clear()
+    asked = "**Paint it blue?** Say if you'd rather have green."
+    result = classify(_pane("claude"), capture, read, reply=asked)
+    assert len(calls) == 1 and result["activity"] == "waiting"
 
 
 @pytest.mark.parametrize("row", [
