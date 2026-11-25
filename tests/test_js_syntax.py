@@ -31,6 +31,7 @@ WEB = Path(__file__).resolve().parent.parent / "web"
         "m/keys.js",
         "m/composer.js",
         "m/live.js",
+        "m/resample.js",
         "m/pane-model.js",
     ],
 )

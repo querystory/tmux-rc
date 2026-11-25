@@ -44,6 +44,7 @@ def test_mobile_assets_and_manifest():
         "/m/app.js",
         "/m/style.css",
         "/m/live.js",
+        "/m/resample.js",
         "/m/composer.js",
         "/m/pane-model.js",
         "/m/sidebar.js",

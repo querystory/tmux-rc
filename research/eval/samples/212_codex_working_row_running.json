@@ -1,0 +1,11 @@
+{
+  "description": "Synthetic: Codex mid-turn. Its live status row '• Working (1m 05s • esc to interrupt)' stands above the › composer, under a progress message. No approval menu is drawn and nothing is asked: running.",
+  "current_command": "codex",
+  "capture": "• Explored\n  └ Read tide_tables.py, stations.toml\n    Search \"harmonic\" in src\n\n• Two stations report tide heights in feet and the rest in metres. I'm converting the two at load time so the chart uses one unit.\n\n• Edited src/tide_tables.py (+9 -2)\n    41 -    return rows\n    41 +    return [to_metres(r) if station.unit == \"ft\" else r for r in rows]\n\n• Ran pytest tests/test_tides.py -q\n  └ ........ 8 passed\n\n• Working (1m 05s • esc to interrupt)\n\n\n›\n\n\n  tab to queue message                                                                    61% context left",
+  "expected": {
+    "tool": "codex",
+    "activity": "running",
+    "question": null,
+    "waiting_on": null
+  }
+}

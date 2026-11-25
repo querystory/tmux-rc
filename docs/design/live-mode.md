@@ -98,9 +98,14 @@ same shape (its session wrapper, reconnect loop, tool dispatch, and audio pipeli
 because that work already burned down the non-obvious failure modes — see "Traps
 inherited" below.
 
-- **Client**: `getUserMedia` mic → `AudioContext` at 16 kHz → 4096-sample
-  Float32→Int16 PCM frames → base64 over the WebSocket. A gain-0 node keeps the graph
-  alive without echoing the mic to the speakers. Playback of the model's voice is the
+- **Client**: `getUserMedia` mic → the device-rate `AudioContext` (48 kHz on an iPhone;
+  it cannot be 16 kHz, because the same context plays the model's voice) → a streaming
+  windowed-sinc downsampler to 16 kHz (`web/m/resample.js`) → Float32→Int16 PCM frames.
+  The low-pass matters: plain interpolation folds everything above 8 kHz (sibilants,
+  room noise) back into the speech band, and resampling each frame on its own warps it
+  and clicks at every frame edge, both of which cost the recogniser accuracy. Frames go
+  base64 over the WebSocket. A gain-0 node keeps the graph alive without echoing the mic
+  to the speakers. Playback of the model's voice is the
   reverse: base64 24 kHz PCM chunks → queued `AudioBufferSourceNode`s.
 - **Daemon** (`openbus/live.py`): accepts the WS, builds the system prompt from live
   watcher state, opens the chosen model through the provider seam
@@ -366,8 +371,9 @@ under `~/.local/state/tmux-rc/live-audio/` (beside `history.sqlite3`, honouring
   itself dropped before sending it (its `lost_ms`, counted when the socket backlog
   overflows). Bursts, gaps and losses show up there rather than as mystery static.
 - `model.wav` is the provider's voice at its own rate; `events.jsonl` holds the
-  transcript deltas with any provider timing, errors (the provider's full error event,
-  which the browser never sees) and session start and end.
+  transcript deltas with any provider timing, each tool call (its name, target, full text
+  and result, so what was heard lines up with what was done in one file), errors (the
+  provider's full error event, which the browser never sees) and session start and end.
 
 These files hold the user's voice and everything said, so they stay on this machine:
 never in the repo, scratch, telemetry or an export. The folders are private to the user
@@ -507,7 +513,18 @@ sits in `_handle_tool_call`, the one choke point every Live tool call already pa
 through, so no tool can skip it. find_sessions only reads, so it runs at once. This is the
 control plane's risk-tier idea (agentic-control-plane.md) applied at the smallest scale.
 Voice keeps acting directly, because a tap would end hands-free use and the spoken "Typing
-X into Y" announcement is voice's confirmation.
+X into Y" announcement is voice's confirmation. The exception is a window idle over an hour
+that is not on the user's screen and that the session has not reached yet: a send there is
+refused, and the model is told to confirm it with the user. Every call there stays refused
+until the user speaks, so the rest of the request (an Enter after the refused text) cannot
+act for them, and the send after their yes goes through hands-free. Matching a topic once sent work to a window idle for days, and the
+prompt's own "confirm a long-idle pane" was ignored, so the check moved into code. It
+first waited on the same card as a typed turn, which failed in voice: nothing told the
+voice a card was up, so a spoken "yes" arrived as a new request and cancelled the card it
+answered; GPT-Live runs tool calls one at a time, so a waiting card held every later
+request behind it; and the seam's providers answer tool calls inside their event loop, so
+Gemini went silent until the tap. A refusal has none of these: voice confirms by voice, in
+the conversation it is already having.
 
 **A card outlives its connection.** Cards used to expire the moment the socket dropped,
 because the daemon's half of a proposal lived in the coroutine waiting on the tap. On a

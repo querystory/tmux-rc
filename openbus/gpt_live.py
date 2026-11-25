@@ -195,6 +195,10 @@ class Session:
         self.calls = {}
         self.seen_calls = set()
         self.work = asyncio.Queue(maxsize=16)
+        # Composer turns not yet over. Each asks for one response, and each response that
+        # calls a tool is followed by one continuation, so a turn is over at the first of its
+        # responses to end with no call; which turn a response belongs to never matters.
+        self.composing = 0
         self.caption_end = {}
         self.pane_hints = {}
         self.last_context = {}
@@ -227,6 +231,13 @@ class Session:
         tools, and the frontend voices the result."""
         if self.closing:
             return
+        # A composer turn has no delegation, so its request is the meter's (live._Meter.asking).
+        # It is a new one only when no earlier composer turn is still going: no id ties a
+        # continuation to its turn, so in an overlap they share one, and a second pane is
+        # refused rather than reached.
+        if not self.composing:
+            self.meter.answered = True
+        self.composing += 1
         await self.send({"type": "response.item.create",
                          "item": live_providers.openai_message("user", text, images)})
         await self.send({"type": "response.create"})
@@ -351,12 +362,14 @@ class Session:
                     calls = self.calls.pop(delegation, [])
                     if nk == "response.completed" and calls:
                         try:
-                            self.work.put_nowait(calls)
+                            self.work.put_nowait((delegation, calls))
                         except asyncio.QueueFull:
                             # Keep receiving voice while tools run; do not block
                             # the audio receiver or leave a long delayed-action queue.
                             raise ProviderError({"code": "terminal_queue_full"}) from None
-                    elif nk != "response.completed":
+                    elif delegation is None:  # a composer turn is over
+                        self.composing = max(0, self.composing - 1)
+                    if nk != "response.completed":
                         await self.browser.send_json(
                             {
                                 "type": "error",
@@ -372,7 +385,7 @@ class Session:
 
     async def execute(self):
         while True:
-            calls = await self.work.get()
+            delegation, calls = await self.work.get()
             for item in calls:
                 if self.closing:
                     return
@@ -388,8 +401,9 @@ class Session:
                     args = None
                 fc = SimpleNamespace(id=cid, name=item.get("name"), args=args)
                 self.meter.note(f"[typed] {args}")
+                # One delegation is one user request, whatever the transcript does meanwhile.
                 await live._handle_tool_call(  # noqa: SLF001 - shared Live adapter internals
-                    self.browser, self, fc, self.watcher, self.meter
+                    self.browser, self, fc, self.watcher, self.meter, delegation
                 )
             if not self.closing:
                 # All outputs must precede continuation, even if a backend emits
@@ -430,7 +444,7 @@ async def run_session(browser, watcher, meter):
     meter.details = {"backend_model": backend, "voice_seconds": 0.0, "usage_final": False}
     meter.usage = Usage(backend)
     await browser.send_json({"type": "status", "status": "connecting"})
-    instructions = await asyncio.to_thread(live._system_prompt, watcher)  # noqa: SLF001 - shared Live adapter internals
+    instructions = await asyncio.to_thread(live._system_prompt, watcher, spoken=False)  # noqa: SLF001 - shared Live adapter internals
     async with _connect(key) as ws:
         session = Session(ws, browser, watcher, meter)
         await session.send(

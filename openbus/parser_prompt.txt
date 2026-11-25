@@ -17,7 +17,8 @@ changes across versions and tools):
 - Is the pane actively working (a spinner, a "thinking" word, an elapsed timer,
   streaming output), waiting on the user (a question, or a finished turn whose final
   message asks them to act or decide), or idle at a prompt? A past-tense duration with
-  a clock time marks a finished turn, not a live spinner.
+  a clock time marks a finished turn, not a live spinner, even when the stamp goes on to
+  list shells still running in the background ("· 1 shell still running", however it wraps).
 - Is the agent COMPACTING — busy summarizing/condensing its own conversation history
   to reclaim context window (a "Compacting conversation…" progress bar, a /compact
   command running, an "auto-compact"/"summarizing previous conversation" indicator)?
