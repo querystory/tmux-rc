@@ -604,13 +604,13 @@ def _letters(text: str) -> str:
 
 def _reply_rows(text: str, reply: str) -> str | None:
     """Claude's ask view from the ● row its last message (`reply`, from the transcript)
-    begins on, above the input box (a draft's or the agent list's bullets are not the
+    begins with, above the input box (a draft's or the agent list's bullets are not the
     screen's), or None when no ● row reads as its start. Notices and housekeeping
     printed below that message are rows after it, never its start."""
     view = _below_turn(_AGENT_LIST_RE.sub("", _ask_view(text)), 0)
     said = _letters(reply)
     for bullet in reversed(list(_BULLET_RE.finditer(view))):
-        if (start := _letters(view[bullet.end():].split("\n", 1)[0])) and start in said:
+        if (start := _letters(view[bullet.end():].split("\n", 1)[0])) and said.startswith(start):
             return view[bullet.start():]
     return None
 

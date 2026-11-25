@@ -1151,6 +1151,10 @@ def test_an_ask_the_agent_wrote_past_is_history():
     green = "Should I switch to green?"
     calls, _ = _rereads(_kiln_screen(ask, green, notice), ask, green)
     assert len(calls) == 2 and green in calls[1] and "Paint it blue" not in calls[1]
+    # Even when that message quotes the notice printed below it: it begins on its own row.
+    quoting = f'{green} The "Fire the kiln" note said: {notice}'
+    calls, _ = _rereads(_kiln_screen(ask, quoting, notice), ask, quoting)
+    assert len(calls) == 2 and green in calls[1]
 
 
 @pytest.mark.parametrize("shown, said", [
