@@ -146,40 +146,72 @@ def _turn(path: Path, _stat: tuple) -> str | None:
     return last and f"{path.name}:{hashlib.sha256(last).hexdigest()}"
 
 
-# rollout -> (file identity, bytes read, turn open)
-_rollout_reads: dict[Path, tuple[int, int, bool | None]] = {}
+# transcript -> (file identity, bytes read, turn open, model)
+_reads: dict[Path, tuple[int, int, bool | None, str | None]] = {}
 
 
-def codex_turn_live(pane: Pane, text: str) -> bool | None:
-    """Whether Codex's rollout has a turn open: its last task_started has no task_complete
-    or turn_aborted after it. Codex hides its "Working" row while a message prints
-    mid-turn, so the screen alone can show a live turn as over. Read incrementally, since
-    one long turn writes megabytes, far past `_TAIL`."""
-    path = _codex_file(pane, text)
-    if not path:
-        return None
+def _follow(path: Path) -> tuple[bool | None, str | None]:
+    """Whether Codex's rollout has a turn open, and the model the agent last ran: Claude's
+    latest assistant record names it, Codex's latest turn_context. Read incrementally,
+    since one long turn writes megabytes, far past `_TAIL`."""
     try:
         with path.open("rb") as f:
             ino, size = (st := os.fstat(f.fileno())).st_ino, st.st_size
-            seen, pos, live = _rollout_reads.get(path, (ino, 0, None))
+            seen, pos, live, model = _reads.get(path, (ino, 0, None, None))
             if seen != ino or size < pos:  # replaced (a session copied over it): start over
-                pos, live = 0, None
+                pos, live, model = 0, None, None
             f.seek(pos)
             for line in f:  # one record at a time: a rollout can reach hundreds of MB
                 if not line.endswith(b"\n"):
                     break  # still being written: read it whole next time
                 pos += len(line)
                 try:
-                    event = json.loads(line).get("payload")
-                except (ValueError, AttributeError):
+                    e = json.loads(line)
+                except ValueError:
                     continue
+                e = e if isinstance(e, dict) else {}
+                event, msg = e.get("payload"), e.get("message")
                 kind = event.get("type") if isinstance(event, dict) else None
                 live = {"task_started": True, "task_complete": False,
                         "turn_aborted": False}.get(kind, live)
+                said = (msg if e.get("type") == "assistant" and not e.get("isSidechain")
+                        else event if e.get("type") == "turn_context" else None)
+                ran = said.get("model") if isinstance(said, dict) else None
+                # Claude stamps messages it wrote itself (an interrupt, an API error)
+                # "<synthetic>": no model ran them.
+                if isinstance(ran, str) and ran and not ran.startswith("<"):
+                    model = ran
     except OSError:
-        return None
-    _rollout_reads[path] = (ino, pos, live)
-    return live
+        return None, None
+    _reads[path] = (ino, pos, live, model)
+    return live, model
+
+
+def codex_turn_live(pane: Pane, text: str) -> bool | None:
+    """Whether Codex's rollout has a turn open: its last task_started has no task_complete
+    or turn_aborted after it. Codex hides its "Working" row while a message prints
+    mid-turn, so the screen alone can show a live turn as over."""
+    path = _codex_file(pane, text)
+    return _follow(path)[0] if path else None
+
+
+def model(pane: Pane, text: str) -> str | None:
+    """The model the agent last ran, named as its status line names it. Exact where the
+    screen's is a reading, and there when a narrow pane cuts the status line short."""
+    path = _path(pane, text)
+    ran = _follow(path)[1] if path else None
+    if not ran or not ran.startswith("claude-"):
+        return ran  # Codex shows its model's id as is
+    # Claude Code shows claude-opus-5-5 (or a dated claude-haiku-4-5-20251001) as Opus 5.5.
+    words: list[str] = []
+    for part in ran.split("-")[1:]:
+        if part.isdigit() and len(part) == 8:  # a release date, YYYYMMDD
+            continue
+        if part.isdigit() and words and words[-1][-1].isdigit():
+            words[-1] += f".{part}"
+        else:
+            words.append(part.capitalize())
+    return " ".join(words) or None
 
 
 @lru_cache(maxsize=256)

@@ -56,6 +56,28 @@ def test_states_carry_session_identity(monkeypatch):
             == ("work", "0", "work", True)
 
 
+def test_transcript_model_wins_over_the_screens(monkeypatch):
+    # The transcript's model is exact; the parser's is a reading of the screen (absent on
+    # a narrow pane). It stands on both tick paths, and with no transcript the parse does.
+    frame = ["> idle prompt"]
+    w, _ = _harness(monkeypatch, frame)
+    read = [{"model": "Sonnet 5"}, {}]
+    monkeypatch.setattr(W, "classify", lambda pane, text, **kw: {
+        "activity": "idle", "events": [], "tool": "claude", **read.pop(0)})
+    ran = ["Opus 5.5"]
+    monkeypatch.setattr(W.transcript, "model", lambda pane, text: ran[0])
+    pane = _Pane()
+    for _ in range(2):  # parse tick, then a cached (unchanged) tick
+        w._forced_this_tick = set()
+        assert w._tick_pane(pane)["model"] == "Opus 5.5"
+    ran[0] = "Fable 5.2"  # a later reply under /model: the screen needn't move for it
+    w._forced_this_tick = set()
+    assert w._tick_pane(pane)["model"] == "Fable 5.2"
+    frame[0], ran[0] = "> another prompt", None  # no transcript: the screen's read, if any
+    w._forced_this_tick = set()
+    assert "model" not in w._tick_pane(pane)
+
+
 def test_refined_label_survives_idle_ticks(monkeypatch):
     # classify may refine label to the agent's own session name; an unchanged-screen
     # tick must NOT revert it to the tmux label. A tmux-side RENAME still wins.
