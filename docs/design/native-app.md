@@ -1,8 +1,9 @@
 # Design: the native phone app, a thin shell around the web app
 
 Status: **shell, push bridge and build lanes written; compiled in CI, not yet run on a
-device.** The daemon side of native push (APNs sending, the `apns` subscription kind) is
-separate work. Nothing here changes what a browser or the installed PWA does.
+device.** The daemon's side (the `apns` subscription kind and sending to Apple) is described
+in [push notifications](push-notifications.md), "Native transports". Nothing here changes
+what a browser or the installed PWA does.
 
 ## The problem
 
@@ -66,8 +67,8 @@ about (below).
 Android builds from the same project and gets the shell: the address page, the PWA in a
 webview, the way back to the address page. It does not get native push here. Capacitor's
 Android runtime injects its bridge only into the bundled origin, so the daemon's page
-cannot see the push plugin, and FCM needs a Firebase project whose config file is not ours
-to commit. Android is also where the PWA already works: Chrome draws action buttons and
+cannot see the push plugin, and the daemon has no FCM transport to send through. Android is
+also where the PWA already works: Chrome draws action buttons and
 delivers taps. So the Android app is a convenience until someone needs more, and the
 "nearly free" part is the shell, not the notifications.
 
@@ -81,9 +82,16 @@ and the address carries a login.
 
 **The token.** The web app's notification switch is the same switch; inside the shell it
 asks the push plugin instead of the service worker, and posts the device token to the
-daemon as an `apns` subscription with the APNs environment the build was signed for. The
-token is re-posted on every launch, as the web subscription is, so a daemon that lost its
-state heals.
+daemon as an `apns` subscription. It turns on only against a daemon whose push config lists
+`apns`, which it does when it holds an APNs key; otherwise the switch says so instead of
+failing later. The token is re-posted on every launch, as the web subscription is, so a
+daemon that lost its state heals.
+
+The token is labelled with Apple's environment, because a push sent to the wrong one is
+refused as a bad token and the daemon then drops the device. The label comes from how the
+build was signed rather than how it was compiled: a build installed from Xcode carries its
+provisioning profile, which names the environment, and a TestFlight or App Store build
+carries none and is always production.
 
 **Taps.** A tapped notification carries the path to open. The page receives it from the
 plugin and routes with the URL state it already has, so a tap opens the pane without a
@@ -107,12 +115,17 @@ Two choices in that path are deliberate:
 - **Answer buttons wait for the unlock.** The web push on Android types from the lock
   screen; here the action requires authentication, because a phone on a desk should not be
   able to approve a command.
-- **Buttons read "Option 1" and "Option 2".** iOS only draws actions the app registered
-  beforehand, so a title cannot be the question's own option text. The notification names a
-  category by how many options it offers and lists them in its body. Showing the real
-  labels needs a notification service extension, a second signed target that rewrites the
-  category as each push arrives; it is the obvious next step and was left out to keep the
-  first build to one target.
+- **Buttons carry the question's own options, through a notification service extension.**
+  iOS draws only the actions of a category the app registered beforehand, with fixed
+  titles, so a push cannot name its own buttons. The alternative was a fixed pair reading
+  "Option 1" and "Option 2" with the real text in the body, which needs no second target
+  and makes every answer a lookup; an approval tapped by number is the wrong place to save
+  code. So the daemon marks an ask mutable and sends its titles, and the extension, which
+  iOS runs on each such push before showing it, registers a category for exactly those
+  titles and points the notification at it. Categories are shared by the whole app, so one
+  is named by its titles and kept only while a notification on screen uses it. If the
+  extension fails or runs out of its time, the push shows as sent: no buttons, and a tap
+  opens the pane.
 
 ### What it does not fix
 
@@ -172,8 +185,8 @@ own VAPID key), which is why the PWA needed no service of ours.
 - **A push relay.** The app's publisher runs a small service that holds the key; a daemon
   posts the device token and payload to it. This is what ntfy and Home Assistant do. It
   puts a third party in the path of pane text, which the push design rejected once for
-  cleartext relays, so payloads would have to be encrypted to the device and opened by a
-  notification service extension, the same extension real button labels need. The relay
+  cleartext relays, so payloads would have to be encrypted to the device and opened by the
+  notification service extension. The relay
   also needs abuse limits, since a device token is all it takes to address a phone.
 - **Keep Web Push for other people's daemons** and offer native push only where the
   operator holds the key.
@@ -206,14 +219,19 @@ taken up together with the relay, since neither matters without the other.
 
 Capacitor's advice is to commit `ios/` and `android/`. Here they are generated at build
 time from the templates the lockfile pins, and the repository holds only what is ours: the
-config, the address page, the iOS app delegate and entitlement, and the build recipe. The
+config, the address page, the iOS app delegate, notification extension and entitlement,
+and the build recipe. The
 generated projects are dozens of files nobody reads, a Gradle wrapper binary, and a diff
 on every Capacitor upgrade; committing it would also invite edits in files a
-regeneration would overwrite. The price is that a customization must be expressible as a
-whole file or one build setting, and that adding a second target (the service extension)
-will force the question again: at that point committing the iOS project is probably right.
+regeneration would overwrite. The price is that a customization must be a whole file or a
+scripted change to the project. The notification extension is the costly case: a second
+target is added to the generated project by a script, using the project editor Capacitor's
+own tooling ships. If that script starts to grow, committing the iOS project becomes the
+better trade.
 
 The bundle id is one setting, read at generation time, with a placeholder default. The
 release lane supplies the real one, with the team id and the App Store Connect key, from
 repository secrets; signing is Xcode's automatic signing driven by that key, so no
-certificate or profile is stored anywhere.
+certificate or profile is stored anywhere. Capacitor accepts no dashes in the id, and the
+extension takes the same id with `.notify` appended, so the App Store Connect key must be
+allowed to register both.

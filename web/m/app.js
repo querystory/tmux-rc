@@ -3167,7 +3167,7 @@ else if (link) { notice(`Pick a pane for ${link.length > 80 ? `${link.slice(0, 8
 // brings the push plugin; Android's leaves only its message port. Either can go back to the
 // shell's own page, where the daemon's address is set.
 const shellPush = window.Capacitor?.Plugins?.PushNotifications;
-setupPush($("push"), notice, licon("bell"), shellPush && nativePush(shellPush, localStorage, openLink));
+setupPush($("push"), notice, licon("bell"), shellPush && nativePush(shellPush, localStorage, (url, chat) => chat ? live.bringBack(chat) : openLink(url)));
 const shellHome = window.Capacitor ? "capacitor://localhost" : window.androidBridge ? "https://localhost" : null;
 if (shellHome) { $("shell-home").hidden = false; $("shell-home").onclick = () => location.assign(shellHome); }
 // A chat Open button offered within the launch grace may name a window too new for

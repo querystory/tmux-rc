@@ -16,7 +16,7 @@ const PUSH_LABELS = {
 
 // Inside the native shell (docs/design/native-app.md) the page has no service worker: the
 // shell's push plugin stands in for the browser's Notification and PushManager, and a tap
-// on a notification comes here to be opened. The shell's token reads "<APNs environment>:<hex>".
+// on a notification comes here to be opened, with its chat card if it names one. The shell's token reads "<APNs environment>:<hex>".
 // The device's token outlives the switch, so `store` holds whether it is on.
 export function nativePush(plugin, store, open) {
   const waiting = [];
@@ -25,7 +25,7 @@ export function nativePush(plugin, store, open) {
   plugin.addListener("registrationError", ({ error }) => settle(1)(new Error(error)));
   plugin.addListener("pushNotificationActionPerformed", ({ actionId, notification }) => {
     const to = new URL(notification.data?.url || "/m", location.origin);
-    if (actionId === "tap" && to.origin === location.origin) open(to.href);
+    if (actionId === "tap" && to.origin === location.origin) open(to.href, notification.data?.chat);
   });
   const device = async () => {
     const value = await new Promise((ok, fail) => { waiting.push([ok, fail]); plugin.register(); });
@@ -39,7 +39,10 @@ export function nativePush(plugin, store, open) {
       native.permission = (await plugin.checkPermissions()).receive;
       return store.getItem("tmuxrc-native-push") ? device() : null;
     },
-    subscribe: async () => { const held = await device(); store.setItem("tmuxrc-native-push", "1"); return held; },
+    subscribe: async (config) => { // the daemon sends to the app only when it holds an APNs key
+      if (!config.native?.includes("apns")) throw new Error("This daemon is not set up to notify the app");
+      const held = await device(); store.setItem("tmuxrc-native-push", "1"); return held;
+    },
   };
   return native;
 }
@@ -116,12 +119,11 @@ export async function setupPush(button, announce = () => {}, bell = "", native =
         if (permission !== "granted") throw new Error("Notification permission was not granted");
         // Re-read: a browser may have dropped the held subscription along with the permission.
         held = await manager.getSubscription();
-        if (!held && native) held = await native.subscribe();
-        else if (!held) {
+        if (!held) {
           const configResponse = await fetch("/api/push/config");
           if (!configResponse.ok) throw new Error("Could not load notification settings");
           const config = await configResponse.json();
-          held = await manager.subscribe({
+          held = native ? await native.subscribe(config) : await manager.subscribe({
             userVisibleOnly: true, applicationServerKey: decodeKey(config.public_key),
           });
         }

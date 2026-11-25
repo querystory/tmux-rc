@@ -12,14 +12,13 @@ ADD = rm -rf $@ && npx cap add $@
 android: node_modules
 	$(ADD)
 
-# The entitlement is what turns the Push Notifications capability on when Xcode signs; the
+# extension.js adds the notification extension and the push entitlement to the project; the
 # Info.plist key answers App Store Connect's export question (HTTPS only) for every build.
 ios: node_modules
 	$(ADD)
 	cp -R overlay/ios/. ios/
-	perl -pi -e 's|^(\s*)(CODE_SIGN_STYLE = )|$$1CODE_SIGN_ENTITLEMENTS = App/App.entitlements;\n$$1$$2|' ios/App/App.xcodeproj/project.pbxproj
+	node extension.js
 	perl -0pi -e 's|<dict>|<dict>\n\t<key>ITSAppUsesNonExemptEncryption</key>\n\t<false/>|' ios/App/App/Info.plist
-	grep -c CODE_SIGN_ENTITLEMENTS ios/App/App.xcodeproj/project.pbxproj | grep -qx 2
 	grep -q ITSAppUsesNonExemptEncryption ios/App/App/Info.plist
 
 XCODEBUILD = xcodebuild -project ios/App/App.xcodeproj -scheme App

@@ -7,11 +7,19 @@ import WebKit
 // web app cannot do lives here: the device token, and a question answered from its
 // notification while no page is running to answer it.
 
-#if DEBUG
-private let apnsEnvironment = "development" // a debug build is signed for the APNs sandbox
-#else
-private let apnsEnvironment = "production"
-#endif
+// Which of Apple's push hosts this build's token belongs to; the daemon's push to the other
+// is refused and the token dropped. The signature decides it, not the build configuration: a
+// build from Xcode carries its provisioning profile, and a TestFlight or App Store build,
+// which is always production, carries none.
+private let apnsEnvironment: String = {
+    #if targetEnvironment(simulator)
+    return "development"
+    #else
+    let profile = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision").flatMap { try? String(contentsOf: $0, encoding: .isoLatin1) }
+    let sandbox = profile?.range(of: #"aps-environment</key>\s*<string>development"#, options: .regularExpression)
+    return sandbox == nil ? "production" : "development"
+    #endif
+}()
 private let daemonKey = "daemon" // the page that registered for push: where answers are sent
 
 @UIApplicationMain
@@ -19,17 +27,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // The delegate has to be in place before launch finishes: iOS starts the app in the
         // background to deliver an action, with no scene, so no webview and no Capacitor.
-        let center = UNUserNotificationCenter.current()
-        center.delegate = self
-        // iOS draws only actions registered ahead of time, so their titles cannot be the
-        // question's own options: a push names "answer1" or "answer2" by how many it offers
-        // and lists them in its body.
-        center.setNotificationCategories(Set((1...2).map { count in
-            UNNotificationCategory(identifier: "answer\(count)", actions: (0..<count).map {
-                // Typing into a terminal from a locked phone waits for the unlock.
-                UNNotificationAction(identifier: "answer:\($0)", title: "Option \($0 + 1)", options: .authenticationRequired)
-            }, intentIdentifiers: [])
-        }))
+        // The actions themselves are registered per push, by the Notify extension.
+        UNUserNotificationCenter.current().delegate = self
         return true
     }
 
@@ -39,14 +38,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         return config
     }
 
-    private var bridge: CAPBridgeViewController? {
+    private var shell: CAPBridgeViewController? {
         let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
         return windows.compactMap { $0.rootViewController as? CAPBridgeViewController }.first
     }
 
     // The push plugin hands this string to the page, which posts it to the daemon (web/push.js).
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
-        UserDefaults.standard.set(bridge?.webView?.url, forKey: daemonKey)
+        UserDefaults.standard.set(shell?.webView?.url, forKey: daemonKey)
         let token = deviceToken.map { String(format: "%02x", $0) }.joined()
         NotificationCenter.default.post(name: .capacitorDidRegisterForRemoteNotifications, object: "\(apnsEnvironment):\(token)")
     }
@@ -67,9 +66,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             // A tap on the notification itself: the page follows its link (web/push.js). Handed
             // straight to the push plugin, because Capacitor's router would drop the tap on
             // the "Answer not sent" notice below, which no push delivered.
-            let controller = bridge
-            controller?.loadViewIfNeeded()
-            controller?.bridge?.notificationRouter.pushNotificationHandler?.didReceive(response: response)
+            let shell = shell
+            shell?.loadViewIfNeeded()
+            shell?.bridge?.notificationRouter.pushNotificationHandler?.didReceive(response: response)
             return completionHandler()
         }
         var request = URLRequest(url: url)
