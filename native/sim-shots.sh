@@ -3,20 +3,20 @@
 # simulator, runs the app against the demo fleet (AGENTS.md, "UI screenshots") served over
 # TLS on this machine, and leaves screenshots and logs in build/shots. Run from native/.
 set -eux
-app=build/ios/Build/Products/Debug-iphonesimulator/App.app id=com.example.tmuxrc out=$PWD/build/shots
+app=build/ios/Build/Products/Debug-iphonesimulator/App.app id=com.example.tmuxrc out=$PWD/build/shots tls=$(mktemp -d)
 mkdir -p "$out"
 shot() { sleep "$1"; xcrun simctl io booted screenshot "$out/$2.png"; }
 
 xcrun simctl boot "$(xcrun simctl list devices available | grep -m1 iPhone | grep -oE '[0-9A-F-]{36}')"
 xcrun simctl bootstatus booted
 # The webview takes only https, so the demo gets a certificate the simulator is told to trust.
-openssl req -x509 -newkey rsa:2048 -nodes -days 30 -subj /CN=localhost -keyout "$out/key.pem" -out "$out/cert.pem" \
+openssl req -x509 -newkey rsa:2048 -nodes -days 30 -subj /CN=localhost -keyout "$tls/key.pem" -out "$tls/cert.pem" \
   -addext subjectAltName=DNS:localhost -addext extendedKeyUsage=serverAuth -addext basicConstraints=critical,CA:TRUE
-xcrun simctl keychain booted add-root-cert "$out/cert.pem"
-(cd .. && uv run python -c 'import sys, uvicorn; from scripts import demo_server as demo; demo.install()
+xcrun simctl keychain booted add-root-cert "$tls/cert.pem"
+(cd .. && uv sync --locked && uv run python -c 'import sys, uvicorn; from scripts import demo_server as demo; demo.install()
 uvicorn.run(demo.server.app, host="127.0.0.1", port=8443, ssl_keyfile=sys.argv[1], ssl_certfile=sys.argv[2])' \
-  "$out/key.pem" "$out/cert.pem" > "$out/demo.log" 2>&1) &
-curl --retry 30 --retry-connrefused --retry-delay 2 -fsS --cacert "$out/cert.pem" -o /dev/null https://localhost:8443/m
+  "$tls/key.pem" "$tls/cert.pem" > "$out/demo.log" 2>&1) &
+curl --retry 60 --retry-connrefused --retry-delay 2 -fsS --cacert "$tls/cert.pem" -o /dev/null https://localhost:8443/m
 
 xcrun simctl install booted "$app"
 xcrun simctl launch booted "$id"
@@ -40,4 +40,3 @@ xcrun simctl push booted "$id" - <<'JSON'
 JSON
 shot 2 3-push
 xcrun simctl spawn booted log show --last 2m --predicate 'process == "Notify"' > "$out/extension.log"
-rm "$out/key.pem"
