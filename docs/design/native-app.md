@@ -50,13 +50,19 @@ running.
 
 The daemon's address differs per user, so it cannot be listed at build time: the shell lets
 the webview navigate to any host, and on iOS Capacitor's bridge is injected into whichever
-page is in the main frame. That is the tradeoff to be clear about. A page the webview is
-taken to (the login provider's, or a link followed in the same tab) can call the same
-plugins the daemon's page can. The exposure is kept small by keeping the surface small: one
-plugin, push, whose worst use is registering this device's token somewhere it means
-nothing; the answer path is not reachable from a page at all, and links that open a new
-window leave for Safari. Adding a plugin with real reach (files, a keychain) would reopen
-this, and should come with pinning the bridge to the stored origin.
+page is in the main frame. Left alone that is a hole, not a tradeoff. The bridge carries
+more than the push plugin: Capacitor registers its own HTTP and cookie plugins, and a
+native HTTP request ignores the browser's cross-origin rules and the daemon's origin check
+while carrying the login cookie. Any page the webview was taken to (a link followed in
+place, a redirect) could type into a terminal.
+
+So the shell answers bridge calls from two origins only: its bundled page, and the daemon,
+which is defined as the address the bundled page sent the webview to. No page but the
+bundled one can change that. The login provider's pages, and anything else, load and run
+with a bridge that says nothing back. Links that open a new window leave for Safari. The
+same stored address is where notification answers go, and changing it clears the
+notifications still on screen and takes the device off the old daemon, since its questions
+cannot be answered at the new one.
 
 Capacitor documents open navigation as a development setting. It is the mechanism this
 design rests on, so it is used knowingly, and it is the first thing App Review would ask

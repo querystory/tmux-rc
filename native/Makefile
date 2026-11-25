@@ -12,12 +12,15 @@ ADD = rm -rf $@ && npx cap add $@
 android: node_modules
 	$(ADD)
 
-# extension.js adds the notification extension and the push entitlement to the project; the
+# extension.js adds the notification extension and the push entitlement to the project, the
+# scene shows AppDelegate.swift's own view controller in place of Capacitor's, and the
 # Info.plist key answers App Store Connect's export question (HTTPS only) for every build.
 ios: node_modules
 	$(ADD)
 	cp -R overlay/ios/. ios/
 	node extension.js
+	perl -pi -e 's/CAPBridgeViewController\(\)/ShellViewController()/' ios/App/App/SceneDelegate.swift
+	grep -q 'ShellViewController()' ios/App/App/SceneDelegate.swift
 	perl -0pi -e 's|<dict>|<dict>\n\t<key>ITSAppUsesNonExemptEncryption</key>\n\t<false/>|' ios/App/App/Info.plist
 	grep -q ITSAppUsesNonExemptEncryption ios/App/App/Info.plist
 

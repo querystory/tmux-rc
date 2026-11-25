@@ -6,7 +6,7 @@ module.exports = {
   webDir: "www",
   server: {
     // The daemon's address is typed in by the user, so no host can be listed here: the
-    // webview may navigate anywhere, and on iOS the bridge follows it.
+    // webview may navigate anywhere. Which pages the bridge answers is AppDelegate.swift's rule.
     allowNavigation: ["*"],
     errorPath: "index.html",
   },

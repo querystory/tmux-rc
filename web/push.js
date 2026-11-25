@@ -37,7 +37,7 @@ export function nativePush(plugin, store, open) {
     requestPermission: async () => (native.permission = (await plugin.requestPermissions()).receive),
     getSubscription: async () => {
       native.permission = (await plugin.checkPermissions()).receive;
-      return store.getItem("tmuxrc-native-push") ? device() : null;
+      return store.getItem("tmuxrc-native-push") ? device().catch(() => null) : null; // no token now: Off, and a tap asks again
     },
     subscribe: async (config) => { // the daemon sends to the app only when it holds an APNs key
       if (!config.native?.includes("apns")) throw new Error("This daemon is not set up to notify the app");
@@ -45,6 +45,17 @@ export function nativePush(plugin, store, open) {
     },
   };
   return native;
+}
+
+const pushOff = (held) => fetch("/api/push/unsubscribe", {
+  method: "POST", headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(held.off || { endpoint: held.endpoint }),
+});
+
+// The shell's "Change server": the daemon being left would keep notifying this device.
+export async function leavePush(native) {
+  const held = await native.getSubscription();
+  if (held) { await pushOff(held).catch(() => {}); await held.unsubscribe(); }
 }
 
 export async function setupPush(button, announce = () => {}, bell = "", native = null) {
@@ -100,10 +111,7 @@ export async function setupPush(button, announce = () => {}, bell = "", native =
     let held = subscription; // the tap acts on its own copy: a refresh may land meanwhile
     try {
       if (state() === "On") {
-        const response = await fetch("/api/push/unsubscribe", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(held.off || { endpoint: held.endpoint }),
-        });
+        const response = await pushOff(held);
         if (!response.ok) throw new Error("Could not turn off notifications");
         saved = null; // the daemon has dropped it, even if the browser fails to below
         await held.unsubscribe();

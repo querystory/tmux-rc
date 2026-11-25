@@ -11,7 +11,7 @@ xcrun simctl boot "$(xcrun simctl list devices available | grep -m1 iPhone | gre
 xcrun simctl bootstatus booted
 # The webview takes only https, so the stand-in gets a certificate the simulator is told to trust.
 openssl req -x509 -newkey rsa:2048 -nodes -days 30 -subj /CN=localhost -keyout "$tls/key.pem" -out "$tls/cert.pem" \
-  -addext subjectAltName=DNS:localhost -addext extendedKeyUsage=serverAuth -addext basicConstraints=critical,CA:TRUE
+  -addext subjectAltName=DNS:localhost,IP:127.0.0.1 -addext extendedKeyUsage=serverAuth -addext basicConstraints=critical,CA:TRUE
 xcrun simctl keychain booted add-root-cert "$tls/cert.pem"
 python3 - sim-page.html "$tls/cert.pem" "$tls/key.pem" <<'PY' &
 import http.server, ssl, sys
@@ -40,6 +40,7 @@ xcrun simctl terminate booted "$id"
 perl -pi -e 's|<script>|<script>localStorage.setItem("daemon", "https://localhost:8443");|' "$(xcrun simctl get_app_container booted "$id" app)/public/index.html"
 xcrun simctl launch --stdout="$out/app.log" --stderr="$out/app.log" booted "$id"
 shot 10 2-daemon
+shot 14 3-elsewhere # the stand-in has moved itself to another origin, where the shell answers nothing
 
 # A push shaped like the daemon's ask. Apple's simulated pushes skip notification service
 # extensions (Xcode 11.4 release notes), so this shows the banner and not the buttons.
@@ -51,5 +52,5 @@ xcrun simctl push booted "$id" - <<'JSON'
  "url": "/m#pane=%251&from=push", "tag": "block:%1", "nonce": "0123456789abcdef0123",
  "actions": [{"action": "answer:0", "title": "Yes"}, {"action": "answer:1", "title": "No"}]}
 JSON
-shot 2 3-push
+shot 2 4-push
 xcrun simctl spawn booted log show --last 2m --predicate 'process == "Notify"' > "$out/extension.log"

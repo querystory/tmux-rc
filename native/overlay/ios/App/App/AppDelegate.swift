@@ -4,8 +4,8 @@ import UserNotifications
 import WebKit
 
 // Replaces the Capacitor template's AppDelegate (docs/design/native-app.md). Everything the
-// web app cannot do lives here: the device token, and a question answered from its
-// notification while no page is running to answer it.
+// web app cannot do lives here: the device token, a question answered from its notification
+// while no page is running to answer it, and the rule for which pages may call native code.
 
 // Which of Apple's push hosts this build's token belongs to; the daemon's push to the other
 // is refused and the token dropped. The signature decides it, not the build configuration: a
@@ -20,7 +20,36 @@ private let apnsEnvironment: String = {
     return sandbox == nil ? "production" : "development"
     #endif
 }()
-private let daemonKey = "daemon" // the page that registered for push: where answers are sent
+private let daemonKey = "daemon" // the address the bundled page opened: the one daemon
+
+// The webview may be taken anywhere (a login page, a link followed in place), and Capacitor's
+// bridge goes with it, with its built-in HTTP and cookie plugins: enough to act as the user
+// on the daemon. So only the bundled page and the daemon it opened are answered.
+class ShellViewController: CAPBridgeViewController, WKScriptMessageHandler {
+    override func capacitorDidLoad() {
+        let scripts = webView?.configuration.userContentController
+        scripts?.removeScriptMessageHandler(forName: "bridge")
+        scripts?.add(self, name: "bridge")
+        NotificationCenter.default.addObserver(forName: .capacitorDecidePolicyForNavigationAction, object: nil, queue: .main) { note in
+            // Only the bundled page names the daemon: it is where that page sends the webview.
+            guard let action = note.object as? WKNavigationAction, action.targetFrame?.isMainFrame == true,
+                  let source = action.sourceFrame as WKFrameInfo?, source.securityOrigin.protocol == "capacitor",
+                  let url = action.request.url, url.scheme == "https" else { return }
+            let old = UserDefaults.standard.url(forKey: daemonKey)
+            if old?.host != url.host || old?.port != url.port {
+                // Another daemon's questions cannot be answered at this one.
+                UNUserNotificationCenter.current().removeAllDeliveredNotifications()
+            }
+            UserDefaults.standard.set(url, forKey: daemonKey)
+        }
+    }
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        let origin = message.frameInfo.securityOrigin, daemon = UserDefaults.standard.url(forKey: daemonKey)
+        guard origin.protocol == "capacitor" || origin.protocol == "https" && origin.host == daemon?.host && origin.port == daemon?.port ?? 0 else { return }
+        (bridge as? CapacitorBridge)?.webViewDelegationHandler.userContentController(userContentController, didReceive: message)
+    }
+}
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {
@@ -45,7 +74,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
     // The push plugin hands this string to the page, which posts it to the daemon (web/push.js).
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
-        UserDefaults.standard.set(shell?.webView?.url, forKey: daemonKey)
         let token = deviceToken.map { String(format: "%02x", $0) }.joined()
         NotificationCenter.default.post(name: .capacitorDidRegisterForRemoteNotifications, object: "\(apnsEnvironment):\(token)")
     }

@@ -26,10 +26,12 @@ class NotificationService: UNNotificationServiceExtension {
         guard !offered.isEmpty, let content = request.content.mutableCopy() as? UNMutableNotificationContent else {
             return contentHandler(request.content)
         }
-        // Named by its titles, so the same options share one category. The app delegate
-        // answers by the action's identifier ("answer:<index>"), and waits for the unlock.
+        // Named by its actions, so the same options share one category; the identifiers are
+        // part of the name because two questions can show the same titles for different
+        // indices. The app delegate answers by the identifier ("answer:<index>"), and waits
+        // for the unlock.
         let category = UNNotificationCategory(
-            identifier: offered.map(\.title).joined(separator: "\n"),
+            identifier: offered.map { "\($0.id)=\($0.title)" }.joined(separator: "\n"),
             actions: offered.map { UNNotificationAction(identifier: $0.id, title: $0.title, options: .authenticationRequired) },
             intentIdentifiers: [])
         content.categoryIdentifier = category.identifier
