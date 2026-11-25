@@ -72,7 +72,9 @@ def test_transcript_model_wins_over_the_screens(monkeypatch):
         assert w._tick_pane(pane)["model"] == "Opus 5.5"
     ran[0] = "Fable 5.2"  # a later reply under /model: the screen needn't move for it
     w._forced_this_tick = set()
+    before = Watcher._deck_fp([{**w._state[pane.id], "model": "Opus 5.5"}])
     assert w._tick_pane(pane)["model"] == "Fable 5.2"
+    assert Watcher._deck_fp([w._state[pane.id]]) != before  # the phone is told
     frame[0], ran[0] = "> another prompt", None  # no transcript: the screen's read, if any
     w._forced_this_tick = set()
     assert "model" not in w._tick_pane(pane)

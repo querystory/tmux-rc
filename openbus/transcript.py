@@ -152,14 +152,13 @@ def _turn(path: Path, _stat: tuple) -> str | None:
     return last and f"{path.name}:{hashlib.sha256(last).hexdigest()}"
 
 
-# transcript -> (file identity, bytes read, turn open, model)
+# rollout -> (file identity, bytes read, turn open, model)
 _reads: dict[Path, tuple[int, int, bool | None, str | None]] = {}
 
 
 def _follow(path: Path) -> tuple[bool | None, str | None]:
-    """Whether Codex's rollout has a turn open, and the model the agent last ran: Claude's
-    latest assistant record names it, Codex's latest turn_context. Read incrementally,
-    since one long turn writes megabytes, far past `_TAIL`."""
+    """Whether Codex's rollout has a turn open, and the model its latest turn_context
+    names. Read incrementally, since one long turn writes megabytes, far past `_TAIL`."""
     try:
         with path.open("rb") as f:
             ino, size = (st := os.fstat(f.fileno())).st_ino, st.st_size
@@ -175,18 +174,13 @@ def _follow(path: Path) -> tuple[bool | None, str | None]:
                     e = json.loads(line)
                 except ValueError:
                     continue
-                e = e if isinstance(e, dict) else {}
-                event, msg = e.get("payload"), e.get("message")
-                kind = event.get("type") if isinstance(event, dict) else None
+                event = e.get("payload") if isinstance(e, dict) else None
+                if not isinstance(event, dict):
+                    continue
                 live = {"task_started": True, "task_complete": False,
-                        "turn_aborted": False}.get(kind, live)
-                said = (msg if e.get("type") == "assistant" and not e.get("isSidechain")
-                        else event if e.get("type") == "turn_context" else None)
-                ran = said.get("model") if isinstance(said, dict) else None
-                # Claude stamps messages it wrote itself (an interrupt, an API error)
-                # "<synthetic>": no model ran them.
-                if isinstance(ran, str) and ran and not ran.startswith("<"):
-                    model = ran
+                        "turn_aborted": False}.get(event.get("type"), live)
+                if e.get("type") == "turn_context" and isinstance(event.get("model"), str):
+                    model = event["model"] or model
     except OSError:
         return None, None
     _reads[path] = (ino, pos, live, model)
@@ -206,8 +200,9 @@ def turn_live(pane: Pane, text: str) -> bool | None:
 def model(pane: Pane, text: str) -> str | None:
     """The model the agent last ran, named as its status line names it. Exact where the
     screen's is a reading, and there when a narrow pane cuts the status line short."""
-    path = _path(pane, text)
-    ran = _follow(path)[1] if path else None
+    claude, codex = _claude_file(pane), None
+    ran = (_claude_model(claude, _stamp(claude)) if claude
+           else _follow(codex)[1] if (codex := _codex_file(pane, text)) else None)
     if not ran or not ran.startswith("claude-"):
         return ran  # Codex shows its model's id as is
     # Claude Code shows claude-opus-5-5 (or a dated claude-haiku-4-5-20251001) as Opus 5.5.
@@ -220,6 +215,21 @@ def model(pane: Pane, text: str) -> str | None:
         else:
             words.append(part.capitalize())
     return " ".join(words) or None
+
+
+@lru_cache(maxsize=256)
+def _claude_model(path: Path, _stat: tuple) -> str | None:
+    """The latest assistant record's model, from the tail `_reply` reads too: a reply is
+    rarely a megabyte from the end, and none read falls back to the screen."""
+    for e in reversed(_entries(path)):
+        msg = e.get("message")
+        ran = msg.get("model") if isinstance(msg, dict) else None
+        # Claude stamps messages it wrote itself (an interrupt, an API error)
+        # "<synthetic>": no model ran them. A subagent's model is not the pane's.
+        if (e.get("type") == "assistant" and not e.get("isSidechain")
+                and isinstance(ran, str) and ran and not ran.startswith("<")):
+            return ran
+    return None
 
 
 @lru_cache(maxsize=256)
