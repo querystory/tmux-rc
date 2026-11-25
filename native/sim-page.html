@@ -1,0 +1,17 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stand-in daemon</title>
+<body style="font: 17px/1.5 system-ui; padding: 80px 24px">
+<h1>Stand-in daemon</h1>
+<p id="where"></p>
+<p id="bridge"></p>
+<p id="push"></p>
+<script>
+  // What sim-shots.sh's screenshot is for: the shell reached this origin, and brought its bridge.
+  const say = (id, text) => { document.getElementById(id).textContent = text; };
+  const push = window.Capacitor?.Plugins?.PushNotifications;
+  say("where", `Loaded from ${location.href}`);
+  say("bridge", `Capacitor bridge on this origin: ${push ? "yes" : "no"}`);
+  push?.checkPermissions().then((answer) => say("push", `Push plugin answered: ${JSON.stringify(answer)}`));
+</script>
