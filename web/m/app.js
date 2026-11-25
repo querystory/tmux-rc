@@ -4,7 +4,7 @@ import { renderCaptureLines, linkifyText, besideHeld, keptRows } from "/terminal
 import { setupLiveMode } from "/m/live.js";
 import { Composer, bindAttach, enterSubmits, sendBlock, block } from "/m/composer.js";
 import { answerBody, pickCursorRow, STALE, UNTAKEN } from "/cursor-pick.js";
-import { setupPush } from "/push.js";
+import { nativePush, setupPush } from "/push.js";
 import { linkGroups, askLink } from "/pr-links.js";
 import { needsYou, activityLabel, activityClass, markWorking, isRecent, matchesFilter, matchesSearch, newestFirst, stillOnPane, paneName, AGENT_TOOLS, paneActivity, paneHeadline, panePending, markLine, paneMeta, questionItems, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age, since, esc, markEnding, noteSessions, oneSession, sessionOf, tabTitle, tabIconKey, isRunning, sendIntent } from "/m/pane-model.js";
 import { tabIcon } from "/tab-icon.js";
@@ -3163,7 +3163,13 @@ if (link || tabbed !== null) history.replaceState(null, "", location.pathname + 
 fitViewport(); route(); startState();
 if (link?.length > 500) notice("That link is too long for a draft (over 500 characters). Copy and paste it instead.");
 else if (link) { notice(`Pick a pane for ${link.length > 80 ? `${link.slice(0, 80)}…` : link}`, 0, ["Cancel", renderList]); shared = link; }
-setupPush($("push"), notice, licon("bell"));
+// The native shell (docs/design/native-app.md): on iOS its bridge follows the page here and
+// brings the push plugin; Android's leaves only its message port. Either can go back to the
+// shell's own page, where the daemon's address is set.
+const shellPush = window.Capacitor?.Plugins?.PushNotifications;
+setupPush($("push"), notice, licon("bell"), shellPush && nativePush(shellPush, localStorage, openLink));
+const shellHome = window.Capacitor ? "capacitor://localhost" : window.androidBridge ? "https://localhost" : null;
+if (shellHome) { $("shell-home").hidden = false; $("shell-home").onclick = () => location.assign(shellHome); }
 // A chat Open button offered within the launch grace may name a window too new for
 // /api/state; a stale one whose pane has since closed takes the normal gone-pane path.
 const openOffered = (id, at) => !panes.some((p) => p.pane_id === id) && awaitingLaunch({ id, at }, id)

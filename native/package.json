@@ -1,0 +1,11 @@
+{
+  "name": "tmux-rc-native",
+  "private": true,
+  "dependencies": {
+    "@capacitor/android": "8.6.2",
+    "@capacitor/cli": "8.6.2",
+    "@capacitor/core": "8.6.2",
+    "@capacitor/ios": "8.6.2",
+    "@capacitor/push-notifications": "8.1.3"
+  }
+}

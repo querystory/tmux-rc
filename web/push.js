@@ -14,23 +14,54 @@ const PUSH_LABELS = {
   Orphaned: "Notify me when a session needs me", // permission revoked in the OS: it reads, and acts, as Off
 };
 
-export async function setupPush(button, announce = () => {}, bell = "") {
-  if (!button || !("serviceWorker" in navigator) || !("PushManager" in window)
-      || !("Notification" in window)) return;
+// Inside the native shell (docs/design/native-app.md) the page has no service worker: the
+// shell's push plugin stands in for the browser's Notification and PushManager, and a tap
+// on a notification comes here to be opened. The shell's token reads "<APNs environment>:<hex>".
+// The device's token outlives the switch, so `store` holds whether it is on.
+export function nativePush(plugin, store, open) {
+  const waiting = [];
+  const settle = (side) => (value) => waiting.splice(0).forEach((pair) => pair[side](value));
+  plugin.addListener("registration", ({ value }) => settle(0)(value));
+  plugin.addListener("registrationError", ({ error }) => settle(1)(new Error(error)));
+  plugin.addListener("pushNotificationActionPerformed", ({ actionId, notification }) => {
+    const to = new URL(notification.data?.url || "/m", location.origin);
+    if (actionId === "tap" && to.origin === location.origin) open(to.href);
+  });
+  const device = async () => {
+    const value = await new Promise((ok, fail) => { waiting.push([ok, fail]); plugin.register(); });
+    const [env, token] = value.split(":"), id = { kind: "apns", token };
+    return { endpoint: token, toJSON: () => ({ ...id, env }), off: id, unsubscribe: async () => store.removeItem("tmuxrc-native-push") };
+  };
+  const native = {
+    permission: "default",
+    requestPermission: async () => (native.permission = (await plugin.requestPermissions()).receive),
+    getSubscription: async () => {
+      native.permission = (await plugin.checkPermissions()).receive;
+      return store.getItem("tmuxrc-native-push") ? device() : null;
+    },
+    subscribe: async () => { const held = await device(); store.setItem("tmuxrc-native-push", "1"); return held; },
+  };
+  return native;
+}
+
+export async function setupPush(button, announce = () => {}, bell = "", native = null) {
+  if (!button || !native && (!("serviceWorker" in navigator) || !("PushManager" in window)
+      || !("Notification" in window))) return;
   button.hidden = false;
   button.innerHTML = bell;
   button.disabled = true;
-  let registration;
-  try {
+  let manager = native;
+  if (!native) try {
     await navigator.serviceWorker.register("/sw.js", { scope: "/" });
-    registration = await navigator.serviceWorker.ready;
+    manager = (await navigator.serviceWorker.ready).pushManager;
   } catch {
     button.title = "Notifications unavailable";
     button.disabled = true;
     return;
   }
+  const permissions = native || Notification;
   let subscription, saved = null; // saved: the endpoint the daemon last acknowledged
-  const state = () => pushState(Notification.permission, subscription, saved);
+  const state = () => pushState(permissions.permission, subscription, saved);
   const save = async (held) => {
     const response = await fetch("/api/push/subscribe", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -40,14 +71,14 @@ export async function setupPush(button, announce = () => {}, bell = "") {
     return !!saved;
   };
   const refresh = async () => {
-    subscription = await registration.pushManager.getSubscription();
+    subscription = await manager.getSubscription();
     const on = state() === "On";
     button.setAttribute("aria-pressed", String(on));
     button.title = PUSH_LABELS[state()];
     button.setAttribute("aria-label", button.title);
     button.classList.toggle("active", on);
   };
-  subscription = await registration.pushManager.getSubscription();
+  subscription = await manager.getSubscription();
   // The daemon may have restarted or restored an older state file. Re-posting the
   // browser's durable subscription is idempotent and repairs that server-side gap.
   if (state() === "NeedsRepair" && !await save(subscription)) {
@@ -65,7 +96,7 @@ export async function setupPush(button, announce = () => {}, bell = "") {
       if (state() === "On") {
         const response = await fetch("/api/push/unsubscribe", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ endpoint: held.endpoint }),
+          body: JSON.stringify(held.off || { endpoint: held.endpoint }),
         });
         if (!response.ok) throw new Error("Could not turn off notifications");
         saved = null; // the daemon has dropped it, even if the browser fails to below
@@ -75,21 +106,22 @@ export async function setupPush(button, announce = () => {}, bell = "") {
         const ios = /iPad|iPhone|iPod/.test(navigator.userAgent);
         const standalone = navigator.standalone
           || matchMedia("(display-mode: standalone)").matches;
-        if (ios && !standalone) {
+        if (!native && ios && !standalone) {
           throw new Error("On iPhone, first Add to Home Screen and open the installed app");
         }
         // This must be the first awaited browser operation in the enable branch: Safari
         // requires requestPermission() to observe the button's transient user activation.
-        const permission = Notification.permission === "granted"
-          ? "granted" : await Notification.requestPermission();
+        const permission = permissions.permission === "granted"
+          ? "granted" : await permissions.requestPermission();
         if (permission !== "granted") throw new Error("Notification permission was not granted");
         // Re-read: a browser may have dropped the held subscription along with the permission.
-        held = await registration.pushManager.getSubscription();
-        if (!held) {
+        held = await manager.getSubscription();
+        if (!held && native) held = await native.subscribe();
+        else if (!held) {
           const configResponse = await fetch("/api/push/config");
           if (!configResponse.ok) throw new Error("Could not load notification settings");
           const config = await configResponse.json();
-          held = await registration.pushManager.subscribe({
+          held = await manager.subscribe({
             userVisibleOnly: true, applicationServerKey: decodeKey(config.public_key),
           });
         }
