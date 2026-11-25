@@ -1245,7 +1245,11 @@ def test_apns_is_absent_without_its_credentials(tmp_path, monkeypatch):
     assert set(push._transports(sender.store, tmp_path)) == {"web", "apns"}
     monkeypatch.delenv("TMUXRC_APNS_TOPIC")
     assert set(push._transports(sender.store, tmp_path)) == {"web"}
+    monkeypatch.setenv("TMUXRC_APNS_TOPIC", "org.example.shell")
     (tmp_path / "apns.p8").write_text("not a key")
+    assert set(push._transports(sender.store, tmp_path)) == {"web"}
+    (tmp_path / "apns.p8").unlink()
+    (tmp_path / "apns.p8").mkdir()  # unreadable: still no reason to stop the daemon
     assert set(push._transports(sender.store, tmp_path)) == {"web"}
     service = push.PushManager(Watcher(), sender.store, sender=push.PushSender(sender.store, {}))
     with pytest.raises(ValueError, match="apns push is not configured"):

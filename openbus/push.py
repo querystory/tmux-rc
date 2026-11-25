@@ -300,8 +300,10 @@ def _apns(config: Path, transport: httpx.BaseTransport | None = None):
         key = serialization.load_pem_private_key((config / "apns.p8").read_bytes(), None)
     except FileNotFoundError:
         return None
-    except ValueError:  # a broken key must not take the daemon down with it
-        logger.warning("apns.p8 is not a private key; native push is off")
+    except (OSError, ValueError, TypeError) as exc:  # unreadable, malformed, or encrypted:
+        # a broken key must not take the daemon down with it
+        logger.warning("apns.p8 is not a usable private key (%s); native push is off",
+                       type(exc).__name__)
         return None
     if not (key_id and team and topic):
         logger.warning("apns.p8 needs TMUXRC_APNS_KEY_ID, _TEAM_ID and _TOPIC; native push is off")
