@@ -1594,7 +1594,8 @@ def test_a_sent_offer_is_spent():
     result = classify(_pane("claude"), quoted, _llm({**read, "offers": ["! touch 'a b'"]}))
     assert (result["activity"], result.get("offers")) == ("waiting", ["! touch 'a b'"])
     # A longer command, or output that names it, is not the command sent.
-    for other in ("! make deployment", "  ⎿  next: ! make deploy"):
+    for other in ("! make deployment", "  ⎿  next: ! make deploy",
+                  "! make deploy\n--force\n  ⎿  Uploading 3 files…"):
         unsent = handed.replace("\n\n❯", f"\n\n{other}\n\n❯")
         result = classify(_pane("claude"), unsent, _llm({**read}))
         assert (result["activity"], result.get("offers")) == ("waiting", ["! make deploy"])
