@@ -59,10 +59,13 @@ place, a redirect) could type into a terminal.
 So the shell answers bridge calls from two origins only: its bundled page, and the daemon,
 which is defined as the address the bundled page sent the webview to. No page but the
 bundled one can change that. The login provider's pages, and anything else, load and run
-with a bridge that says nothing back. Links that open a new window leave for Safari. The
+with a bridge that says nothing back, on both of its ways in (script messages, and the
+`prompt()` its cookie calls use). Links that open a new window leave for Safari. The
 same stored address is where notification answers go, and changing it clears the
 notifications still on screen and takes the device off the old daemon, since its questions
-cannot be answered at the new one.
+cannot be answered at the new one. Leaving does not wait for the old daemon to agree: an
+unreachable daemon is the usual reason to leave it, and a push it sends afterwards carries
+a nonce the new one refuses.
 
 Capacitor documents open navigation as a development setting. It is the mechanism this
 design rests on, so it is used knowingly, and it is the first thing App Review would ask
@@ -137,7 +140,8 @@ Two choices in that path are deliberate:
 
 - **Live Mode audio.** Background audio, the audio session and the microphone prompt are
   the other half of the iPhone pain. None of it is in this version; the shell does not even
-  declare microphone use, so voice stays in Safari or the PWA for now.
+  declare microphone use, so inside it Voice is withheld, with that reason where it would be
+  offered, and stays in Safari or the PWA for now. Chat is unaffected.
 - **The login** in front of the daemon (next section).
 - **Sending pushes.** A device token is useless until something holds an APNs key (below).
 

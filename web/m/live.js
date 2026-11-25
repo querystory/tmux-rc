@@ -152,7 +152,8 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
   const chatModels = () => menu.filter((model) => model.text && !model.unavailable);
   // Why Chat (text) or Voice can't open, "" when it can. Chat starts straight in, so it needs a
   // usable model; Voice opens its picker, which shows a keyless row greyed with what to set.
-  const why = (text) => (run || (enabled && menu.some((model) => !!model.text === text && !(text && model.unavailable)))) ? ""
+  // The native shell cannot use the microphone yet (docs/design/native-app.md), so Voice says so there.
+  const why = (text) => !text && globalThis.Capacitor ? "Voice is not in the app yet; open tmux-rc in Safari for it" : (run || (enabled && menu.some((model) => !!model.text === text && !(text && model.unavailable)))) ? ""
     : menu.find((model) => !!model.text === text && model.unavailable)?.hint || `No ${text ? "chat" : "voice"} model is set up`;
   // The voice picker (a keyless entry greyed, with why), and Chat's switcher options.
   function renderModels() {

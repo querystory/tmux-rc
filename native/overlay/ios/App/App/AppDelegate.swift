@@ -24,12 +24,41 @@ private let daemonKey = "daemon" // the address the bundled page opened: the one
 
 // The webview may be taken anywhere (a login page, a link followed in place), and Capacitor's
 // bridge goes with it, with its built-in HTTP and cookie plugins: enough to act as the user
-// on the daemon. So only the bundled page and the daemon it opened are answered.
-class ShellViewController: CAPBridgeViewController, WKScriptMessageHandler {
+// on the daemon. So only the bundled page and the daemon it opened are answered, on both of
+// the bridge's ways in: script messages, and the prompt() its cookie calls ride on.
+// Everything else Capacitor's handler does as the webview's delegate passes straight through.
+final class BridgeGate: NSObject, WKScriptMessageHandler, WKUIDelegate {
+    private let capacitor: WebViewDelegationHandler
+    init(_ capacitor: WebViewDelegationHandler) { self.capacitor = capacitor }
+
+    private func trusted(_ frame: WKFrameInfo) -> Bool {
+        let origin = frame.securityOrigin, daemon = UserDefaults.standard.url(forKey: daemonKey)
+        return origin.protocol == "capacitor" || origin.protocol == "https" && origin.host == daemon?.host && origin.port == daemon?.port ?? 0
+    }
+
+    override func responds(to selector: Selector!) -> Bool { super.responds(to: selector) || capacitor.responds(to: selector) }
+    override func forwardingTarget(for selector: Selector!) -> Any? { capacitor }
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        if trusted(message.frameInfo) { capacitor.userContentController(userContentController, didReceive: message) }
+    }
+
+    func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (String?) -> Void) {
+        guard trusted(frame) else { return completionHandler(nil) }
+        capacitor.webView(webView, runJavaScriptTextInputPanelWithPrompt: prompt, defaultText: defaultText, initiatedByFrame: frame, completionHandler: completionHandler)
+    }
+}
+
+class ShellViewController: CAPBridgeViewController {
+    private var gate: BridgeGate? // the webview holds its delegate weakly
+
     override func capacitorDidLoad() {
-        let scripts = webView?.configuration.userContentController
+        guard let capacitor = (bridge as? CapacitorBridge)?.webViewDelegationHandler else { return }
+        let gate = BridgeGate(capacitor), scripts = webView?.configuration.userContentController
+        self.gate = gate
         scripts?.removeScriptMessageHandler(forName: "bridge")
-        scripts?.add(self, name: "bridge")
+        scripts?.add(gate, name: "bridge")
+        webView?.uiDelegate = gate
         NotificationCenter.default.addObserver(forName: .capacitorDecidePolicyForNavigationAction, object: nil, queue: .main) { note in
             // Only the bundled page names the daemon: it is where that page sends the webview.
             guard let action = note.object as? WKNavigationAction, action.targetFrame?.isMainFrame == true,
@@ -42,12 +71,14 @@ class ShellViewController: CAPBridgeViewController, WKScriptMessageHandler {
             }
             UserDefaults.standard.set(url, forKey: daemonKey)
         }
+        if let tap = AppDelegate.unopened { AppDelegate.unopened = nil; open(tap) }
     }
 
-    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        let origin = message.frameInfo.securityOrigin, daemon = UserDefaults.standard.url(forKey: daemonKey)
-        guard origin.protocol == "capacitor" || origin.protocol == "https" && origin.host == daemon?.host && origin.port == daemon?.port ?? 0 else { return }
-        (bridge as? CapacitorBridge)?.webViewDelegationHandler.userContentController(userContentController, didReceive: message)
+    // A tap on a notification: the page follows its link (web/push.js). Handed straight to
+    // the push plugin, because Capacitor's router would drop a tap on the app's own "Answer
+    // not sent" notice, which no push delivered.
+    func open(_ tap: UNNotificationResponse) {
+        bridge?.notificationRouter.pushNotificationHandler?.didReceive(response: tap)
     }
 }
 
@@ -67,9 +98,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         return config
     }
 
-    private var shell: CAPBridgeViewController? {
+    static var unopened: UNNotificationResponse? // a tap that came before there was a webview to open it in
+
+    private var shell: ShellViewController? {
         let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
-        return windows.compactMap { $0.rootViewController as? CAPBridgeViewController }.first
+        return windows.compactMap { $0.rootViewController as? ShellViewController }.first
     }
 
     // The push plugin hands this string to the page, which posts it to the daemon (web/push.js).
@@ -91,12 +124,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         let action = response.actionIdentifier.split(separator: ":")
         guard action.count == 2, action[0] == "answer", let index = Int(action[1]), let nonce = info["nonce"] as? String,
               let url = UserDefaults.standard.url(forKey: daemonKey).flatMap({ URL(string: "/api/push/answer", relativeTo: $0) }) else {
-            // A tap on the notification itself: the page follows its link (web/push.js). Handed
-            // straight to the push plugin, because Capacitor's router would drop the tap on
-            // the "Answer not sent" notice below, which no push delivered.
-            let shell = shell
-            shell?.loadViewIfNeeded()
-            shell?.bridge?.notificationRouter.pushNotificationHandler?.didReceive(response: response)
+            // A tap on the notification itself. On a cold start it can arrive before the
+            // window does, and then waits for the shell to load.
+            if let shell { shell.loadViewIfNeeded(); shell.open(response) } else { Self.unopened = response }
             return completionHandler()
         }
         var request = URLRequest(url: url)
