@@ -154,9 +154,56 @@ service worker at all. Simpler, but: content transits a third party in cleartext
 (pane text includes code and secrets-adjacent material), replies land in *their* app
 instead of ours, and there's no deep link back to the pane card. Kept as the
 possible **future fallback transport** — the notifier's decision layer is
-transport-agnostic, and if
-iOS Web Push proves too fragile (see Risks), swapping the sender is a small, isolated
-change.
+transport-agnostic (the sender picks a transport per subscription, below), so adding
+one is a small, isolated change.
+
+### Native transports: APNs, sent by the daemon
+
+A native shell (Capacitor, iOS first) exists because the installed PWA is the fragile leg
+(see Risks): its subscription dies with the home-screen icon, taps often never reach the
+worker, and iOS shows no answer buttons for Web Push at all. A native app gets a device
+token that survives all of that, and notification categories, so the two answer buttons
+finally work on an iPhone.
+
+The decision layer does not know any of this. It produces one payload per notification,
+and a subscription's kind picks the transport that carries it: Web Push for a browser,
+APNs for the shell. Both kinds live in the same store, under the same cap, revoked by the
+same revoke-all, and a token Apple reports dead is dropped exactly as an expired browser
+subscription is. A store written before native push loads as it is; nothing is migrated,
+because a browser's entry did not change shape.
+
+**Why the daemon talks to Apple directly.** It keeps the property the Web Push design
+chose over ntfy/Pushover: no third party of ours sees pane text. The cost is that the
+daemon must hold the app's APNs signing key, which is fine for the owner's own phone and
+own daemon: the key sits beside the other provider keys in `~/.config/tmux-rc/` (the key
+file as `apns.p8`; its key id, team id and the app's bundle id as `TMUXRC_APNS_KEY_ID`,
+`TMUXRC_APNS_TEAM_ID` and `TMUXRC_APNS_TOPIC` in `openai.env`), never in a checkout.
+Without them the transport does not exist: `/api/push/config` lists no native transport,
+a native subscribe is refused, and everything else behaves as before. The token names
+its environment (a development build's token only works on Apple's sandbox host), so the
+shell sends it and the daemon routes by it.
+
+**What the shell is promised.** The address a tap opens is the same deep link the Web
+Push path uses, as a top-level `url`. An ask with answer buttons carries the category
+`answer`, and the buttons' titles and the one-shot nonce as custom keys; iOS fixes a
+category's button titles when the app registers it, so the notification is marked
+mutable for the shell's notification extension to put the real titles in. A tapped
+button comes back through the same `/api/push/answer` and its three gates; the native
+path adds no second way to type into a pane.
+
+**Open problem: other people's daemons.** An APNs key signs for one app, and whoever
+holds it can push to every install of that app. The owner's daemon can hold the owner's
+key; a stranger's self-hosted daemon cannot be handed it. An app distributed to other
+people therefore needs a relay that holds the key and forwards for registered daemons,
+which brings back the third party this design avoided. What that relay may see (it
+should carry ciphertext the shell's extension decrypts, as Web Push relays do), and how
+a daemon proves it may push to a device, are not designed yet. Until then native push
+works only for a build signed by whoever runs the daemon.
+
+**Android** has no transport yet. FCM's HTTP v1 needs no new dependency, but whether
+the answer buttons need a data-only message depends on a native Android service that
+does not exist, and a message shape nobody can run is a guess. The subscribe contract
+already names the kind (`fcm`), so adding it is one transport, not a redesign.
 
 ### The service-worker wrinkle
 

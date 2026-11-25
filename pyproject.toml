@@ -19,6 +19,9 @@ dependencies = [
     # over their own WebSocket — no SDK for either.
     "websockets>=14",
     "pywebpush>=2.5.0",
+    # APNs (push.py) speaks only HTTP/2. httpx already ships with google-genai and
+    # anthropic; the extra adds h2, which is pure Python.
+    "httpx[http2]>=0.28",
     "anthropic>=1",
     "markdown>=3.11",
     "pymdown-extensions>=12.1",
