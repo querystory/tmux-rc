@@ -54,7 +54,7 @@ def _entries(path: Path, _stat: tuple) -> tuple[dict, ...]:
             f.seek(max(0, size - _TAIL))
             lines = f.read().splitlines()[size > _TAIL:]  # a cut-short first line goes
     except OSError:
-        return []
+        return ()
     entries = []
     for line in lines:
         try:
