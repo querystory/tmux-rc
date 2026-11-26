@@ -45,7 +45,9 @@ def _stamp(path: Path) -> tuple[int, int]:
     return st.st_mtime_ns, st.st_size
 
 
-def _entries(path: Path) -> list[dict]:
+# A pane's reply, turn and model each read the same tail as its file stands: one decode.
+@lru_cache(maxsize=8)
+def _entries(path: Path, _stat: tuple) -> tuple[dict, ...]:
     try:
         with path.open("rb") as f:
             size = f.seek(0, os.SEEK_END)
@@ -59,7 +61,7 @@ def _entries(path: Path) -> list[dict]:
             entries.append(json.loads(line))
         except ValueError:
             continue
-    return [e for e in entries if isinstance(e, dict)]
+    return tuple(e for e in entries if isinstance(e, dict))
 
 
 def _started(pid: int) -> str | None:
@@ -146,7 +148,7 @@ def turn(pane: Pane, text: str) -> str | None:
 
 @lru_cache(maxsize=256)
 def _turn(path: Path, _stat: tuple) -> str | None:
-    said = [e for e in _entries(path) if e.get("type") in _SAID and not e.get("isSidechain")
+    said = [e for e in _entries(path, _stat) if e.get("type") in _SAID and not e.get("isSidechain")
             and not (isinstance(p := e.get("payload"), dict) and p.get("type") == "token_count")]
     last = json.dumps(said[-1], sort_keys=True).encode() if said else None
     return last and f"{path.name}:{hashlib.sha256(last).hexdigest()}"
@@ -221,7 +223,7 @@ def model(pane: Pane, text: str) -> str | None:
 def _claude_model(path: Path, _stat: tuple) -> str | None:
     """The latest assistant record's model, from the tail `_reply` reads too: a reply is
     rarely a megabyte from the end, and none read falls back to the screen."""
-    for e in reversed(_entries(path)):
+    for e in reversed(_entries(path, _stat)):
         msg = e.get("message")
         ran = msg.get("model") if isinstance(msg, dict) else None
         # Claude stamps messages it wrote itself (an interrupt, an API error)
@@ -235,7 +237,7 @@ def _claude_model(path: Path, _stat: tuple) -> str | None:
 @lru_cache(maxsize=256)
 def _reply(path: Path, _stat: tuple) -> str | None:
     reply = None
-    for e in _entries(path):
+    for e in _entries(path, _stat):
         msg = e.get("message") if not e.get("isSidechain") else None
         content = msg.get("content") if isinstance(msg, dict) else None
         # Codex has written both {item_completed, item: {type: AgentMessage, ...}} and
