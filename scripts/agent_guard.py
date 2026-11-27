@@ -27,7 +27,10 @@ ISOLATED = re.compile(r"\benv\s+-u\s+TMUX\b.*\btmux\s+-[LS]\s*\S")
 GIT_MOVE = re.compile(
     r"\bgit\s+(checkout|switch|reset|restore|pull|merge|rebase|commit|cherry-pick|stash)\b")
 REBUILD = re.compile(r"\bgit\s+checkout\s+--detach\s+origin/integration$")
-SPLIT = re.compile(r"&&|\|\||[;|\n]")
+# One shell command between unquoted, unescaped separators (&& || ; | newline): tmux runs
+# `tmux ls \; kill-server` as one invocation, so its escaped `;` must not split it.
+PIECE = re.compile(r"""(?:\\.|'[^']*'|"(?:\\.|[^"\\])*"|[^\\'";&|\n]|(?<!&)&(?!&)|['"\\])+""",
+                   re.DOTALL)
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 
 
@@ -51,7 +54,7 @@ def verdict(event: dict, root: Path | None) -> str | None:
     tool, args = event.get("tool_name"), event.get("tool_input") or {}
     cwd = Path(event.get("cwd") or ".").resolve()
     if tool == "Bash":
-        for part in SPLIT.split(args.get("command", "")):
+        for part in PIECE.findall(args.get("command", "")):
             if KILL.search(part) and not ISOLATED.search(part):
                 return ("tmux kill-server/kill-session would hit the user's live tmux server "
                         "($TMUX is inherited). Close only the window or pane id you created, or "
