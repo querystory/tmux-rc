@@ -24,7 +24,9 @@ from pathlib import Path
 UNIT = Path.home() / ".config/systemd/user/tmux-rc.service"
 KILL = re.compile(r"\btmux\b.*\bkill-(server|session)\b")
 ISOLATED = re.compile(r"\benv\s+-u\s+TMUX\b.*\btmux\s+-[LS]\s*\S")
-GIT_C = r"\bgit\s+(?:-C\s+(\S+)\s+)?"  # group 1: the checkout a `git -C` names
+# `git` and its global options (`-c k=v`, `--no-pager`, ...); group 1: the checkout `-C` names
+GIT_C = (r"\bgit\s+(?:(?:-C\s+(\S+)|-c\s+\S+"
+         r"|--(?:git-dir|work-tree|namespace|config-env)\s+\S+|-\S+)\s+)*")
 GIT_MOVE = re.compile(
     GIT_C + r"(checkout|switch|reset|restore|pull|merge|rebase|commit|cherry-pick|stash)\b")
 REBUILD = re.compile(GIT_C + r"checkout\s+--detach\s+origin/integration$")
