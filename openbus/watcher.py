@@ -67,7 +67,7 @@ CHECKPOINT_EVENTS = 100
 DEAD_SERVER_RETENTION = 30 * 86400
 # Bump when classification or the fingerprint changes meaning: stored cards then miss
 # their hash once and every pane is re-read, instead of restoring an older parser's card.
-CARD_VERSION = 102
+CARD_VERSION = 117
 # LLM parse cadence. We capture every tick (cheap, for the snapshot buffer) but only
 # PARSE when the content fingerprint CHANGED vs. the last parse (or on a forced reparse).
 # `changed` compares against _prev_fp, which is written only on a SUCCESSFUL parse — so a
@@ -1212,7 +1212,7 @@ class Watcher:
     def frame_fp(self, text: str, question: dict | None = None) -> str:
         """A capture's hash, as _tick_pane keys its parses. The parser version and LLM mode
         are mixed in so a stored card from a different classifier misses on restart. With
-        a menu `question`, only its own rows, verbatim (classify.question_rows): the
+        a menu or key `question`, only its own rows, verbatim (classify.question_rows): the
         normalized screen can't tell "sleep 10s" from "sleep 20s", and an answer token
         must, yet output still streaming above the menu must not make it look stale."""
         rows = question_rows(question, text) if isinstance(question, dict) else ""

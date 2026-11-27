@@ -1,0 +1,16 @@
+{
+  "description": "Invented Antigravity CLI swarm screen: a worker's approval box (\"ctrl+k approve · alt+j manage\") above the composer and the swarm's status rows. Each action is a chord, not a letter, so its key is named in tmux's form (C-k, M-j): sent as the bare letter it would type a \"k\" into the composer.",
+  "current_command": "agy",
+  "capture": "\n○ Thought for 9.4s (Comparing the two schedule exports before merging...)\n● Used 2 tools (ReadBoard, Swarm)\n● Ran (wc -l exports/ferry_times.csv) (ctrl+o to expand)\n\n ┃ worker needs approval for Bash\n ┃ ─────────────────────────────────────────────\n ┃\n ┃ ● Bash(git -C /home/dev/src/ferry-planner log --oneline -5 --\n ┃ exports/ferry_times.csv)\n ┃\n ┃ ctrl+k approve · alt+j manage\n──────────────────────────────────────────────────────────\n>\n──────────────────────────────────────────────────────────\n  ● Swarm(Reconcile the ferry timetable exports)  planner: @coor… · 7 posts · alt+s board\n  ● Agent(worker: Swarm Worker (csv-checker))  Reading file · 2m41s\n  ↓ 2 more\n──────────────────────────────────────────────────────────\nesc to cancel                    accept-edits · Gemini 4 Neon · high · 3 subagent(s)",
+  "expected": {
+    "tool": "antigravity",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "present": true,
+      "answer_style": "key",
+      "keys": {"approve": "C-k", "manage": "M-j"}
+    },
+    "headline": "A swarm worker asks to run git log on the ferry timetable export"
+  }
+}

@@ -239,6 +239,7 @@ actually hit:
 | `228_claude_your_call_above_an_idle_compaction` | synthetic: "Merging any of the PRs remains your call" above re-read rows and an idle-compaction note → user-wait (fails today on flash-lite and 3.5-flash) |
 | `229_claude_say_go_in_a_list_of_open_items` | synthetic: 'Say "go" and I'll start a fresh sign-in' in a list of open items → user-wait offering "go" |
 | `265_claude_ok_to_merge_after_a_review_in_a_waiting_list` | synthetic: a "Still waiting on:" list with another person's approval, then the user's OK to merge and a question, under an unsent draft → user-wait |
+| `327_antigravity_swarm_approval_chord_keys` | synthetic: an Antigravity CLI swarm worker's approval box, "ctrl+k approve · alt+j manage", above the swarm's status rows → a key question whose keys are the chords in tmux's form (`C-k`, `M-j`), not their letters |
 
 Sample 16 originally exposed a table-extraction failure: the prompt said to carry a
 question's supporting list but also to omit tables unless an actual table was shown.
