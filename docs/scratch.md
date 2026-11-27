@@ -262,7 +262,9 @@ tmux-rc fills in the rest in the background, so the gallery never waits for it:
   description already there is never replaced.
 - **Who made it.** While the pane named in `meta.json` is open, the card links to it
   (a Codex pane is checked against the transcript first, since Codex's shared app server
-  stamps every session's `meta.json` with its first pane). For a page being updated, the
+  stamps every session's `meta.json` with its first pane; so is the pane any running
+  app-server daemon inherited as `TMUX_PANE`, whatever that pane runs now, since the
+  daemon outlives the Codex that started it). For a page being updated, the
   session asked for is the reviser's, active when the `updating` mark was written.
   Otherwise tmux-rc asks [agent-history](https://github.com/querystory/tmux-rc/tree/main/agent-history)
   which session was active when the folder appeared and mentioned its path, and writes the

@@ -2,7 +2,9 @@
 each card saying who made it and linking to that pane while it is still open
 (docs/deploy/previews.md).
 
-Who made a folder comes from its meta.json "pane" while that pane lives. Otherwise the
+Who made a folder comes from its meta.json "pane" while that pane lives, unless Codex may
+have written it: a Codex pane, or the pane a Codex app-server daemon was started from
+(daemon_panes), which every Codex session names as its own. Otherwise the
 agent transcripts are searched for the folder's path, once per folder: a found author
 never changes, so its session id goes into the folder's meta.json (marked generated, like
 a description) and is never searched for again; a miss is retried after a while, since
@@ -45,6 +47,8 @@ _missed: dict[tuple, float] = {}  # when each (name, inode, update mark) was las
 _BASIS: dict[tuple, tuple] = {}  # (name, inode): what its card's state was read from (resolve)
 _found: dict[tuple, str] = {}  # for a refusing meta.json, or a listing older than it
 _reconciled = [0.0]
+DAEMONS = 10  # seconds daemon_panes() keeps what it last read
+_daemons: list = [float("-inf"), set()]  # when, and which panes Codex's daemons claim
 _PAGE = Path(__file__).resolve().parent / "scratch.html"
 _PENDING = Path(__file__).resolve().parent / "scratch_pending.html"
 _ASK = Path(__file__).resolve().parent / "scratch_ask.js"
@@ -534,6 +538,24 @@ def annotate(meta: Path, root: Path, field: str, value: str, inode: int = 0) -> 
     return True
 
 
+def daemon_panes() -> set[str]:
+    """The panes the running Codex app-server daemons were started from: the TMUX_PANE
+    they inherited, which every Codex session's tool calls report as their own. Read
+    afresh at most every DAEMONS seconds: walking /proc takes tens of ms, and every card,
+    overview and viewer bar resolves."""
+    if time.monotonic() - _daemons[0] > DAEMONS:
+        found = set()
+        with suppress(OSError):  # no /proc: no daemon to know of
+            pids = [p for p in os.listdir("/proc") if p.isdigit()]
+            found = {v for pid in pids if tmux.proc_read(pid, "comm").strip() == "codex"
+                     and "app-server" in tmux.proc_read(pid, "cmdline").split("\0")
+                     for k, _, v in (kv.partition("=") for kv in
+                                     tmux.proc_read(pid, "environ").split("\0"))
+                     if k == "TMUX_PANE" and v}
+        _daemons[:] = [time.monotonic(), found]
+    return _daemons[1]
+
+
 def made_in(pane: dict, created: float) -> bool:
     """Whether the pane was already open when the folder appeared (unknown counts as yes)."""
     stat = tmux.proc_stat(pane["birth"]) if pane.get("birth") else []
@@ -618,7 +640,11 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
     # Codex runs every session's tool calls through one app-server daemon, forked by the
     # first Codex pane with its TMUX_PANE, so a meta.json Codex wrote names that pane
     # whichever session wrote it: the transcript says which, the named pane failing that.
-    sure = {p for p, s in panes.items() if s.get("tool") != "codex"}
+    # The daemon outlives that first session, so its pane may run anything now (Claude, a
+    # shell): it is the daemon's TMUX_PANE that is distrusted, as well as any Codex pane
+    # (a daemon on another CODEX_HOME may have exited since its sessions wrote).
+    daemons = daemon_panes()
+    sure = {p for p, s in panes.items() if s.get("tool") != "codex" and p not in daemons}
     account = {p: a for a in profiles for p in a.get("panes", [])}
     todo = [i for i in listed if i["pane"] not in sure]
     _writers(todo)
