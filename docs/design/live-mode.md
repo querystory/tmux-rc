@@ -49,7 +49,11 @@ silent audio flowing, so the Live clock and backend speech continue. There is no
 commit, response trigger for audio, or invented spoken-turn completion. Transcript
 timestamps provide display-only gap grouping; overlapping fragments never run tools.
 
-Full pane updates go into backend conversation context. Changed pane digests also
+Each fleet update replaces the backend's instructions (`session.update`): its prompt is
+rebuilt with the panes as they stand now. Appended to its conversation instead, every
+snapshot stayed there and each later request re-read them all, about 9k tokens apiece on a
+large fleet, which was cost and latency rather than accuracy. Screens after the voice's own
+input still join the conversation, next to the action they follow. Changed pane digests also
 arrive as quiet `session.thinking.append` hints, conservatively bounded below its
 500-token limit. These hints never authorize actions. Function calls are collected
 from completed output items and run only after successful backend completion; every
