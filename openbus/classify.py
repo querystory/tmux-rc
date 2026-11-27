@@ -665,6 +665,13 @@ def _ground_visible_fields(
         )
     if bad_action and bad_session and identity_chrome:
         evidence = f"{evidence}\n\n{identity_chrome}"
+    # Say why, when the read's question is nowhere on the screen as written (a list the
+    # model quoted whole, a row abridged): the re-read can then quote what does ask.
+    asked = bad_question and _question_prompt(result["question"])
+    if asked and not _occurrences(asked, visible):
+        evidence += ("\n\n[Your previous reading quoted a question that is not on this screen "
+                     "word for word. If the screen asks the user something, quote the line "
+                     "that asks, as shown]")
     # With no status chrome, an identity re-read has nothing to read a title from.
     retry = llm_fn(
         prompt, f"{_parser_context(pane, None, host_tool, visible)}\n\n{evidence}"
