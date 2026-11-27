@@ -4,7 +4,7 @@
 // node to its new place; a poll that changes nothing structural only recolours, and one that
 // adds a pane eases it in from its hub, so live updates never jump the layout.
 import { STATES, stateOf } from './atlas.js';
-import { esc, paneName, paneHeadline, records, since, home } from './pane-model.js';
+import { esc, paneName, paneHeadline, records, since, home, modelProvider } from './pane-model.js';
 
 const LENSES = [['session', 'Session'], ['account', 'Account'], ['repo', 'Repo / dir'], ['worktree', 'Worktree'], ['tool', 'Tool / model']];
 const LEGEND = {
@@ -86,7 +86,9 @@ export function fleetGraph(box, mini, ctx) {
   const paneNode = p => Object.assign(node(p.pane_id, () => ({ kind: 'pane' })), { p, r: mini ? 11 : p.context_pct == null ? 8 : 7 + 9 * p.context_pct / 100 }); // its size: the context it has used
   const subNodes = pn => Array.from({ length: subsOf(pn.p) }, (_, j) => Object.assign(node(`${pn.id}/${j}`, () => ({ kind: 'sub' })), { parent: pn, a: subsList(pn.p)[j] })).map(x => Object.assign(x, { r: !x.a || ACTIVE[x.a.state] ? Math.max(5, x.parent.r * 0.6) : 3.5 }));
   const stateOf_ = n => n.kind === 'pane' ? paneState(n.p) : n.kind === 'sub' ? subState(n.a) : null;
-  const logo = tool => { const src = ctx.logos[tool]; if (src && !imgs[tool]) { const i = imgs[tool] = new Image(); i.onload = () => draw(); i.src = src; } return imgs[tool]; };
+  const logo = src => { if (src && !imgs[src]) { const i = imgs[src] = new Image(); i.onload = () => draw(); i.src = src; } return imgs[src]; };
+  // A Tool hub wears its tool's logo; a model hub its vendor's, only under a tool that drives any vendor's (pane-model's model badge).
+  const hubLogo = n => lens === 'tool' && (n.depth === 1 ? ctx.logos[n.panes[0].tool] : modelProvider(n.panes[0])?.[1]);
 
   // A lens is a tree: the root, a hub per path segment, then the panes and their satellites.
   function build() {
@@ -197,6 +199,9 @@ export function fleetGraph(box, mini, ctx) {
   }
   const path = c => { dc.beginPath(); dc.moveTo(c[0], c[1]); dc.bezierCurveTo(c[2], c[3], c[4], c[5], c[6], c[7]); dc.stroke(); };
   const disc = (x, y, r) => { dc.beginPath(); dc.arc(x, y, r, 0, 7); };
+  // A logo in a node's disc, once loaded and big enough to read; false leaves the node its dot.
+  const mark = (src, n, r, a) => { const img = logo(src); if (!img?.complete || !img.naturalWidth || r * view.k <= 8) return false;
+    dc.globalAlpha = a; dc.save(); disc(n.x, n.y, r * 0.72); dc.clip(); dc.drawImage(img, n.x - r * 0.72, n.y - r * 0.72, r * 1.44, r * 1.44); dc.restore(); return true; };
 
   function draw(now = performance.now()) {
     if (!model || !W || !box.isConnected) return; // a view off the page has no palette to read
@@ -326,7 +331,7 @@ export function fleetGraph(box, mini, ctx) {
         let a0 = -Math.PI / 2; dc.lineWidth = 2.6 / k; dc.globalAlpha = A;
         for (const [cnt, cc] of [[nd, C.s[0]], [bn, C.s[1]]]) if (cnt) { const a1 = a0 + cnt / tot * Math.PI * 2; dc.strokeStyle = cc; dc.beginPath(); dc.arc(n.x, n.y, r + 3 / k, a0, a1); dc.stroke(); a0 = a1; }
         if (fold) label(String(tot), n.x, n.y, 'center', C.fg, 11, 700, 'middle', 0, true);
-        else { dc.fillStyle = col; disc(n.x, n.y, r * 0.34); dc.fill(); }
+        else if (!mark(hubLogo(n), n, r, A)) { dc.fillStyle = col; disc(n.x, n.y, r * 0.34); dc.fill(); }
         dc.globalAlpha = A;
         if (n.depth === 1) { // its name, and what it adds up to
           const cost = n.panes.reduce((t, p) => t + costOf(p), 0);
@@ -340,10 +345,7 @@ export function fleetGraph(box, mini, ctx) {
         if (s === 0) { pulsing = moving; const q = moving ? frac(now / 1600) : 0.35; dc.globalAlpha = A * (1 - q) * 0.8; dc.strokeStyle = col; dc.lineWidth = 1.2 / k; disc(n.x, n.y, r + (3 + q * 12) / k); dc.stroke(); }
         dc.globalAlpha = A; dc.fillStyle = C.surface; disc(n.x, n.y, r); dc.fill();
         dc.globalAlpha = A * (on ? 1 : 0.75); dc.strokeStyle = col; dc.lineWidth = (on ? 1.6 : 1) / k; dc.stroke();
-        const img = logo(p.tool);
-        if (img?.complete && img.naturalWidth && r * k > 8) {
-          dc.globalAlpha = A * (on ? 1 : 0.7); dc.save(); disc(n.x, n.y, r * 0.72); dc.clip(); dc.drawImage(img, n.x - r * 0.72, n.y - r * 0.72, r * 1.44, r * 1.44); dc.restore();
-        } else { dc.globalAlpha = A * (on ? 1 : 0.8); dc.fillStyle = col; disc(n.x, n.y, r * (on ? 0.5 : 0.28)); dc.fill(); }
+        if (!mark(ctx.logos[p.tool], n, r, A * (on ? 1 : 0.7))) { dc.globalAlpha = A * (on ? 1 : 0.8); dc.fillStyle = col; disc(n.x, n.y, r * (on ? 0.5 : 0.28)); dc.fill(); }
         if (n === sel) { // brackets, as a sight picks its target
           const q = r + 7 / k, l = 5 / k; dc.globalAlpha = 1; dc.strokeStyle = C.fg; dc.lineWidth = 1.4 / k; dc.beginPath();
           for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) { dc.moveTo(n.x + sx * q, n.y + sy * (q - l)); dc.lineTo(n.x + sx * q, n.y + sy * q); dc.lineTo(n.x + sx * (q - l), n.y + sy * q); }
