@@ -316,7 +316,18 @@ Google login as one row per family, with a `family` field and plain "5h" / "1d" 
 windows; the strip, the dashboard and the usage view name the row "Antigravity · Gemini"
 and draw it as one more line on the ordinary chart. History still stores a pool's samples
 under "5h Gemini" (provider, email, window), so the family survives a restart without a
-column of its own; `by_family` splits them when reporting. Two families on one pool
+column of its own; `by_family` splits them when reporting.
+
+**An untouched pool is not started, and an unused family is not shown.** A pool nobody has
+drawn on reads 100% left with a reset exactly one window from now, and that reset rolls
+forward on every read: no window has begun. Shown as is, it put "0% · resets 4h55m" on the
+chart for every pool, with a countdown that never arrives. So a pool at 100% left is stored
+as a window not yet opened (no reset), as Claude's null windows are, and reads "not
+started". And agy reports every family it serves, so a Gemini-only user saw Claude and GPT
+pools at 0% beside the one in use, as noise. A family is reported only while its window has
+started, or it read above 0% in the last 30 days (the usage view's range), so the Claude
+pool appears the first time agy draws on it and stays while its history is worth charting.
+The strip, dashboard and usage view all read `/api/usage`, so the rule holds in each. Two families on one pool
 would show the same numbers twice; we prefer that to guessing pools from equal numbers, since
 two untouched pools are equal too. Gemini CLI's buckets are per model, so its families come
 from the model id ("gemini-2.5-flash-lite" is "Flash Lite") and every Pro version shares
