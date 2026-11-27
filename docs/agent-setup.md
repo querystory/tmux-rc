@@ -198,6 +198,31 @@ restricts watching to a *single* pane, so it is a blunt instrument: today it is 
 right answer when you have one agent you care about, and the wrong one when you have a
 fleet plus a stray `top`. Closing the `top` pane is often the better fix.
 
+## Plan usage for Antigravity (`agy`) and Gemini CLI
+
+The plan meters (Settings › Plan usage) cover Antigravity CLI and Gemini CLI logins as well
+as Claude and Codex ones. Nothing needs setting up, but a few things decide what shows:
+
+- **Each CLI's own sign-in, from the OS keyring.** `agy` keeps its Google login in one
+  keyring slot for the whole machine, as does Gemini CLI (or in `~/.gemini/oauth_creds.json`
+  on older builds), so there is at most one account of each, named by its email. The daemon
+  reads the slot over the desktop's Secret Service; a locked keyring, or a machine with none
+  (a headless box without `gnome-keyring`), shows no meters.
+- **The token is the CLI's, and only the CLI refreshes it.** An access token lasts about an
+  hour and `agy` renews it while it runs. With no `agy` pane and an expired token the account
+  drops out of the strip until `agy` runs again; with a pane, it reads "unavailable" until
+  then.
+- **gcloud ADC sessions are not metered.** An `AGY_ADC_AUTH=true agy` pane (or Gemini CLI on
+  ADC) bills a Google Cloud project, which has no plan window to show.
+- **One meter per model family**, at its most used model: Antigravity's pools show as
+  "Antigravity · Gemini", "Antigravity · Claude" and so on, on the same 5-hour chart as
+  Claude's and Codex's; Gemini CLI's daily quotas as "Gemini CLI · Pro" on a Daily one. A
+  family shows once it has been used (in the last 30 days); a pool nothing has started reads
+  "not started".
+
+The numbers come from the same undocumented Cloud Code endpoints the CLIs call, so they can
+change shape or vanish; see [plan usage](design/plan-usage.md) ("Sources, and why each").
+
 ## What this all adds up to
 
 Let your agent put its title on screen (and name the window yourself when it can't) so the

@@ -1,6 +1,7 @@
-# Design: plan usage — Claude and Codex limits in /m
+# Design: plan usage — Claude, Codex, Antigravity and Gemini CLI limits in /m
 
-Status: **implemented** (`openbus/plan_usage.py`, `web/m/usage.js`, `web/m/usage-view.js`).
+Status: **implemented** (`openbus/plan_usage.py`, `openbus/google_quota.py`, `web/m/usage.js`,
+`web/m/usage-view.js`).
 
 ## Why
 
@@ -280,6 +281,78 @@ details. An expired token is not refreshed — Claude Code owns that file, and a
 writer racing it could log the user out — it just reads "unavailable" until Claude Code
 refreshes it. macOS keeps these credentials in the Keychain, not a file, so there Claude
 reads unavailable; the daemon is deployed on Linux.
+
+**Antigravity and Gemini CLI: Cloud Code's quota.** Both CLIs talk to Google's Cloud Code
+service (`cloudcode-pa.googleapis.com/v1internal`), and both ask it per model how much is
+left. `agy` calls `fetchAvailableModels` on the `daily-` host (its own logs name it), whose
+`models.<id>.quotaInfo` holds `remainingFraction` and `resetTime`; it answers an Antigravity
+plan only to a client whose User-Agent names Antigravity, so the daemon sends
+`tmux-rc antigravity`. Gemini CLI calls `retrieveUserQuota` with its Code Assist project
+(`GOOGLE_CLOUD_PROJECT`, else the one `loadCodeAssist` assigns the login) and gets a bucket per
+model with the same two fields. Both are undocumented, in the same risk class as Claude's
+endpoint: a changed shape reads "unavailable", never 0%.
+
+Used is `1 − remainingFraction`. Google sends no window length, but an untouched quota resets
+one full window from now (an unused Antigravity pool reads 100% left, resetting in exactly
+five hours), so a window is named by the shortest of 5h, 1d and 7d that fits the time to its
+reset, and no shorter than the open window was already read as, since a weekly quota's last
+hours also fit in 5h. A Gemini CLI quota first read late in its day can be named 5h until it
+resets; after that it reads 1d.
+
+**One meter per model family, at its most used model.** Antigravity reports about twenty
+models, but they draw on a few shared pools: every Gemini model showed one fraction and one
+reset, and the Claude models another. A meter per model would be twenty identical cards; the
+single most constrained bucket would hide the decision the meters exist for ("Gemini is
+spent, switch this pane to Claude"). So each family, from the model's `modelProvider`
+(Gemini, Claude, GPT), is one meter at the lowest fraction among its models, which keeps a
+series stable when a model is added or renamed.
+
+**A family is a series, not a window.** The first cut named each pool's window "5h Gemini",
+as Claude's per-model weekly limit is "7d Fable", and the usage view then drew a chart per
+pool ("5-hour Gemini", "5-hour Claude", "5-hour GPT"), each one line on its own. That was
+wrong in use: an Antigravity pool is a five-hour quota like any other, and the question is
+the same one the 5-hour chart answers ("which plan has room?"). So `/api/usage` reports a
+Google login as one row per family, with a `family` field and plain "5h" / "1d" / "7d"
+windows; the strip, the dashboard and the usage view name the row "Antigravity · Gemini"
+and draw it as one more line on the ordinary chart. History still stores a pool's samples
+under "5h Gemini" (provider, email, window), so the family survives a restart without a
+column of its own; `by_family` splits them when reporting.
+
+**An untouched pool is not started, and an unused family is not shown.** A pool nobody has
+drawn on reads 100% left with a reset exactly one window from now, and that reset rolls
+forward on every read: no window has begun. Shown as is, it put "0% · resets 4h55m" on the
+chart for every pool, with a countdown that never arrives. So a pool at 100% left is stored
+as a window not yet opened (no reset), as Claude's null windows are, and reads "not
+started". And agy reports every family it serves, so a Gemini-only user saw Claude and GPT
+pools at 0% beside the one in use, as noise. A family is reported only while its window has
+started, or it read above 0% in the last 30 days (the usage view's range), so the Claude
+pool appears the first time agy draws on it and stays while its history is worth charting.
+The strip, dashboard and usage view all read `/api/usage`, so the rule holds in each. Two families on one pool
+would show the same numbers twice; we prefer that to guessing pools from equal numbers, since
+two untouched pools are equal too. Gemini CLI's buckets are per model, so its families come
+from the model id ("gemini-2.5-flash-lite" is "Flash Lite") and every Pro version shares
+one meter. A model with no reset time (Antigravity's autocomplete) has no plan limit and is
+left out.
+
+**Accounts and tokens.** Neither CLI has a config-dir override for its login: `agy` keeps
+one Google OAuth token in the OS keyring (go-keyring: service `gemini`, user `antigravity`),
+Gemini CLI one in its keytar slot (`gemini-cli-oauth` / `main-account`), or in
+`~/.gemini/oauth_creds.json` on older builds or with file storage forced. So there is one
+account per CLI per machine, keyed by the login's email (from agy's item, or Gemini CLI's
+`google_accounts.json`), so a different login is a different series. The keyring is read over
+the Secret Service's D-Bus API (`jeepney`, pure Python) in a plain session on the user's own
+bus; a locked item is left alone, since unlocking would prompt on the desktop. The token is
+used in-process like Claude's, never logged, and never refreshed: the CLI owns it. `agy`
+renews its token while it runs, so with no `agy` pane an expired token takes the account off
+the strip rather than leaving an "unavailable" meter nobody can act on; with a pane it reads
+"unavailable" until `agy` renews it.
+
+These accounts have no profile (accounts.py manages config dirs, and these logins have
+none), so the server names each by its email, and the UI shows it only when a provider has
+several, as it does profiles. A pane on gcloud ADC (`AGY_ADC_AUTH=true`) is not on the
+personal login and is not metered: it bills a Google Cloud project, and Cloud Code's quota
+API refuses ADC without a quota project that has the private API enabled. The quota is read
+at most every CLAUDE_TTL per login, and agy itself polls about once a minute.
 
 ## Polling and storage
 

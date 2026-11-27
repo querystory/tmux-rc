@@ -402,6 +402,13 @@ class History:
                               "AND account=? AND window=? AND t BETWEEN ? AND ? ORDER BY t",
                               (provider, account, window, since, until)).fetchall()
 
+    def used_since(self, provider: str, account: str, window: str, since: float) -> bool:
+        """Whether this window read above 0% at any time since then."""
+        with self.connect() as db:
+            return db.execute("SELECT 1 FROM plan_usage WHERE provider=? AND account=? AND "
+                              "window=? AND t >= ? AND pct > 0 LIMIT 1",
+                              (provider, account, window, since)).fetchone() is not None
+
     def import_logs(self, observations: list[tuple]) -> int:
         """Idempotent, transactional import. Raw screen/summary text is never stored."""
         with self.connect() as db:

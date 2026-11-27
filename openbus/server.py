@@ -93,6 +93,7 @@ from . import (  # noqa: E402
     export,
     expunge,
     fit,
+    google_quota,
     plan_usage,
     restore,
     scratch,
@@ -542,7 +543,8 @@ async def lifespan(app: FastAPI):
                                  shoot=lambda item: scratch_sidecars.queue(
                                      Path(_scratch_dir), WEB_DIR, [item], use_llm))
     app.state.push.start()
-    app.state.usage = PlanUsage(app.state.history, profiles=accounts.metered)
+    app.state.usage = PlanUsage(app.state.history, profiles=accounts.metered,
+                                google=google_quota.GoogleQuota())
     app.state.worktrees = Worktrees()
     tasks = [asyncio.create_task(app.state.usage.run(app.state.watcher)),
              asyncio.create_task(app.state.worktrees.run(app.state.watcher))]
@@ -866,8 +868,9 @@ def put_goal(body: GoalBody, request: Request):
 
 @app.get("/api/usage")
 def get_usage(past: float = 0):
-    """Each Claude and Codex account's plan windows, trend and projection; with ?past=<days>,
-    the windows that ended in those days too (the usage view's sawtooth)."""
+    """Each Claude, Codex, Antigravity and Gemini CLI account's plan windows, trend and
+    projection; with ?past=<days>, the windows that ended in those days too (the usage
+    view's sawtooth)."""
     usage = getattr(app.state, "usage", None)
     return {"accounts": usage.report(past=past) if usage else []}
 
