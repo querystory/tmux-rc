@@ -45,21 +45,23 @@ def _stamp(path: Path) -> tuple[int, int]:
     return st.st_mtime_ns, st.st_size
 
 
-def _entries(path: Path) -> list[dict]:
+# A pane's reply, turn and model each read the same tail as its file stands: one decode.
+@lru_cache(maxsize=8)
+def _entries(path: Path, _stat: tuple) -> tuple[dict, ...]:
     try:
         with path.open("rb") as f:
             size = f.seek(0, os.SEEK_END)
             f.seek(max(0, size - _TAIL))
             lines = f.read().splitlines()[size > _TAIL:]  # a cut-short first line goes
     except OSError:
-        return []
+        return ()
     entries = []
     for line in lines:
         try:
             entries.append(json.loads(line))
         except ValueError:
             continue
-    return [e for e in entries if isinstance(e, dict)]
+    return tuple(e for e in entries if isinstance(e, dict))
 
 
 def _started(pid: int) -> str | None:
@@ -146,54 +148,96 @@ def turn(pane: Pane, text: str) -> str | None:
 
 @lru_cache(maxsize=256)
 def _turn(path: Path, _stat: tuple) -> str | None:
-    said = [e for e in _entries(path) if e.get("type") in _SAID and not e.get("isSidechain")
+    said = [e for e in _entries(path, _stat) if e.get("type") in _SAID and not e.get("isSidechain")
             and not (isinstance(p := e.get("payload"), dict) and p.get("type") == "token_count")]
     last = json.dumps(said[-1], sort_keys=True).encode() if said else None
     return last and f"{path.name}:{hashlib.sha256(last).hexdigest()}"
 
 
-# rollout -> (file identity, bytes read, turn open)
-_rollout_reads: dict[Path, tuple[int, int, bool | None]] = {}
+# rollout -> (file identity, bytes read, turn open, model)
+_reads: dict[Path, tuple[int, int, bool | None, str | None]] = {}
 
 
-def turn_live(pane: Pane, text: str) -> bool | None:
-    """Whether Codex's rollout has a turn open (True), closed (False), or cannot say
-    (None): open from task_started to task_complete or turn_aborted. Codex hides its
-    "Working" row while a message prints mid-turn, so the screen alone can show a live turn
-    as over. Read incrementally, since one long turn writes megabytes, far past `_TAIL`.
-    Claude's transcript is not read for this: a turn it closes can leave background agents
-    working, and whether the pane is busy is the model's read of the screen."""
-    path = _codex_file(pane, text)
-    if not path:
-        return None
+def _follow(path: Path) -> tuple[bool | None, str | None]:
+    """Whether Codex's rollout has a turn open, and the model its latest turn_context
+    names. Read incrementally, since one long turn writes megabytes, far past `_TAIL`."""
     try:
         with path.open("rb") as f:
             ino, size = (st := os.fstat(f.fileno())).st_ino, st.st_size
-            seen, pos, live = _rollout_reads.get(path, (ino, 0, None))
+            seen, pos, live, model = _reads.get(path, (ino, 0, None, None))
             if seen != ino or size < pos:  # replaced (a session copied over it): start over
-                pos, live = 0, None
+                pos, live, model = 0, None, None
             f.seek(pos)
             for line in f:  # one record at a time: a rollout can reach hundreds of MB
                 if not line.endswith(b"\n"):
                     break  # still being written: read it whole next time
                 pos += len(line)
                 try:
-                    event = json.loads(line).get("payload")
-                except (ValueError, AttributeError):
+                    e = json.loads(line)
+                except ValueError:
                     continue
-                kind = event.get("type") if isinstance(event, dict) else None
+                event = e.get("payload") if isinstance(e, dict) else None
+                if not isinstance(event, dict):
+                    continue
                 live = {"task_started": True, "task_complete": False,
-                        "turn_aborted": False}.get(kind, live)
+                        "turn_aborted": False}.get(event.get("type"), live)
+                if e.get("type") == "turn_context" and isinstance(event.get("model"), str):
+                    model = event["model"] or model
     except OSError:
-        return None
-    _rollout_reads[path] = (ino, pos, live)
-    return live
+        return None, None
+    _reads[path] = (ino, pos, live, model)
+    return live, model
+
+
+def turn_live(pane: Pane, text: str) -> bool | None:
+    """Whether Codex's rollout has a turn open (True), closed (False), or cannot say
+    (None): open from task_started to task_complete or turn_aborted. Codex hides its
+    "Working" row while a message prints mid-turn, so the screen alone can show a live turn
+    as over. Claude's transcript is not read for this: a turn it closes can leave background
+    agents working, and whether the pane is busy is the model's read of the screen."""
+    path = _codex_file(pane, text)
+    return _follow(path)[0] if path else None
+
+
+def model(pane: Pane, text: str) -> str | None:
+    """The model the agent last ran, named as its status line names it. Exact where the
+    screen's is a reading, and there when a narrow pane cuts the status line short."""
+    claude, codex = _claude_file(pane), None
+    ran = (_claude_model(claude, _stamp(claude)) if claude
+           else _follow(codex)[1] if (codex := _codex_file(pane, text)) else None)
+    if not ran or not ran.startswith("claude-"):
+        return ran  # Codex shows its model's id as is
+    # Claude Code shows claude-opus-5-5 (or a dated claude-haiku-4-5-20251001) as Opus 5.5.
+    words: list[str] = []
+    for part in ran.split("-")[1:]:
+        if part.isdigit() and len(part) == 8:  # a release date, YYYYMMDD
+            continue
+        if part.isdigit() and words and words[-1][-1].isdigit():
+            words[-1] += f".{part}"
+        else:
+            words.append(part.capitalize())
+    return " ".join(words) or None
+
+
+@lru_cache(maxsize=256)
+def _claude_model(path: Path, _stat: tuple) -> str | None:
+    """The latest assistant record's model, from the tail `_reply` reads too: a reply is
+    rarely a megabyte from the end, and none read falls back to the screen."""
+    for e in reversed(_entries(path, _stat)):
+        msg = e.get("message")
+        ran = msg.get("model") if isinstance(msg, dict) else None
+        # Claude stamps messages it wrote itself (an interrupt, an API error)
+        # "<synthetic>": no model ran them. A subagent's model is not the pane's.
+        if (e.get("type") == "assistant" and not e.get("isSidechain")
+                and isinstance(ran, str) and ran and not ran.startswith("<")):
+            return ran
+    return None
 
 
 @lru_cache(maxsize=256)
 def _reply(path: Path, _stat: tuple) -> str | None:
     reply = None
-    for e in _entries(path):
+    for e in _entries(path, _stat):
         msg = e.get("message") if not e.get("isSidechain") else None
         content = msg.get("content") if isinstance(msg, dict) else None
         # Codex has written both {item_completed, item: {type: AgentMessage, ...}} and

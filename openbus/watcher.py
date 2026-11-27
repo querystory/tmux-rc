@@ -1031,6 +1031,7 @@ class Watcher:
                 s.get("session"), s.get("window_index"), s.get("window_name"),
                 s.get("label"), s.get("title"), s.get("name"), s.get("cwd"),
                 s.get("activity"), s.get("tool"), s.get("events_seq"),
+                s.get("model"),  # the transcript's, stamped on an unreparsed screen too
                 s.get("secret"),  # the composer mode: a tty change with an unchanged screen
                 tuple((p.get("repo"), p.get("number"), p.get("title"))
                       for p in (s.get("prs") or [])),
@@ -1525,6 +1526,10 @@ class Watcher:
         # the last parse didn't have re-reads the card even though the screen is unchanged.
         told = transcript.last_reply(pane, text), transcript.turn_live(pane, text)
         said = transcript.turn(pane, text)  # before the parse: what it reads, not after
+        # The transcript names the model exactly; the parser's is a reading of the screen
+        # (classify drops one the screen doesn't show), so the transcript's wins. Stamped
+        # on every tick rather than parsed, like the pane's identity below.
+        ran = transcript.model(pane, text)
         changed = not hold and (fp != self._prev_fp.get(pane.id)  # differs from the last parse
                                 # A restored card has no parsed reply: the first seen stands
                                 # in. Its turn state is unknown, so a known one re-reads it once.
@@ -1584,6 +1589,8 @@ class Watcher:
             # _stamp_identity) — refresh even when nothing re-parses, or a titleless
             # pane keeps a stale spoken name and focus reads stale.
             _stamp_identity(cached, pane)
+            if ran:
+                cached["model"] = ran
             # Idle a while with unsummarized activity → summarize the burst once, so the
             # UI can collapse those events under a {from,to,text} span.
             cached["summary"] = self._maybe_summarize(pane.id, idle)
@@ -1819,6 +1826,8 @@ class Watcher:
         # The pane's display name, window number as shown in tmux's status bar, and
         # per-session focus — see _stamp_identity.
         _stamp_identity(state, pane)
+        if ran:
+            state["model"] = ran
         state["snapshot_id"] = self.snapshots[pane.id][-1]["id"]  # recorded on first sight
         state["idle_seconds"] = idle
         # When this pane entered its current activity/question state — the client ticks

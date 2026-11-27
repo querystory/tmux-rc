@@ -170,3 +170,39 @@ def test_codex_turn_open_from_its_rollout(homes, monkeypatch):
     path.unlink()
     path.write_text(event("task_started") + event("task_complete"))
     assert transcript.turn_live(_pane("7"), status) is False
+
+
+def test_claude_model_from_its_latest_assistant_record(homes):
+    _write(homes / "claude/sessions/1.json", [_registration()])
+    path = homes / f"claude/projects/-x/{SID}.jsonl"
+    pane = _pane(str(os.getppid()))
+    def ran(model, **extra):
+        return {"type": "assistant", "message": {"role": "assistant", "model": model,
+                                                 "content": []}, **extra}
+    _write(path, [_say("user", "hi")])
+    assert transcript.model(pane, "") is None  # a brand-new session: the screen's, if any
+    with path.open("a") as f:
+        for e in (ran("claude-sonnet-5"), _say("user", "switch"), ran("claude-opus-5-5")):
+            f.write(json.dumps(e) + "\n")
+    assert transcript.model(pane, "") == "Opus 5.5"
+    # Neither a subagent's model nor a message Claude wrote itself is the pane's.
+    with path.open("a") as f:
+        f.write(json.dumps(ran("claude-haiku-5", isSidechain=True)) + "\n")
+        f.write(json.dumps(ran("<synthetic>")) + "\n")
+    assert transcript.model(pane, "") == "Opus 5.5"
+    with path.open("a") as f:  # a dated id reads as the status line names it
+        f.write(json.dumps(ran("claude-haiku-4-5-20251001")) + "\n")
+    assert transcript.model(pane, "") == "Haiku 4.5"
+    assert transcript.model(_pane("999999999"), "") is None  # not this pane's agent
+
+
+def test_codex_model_from_its_latest_turn_context(homes, monkeypatch):
+    monkeypatch.setattr(transcript, "_programs", lambda pid: {"codex"})
+    path = homes / f"codex/sessions/2026/10/09/rollout-2026-10-09T09-00-00-{SID}.jsonl"
+    status = f"› Ask Codex to do anything\n  {SID} · GPT-6…"
+    def context(model):
+        return {"type": "turn_context", "payload": {"cwd": "/x", "model": model}}
+    _write(path, [context("gpt-6-sol"), {"type": "event_msg", "payload": {"type": "task_started"}},
+                  context("gpt-6.1-sol")])
+    assert transcript.model(_pane("7"), status) == "gpt-6.1-sol"  # Codex shows its id as is
+    assert transcript.turn_live(_pane("7"), status) is True  # one read serves both
