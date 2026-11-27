@@ -1336,6 +1336,8 @@ def classify(
             prompt += ("\nThis pane runs Antigravity CLI (agy). Include antigravity among the "
                        "allowed tool values and report tool=antigravity. The selected model "
                        "(Gemini, Argon, Claude, etc.) is its backend, not the host agent. "
+                       "A numbered widget's own rows go in \"options\" alone, each row's "
+                       "words after its digit, wrapped lines and all. "
                        "Its pickers ignore digits, so a list whose rows carry digits under a "
                        '> highlight is still answer_style "cursor", selected on the > row.\n')
         if re.search(

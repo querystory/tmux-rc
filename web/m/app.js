@@ -1317,7 +1317,7 @@ function render() {
   const question = asking ? pane.question : null, options = answerOptions(question, pane);
   show("question", asking || offers.length > 0 || options.length > 0);
   text($("prompt"), question?.ask || question?.prompt || "");
-  text($("question-items"), questionItems(question));
+  text($("question-items"), questionItems(question, options.map((o) => o.option)));
   // The widget's own rows, once and folded away: the restatement above is what to read.
   // Folded again for each new pane or command: an expanded one must not carry over.
   const command = $("question-command"), commandKey = `${active}\n${question?.context || ""}`;
