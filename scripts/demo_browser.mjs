@@ -142,10 +142,14 @@ export async function startDemo(tree = process.cwd(), env = {}, browse = launch)
   const python = (...args) => ["uv", ["run", "--directory", tree, "python", ...args]];
   const now = Number(execFileSync(...python("-c", "from scripts.demo_fleet import NOW; print(NOW)"), { encoding: "utf8" }));
   const port = await freePort();
-  const server = spawn(...python("-m", "scripts.demo_server", String(port)), { stdio: "inherit", env: { ...process.env, ...env } });
+  const server = spawn(...python("-m", "scripts.demo_server", String(port)), { stdio: "inherit", env: { ...process.env, ...env }, detached: true });
   const base = `http://127.0.0.1:${port}`;
   let browser;
-  const close = async () => { await browser?.close(); server.kill(); };
+  // SIGKILL the whole group: uv and uvicorn ignore SIGTERM mid-seed, and an orphan keeps node alive.
+  const close = async () => {
+    await browser?.close();
+    try { process.kill(-server.pid, "SIGKILL"); } catch { /* already gone */ }
+  };
   try {
     await waitUp(`${base}/api/version`, server);
     browser = await browse();
