@@ -507,10 +507,11 @@ def test_the_maker_is_its_meta_pane_only_while_that_pane_is_open(tmp_path, monke
     _folder(tmp_path, "mine", 1000, {"pane": "%7"})
     _folder(tmp_path, "none", 1000)
     live = [{"pane_id": "%7", "session": "s"}]
-    assert scratch.maker(tmp_path, "mine", live) == live[0]
-    assert scratch.maker(tmp_path, "mine", []) is None  # closed
-    assert scratch.maker(tmp_path, "mine", [{"pane_id": "%7", "birth": str(os.getpid())}]) is None
-    assert [scratch.maker(tmp_path, n, live) for n in ("none", "gone", "..")] == [None] * 3
+    assert scratch.maker(tmp_path, "mine", live)[0] == live[0]
+    assert scratch.maker(tmp_path, "mine", [])[0] is None  # closed
+    reused = [{"pane_id": "%7", "birth": str(os.getpid())}]
+    assert scratch.maker(tmp_path, "mine", reused)[0] is None
+    assert [scratch.maker(tmp_path, n, live)[0] for n in ("none", "gone", "..")] == [None] * 3
 
 
 def test_a_codex_page_goes_to_its_writer_never_to_the_pane_codex_stamped(tmp_path, monkeypatch):
@@ -523,11 +524,12 @@ def test_a_codex_page_goes_to_its_writer_never_to_the_pane_codex_stamped(tmp_pat
         "t2": {"session_id": "t2", "harness": "codex", "running": {"thread": "t2"}}})
     _folder(tmp_path, "plan", 1000, {"pane": "%6"})
     states = [{"pane_id": p, "tool": "codex", "session": "s"} for p in ("%6", "%44")]
-    assert scratch.maker(tmp_path, "plan", states, lambda _e: "%44") is None
+    assert scratch.maker(tmp_path, "plan", states, lambda _e: "%44")[0] is None
     found["plan"] = {"session_id": "t2"}
     scratch._missed.clear()
-    assert scratch.maker(tmp_path, "plan", states, lambda _e: "%44")["pane_id"] == "%44"
-    assert scratch.maker(tmp_path, "plan", states, lambda _e: None) is None  # in no pane
+    assert scratch.maker(tmp_path, "plan", states, lambda _e: "%44") == (states[1], "t2")
+    # in no pane: the conversation it could resume instead
+    assert scratch.maker(tmp_path, "plan", states, lambda _e: None) == (None, "t2")
 
 
 def test_a_page_moved_to_a_pane_goes_there_while_that_pane_lives(tmp_path, monkeypatch):
@@ -548,13 +550,20 @@ def test_a_page_moved_to_a_pane_goes_there_while_that_pane_lives(tmp_path, monke
     seen = scratch.tag(scratch.items(root))
     scratch.bind(root, "plan", "%8", "41", states)
     assert scratch.tag(scratch.items(root)) != seen  # an open gallery reloads to show it
-    assert scratch.maker(root, "plan", states)["pane_id"] == "%8"
-    assert scratch.maker(root, "other", states)["pane_id"] == "%6"  # only the page moved
+    assert scratch.maker(root, "plan", states)[0]["pane_id"] == "%8"
+    assert scratch.maker(root, "other", states)[0]["pane_id"] == "%6"  # only the page moved
     items, _ = _resolved(root, states)  # its card says so too
     assert (items["plan"]["pane"], items["plan"]["where"]) == ("%8", "s:Billing")
+    # A resume landing after its wait binds only the folder it asked about, not yet moved.
+    other = (root / "other").stat().st_ino
+    for name, inode in (("plan", (root / "plan").stat().st_ino), ("other", other + 1)):
+        with pytest.raises(ValueError, match="moved or replaced"):
+            scratch.bind(root, name, "%8", "41", states, inode)
+    scratch.bind(root, "other", "%8", "41", states, other)
+    assert scratch.maker(root, "other", states)[0]["pane_id"] == "%8"
     # A new pane under the recycled id is another agent: back to the maker.
     states[1]["birth"] = "42"
-    assert scratch.maker(root, "plan", states)["pane_id"] == "%6"
+    assert scratch.maker(root, "plan", states)[0]["pane_id"] == "%6"
     # A deleted folder's binding goes at the next move.
     states[1]["birth"] = "41"
     scratch.bind(root, "other", "%8", "41", states)

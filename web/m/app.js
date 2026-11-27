@@ -2,7 +2,7 @@ import { headerPicker, dismissable } from "/m/header-picker.js";
 import { renderAtlas, renderFleet, refreshAtlasHistory, renderHeatView, detailCard, pageHead } from '/m/atlas.js';
 import { renderCaptureLines, linkifyText, besideHeld, keptRows } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
-import { Composer, bindAttach, enterSubmits, sendBlock, block } from "/m/composer.js";
+import { Composer, bindAttach, enterSubmits, sendBlock, block, quoteOf } from "/m/composer.js";
 import { answerBody, pickCursorRow, STALE, UNTAKEN } from "/cursor-pick.js";
 import { setupPush } from "/push.js";
 import { linkGroups, askLink } from "/pr-links.js";
@@ -168,7 +168,7 @@ const reviewing = () => effectiveLayout() !== "focus";
 const terminalVisible = () => reviewing() || view === "terminal";
 const overviewVisible = () => reviewing() || view === "summary";
 const drafts = new Map();
-let viewerTo = null; const viewerDrafts = new Map(); // the scratch viewer's maker and composers: see findMaker
+let viewerTo = null, quotable = ""; const viewerDrafts = new Map(); // the scratch viewer's maker, composers and selection: see findMaker
 // page: a dashboard card's own view (url-state.js PAGES), which replaces the page; leaving
 // it lands on its card (CARDS).
 let dashboard = false, page = null;
@@ -888,6 +888,7 @@ addEventListener("message", (e) => {
   // (askSend). Only that document runs script in its frame (viewScratch), so an ask from the frame
   // is the page the sheet names. Its origin is opaque, so "null".
   if (typeof e.data?.scrolled === "number" && e.source === viewer.querySelector("iframe")?.contentWindow) viewer.querySelector("iframe").scrolled = e.data.scrolled; // where a reload puts it
+  if (typeof e.data?.selected === "string" && e.source === shown?.contentWindow) { quotable = quoteOf(e.data.selected); paintViewerForm(); } // its Quote chip
   if (intent) return e.source === viewer.querySelector("iframe")?.contentWindow && e.origin === "null" && !$("send-dialog").open && askSend(sendIntent(e.data, panes));
   if (/^%\d+$/.test(pane) && [scratchFrame, viewer.querySelector("iframe")].some((f) => f?.contentWindow === e.source)) navigate(pane, "summary", { draft: offered });
   if (e.source !== scratchFrame.contentWindow) return;
@@ -928,7 +929,7 @@ const viewer = $("scratch-viewer");
 // for an update (checkUpdate), scrolled as it was.
 function viewerFrame(href, title) {
   const old = viewer.querySelector("iframe"), scrolled = old?.src === new URL(href, location.href).href && old.scrolled; // the same page only
-  old?.remove();
+  old?.remove(); quotable = ""; paintViewerForm(); // a selection is its document's: a reload may have reworded it
   const frame = Object.assign(document.createElement("iframe"), { src: href, title, onload() {
     if (++this.loads > 1) { viewerTo = null; paintViewerForm(); return; }
     this.sandbox = "allow-popups allow-popups-to-escape-sandbox";
@@ -1040,28 +1041,54 @@ function useMaker(to) {
 // Picking one moves the page there, for every device, until that pane closes. Send waits for
 // the move (the chip names the pane it goes to till then), and only the latest pick lands, and
 // only on the visit it was made from.
+// Resume, offered when the maker's pane has closed and its conversation is known, moves the
+// page the same way, to the pane that conversation reopens in.
 let moving = null, moveSave = Promise.resolve(); // saved in the order picked, as pins are
 const paintMove = headerPicker($("viewer-move"));
 $("viewer-move-picker").ontoggle = (e) => e.target.querySelector(":checked")?.scrollIntoView({ block: "nearest" });
 const paneWhere = (p) => { const name = paneName(p); return name.startsWith(`${p.session}:`) ? name : `${p.session}:${name}`; };
-$("viewer-move").onchange = async () => {
-  const p = panes.find((q) => viewerKey(q) === $("viewer-move").value), { folder } = viewerTo || {};
-  if (!p || !folder) return;
-  const out = $("viewer-out").href, move = moving = moveSave = moveSave.catch(() => {}).then(() => request(`/api/scratch/${encodeURIComponent(folder)}/pane`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pane: p.pane_id, birth: p.birth }) }));
+async function moveTo(method, path, body, failure, timeout) {
+  const out = $("viewer-out").href, { folder } = viewerTo; // this visit's page, whatever is open once the queue reaches it
+  const move = moving = moveSave = moveSave.catch(() => {}).then(() => request(`/api/scratch/${encodeURIComponent(folder)}/${path}`, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }, timeout));
   paintViewerForm();
   let failed; const to = await move.catch((e) => { failed = e; });
   // A later pick, another visit, or the page navigated (a page in progress reloading is the same visit: viewerFrame).
   if (moving !== move || !viewer.open || $("viewer-out").href !== out || viewer.querySelector("iframe")?.loads > 1) return;
   moving = null;
-  if (to) return useMaker({ ...viewerTo, ...to });
-  text($("viewer-status"), `Could not move the page: ${failed.detail || failed.message}`); paintViewerForm();
+  text($("viewer-status"), to ? "" : `${failure}: ${failed.detail || failed.message}`);
+  if (to) useMaker({ ...viewerTo, ...to }); else paintViewerForm();
+}
+$("viewer-move").onchange = () => {
+  const p = panes.find((q) => viewerKey(q) === $("viewer-move").value);
+  if (p && viewerTo?.folder) moveTo("PUT", "pane", { pane: p.pane_id, birth: p.birth }, "Could not move the page");
+};
+$("viewer-resume").onclick = () => {
+  if (!moving) moveTo("POST", "resume", {}, "Could not resume its conversation", NO_TIMEOUT); // it waits for the agent's prompt
+  text($("viewer-status"), "Resuming its conversation…"); // a tap while it does says so again
+};
+// A footer chip's words, and the × when a tap on it takes something off the message.
+const chipLabel = (chip, label, remove) => { html(chip, `<span>${esc(label)}</span>${remove ? licon("x", 14) : ""}`); chip.title = remove || ""; };
+// What is selected on the page (scratch_markdown.OUT says), quoted into the message at a tap:
+// the quote is how the agent finds the sentence, so nothing else about it is kept. While it is
+// in the message the chip's × takes it out, the remark staying; a new selection's replaces it.
+function quoteNode(draft) {
+  if (!draft?.quoted) return null;
+  const walk = document.createTreeWalker(draft.editor, NodeFilter.SHOW_TEXT);
+  while (walk.nextNode()) if (walk.currentNode.nodeValue.includes(draft.quoted)) return walk.currentNode;
+  return null;
+}
+$("viewer-quote").onclick = () => {
+  const draft = viewerDrafts.get(viewerKey(viewerPane())), node = quoteNode(draft);
+  if (node) { node.nodeValue = node.nodeValue.replace(draft.quoted, ""); draft.edited(); }
+  if (quotable) draft.insert(document.createTextNode(draft.quoted = quotable));
+  quotable = ""; paintViewerForm();
 };
 // The page as the user sees it goes with each send unless they take it off: the server draws it
 // (the sandboxed frame can't be read from here) at the frame's size (as last seen without the
 // keyboard, which shrinks it) for its width, whole, at the screen's pixel ratio, and the
 // theme the frame is shown in (its color-scheme, which a page's prefers-color-scheme follows),
 // and attaches it as a pasted image.
-const shotChip = (on) => { $("viewer-shot").setAttribute("aria-pressed", on); text($("viewer-shot"), on ? "Screenshot attached ✕" : "Attach screenshot"); };
+const shotChip = (on) => { $("viewer-shot").setAttribute("aria-pressed", on); chipLabel($("viewer-shot"), on ? "Screenshot attached" : "Attach screenshot", on && "Remove the screenshot"); };
 $("viewer-shot").onclick = () => shotChip($("viewer-shot").getAttribute("aria-pressed") !== "true");
 let viewerSize = "";
 const viewerShot = () => $("viewer-shot").getAttribute("aria-pressed") === "true" && `${viewerSize || `${innerWidth}x${innerHeight}`}@${Math.min(3, Math.round(devicePixelRatio) || 1)}${getComputedStyle(viewer).colorScheme.includes("dark") ? " dark" : ""}`;
@@ -1069,13 +1096,22 @@ const viewerKey = (p) => `${p.pane_id}@${p.birth}`; // a pane recycled under its
 const viewerPane = () => panes.find((p) => p.pane_id === viewerTo?.pane && p.birth === viewerTo.birth);
 // Why Send can't go now ("" when it can): the greyed look and what a tap on it says.
 const viewerWhy = (p) => moving ? "Checking where this page goes…" : sending ? "Still sending the last message…" : p.secret ? "This pane is asking for a password: open it to answer." : !viewerDrafts.get(viewerKey(p)).segments().length ? "Nothing to send yet." : "";
+// The pane closed under an open viewer: who the page goes to now, or the conversation to resume.
+async function lostMaker(to) {
+  const now = await request(`/api/scratch/${encodeURIComponent(to.folder)}/pane`).catch(() => null);
+  if (now && viewerTo === to && !moving) useMaker({ ...to, ...now });
+}
 function paintViewerForm() {
   const p = $("scratch-viewer").open && viewerPane(), form = $("viewer-form"); // render() may run before `viewer` is defined
   form.hidden = !($("scratch-viewer").open && viewerTo); // not a page messages can go from
   if (form.hidden) return;
+  if (p) viewerTo.seen = true; else if (viewerTo.seen) { viewerTo.seen = false; lostMaker(viewerTo); } // asked once
   html($("viewer-move"), (p ? "" : '<option value="">Choose a pane</option>') + panes.filter((q) => AGENT_TOOLS.has(q.tool) || q === p).map((q) => `<option value="${esc(viewerKey(q))}">${esc(paneWhere(q))}</option>`).join(""));
   $("viewer-move").value = p ? viewerKey(p) : ""; paintMove();
   $("viewer-to").hidden = !p; $("viewer-send").setAttribute("aria-disabled", String(!p));
+  const reply = p && viewerDrafts.get(viewerKey(p)), quoted = quoteNode(reply) && reply.quoted;
+  $("viewer-quote").hidden = !(p && !p.secret && (quotable || quoted)); chipLabel($("viewer-quote"), quotable ? `Quote ${quotable}` : `Quoted ${quoted}`, !quotable && "Remove the quote"); $("viewer-resume").hidden = !!p || !viewerTo.session;
+  $("viewer-resume").setAttribute("aria-disabled", String(!!moving));
   if (!p) return form.querySelector("#viewer-reply")?.remove(); // no pane found, or it has closed: the chip picks one
   const { editor } = viewerDrafts.get(viewerKey(p)), frame = $("scratch-viewer").querySelector("iframe");
   if (!form.contains(editor)) { form.querySelector("#viewer-reply")?.remove(); $("viewer-send").before(editor); }

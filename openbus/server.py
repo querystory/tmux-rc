@@ -31,7 +31,7 @@ import tempfile
 import threading
 import time
 import urllib.error
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
 from dataclasses import replace
 from functools import partial
@@ -2474,6 +2474,9 @@ if _scratch_dir:
         _audit(request, f"scratch_{body.action}", "-", ",".join(done))
         return {"done": done}
 
+    # pane -> its wait for the agent's prompt, shared by every request that finds that pane.
+    _prompts: dict[str, asyncio.Task] = {}
+
     @app.get("/api/scratch/{name}/pane")
     def scratch_maker(name: str, archived: bool = False) -> dict:
         """The open pane a scratch folder's messages go to (scratch.maker): the viewer's
@@ -2482,10 +2485,14 @@ if _scratch_dir:
         if archived:  # a live folder may have its name since
             return {"title": (scratch.named(scratch.archive(root), name) or {}).get("title")}
         watcher = app.state.watcher
-        pane = scratch.maker(root, name, list(watcher.states),
-                             lambda entry: live.running_pane(entry, watcher)) or {}
+        pane, session = scratch.maker(root, name, list(watcher.states),
+                                      lambda entry: live.running_pane(entry, watcher))
+        if pane and pane["pane_id"] in _prompts:  # resumed, its agent still loading: no box yet
+            pane = None
         page = scratch.named(root, name) or scratch.named(scratch.archive(root), name) or {}
-        return {"pane": pane.get("pane_id"), "birth": pane.get("birth"),
+        return {"pane": (pane or {}).get("pane_id"), "birth": (pane or {}).get("birth"),
+                # the conversation Resume would reopen, where its window could be shown
+                "session": None if pane or os.environ.get("TMUXRC_TARGET") else session,
                 "about": scratch.about(root, name), "title": page.get("title")}
 
     @app.get("/api/scratch/{name}/version")
@@ -2503,13 +2510,60 @@ if _scratch_dir:
     @app.put("/api/scratch/{name}/pane")
     def scratch_move(name: str, body: ScratchPane, request: Request) -> dict:
         """Send a scratch folder's messages to this open pane from now on (scratch.bind)."""
+        return _send_to(request, "scratch_move", name, body.pane, body.birth)
+
+    def _send_to(request: Request, action: str, name: str, pane: str, birth: str,
+                 inode: int = 0) -> dict:
         try:
-            scratch.bind(Path(_scratch_dir), name, body.pane, body.birth,
-                         list(app.state.watcher.states))
+            scratch.bind(Path(_scratch_dir), name, pane, birth,
+                         list(app.state.watcher.states), inode)
         except ValueError as e:
-            _refuse(request, "scratch_move", name[:120], 422, str(e))
-        _audit(request, "scratch_move", body.pane, name[:120])
+            _refuse(request, action, name[:120], 422, str(e))
+        _audit(request, action, pane, name[:120])
         return scratch_maker(name)
+
+    def _prompt(pane: str, *, opened: bool = False) -> Awaitable:
+        """The wait for `pane`'s prompt, begun here and now for one just `opened`: the next
+        request to find the pane, however soon, waits on the same one."""
+        if opened and pane not in _prompts:
+            _prompts[pane] = asyncio.create_task(restore.ready(app.state.watcher, pane))
+            _prompts[pane].add_done_callback(lambda _task: _prompts.pop(pane, None))
+        # shielded: one device leaving doesn't end the others' wait
+        return asyncio.shield(_prompts[pane]) if pane in _prompts else asyncio.sleep(0)
+
+    @app.post("/api/scratch/{name}/resume")
+    async def scratch_resume(name: str, request: Request) -> dict:
+        """Reopen the conversation that made a scratch folder, as Live Mode resumes one
+        (live.resume: never a second copy of a running one, whose pane is used as it is),
+        wait for its prompt as a restore does, and send the folder's messages to that pane
+        (scratch.bind), the incarnation resumed: one that closed during the wait is refused,
+        as is a folder that is no longer the one asked about (deleted and made again)."""
+        root, watcher = Path(_scratch_dir), app.state.watcher
+        refuse = partial(_refuse, request, "scratch_resume", name[:120])
+        _single_pane(refuse, "a resumed conversation")
+
+        def asked() -> tuple:  # the folder and who it goes to, as one reading
+            return (scratch.named(root, name) or {}).get("inode"), scratch_maker(name)
+        folder, to = await asyncio.to_thread(asked)
+        if to["pane"]:  # another device resumed it meanwhile, and its agent is ready
+            return to
+        if not to["session"]:
+            refuse(409, "no conversation was recorded for this page")
+        found = await live.resume(to["session"], watcher, {})
+        if not (pane := found.get("pane_id")):
+            refuse(409, found["reason"])
+        wait = _prompt(pane, opened=found["status"] == "opened")
+        birth = await asyncio.to_thread(tmux.pane_pid, pane)
+        await wait
+
+        def land() -> dict:  # a pane picked on the To chip during the wait stands
+            went = scratch_maker(name)
+            if (scratch.named(root, name) or {}).get("inode") != folder or (
+                    not went["pane"] and went["session"] != to["session"]):
+                refuse(409, "this page was replaced while its conversation resumed")
+            return went if went["pane"] else _send_to(request, "scratch_resume", name, pane,
+                                                      birth or "", folder)
+        return await asyncio.to_thread(land)
 
     def _pins() -> Path:
         return accounts.store_path().with_name("pins.json")  # the state dir: every device's

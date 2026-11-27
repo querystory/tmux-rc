@@ -1557,9 +1557,13 @@ html.editing #scratch-viewer { top: var(--app-top, 0px); height: var(--app-heigh
 #viewer-move-picker .header-picker-menu { top: auto; bottom: calc(100% + 4px); left: 0; right: auto; max-height: 60vh; overflow-y: auto; }
 #viewer-to { color: var(--accent); }
 #viewer-status:empty { display: none; }
-#viewer-shot { min-height: 28px; font-size: 12px; padding: 2px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); }
-#viewer-shot[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
-#viewer-send[aria-disabled="true"] { opacity: .45; }
+:is(#viewer-shot, #viewer-quote) { min-height: 32px; display: inline-flex; align-items: center; gap: 4px; min-width: 0; font-size: 12px; padding: 2px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); }
+:is(#viewer-shot, #viewer-quote) > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* the × stays in view */
+:is(#viewer-shot, #viewer-quote) > svg { flex: none; }
+:is(#viewer-shot[aria-pressed="true"], #viewer-quote, #viewer-resume) { color: var(--accent); border-color: var(--accent); }
+#viewer-quote { flex-basis: 100%; } /* its own row: what a tap will quote, or take out */
+#viewer-resume { flex: 1 1 calc(100% - 56px); min-height: 44px; border: 1px solid; border-radius: 6px; } /* where the box will be */
+:is(#viewer-send, #viewer-resume)[aria-disabled="true"] { opacity: .45; }
 #scratch-viewer iframe { flex: 1; width: 100%; border: 0; background: #fff; } /* a page with no background of its own reads as in a tab */
 @media (max-width: 1099px) { #scratch-viewer::after { content: ""; position: absolute; inset: calc(48px + env(safe-area-inset-top)) auto 0 0; width: 16px; } }
 /* The Fleet graph (graph.js): its card spans the dashboard; its view fills the page, the canvas
