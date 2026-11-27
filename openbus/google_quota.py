@@ -134,8 +134,11 @@ def samples(quotas: list[tuple[str, float, str | None]], now: float, prior: dict
     for fam, (left, at) in sorted(worst.items()):
         known = next((s for name, s in prior.items() if name.split(" ", 1)[-1] == fam), 0)
         seconds = span(at - now, known)
+        # An untouched pool's reset is just now + its window, rolling forward on every read:
+        # nothing has started it, so it reads as a window not yet opened, as Claude's null one.
         out.append({"window": f"{window_name(seconds)} {fam}", "seconds": seconds, "t": now,
-                    "pct": round(max(0.0, 1 - left) * 100, 1), "resets_at": at})
+                    "pct": round(max(0.0, 1 - left) * 100, 1),
+                    "resets_at": at if left < 1 else None})
     return out
 
 

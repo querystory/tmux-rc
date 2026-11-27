@@ -216,7 +216,9 @@ as Claude and Codex ones. Nothing needs setting up, but a few things decide what
   ADC) bills a Google Cloud project, which has no plan window to show.
 - **One meter per model family**, at its most used model: Antigravity's pools show as
   "Antigravity · Gemini", "Antigravity · Claude" and so on, on the same 5-hour chart as
-  Claude's and Codex's; Gemini CLI's daily quotas as "Gemini CLI · Pro" on a Daily one.
+  Claude's and Codex's; Gemini CLI's daily quotas as "Gemini CLI · Pro" on a Daily one. A
+  family shows once it has been used (in the last 30 days); a pool nothing has started reads
+  "not started".
 
 The numbers come from the same undocumented Cloud Code endpoints the CLIs call, so they can
 change shape or vanish; see [plan usage](design/plan-usage.md) ("Sources, and why each").

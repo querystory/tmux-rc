@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from openbus import google_quota
+from openbus import google_quota, plan_usage
 from openbus.google_quota import GoogleQuota, agy_login, family, gemini_login, samples, span
 from openbus.history import History
 from openbus.plan_usage import PlanUsage
@@ -75,7 +75,8 @@ def test_family_names_gemini_cli_models():
 def test_agy_samples_one_meter_per_family_at_its_tightest_model():
     got = samples(google_quota.agy_quotas(MODELS), NOW, {})
     assert got == [
-        {"window": "5h Claude", "seconds": 5 * H, "t": NOW, "pct": 0.0, "resets_at": NOW + 5 * H},
+        # Untouched: its reset only rolls with the clock, so it is a window not yet opened.
+        {"window": "5h Claude", "seconds": 5 * H, "t": NOW, "pct": 0.0, "resets_at": None},
         {"window": "5h Gemini", "seconds": 5 * H, "t": NOW, "pct": 60.0, "resets_at": NOW + 2 * H}]
     with pytest.raises(KeyError):  # a changed shape reads unavailable, never as 0%
         google_quota.agy_quotas({})
@@ -124,13 +125,32 @@ def test_plan_usage_polls_google_at_ttl_and_names_the_login(monkeypatch, tmp_pat
     assert [(c[0], c[1], c[3]) for c in calls] == [
         ("fetchAvailableModels", "tok-a", "tmux-rc antigravity")]
     # Stored per pool ("5h Gemini"), reported as one series per family on the plain window,
-    # so they chart beside Claude's and Codex's 5h, the past windows too.
+    # so they chart beside Claude's and Codex's 5h, the past windows too. The Claude pool,
+    # never used, is not shown at all.
     rows = usage.report(NOW, past=30)
     assert [(a["provider"], a["family"], a["name"], a["error"]) for a in rows] == [
-        ("antigravity", "Claude", "pat@example.com", None),
         ("antigravity", "Gemini", "pat@example.com", None)]
-    assert [[(w["window"], w["pct"]) for w in a["windows"]] for a in rows] == [
-        [("5h", 0.0)], [("5h", 60.0)]]
+    assert [(w["window"], w["pct"], w["resets_at"]) for w in rows[0]["windows"]] == [
+        ("5h", 60.0, (NOW + 2 * H) * 1000)]
+
+
+def test_a_family_used_once_stays_shown_after_its_window_ends(tmp_path):
+    history = History(tmp_path / "h.sqlite3")
+    history.record_usage([("antigravity", "pat@example.com", "5h Claude", 5 * H, NOW - 9 * H,
+                           40.0, NOW - 6 * H)])
+    usage = PlanUsage(history, profiles=list)
+    usage.accounts = {("antigravity", "pat@example.com"): {
+        "key": "pat@example.com", "homes": [], "panes": [], "name": "pat@example.com",
+        "error": None}}
+    history.record_usage([("antigravity", "pat@example.com", w, 5 * H, NOW, 0.0, None)
+                          for w in ("5h Claude", "5h GPT")])
+    [row] = usage.report(NOW)  # Claude read 40% earlier; GPT never moved
+    assert row["family"] == "Claude"
+    assert row["windows"][0] | {"samples": []} == {
+        "window": "5h", "pct": 0.0, "resets_at": None, "samples": []}  # "not started"
+    # An unreadable login still says so, though no family shows.
+    usage.accounts[("antigravity", "pat@example.com")]["error"] = "unavailable"
+    assert [r["error"] for r in usage.report(NOW + plan_usage.STALE_OK + 1)] == ["unavailable"]
 
 
 def test_gemini_cli_finds_its_project_once(monkeypatch, tmp_path):
