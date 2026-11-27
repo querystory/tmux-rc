@@ -33,6 +33,8 @@ CD = re.compile(r"^\s*(?:cd|pushd)(?:\s+(\S+))?\s*$")
 # `tmux ls \; kill-server` as one invocation, so its escaped `;` must not split it.
 PIECE = re.compile(r"""(?:\\.|'[^']*'|"(?:\\.|[^"\\])*"|[^\\'";&|\n]|(?<!&)&(?!&)|['"\\])+""",
                    re.DOTALL)
+QUOTED_OR_ESC = re.compile(r"""'[^']*'|"(?:\\.|[^"\\])*"|\\.""", re.DOTALL)
+ESC = re.compile(r"\\.", re.DOTALL)
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 
 
@@ -51,13 +53,22 @@ def inside(path: Path, root: Path) -> bool:
     return path == root or root in path.parents
 
 
+def joined(command: str) -> str:
+    """The command with its line continuations removed, as the shell runs it: a
+    backslash-newline joins lines everywhere but inside single quotes."""
+    def drop(m: re.Match) -> str:
+        return "" if m[0] == "\\\n" else m[0]
+    return QUOTED_OR_ESC.sub(
+        lambda m: m[0] if m[0].startswith("'") else ESC.sub(drop, m[0]), command)
+
+
 def verdict(event: dict, root: Path | None) -> str | None:
     """Why this tool call is refused, or None to let it run."""
     tool, args = event.get("tool_name"), event.get("tool_input") or {}
     cwd = Path(event.get("cwd") or ".").resolve()
     if tool == "Bash":
         here = cwd  # where each piece runs: an earlier `cd`/`pushd` in the command moves it
-        for part in PIECE.findall(args.get("command", "")):
+        for part in PIECE.findall(joined(args.get("command", ""))):
             if cd := CD.match(part):
                 here = here / os.path.expanduser((cd.group(1) or "~").strip("'\""))
                 continue
