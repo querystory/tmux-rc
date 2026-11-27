@@ -556,6 +556,13 @@ def test_the_codex_daemons_pane_is_distrusted_whatever_it_runs_now(tmp_path, mon
     assert searched == [{"atlas"}]
     assert scratch.maker(tmp_path, "atlas", states, lambda _e: "%44")["pane_id"] == "%44"
     assert scratch.maker(tmp_path, "atlas", states, lambda _e: None) is None  # in no pane
+    # A subagent only the index knows has no pane to follow, and the daemon's is not one.
+    monkeypatch.setattr(agent_history, "get_many", lambda _ids: {})
+    monkeypatch.setattr(agent_history, "indexed", lambda ids: {
+        sid: {"session_id": sid, "harness": "codex", "title": "Survey tides"} for sid in ids})
+    items, _ = _resolved(tmp_path, states, pane_of=lambda _e: "%44")
+    found = {"pane": None, "who": "codex", "where": "Survey tides"}
+    assert items["atlas"] | found == items["atlas"]
 
 
 def test_daemon_panes_are_what_codex_app_servers_inherited(monkeypatch):
