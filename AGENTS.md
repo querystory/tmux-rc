@@ -79,7 +79,20 @@ Codex, shells) had to be restored from transcripts.
   window or pane only by the exact id you created.
 - A test server isolates every command, cleanup included, with `env -u TMUX tmux -L <unique-socket>`
   or an explicit `-S <path>` (as `tests/test_capture_viewport.py` and `tests/test_live_history.py` do).
-- A user-level Claude Code hook blocks the unsafe forms, but the rule holds where it isn't installed.
+- A user-level Claude Code hook (`scripts/agent_guard.py`) blocks the unsafe forms, but
+  the rule holds where it isn't installed.
+
+## Machine setup lives outside the repo: check it
+
+Some rules here are enforced by user-level Claude Code hooks (the guard above, which also
+refuses edits and branch moves in the live root) and agent-history's index needs its own
+hooks. They live in `~/.claude/settings.json`, which no checkout carries, so a second
+machine silently has none of them. `make doctor` reports what this host lacks. Run it at
+the start of work on a host you haven't checked, and before relying on a guard. If it
+reports anything, tell the user and offer `make install-agent-hooks` (it edits their
+settings, so ask first). When you document a new hook or per-host step, add it to
+`scripts/agent_hooks.py` so `doctor` checks it too. A rule that exists only in a doc on
+one machine is the failure this section is for.
 
 ## Review before merge
 

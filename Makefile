@@ -1,4 +1,4 @@
-.PHONY: dev run test lint fmt docs docs-dev docs-check docs-clean install-units install-apparmor digest digest-eval install-digest demo screenshots screenshots-diff mock mock-check mock-live
+.PHONY: dev run test lint fmt docs docs-dev docs-check docs-clean install-units install-agent-hooks doctor install-apparmor digest digest-eval install-digest demo screenshots screenshots-diff mock mock-check mock-live
 
 # Dev server with auto-reload on source changes. Reload restarts the process (the
 # watcher's in-memory cache resets and rebuilds from tmux within a couple ticks — safe,
@@ -36,6 +36,16 @@ install-units:
 	@[ "$$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null)" != 1 ] || \
 		[ -e /etc/apparmor.d/tmux-rc-headless-shell ] || \
 		echo "Scratch thumbnails need 'make install-apparmor' on this host (docs/scratch.md)"
+	-@uv run python scripts/agent_hooks.py check
+
+# The Claude Code hooks the docs rely on (agent-history's index, the AGENTS.md guard) live
+# in ~/.claude/settings.json, outside every checkout: a new machine has none of them and
+# nothing fails, so install them per host, and let `doctor` say what a host lacks.
+install-agent-hooks:
+	uv run python scripts/agent_hooks.py install
+
+doctor:
+	uv run python scripts/agent_hooks.py check
 
 # Hosts that restrict unprivileged user namespaces (Ubuntu 23.10+) kill the thumbnail
 # browser's sandbox at launch; this profile lets that one binary have it back (needs sudo).

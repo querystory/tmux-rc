@@ -188,6 +188,8 @@ the tunnel client ship in [`deploy/systemd/`](deploy/systemd/):
 
 ```bash
 make install-units                        # copy units, enable + start them, enable-linger
+make install-agent-hooks                  # Claude Code hooks: agent-history index + safety guard
+make doctor                               # what this host is missing (hooks, guard, service)
 journalctl --user -fu tmux-rc             # daemon logs (replaces watching a pane)
 systemctl --user restart tmux-rc          # after a git pull or a .env change
 systemctl --user restart tmux-rc.target   # both halves (daemon + tunnel)
