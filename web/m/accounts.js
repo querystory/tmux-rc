@@ -3,6 +3,7 @@
 // no-op and the app looks as it always did. The one exception is Settings' Accounts,
 // since adding a second account has to start somewhere. See docs/design/agent-accounts.md.
 import { esc } from "./pane-model.js"; // relative, so node's tests can load this module
+import { bareChip } from "./usage.js";
 const ENV = { claude: "CLAUDE_CONFIG_DIR", codex: "CODEX_HOME" };
 const LOGIN = { claude: "claude", codex: "codex login" };
 // Codex's two ways in from afar: its browser sign-in, whose localhost redirect the sheet
@@ -148,7 +149,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
   // Antigravity and Gemini CLI logins have no profile (one keyring slot each, openbus/google_quota.py):
   // the server names them by email, shown only when a provider has several, as a profile's name is.
   function usage(list) {
-    const bare = list.filter((a) => !(a.provider in ENV)), count = (p) => bare.filter((a) => a.provider === p).length;
+    const bare = list.filter((a) => !(a.provider in ENV)), count = (p) => new Set(bare.filter((a) => a.provider === p).map((a) => a.name)).size;
     const named = bare.map((a) => ({ ...a, label: count(a.provider) > 1 ? a.name : null }));
     list = list.filter((a) => a.provider in ENV);
     if (!profiles.length) return [...list, ...named];
@@ -176,7 +177,9 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
   function groups(el, list, render) {
     el.className = "usage-groups"; el.hidden = !list.length; // a board drawn before the accounts came may have hidden it
     const markup = list.map((a, i) => {
-      const p = a.acct, tip = [p.name, p.who, p.plan, p.tilde, `${p.panes.length} pane${p.panes.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
+      const p = a.acct;
+      if (!p) return `<div class="ug" data-i="${i}" style="--n:${a.windows?.length || 1}"><div class="ug-label">${bareChip(a)}</div><div class="ug-cells"></div></div>`; // a Google login: no profile
+      const tip = [p.name, p.who, p.plan, p.tilde, `${p.panes.length} pane${p.panes.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
       return `<div class="ug" data-i="${i}" style="--n:${a.windows?.length || 1}"><div class="ug-label" title="${esc(tip)}">${badge(p)}</div><div class="ug-cells"></div></div>`;
     }).join("");
     if (el._groups !== markup) { el.innerHTML = markup; el._groups = markup; }

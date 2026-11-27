@@ -304,8 +304,19 @@ models, but they draw on a few shared pools: every Gemini model showed one fract
 reset, and the Claude models another. A meter per model would be twenty identical cards; the
 single most constrained bucket would hide the decision the meters exist for ("Gemini is
 spent, switch this pane to Claude"). So each family, from the model's `modelProvider`
-(Gemini, Claude, GPT), is one window named "5h Gemini", at the lowest fraction among its
-models. That keeps a series stable when a model is added or renamed. Two families on one pool
+(Gemini, Claude, GPT), is one meter at the lowest fraction among its models, which keeps a
+series stable when a model is added or renamed.
+
+**A family is a series, not a window.** The first cut named each pool's window "5h Gemini",
+as Claude's per-model weekly limit is "7d Fable", and the usage view then drew a chart per
+pool ("5-hour Gemini", "5-hour Claude", "5-hour GPT"), each one line on its own. That was
+wrong in use: an Antigravity pool is a five-hour quota like any other, and the question is
+the same one the 5-hour chart answers ("which plan has room?"). So `/api/usage` reports a
+Google login as one row per family, with a `family` field and plain "5h" / "1d" / "7d"
+windows; the strip, the dashboard and the usage view name the row "Antigravity · Gemini"
+and draw it as one more line on the ordinary chart. History still stores a pool's samples
+under "5h Gemini" (provider, email, window), so the family survives a restart without a
+column of its own; `by_family` splits them when reporting. Two families on one pool
 would show the same numbers twice; we prefer that to guessing pools from equal numbers, since
 two untouched pools are equal too. Gemini CLI's buckets are per model, so its families come
 from the model id ("gemini-2.5-flash-lite" is "Flash Lite") and every Pro version shares

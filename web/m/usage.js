@@ -48,7 +48,7 @@ function cell(w, a, wide, now) {
   const pace = w.resets_at && Math.min(100, Math.max(0, (now - w.start) / (w.resets_at - w.start) * 100));
   const bar = `<i class="usage-bar"><i style="width:${projected}%" class="ahead"></i><i style="width:${used}%"></i>`
     + (pace ? `<i class="pace" style="left:${pace.toFixed(1)}%"></i>` : '') + '</i>';
-  return `<div class="usage-cell ${level}" title="${esc(title)}">${label(a.provider, w.window)}<b role="meter" aria-label="${esc([NAMES[a.provider], a.acct?.name ?? a.label, w.window].filter(Boolean).join(' '))}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${used}" aria-valuetext="${esc(title)}">${Math.round(w.pct)}%</b><em>used</em>`
+  return `<div class="usage-cell ${level}" title="${esc(title)}">${label(a.provider, a.family ? `${w.window} · ${a.family}` : w.window)}<b role="meter" aria-label="${esc([NAMES[a.provider], a.family, a.acct?.name ?? a.label, w.window].filter(Boolean).join(' '))}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${used}" aria-valuetext="${esc(title)}">${Math.round(w.pct)}%</b><em>used</em>`
     + `${wide && w.resets_at ? spark(w, now) : bar}<div class="usage-foot"><div>${note}</div>${a.chip || ''}</div></div>`;
 }
 
@@ -57,7 +57,9 @@ function cell(w, a, wide, now) {
 // provider's icon, and when a provider has several accounts the meter's foot carries the
 // account's chip (accounts.js), across from the reset. Accounts come sorted by provider,
 // windows by name (5h, 7d, then per-model "7d Fable").
-const who = a => a.label ? `${NAMES[a.provider]} ${a.label}` : NAMES[a.provider];
+// A Google login's model pools are series of their own on the plain windows: "Antigravity · Gemini".
+export const series = a => a.family ? `${NAMES[a.provider]} · ${a.family}` : NAMES[a.provider];
+const who = a => a.label ? `${series(a)} ${a.label}` : series(a);
 const label = (provider, text) => `<span><img src="${LOGOS[provider]}" alt="${NAMES[provider]}" width="14" height="14">${esc(text)}</span>`;
 
 // Wide draws each window's trend instead of its bar. Options are named, not positional: a
@@ -82,7 +84,7 @@ function card(w, a, now) {
   const { used, level, when, full, title } = reading(w, a, now);
   const note = full ? ` <small class="out">· ${full}</small>` : when ? ` <small>· resets ${when}</small>` : '';
   return `<div class="usage-card ${level}" title="${esc(title)}" style="--p:${used}"><i class="usage-ring"></i>`
-    + `<b role="meter" aria-label="${esc([NAMES[a.provider], a.acct?.name ?? a.label, w.window].filter(Boolean).join(' '))}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${used}" aria-valuetext="${esc(title)}">${Math.round(w.pct)}%${note}</b>`
+    + `<b role="meter" aria-label="${esc([NAMES[a.provider], a.family, a.acct?.name ?? a.label, w.window].filter(Boolean).join(' '))}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${used}" aria-valuetext="${esc(title)}">${Math.round(w.pct)}%${note}</b>`
     + `<span>${a.chip || `${logo(a.provider)}${esc(who(a))}`} · ${esc(w.window)}</span></div>`;
 }
 export function renderStrip(el, accounts, { now = Date.now() } = {}) {

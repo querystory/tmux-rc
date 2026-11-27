@@ -244,8 +244,9 @@ as Claude and Codex ones. Nothing needs setting up, but a few things decide what
   then.
 - **gcloud ADC sessions are not metered.** An `AGY_ADC_AUTH=true agy` pane (or Gemini CLI on
   ADC) bills a Google Cloud project, which has no plan window to show.
-- **One meter per model family**: Antigravity shows "5h Gemini", "5h Claude" and so on, each
-  at its most used model; Gemini CLI's daily quotas show as "1d Pro", "1d Flash".
+- **One meter per model family**, at its most used model: Antigravity's pools show as
+  "Antigravity · Gemini", "Antigravity · Claude" and so on, on the same 5-hour chart as
+  Claude's and Codex's; Gemini CLI's daily quotas as "Gemini CLI · Pro" on a Daily one.
 
 The numbers come from the same undocumented Cloud Code endpoints the CLIs call, so they can
 change shape or vanish; see [plan usage](design/plan-usage.md) ("Sources, and why each").
