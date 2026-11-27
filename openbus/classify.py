@@ -548,6 +548,9 @@ def _omp_asking_view(text: str) -> str:
     return joined.rsplit("\0", 1)[-1]
 
 
+_BULLET_RE = re.compile(r"(?m)^[ \t]*● ")  # a Claude message's, notice's or tool call's first row
+
+
 def _ask_view(text: str) -> str:
     """The screen a finished turn's ask or offer is read on: the viewport, and above it the
     rest of Claude's final message when a long one begins above the parser's viewport
@@ -557,18 +560,48 @@ def _ask_view(text: str) -> str:
     side panel ends where it did."""
     history, mark, _ = text.rpartition(VISIBLE_SCREEN)
     visible = _visible(text)
-    bullet = r"(?m)^[ \t]*● "
     # A message bullet in the viewport means the final message begins there, so history
     # is older; the agent list's "● main" row below the input box is no message.
-    if re.search(bullet, _AGENT_LIST_RE.sub("", visible)):
+    if _BULLET_RE.search(_AGENT_LIST_RE.sub("", visible)):
         return visible
-    *_, start = [None, *re.finditer(bullet, plain := _visible(history) if mark else "")]
+    *_, start = [None, *_BULLET_RE.finditer(plain := _visible(history) if mark else "")]
     message = plain[start.end():] if start else ""  # from its first word
     if not message or _USER_ROW_RE.search(message):
         return visible
     # The boundary sat between two rows: joined without the blank row it would leave, so
     # a message wrapped across it still reads as one.
     return message + visible.removeprefix("\n")
+
+
+def _letters(text: str) -> str:
+    """Text as its letters and digits alone, links read as their labels: Markdown, the
+    terminal's wraps (even inside a word) and a link's hidden target all compare alike."""
+    return "".join(c for c in _LINK_TARGET_RE.sub(r"\1", text).lower() if c.isalnum())
+
+
+def _reply_rows(text: str, reply: str) -> str | None:
+    """Claude's ask view from the ● row its last message (`reply`, from the transcript)
+    begins with, above the input box (a draft's or the agent list's bullets are not the
+    screen's), or None when no ● row reads as its start. Notices and housekeeping
+    printed below that message are rows after it, never its start."""
+    view = _below_turn(_AGENT_LIST_RE.sub("", _ask_view(text)), 0)
+    said = _letters(reply)
+    for bullet in reversed(list(_BULLET_RE.finditer(view))):
+        if (start := _letters(view[bullet.end():].split("\n", 1)[0])) and said.startswith(start):
+            return view[bullet.start():]
+    return None
+
+
+def _superseded_ask(question, text: str, reply: str | None) -> str | None:
+    """The rows a Claude question's re-read reads from when the agent has written past
+    it, else None: its words are not in the agent's last message, and on screen they
+    are only above the row that message begins on. A background task's notice or idle
+    housekeeping printed under the ask is no message, so the ask is still the last
+    message's; a reply the agent wrote to such a notice is newer, so an ask above it is
+    history. A last message the screen does not show settles nothing."""
+    prompt = _question_prompt(question)
+    rows = prompt and reply and _letters(prompt) not in _letters(reply) and _reply_rows(text, reply)
+    return rows if rows and not _last_occurrence(prompt, rows) else None
 
 
 def _supported_question(question, text: str, tool, pane: Pane) -> bool:
@@ -618,6 +651,7 @@ def _unblocked_ask(result: dict) -> None:
 
 def _ground_visible_fields(
     result: dict, text: str, pane: Pane, llm_fn, prompt: str, host_tool: str | None,
+    reply: str | None = None,
 ) -> None:
     """Validate actionable fields against their UI evidence, retrying once on that slice."""
     if result.get("tool") == "shell":
@@ -628,6 +662,11 @@ def _ground_visible_fields(
         bool(result.get("question")) and (VISIBLE_SCREEN in text or host_tool == "omp")
         and not _supported_question(result["question"], text, result.get("tool"), pane)
     )
+    superseded = (
+        bool(result.get("question")) and VISIBLE_SCREEN in text
+        and result.get("tool") == "claude" and _superseded_ask(result["question"], text, reply)
+    )
+    bad_question = bad_question or bool(superseded)
     bad_rewind = (
         bool(result.get("rewind")) and VISIBLE_SCREEN in text
         and not _supported_rewind(result["rewind"], visible)
@@ -647,6 +686,10 @@ def _ground_visible_fields(
     # cannot be read as the question again.
     box = _EMPTY_INPUT_RE.search(visible)
     evidence = (visible[:box.end()] if box else visible) if bad_action else identity_chrome
+    if superseded:
+        # The re-read reads from the agent's last message, above the input box and any
+        # unsent draft: the superseded ask is not there to quote again.
+        evidence = superseded
     receipt = None
     if bad_question and host_tool == "omp" and (
         (omp := OMP_TITLE_RE.match(pane.title)) and omp["state"] not in (None, "!")
@@ -1405,7 +1448,7 @@ def classify(
     # Before grounding, since a misquoted ask would otherwise send the re-read a viewport
     # cut above the quota notice (the re-read's own ask is dropped inside it).
     _unblocked_ask(result)
-    _ground_visible_fields(result, text, pane, llm_fn, prompt, process_tool)
+    _ground_visible_fields(result, text, pane, llm_fn, prompt, process_tool, reply)
     # OpenCode answer bullets and omp Ask radios are not tasks. Match genuine visible
     # checkbox rows after a bounded re-read, whose replacement fields need grounding too.
     if result.get("tool") in ("opencode", "omp") and "tasks" in result:
