@@ -368,6 +368,12 @@ def _pane_block(d: dict, screen: str | None, digest: list[dict] = ()) -> str:
     if d.get("tmux_active"):
         head += " — ACTIVE (the pane the user is looking at; 'here'/'this' means this one)"
     parts = [f"## {head}"]
+    # The window name the user gave, which the heading's title (or a parse-refined label)
+    # hides: it is the user's own word for the window ("tax-return" under a title that
+    # never says "tax").
+    window = d.get("window_name")
+    if window and window != (d.get("title") or d.get("label")):
+        parts.append(f"window name: {json.dumps(_flat(window), ensure_ascii=False)}")
     if d.get("cwd"):
         # Keep untrusted directory names from introducing fake prompt lines.
         parts.append(f"cwd: {json.dumps(str(d['cwd']), ensure_ascii=True)}")

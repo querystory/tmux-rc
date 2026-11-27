@@ -525,6 +525,10 @@ class Watcher:
                     "idle_seconds": s.get("idle_seconds"),
                     "state_since": s.get("state_since"),  # ts state entered; client ticks it
                     "headline": s.get("headline"),
+                    # The name the user gave the window, else None: tmux.Pane.label is the
+                    # window name exactly when it is one (not a "claude" or "<session>:<N>").
+                    "window_name": s.get("window_name") if s.get("window_name")
+                    == s.get("tmux_label") else None,
                     "prs": list(self._prs.get(pid, [])),
                     "question": self._question_prompt(s),
                     "menu": self._question_menu(s),

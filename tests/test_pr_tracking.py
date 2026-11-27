@@ -103,6 +103,17 @@ def test_digest_exposes_accumulated_prs():
     assert w.digest()[0]["cwd"] == "/repo/worktree"
 
 
+def test_digest_window_name_is_only_one_the_user_gave():
+    # tmux_label is tmux.Pane.label, which is the window name only when the user named it.
+    # A parse may refine `label` to the agent's session name; the window name survives it.
+    w = Watcher(None)
+    w.states = [
+        {"pane_id": "%1", "label": "refined", "tmux_label": "taxes:3", "window_name": "taxes:3"},
+        {"pane_id": "%2", "label": "dev:4", "tmux_label": "dev:4", "window_name": "claude"},
+    ]
+    assert [d["window_name"] for d in w.digest()] == ["taxes:3", None]
+
+
 def test_associations_keep_recent_evidence_with_a_fixed_budget():
     w = Watcher(None)
     for number in range(1, W.MAX_PRS_PER_PANE + 1):
