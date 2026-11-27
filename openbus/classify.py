@@ -1335,7 +1335,9 @@ def classify(
         if _host_tool(pane) == "antigravity":
             prompt += ("\nThis pane runs Antigravity CLI (agy). Include antigravity among the "
                        "allowed tool values and report tool=antigravity. The selected model "
-                       "(Gemini, Argon, Claude, etc.) is its backend, not the host agent.\n")
+                       "(Gemini, Argon, Claude, etc.) is its backend, not the host agent. "
+                       "Its pickers ignore digits, so a list whose rows carry digits under a "
+                       '> highlight is still answer_style "cursor", selected on the > row.\n')
         if re.search(
             r"(?im)^\s*(?:Background terminals\s*:|\d+ background terminals? running\b)", text,
         ):
