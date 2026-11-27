@@ -65,9 +65,9 @@ CHECKPOINT_EVENTS = 100
 # A dead tmux server's checkpoints are the only record of what it ran (after a reboot,
 # say). Keep them all until the server's newest activity is this old.
 DEAD_SERVER_RETENTION = 30 * 86400
-# Bump when classification or the fingerprint changes meaning: stored cards then miss
-# their hash once and every pane is re-read, instead of restoring an older parser's card.
-CARD_VERSION = 116
+# Bump when classification changes meaning: every pane's stored card is then read again,
+# instead of restoring an older parser's card. Its clocks stand while its screen does.
+CARD_VERSION = 117
 # LLM parse cadence. We capture every tick (cheap, for the snapshot buffer) but only
 # PARSE when the content fingerprint CHANGED vs. the last parse (or on a forced reparse).
 # `changed` compares against _prev_fp, which is written only on a SUCCESSFUL parse — so a
@@ -1216,7 +1216,7 @@ class Watcher:
     def frame_fp(self, text: str, question: dict | None = None) -> str:
         """A capture's hash, as _tick_pane keys its parses. The screen alone: a checkpoint
         keeps its clocks across a parser change, and only its card is versioned
-        (_card_version). With a menu `question`, only its own rows, verbatim
+        (_card_version). With a menu or key `question`, only its own rows, verbatim
         (classify.question_rows): the normalized screen can't tell "sleep 10s" from
         "sleep 20s", and an answer token must, yet output still streaming above the menu
         must not make it look stale."""

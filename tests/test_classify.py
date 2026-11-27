@@ -1576,6 +1576,22 @@ def test_codex_key_notice_is_answered_by_its_key(monkeypatch):
         assert "question" not in classify(_pane("codex"), screen, notice(**bad))
 
 
+def test_key_notice_takes_a_chord_by_its_tmux_name(monkeypatch):
+    monkeypatch.setattr(classify_mod, "_host_tool", lambda _pane: "antigravity")
+    screen = _sample("327_antigravity_swarm_approval_chord_keys")
+    def box(keys):
+        return lambda _system, _text: {"activity": "waiting", "question": {
+            "prompt": "worker needs approval for Bash", "answer_style": "key",
+            "options": ["Approve", "Manage"], "keys": keys}}
+    result = classify(_pane("agy"), screen, box(["C-k", "M-j"]))
+    assert result["question"]["answer_style"] == "key"
+    assert result["question"]["keys"] == ["C-k", "M-j"]
+    # Only Ctrl or Alt and one key: the screen's own spelling or a bare prefix is no key.
+    for bad in (["ctrl+k", "M-j"], ["C-", "M-j"], ["C-kk", "M-j"], ["S-k", "M-j"]):
+        assert classify(_pane("agy"), screen, box(bad)).get("question", {}).get(
+            "answer_style") != "key"
+
+
 def _auto_screen(message):
     return f"\x1e[visible screen]\x1f\n● {message}\n✻ Baked for 16s\n\n❯\n  ⏵⏵ auto mode on"
 

@@ -832,8 +832,38 @@ def _widget_text(prompt: str, visible: str) -> str:
     return textwrap.dedent(text).strip("\n")
 
 
+def one_key(key: object) -> bool:
+    """A key answer's key: one printable character, typed as itself, or a chord of Ctrl
+    or Alt and one ("C-k", "M-j", tmux's own names), sent by name. Nothing else: a word
+    sent by name could be any tmux key, and typed it is a line, not a key."""
+    char = key[2:] if isinstance(key, str) and key[:2] in ("C-", "M-") else key
+    return isinstance(char, str) and len(char) == 1 and char.isprintable() and not char.isspace()
+
+
+def _key_notice_rows(question: dict, visible: str) -> str:
+    """A key notice's own rows, for its frame: from the last row holding its prompt down
+    to the end of its box (the first row off the prompt row's left border, agy's ┃) or,
+    unboxed, to the next rule drawn from column 0 or the screen's end. The notice's
+    command and key hint are in it, so a new ask under the same keys is a new frame,
+    while rows outside it that keep moving (agy's swarm workers, their count and timers on
+    the status line) are not. A prompt not found on one row keeps the whole screen."""
+    prompt = question.get("prompt") or None
+    lines = visible.split("\n")
+    at = [i for i, line in enumerate(lines) if isinstance(prompt, str) and prompt in line]
+    if not at:
+        return ""
+    rows = lines[at[-1]:]
+    head = rows[0]
+    border = head[:len(head) - len(head.lstrip(" │┃"))].rstrip()
+    end = next((i for i, line in enumerate(rows[1:], 1)
+                if (not line.startswith(border) if border.strip()
+                    else line.startswith(("───", "━━━", "▔▔▔")))), len(rows))
+    return "\n".join(rows[:end])
+
+
 def question_rows(question: dict, text: str) -> str:
-    """The rows a menu `question` reads off capture `text`, verbatim, so a command or an
+    """The rows a menu `question` (or a key notice, _key_notice_rows) reads off capture
+    `text`, verbatim, so a command or an
     option that differs only in a duration or a cost still differs: from its widget's top
     edge (Claude draws ▔▔▔ or ─── from column 0; an indented rule is a command's own row)
     down to the screen's last numbered row and the rows indented under it (its wrapped
@@ -848,6 +878,8 @@ def question_rows(question: dict, text: str) -> str:
     question. Were one drawn that way, the stale digit would type into a text prompt,
     which approves nothing until someone presses Enter."""
     visible = _visible(text)
+    if question.get("answer_style") == "key":
+        return _key_notice_rows(question, visible)
     end = list(_OPTION_ROW_RE.finditer(visible))
     if question.get("answer_style") != "menu" or not question.get("options") or not end:
         return ""  # only a menu's digit needs it; any other question keeps the whole frame
@@ -1403,7 +1435,9 @@ def classify(
                        "A numbered widget's own rows go in \"options\" alone, each row's "
                        "words after its digit, wrapped lines and all. "
                        "Its pickers ignore digits, so a list whose rows carry digits under a "
-                       '> highlight is still answer_style "cursor", selected on the > row.\n')
+                       '> highlight is still answer_style "cursor", selected on the > row. '
+                       'A key notice whose hint names chords ("ctrl+k approve") gives each '
+                       'key in tmux form: ctrl+k => "C-k", alt+j => "M-j".\n')
         if re.search(
             r"(?im)^\s*(?:Background terminals\s*:|\d+ background terminals? running\b)", text,
         ):
@@ -1585,9 +1619,8 @@ def classify(
         # A key answer sends exactly one key per option, so each must be one key.
         keys, options = question.get("keys"), question.get("options")
         if style == "key" and not (isinstance(keys, list) and isinstance(options, list)
-                                   and len(keys) == len(options) > 0 and all(
-                                       isinstance(k, str) and len(k) == 1 and k.isprintable()
-                                       and not k.isspace() for k in keys)):
+                                   and len(keys) == len(options) > 0
+                                   and all(map(one_key, keys))):
             style = question["answer_style"] = "text"
             question.pop("options", None)
         if style != "key":

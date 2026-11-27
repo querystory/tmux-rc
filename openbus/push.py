@@ -465,6 +465,12 @@ def pane_input(watcher, pane_id: str, *, invalidate: bool = True):
 ONE_KEY = ("menu", "key")
 
 
+def typed(question: dict, keys: str) -> bool:
+    """Whether an answer's keys go as text: all but a key notice's chord ("C-k"), which
+    goes by its tmux name (classify.one_key), as answerBody sends it."""
+    return question.get("answer_style") != "key" or len(keys) == 1
+
+
 def option_keys(question: dict, index: int) -> str:
     options = question.get("options")
     if not isinstance(options, list) or index < 0 or index >= len(options):
@@ -571,7 +577,7 @@ class PushManager:
         with pane_input(self.watcher, issued["pane_id"], invalidate=False):  # claim bumps
             tmux.send_keys(
                 issued["pane_id"], keys, enter=question.get("answer_style") not in ONE_KEY,
-                literal=True, expected_pid=birth, guard=lambda: claim_question(
+                literal=typed(question, keys), expected_pid=birth, guard=lambda: claim_question(
                     self.watcher, issued["pane_id"], issued["fingerprint"],
                     issued["input_generation"], issued["frame"]),
             )
