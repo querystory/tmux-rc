@@ -661,6 +661,31 @@ def test_open_buttons_sit_under_the_reply_in_one_bubble():
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_interleaved_voices_each_keep_one_bubble():
+    """Full-duplex captions, as a GPT-Live recording streamed them: the model's backchannel
+    under the user's sentence, then both captions word by word at once. Each voice's words
+    join its own bubble instead of a bubble per word; a new segment still starts one."""
+    _run_live(r"""
+(async () => {
+  const log = document.getElementById('voice-log');
+  await live.refresh();
+  document.getElementById('chat').onclick(); await flush();
+  const say = (role, text, new_segment = false) =>
+    sockets[0].onmessage({data: JSON.stringify({type: 'transcript', role, text, new_segment})});
+  sockets[0].onmessage({data: JSON.stringify({type: 'status', status: 'listening'})});
+  say('user', ' Could the garden', true); say('model', ' Mm-hmm.', true);
+  say('user', ' window water'); say('model', ' Mm.'); say('user', ' the ferns?');
+  say('model', ' It is', true); say('user', ' And the', true); say('model', ' watering them');
+  say('user', ' roses'); say('model', ' now.');
+  const rows = log.children.map((row) => [row.dataset.role, row.said]);
+  assert.deepEqual(rows, [
+    ['user', ' Could the garden window water the ferns?'], ['model', ' Mm-hmm. Mm.'],
+    ['model', ' It is watering them now.'], ['user', ' And the roses']]);
+})().catch(error => {console.error(error); process.exitCode = 1;});
+""", {"version": "v", "live_enabled": True, "live_models": [{"label": "Sonnet", "text": True}]})
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
 def test_a_pane_the_chat_messaged_opens_from_its_card_and_the_reply():
     """The pane on a "Sent to terminal" card is a tap target, and the turn's reply offers
     an Open button for each pane the turn messaged, once, whatever order its rows came in."""
