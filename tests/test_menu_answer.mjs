@@ -36,3 +36,9 @@ test("a key notice sends the option's own key, never Enter", () => {
   assert.deepEqual(answerBody(notice, "Fork", 1), digit("f"));
   assert.equal(answerBody({ ...notice, keys: [] }, "Retry", 0), null);
 });
+
+test("a chord goes by its tmux name, not typed", () => {
+  const box = { answer_style: "key", options: ["Approve", "Manage"], keys: ["C-k", "M-j"], fp: "q1" };
+  assert.deepEqual(answerBody(box, "Approve", 0), { ...digit("C-k"), literal: false });
+  assert.deepEqual(answerBody(box, "Manage", 1), { ...digit("M-j"), literal: false });
+});

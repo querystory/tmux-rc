@@ -245,6 +245,11 @@ def test_option_mapping_matches_card_semantics():
     assert push.option_keys(question, 0) == "Ship it"
     question = {"answer_style": "key", "options": ["Retry", "Fork"], "keys": ["r", "f"]}
     assert push.option_keys(question, 0) == "r"
+    assert push.typed(question, "r")
+    question = {"answer_style": "key", "options": ["Approve"], "keys": ["C-k"]}
+    assert push.option_keys(question, 0) == "C-k"
+    assert not push.typed(question, "C-k")
+    assert push.typed({"answer_style": "text"}, "C-k")  # a reply is typed, whatever it says
     with pytest.raises(ValueError, match="app"):
         push.option_keys({"answer_style": "cursor", "options": ["row"]}, 0)
     question = {"answer_style": "text", "options": ["  ", "Ship it"]}
@@ -562,6 +567,31 @@ def test_key_notice_action_sends_its_own_key_without_enter(tmp_path, monkeypatch
     service.evaluate()
     assert service.answer(sender.payloads[0]["nonce"], 1) == ("%1", "f")
     assert sent == [("%1", "f", {"enter": False, "literal": True, "expected_pid": "123"})]
+
+
+def test_key_notice_frame_is_its_own_rows():
+    """A key notice's frame is its own box: the swarm rows and status line under it tick
+    on without staling the answer, while another command in the box is another ask."""
+    question = {"prompt": "worker needs approval for Bash", "answer_style": "key",
+                "options": ["Approve"], "keys": ["C-k"]}
+    def screen(command="git log -5", timer="2m41s"):
+        return ("● Ran (ls) (ctrl+o to expand)\n ┃ worker needs approval for Bash\n"
+                f" ┃ ● Bash({command})\n ┃ ctrl+k approve · alt+j manage\n{'─' * 30}\n>\n"
+                f"{'─' * 30}\n  ● Agent(worker)  Reading file · {timer}\n")
+    rows = question_rows(question, screen())
+    assert rows.startswith(" ┃ worker needs approval")
+    assert rows.endswith("alt+j manage")
+    assert question_rows(question, screen(timer="3m02s")) == rows
+    assert question_rows(question, screen(command="rm -rf build")) != rows
+    # No composer rule under the box (a survey drawn there instead): the box still ends.
+    bare = screen().replace(f"{'─' * 30}\n>\n", " How was it?\n")
+    assert question_rows(question, bare) == rows
+    # Unboxed (Codex's notice): down to a column-0 rule, or the screen's end.
+    codex = {**question, "prompt": "press R to continue here."}
+    notice = "  Close it there and press R to continue here.\n\n   r retry   f fork\n"
+    assert question_rows(codex, f"● Ran ls\n{notice}") == notice
+    # The prompt on no row of its own: the whole screen stands, as for any other question.
+    assert question_rows({**question, "prompt": "Approve it?"}, screen()) == ""
 
 
 def test_action_refuses_a_screen_advanced_from_the_keyboard(tmp_path, monkeypatch, _screen):
