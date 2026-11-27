@@ -192,7 +192,7 @@ def test_two_parts_landing_at_one_place_are_refused(home):
 def test_nested_places_stay_their_parts(home, monkeypatch):
     """State and scratch inside the data dir: credentials and the account store go only as
     themselves, a backup not at all, and an import without scratch leaves this host's pages
-    (and its DB with its WAL) where they are."""
+    (and its DB with its WAL, and its recordings) where they are."""
     old = home("old")
     monkeypatch.setenv("XDG_STATE_HOME", str(old / "share"))
     monkeypatch.setenv("XDG_DATA_HOME", str(old / "share"))
@@ -216,13 +216,15 @@ def test_nested_places_stay_their_parts(home, monkeypatch):
                 or "profiles/" in n or "live-audio" in n]
 
     new = home("new")
-    for var, path in (("XDG_STATE_HOME", "share"), ("XDG_DATA_HOME", "share"),
+    for var, path in (("XDG_STATE_HOME", "share/tmux-rc/previews"), ("XDG_DATA_HOME", "share"),
                       ("TMUXRC_SCRATCH_DIR", "share/tmux-rc/previews/pages"),
                       ("TMUXRC_HISTORY_DB", "share/tmux-rc/previews/pages/h.sqlite3")):
         monkeypatch.setenv(var, str(new / path))
     write(new / "share/tmux-rc/previews/pages/mine/index.html")
     write(new / "share/tmux-rc/previews/pages/h.sqlite3-wal")
+    write(new / "share/tmux-rc/previews/tmux-rc/live-audio/s-2/mic.wav")  # in a data part here
     export.restore(io.BytesIO(out.getvalue()))
+    assert (new / "share/tmux-rc/previews/tmux-rc/live-audio/s-2/mic.wav").exists()
     assert (new / "share/tmux-rc/previews/other.txt").exists()
     assert (new / "share/tmux-rc/previews/pages/mine/index.html").exists()
     assert (new / "share/tmux-rc/previews/pages/h.sqlite3-wal").exists()
