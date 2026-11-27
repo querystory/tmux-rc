@@ -11,7 +11,8 @@ follows the docs as if they were enforced. `check` is how a host finds out.
   agent_hooks.py check     report what this host lacks; exit 1 if anything (`make doctor`)
 
 Settings are ~/.claude/settings.json plus $CLAUDE_CONFIG_DIR's, deduplicated through
-symlinks. A hook already present under any spelling of its command is left alone.
+symlinks. A hook already present under any spelling of its command is left alone; a guard
+whose matcher misses some tools gets a group for just those.
 """
 import filecmp
 import json
@@ -47,9 +48,15 @@ def load(path: Path) -> dict:
     return json.loads(path.read_text()) if path.exists() else {}
 
 
-def has_hook(settings: dict, event: str, marker: str) -> bool:
-    groups = settings.get("hooks", {}).get(event, [])
-    return any(marker in h.get("command", "") for g in groups for h in g.get("hooks", []))
+def missing(settings: dict, event: str, matcher: str | None, marker: str) -> list[str]:
+    """Tools in `matcher` that no group running `marker` covers ("*" stands for all tools)."""
+    covered: set[str] = set()
+    for g in settings.get("hooks", {}).get(event, []):
+        if any(marker in h.get("command", "") for h in g.get("hooks", [])):
+            if g.get("matcher", "") in {"", "*"}:
+                return []
+            covered |= set(g["matcher"].split("|"))
+    return [t for t in (matcher or "*").split("|") if t not in covered]
 
 
 def install() -> int:
@@ -60,10 +67,10 @@ def install() -> int:
         settings = load(path)
         added = []
         for event, (matcher, command, marker) in HOOKS.items():
-            if not has_hook(settings, event, marker):
+            if tools := missing(settings, event, matcher, marker):
                 group = {"hooks": [{"type": "command", "command": command}]}
                 if matcher:
-                    group = {"matcher": matcher, **group}
+                    group = {"matcher": "|".join(tools), **group}
                 settings.setdefault("hooks", {}).setdefault(event, []).append(group)
                 added.append(event)
         if added:
@@ -85,9 +92,10 @@ def check() -> int:
         problems.append(f"{HISTORY} is not built (make install-units, needs Go)")
     for path in settings_files():
         settings = load(path)
-        problems += [f"{path}: no {event} hook ({marker})"
-                     for event, (_, _, marker) in HOOKS.items()
-                     if not has_hook(settings, event, marker)]
+        for event, (matcher, _, marker) in HOOKS.items():
+            if tools := missing(settings, event, matcher, marker):
+                tail = f" for {', '.join(tools)}" if matcher else ""
+                problems.append(f"{path}: no {event} hook ({marker}){tail}")
     is_active = ["systemctl", "--user", "is-active", "--quiet", "tmux-rc.service"]
     if not shutil.which("systemctl") or subprocess.run(is_active, check=False).returncode:
         problems.append("tmux-rc.service is not running (make install-units)")

@@ -92,3 +92,24 @@ def test_install_is_idempotent_and_check_sees_it(tmp_path):
     after = run("check").stdout
     assert "settings.json" not in after
     assert "tmux-rc-agent-guard is not installed" not in after
+
+
+def test_bash_only_guard_gets_the_edit_tools(tmp_path):
+    env = {k: v for k, v in os.environ.items() if k != "CLAUDE_CONFIG_DIR"}
+    env["HOME"] = str(tmp_path)
+    settings = tmp_path / ".claude/settings.json"
+    settings.parent.mkdir()
+    guard_hook = {"type": "command", "command": "tmux-rc-agent-guard"}
+    settings.write_text(json.dumps({"hooks": {"PreToolUse": [{"matcher": "Bash",
+                                                              "hooks": [guard_hook]}]}}))
+
+    def run(cmd):
+        return subprocess.run([sys.executable, SCRIPTS / "agent_hooks.py", cmd], env=env,
+                              capture_output=True, text=True)
+
+    assert "no PreToolUse hook (tmux-rc-agent-guard) for Edit, Write" in run("check").stdout
+    run("install")
+    run("install")
+    groups = json.loads(settings.read_text())["hooks"]["PreToolUse"]
+    assert [g["matcher"] for g in groups] == ["Bash", "Edit|Write|MultiEdit|NotebookEdit"]
+    assert "PreToolUse" not in run("check").stdout
