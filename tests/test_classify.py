@@ -1469,6 +1469,23 @@ def test_codex_text_question_without_a_composer_is_not_typed(monkeypatch):
     assert "question" in classify(_pane("node"), menu_screen, _llm(menu))
 
 
+def test_codex_key_notice_is_answered_by_its_key(monkeypatch):
+    monkeypatch.setattr(classify_mod, "_host_tool", lambda _pane: "codex")
+    screen = _sample("317_codex_conversation_open_in_another_app")
+    def notice(**fields):
+        return lambda _system, _text: {"activity": "waiting", "question": {
+            "prompt": "Close it there and press R to continue here.", "answer_style": "key",
+            "options": ["Retry", "Fork"], "keys": ["r", "f"], **fields}}
+    # No › composer, and a ■ error above it: the notice still waits on the user, by its key.
+    result = classify(_pane("codex"), screen, notice())
+    assert result["waiting_on"] == "user"
+    assert result["question"]["keys"] == ["r", "f"]
+    assert result["question"]["answer_style"] == "key"
+    # A key that is not one key is read as text, which Codex has nowhere to type.
+    for bad in ({"keys": ["r"]}, {"keys": ["retry", "f"]}, {"keys": [" ", "f"]}):
+        assert "question" not in classify(_pane("codex"), screen, notice(**bad))
+
+
 def _auto_screen(message):
     return f"\x1e[visible screen]\x1f\n● {message}\n✻ Baked for 16s\n\n❯\n  ⏵⏵ auto mode on"
 

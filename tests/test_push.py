@@ -268,6 +268,8 @@ def test_option_mapping_matches_card_semantics():
     assert push.option_keys(question, 2) == "3"
     question = {"answer_style": "text", "options": ["Ship it"]}
     assert push.option_keys(question, 0) == "Ship it"
+    question = {"answer_style": "key", "options": ["Retry", "Fork"], "keys": ["r", "f"]}
+    assert push.option_keys(question, 0) == "r"
     with pytest.raises(ValueError, match="app"):
         push.option_keys({"answer_style": "cursor", "options": ["row"]}, 0)
     question = {"answer_style": "text", "options": ["  ", "Ship it"]}
@@ -318,6 +320,11 @@ def test_contract_includes_nonrendered_options_that_change_menu_mapping():
     with_option = push.contract(pane, "123")[0]
     pane["question"]["subject"] = "Ways to free disk:"
     assert push.contract(pane, "123")[0] != with_option
+    key = waiting({"prompt": "Press R.", "answer_style": "key", "options": ["Retry"],
+                   "keys": ["r"]})
+    before = push.contract(key, "123")[0]
+    key["question"]["keys"] = ["R"]
+    assert push.contract(key, "123")[0] != before
 
 
 def test_body_shows_the_rows_a_question_names(tmp_path, monkeypatch):
@@ -560,6 +567,26 @@ def test_action_nonce_is_one_shot_and_bound_to_live_contract(tmp_path, monkeypat
     assert watcher.reparsed == ["%1"]
     with pytest.raises(ValueError, match="already used"):
         service.answer(nonce, 0)
+
+
+def test_key_notice_action_sends_its_own_key_without_enter(tmp_path, monkeypatch):
+    clock = [100.0]
+    watcher = Watcher()
+    watcher.states = [waiting({"prompt": "Close it there and press R to continue here.",
+                               "answer_style": "key", "options": ["Retry", "Fork"],
+                               "keys": ["r", "f"]})]
+    service, sender = manager(tmp_path, watcher, clock)
+    sent = []
+    def send(pane, keys, **kwargs):
+        kwargs.pop("guard")()
+        sent.append((pane, keys, kwargs))
+
+    monkeypatch.setattr(push.tmux, "send_keys", send)
+    service.evaluate()
+    clock[0] += push.SETTLE_SECONDS
+    service.evaluate()
+    assert service.answer(sender.payloads[0]["nonce"], 1) == ("%1", "f")
+    assert sent == [("%1", "f", {"enter": False, "literal": True, "expected_pid": "123"})]
 
 
 def test_action_refuses_a_screen_advanced_from_the_keyboard(tmp_path, monkeypatch, _screen):

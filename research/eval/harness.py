@@ -257,6 +257,15 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
         first = [str(o).lower() for o in opts[:2]] if isinstance(opts, list) else []
         if len(first) < 2 or not re.match(r"yes\b", first[0]) or not re.match(r"no\b", first[1]):
             diffs.append(f"question.options: want accept then decline, got {opts!r}")
+    # A key notice's `keys` ({"retry": "r"}) pins each action to its key: a button the card
+    # draws must send its own action's key. An action left out sends nothing, so it is no
+    # wrong key; a wrong or unknown one is.
+    if isinstance(want_q, dict) and isinstance(want := want_q.get("keys"), dict):
+        keys = got_q.get("keys") if isinstance(got_q, dict) else None
+        lists = [v if isinstance(v, list) else [] for v in (opts, keys)]
+        sent = [(str(o).casefold(), k) for o, k in zip(*lists, strict=False)]
+        if not sent or len(lists[0]) != len(lists[1]) or any(want.get(o) != k for o, k in sent):
+            diffs.append(f"question.keys: got {sent!r} want a subset of {want!r}")
     # Opt-in: how many reply pills the card may draw, so a list of points stays one ask's
     # few replies. Counted as app.js answerOptions does: the question's options bar its
     # free-text row, then each reply offer (not a `! command`) not already among them.

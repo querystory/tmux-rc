@@ -374,6 +374,10 @@ def contract(pane: dict, birth: str | None) -> tuple[str, dict | None]:
         # The body is the restatement: one that arrives late (a retried call) re-notifies.
         "ask": question.get("ask") if question else None,
     }
+    # A key notice's keys, like its labels: a remap is a new ask. Only when set, so no
+    # other question's digest moves.
+    if question and question.get("keys"):
+        value["keys"] = question["keys"]
     digest = hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
     return digest, question
 
@@ -456,6 +460,11 @@ def pane_input(watcher, pane_id: str, *, invalidate: bool = True):
             watcher.request_reparse(pane_id)
 
 
+# The styles answered by one keystroke alone: an Enter after it would confirm whatever
+# comes next.
+ONE_KEY = ("menu", "key")
+
+
 def option_keys(question: dict, index: int) -> str:
     options = question.get("options")
     if not isinstance(options, list) or index < 0 or index >= len(options):
@@ -470,6 +479,8 @@ def option_keys(question: dict, index: int) -> str:
         if index >= 9:  # "10" would commit row 1 on its first key
             raise ValueError("use the keyboard for menu rows past 9")
         return str(index + 1)
+    if style == "key":  # mirrors answerBody: the option's own key, as classify checked it
+        return question["keys"][index]
     return option
 
 
@@ -558,9 +569,8 @@ class PushManager:
         question, birth = held_question(self.watcher, issued["pane_id"], issued["fingerprint"])
         keys = option_keys(question, option_index)
         with pane_input(self.watcher, issued["pane_id"], invalidate=False):  # claim bumps
-            # A menu commits on its shortcut; an Enter would confirm the NEXT menu's default.
             tmux.send_keys(
-                issued["pane_id"], keys, enter=question.get("answer_style") != "menu",
+                issued["pane_id"], keys, enter=question.get("answer_style") not in ONE_KEY,
                 literal=True, expected_pid=birth, guard=lambda: claim_question(
                     self.watcher, issued["pane_id"], issued["fingerprint"],
                     issued["input_generation"], issued["frame"]),
