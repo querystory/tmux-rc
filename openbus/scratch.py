@@ -535,9 +535,17 @@ def annotate(meta: Path, root: Path, field: str, value: str, inode: int = 0) -> 
 
 
 def made_in(pane: dict, created: float) -> bool:
-    """Whether the pane was already open when the folder appeared (unknown counts as yes)."""
+    """Whether the pane was already open when the folder appeared (unknown counts as yes).
+    Its tmux server being up then is enough: a server never reuses a %N, so a pane whose
+    program was restarted since (respawn-pane, a resume) is still that pane, though its
+    process is younger than the folder. Only across a server restart can the id name some
+    other pane, and then the pane's own process must be the older one. The server is read
+    as the process's parent, which a pane's program always is."""
     stat = tmux.proc_stat(pane["birth"]) if pane.get("birth") else []
-    return len(stat) < 20 or tmux.started_at(stat[19]) <= created + 60
+    if len(stat) < 20:
+        return True
+    return any(len(s) >= 20 and tmux.started_at(s[19]) <= created + 60
+               for s in (tmux.proc_stat(stat[1]), stat))
 
 
 def where(pane: dict) -> str:

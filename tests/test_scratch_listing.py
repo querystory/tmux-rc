@@ -176,6 +176,21 @@ def test_a_pane_id_from_an_earlier_tmux_server_is_not_trusted(tmp_path, monkeypa
     assert '<p class="by"><span class="tool">unknown</span><span' in page
 
 
+def test_a_pane_respawned_under_the_same_tmux_server_keeps_its_page(tmp_path, monkeypatch):
+    # The pane's program restarted after the page was made (respawn-pane, a resume), so it
+    # is younger than the folder; its server, its parent, is older and never reuses a %N.
+    monkeypatch.setattr(agent_history, "writers", lambda *_: pytest.fail("no transcript guess"))
+    _folder(tmp_path, "kept", 1000, {"pane": "%7"})
+    started = {"41": 5000, "40": 10}  # the pane's pid, then its server's
+    monkeypatch.setattr(scratch.tmux, "proc_stat",
+                        lambda pid: ["S", "40" if pid == "41" else "1", *["0"] * 17, str(pid)])
+    monkeypatch.setattr(scratch.tmux, "started_at", lambda ticks: started.get(ticks, 5000))
+    states = [{"pane_id": "%7", "tool": "antigravity", "session": "s", "window_name": "w",
+               "birth": "41"}]
+    items, _ = _resolved(tmp_path, states)
+    assert items["kept"]["pane"] == "%7" and items["kept"]["sure"]
+
+
 def test_nothing_outside_scratch_is_listed_or_read(tmp_path, monkeypatch):
     monkeypatch.setattr(agent_history, "writers", lambda *_: {})
     root, outside = tmp_path / "scratch", tmp_path / "outside"
