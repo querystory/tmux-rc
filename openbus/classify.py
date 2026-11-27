@@ -1400,9 +1400,8 @@ def classify(
             prompt += ("\nThis pane runs Antigravity CLI (agy). Include antigravity among the "
                        "allowed tool values and report tool=antigravity. The selected model "
                        "(Gemini, Argon, Claude, etc.) is its backend, not the host agent. "
-                       'Its key notices take chords ("ctrl+k approve · alt+j manage"): '
-                       'name each in "keys" by its tmux name, ctrl+k => "C-k", alt+j => '
-                       '"M-j", never as its bare letter.\n')
+                       'A key notice whose hint names chords ("ctrl+k approve") gives each '
+                       'key in tmux form: ctrl+k => "C-k", alt+j => "M-j".\n')
         if re.search(
             r"(?im)^\s*(?:Background terminals\s*:|\d+ background terminals? running\b)", text,
         ):
