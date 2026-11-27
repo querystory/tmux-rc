@@ -68,7 +68,9 @@ def pending_threads(threads, handled):
         if t["isResolved"] or not comments or MARKER in comments[-1]["body"]:
             continue
         seen = handled.get(t["id"], {})
-        if seen.get("last_comment") == comments[-1]["databaseId"] and seen.get("step") != "blocked":
+        retry = seen.get("step") == "blocked" or (seen.get("action") == "fix"
+                                                  and not seen.get("sha"))  # interrupted
+        if seen.get("last_comment") == comments[-1]["databaseId"] and not retry:
             continue
         out.append(t)
     return out
@@ -293,7 +295,7 @@ def do_fix_ci(ctx, obs, rnd):
     ctx.st["ci_attempts"] += 1
     prompt = (f"CI is failing on this pull request. Failing job log tails:\n\n"
               f"{failing_log(obs, ctx.repo)}\n\nMake the smallest change that fixes it, then "
-              f"run the repo's lint and tests. Do not commit or push. If it cannot be fixed "
+              f"check it with {ctx.checks_text()}. Do not commit or push. If it cannot be fixed "
               f"here (flaky infra, secrets, needs a human), answer status blocked.")
     ans = llm(ctx.engine, ctx.wt, prompt, RESULT_SCHEMA, edit=True)
     rnd["fix_ci"] = ans
@@ -328,7 +330,7 @@ def do_triage(ctx, obs, rnd):
         if ans["action"] == "fix":
             res = llm(ctx.engine, ctx.wt, thread_prompt(t, ctx.wt) +
                       f"\n\nApply this review fix: {ans['rationale']}\nMake the smallest "
-                      "change, run the repo's lint and tests, do not commit or push.",
+                      f"change, check it with {ctx.checks_text()}, do not commit or push.",
                       RESULT_SCHEMA, edit=True)
             if res["status"] != "fixed":
                 entry["step"] = "blocked"
@@ -386,6 +388,10 @@ class Ctx:
         self.wt = self.branch = self.lock = None
         self.obs = {}
         self.verify = []
+
+    def checks_text(self):
+        """The verify gate's own commands, so the model runs what will judge its fix."""
+        return "; ".join(f"`{shlex.join(c)}`" for c in self.verify) or "the repo's lint and tests"
 
     def save(self):
         if not self.dry:

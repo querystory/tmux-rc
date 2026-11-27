@@ -51,12 +51,14 @@ def test_pending_threads_skips_resolved_ours_and_already_triaged():
     done = thread("T3")
     reopened = thread("T4", last_id=9)
     blocked = thread("T5")
+    unfinished = thread("T7")
     handled = {"T3": {"last_comment": 2, "step": "replied"},
                "T4": {"last_comment": 2, "step": "replied"},
-               "T5": {"last_comment": 2, "step": "blocked"}}
+               "T5": {"last_comment": 2, "step": "blocked"},
+               "T7": {"last_comment": 2, "step": "triaged", "action": "fix"}}
     got = P.pending_threads([thread("T1", resolved=True), ours, done, reopened, blocked,
-                             thread("T6")], handled)
-    assert [t["id"] for t in got] == ["T4", "T5", "T6"]
+                             thread("T6"), unfinished], handled)
+    assert [t["id"] for t in got] == ["T4", "T5", "T6", "T7"]
 
 
 @pytest.mark.parametrize(("o", "s", "want"), [
