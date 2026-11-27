@@ -24,9 +24,11 @@ from pathlib import Path
 UNIT = Path.home() / ".config/systemd/user/tmux-rc.service"
 KILL = re.compile(r"\btmux\b.*\bkill-(server|session)\b")
 ISOLATED = re.compile(r"\benv\s+-u\s+TMUX\b.*\btmux\s+-[LS]\s*\S")
+GIT_C = r"\bgit\s+(?:-C\s+(\S+)\s+)?"  # group 1: the checkout a `git -C` names
 GIT_MOVE = re.compile(
-    r"\bgit\s+(checkout|switch|reset|restore|pull|merge|rebase|commit|cherry-pick|stash)\b")
-REBUILD = re.compile(r"\bgit\s+checkout\s+--detach\s+origin/integration$")
+    GIT_C + r"(checkout|switch|reset|restore|pull|merge|rebase|commit|cherry-pick|stash)\b")
+REBUILD = re.compile(GIT_C + r"checkout\s+--detach\s+origin/integration$")
+CD = re.compile(r"^\s*(?:cd|pushd)(?:\s+(\S+))?\s*$")
 # One shell command between unquoted, unescaped separators (&& || ; | newline): tmux runs
 # `tmux ls \; kill-server` as one invocation, so its escaped `;` must not split it.
 PIECE = re.compile(r"""(?:\\.|'[^']*'|"(?:\\.|[^"\\])*"|[^\\'";&|\n]|(?<!&)&(?!&)|['"\\])+""",
@@ -54,13 +56,20 @@ def verdict(event: dict, root: Path | None) -> str | None:
     tool, args = event.get("tool_name"), event.get("tool_input") or {}
     cwd = Path(event.get("cwd") or ".").resolve()
     if tool == "Bash":
+        here = cwd  # where each piece runs: an earlier `cd`/`pushd` in the command moves it
         for part in PIECE.findall(args.get("command", "")):
+            if cd := CD.match(part):
+                here = here / os.path.expanduser((cd.group(1) or "~").strip("'\""))
+                continue
             if KILL.search(part) and not ISOLATED.search(part):
                 return ("tmux kill-server/kill-session would hit the user's live tmux server "
                         "($TMUX is inherited). Close only the window or pane id you created, or "
                         "isolate a test server with `env -u TMUX tmux -L <socket>` (AGENTS.md).")
-            moves = GIT_MOVE.search(part) and not REBUILD.search(part.strip())
-            if root and cwd == root and moves:
+            move = GIT_MOVE.search(part)
+            if not (root and move) or REBUILD.search(part.strip()):
+                continue
+            repo = (here / (move.group(1) or ".").strip("'\"")).resolve()
+            if inside(repo, root) and not inside(repo, root / ".claude/worktrees"):
                 return (f"{root} is the live deploy, detached at origin/integration; moving it "
                         "drops every PR under test. Work in a worktree cut from origin/main "
                         "(AGENTS.md).")

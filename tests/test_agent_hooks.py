@@ -33,15 +33,24 @@ def test_tmux_kill(tmp_path, cmd, code):
     assert guard(event, tmp_path) == code
 
 
-@pytest.mark.parametrize(("cmd", "code"), [
-    ("git checkout some-pr", 2),
-    ("git fetch && git reset --hard origin/main", 2),
-    ("git fetch && git checkout --detach origin/integration", 0),
-    ("git log --oneline -3", 0),
+@pytest.mark.parametrize(("start", "cmd", "code"), [
+    ("root", "git checkout some-pr", 2),
+    ("root", "git fetch && git reset --hard origin/main", 2),
+    ("root", "git fetch && git checkout --detach origin/integration", 0),
+    ("root", "git log --oneline -3", 0),
+    ("root/openbus", "git reset --hard origin/main", 2),
+    ("/", "cd {root} && git reset --hard origin/main", 2),
+    ("/", "git -C {root} checkout some-pr", 2),
+    ("/", "git -C {root} checkout --detach origin/integration", 0),
+    ("root", "cd /tmp/wt && git commit -m x", 0),
+    ("root", "git -C /tmp/wt commit -m x", 0),
+    ("root", "cd .claude/worktrees/x && git commit -m x", 0),
 ])
-def test_live_root_git(tmp_path, cmd, code):
-    event = {"tool_name": "Bash", "tool_input": {"command": cmd}, "cwd": str(tmp_path)}
-    assert guard(event, tmp_path) == code
+def test_live_root_git(tmp_path, start, cmd, code):
+    root = tmp_path / "root"
+    cwd = root / start.removeprefix("root").lstrip("/") if start.startswith("root") else start
+    event = {"tool_name": "Bash", "tool_input": {"command": cmd.format(root=root)}, "cwd": str(cwd)}
+    assert guard(event, root) == code
 
 
 @pytest.mark.parametrize(("rel", "code"), [
