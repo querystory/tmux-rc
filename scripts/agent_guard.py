@@ -31,9 +31,10 @@ GIT_MOVE = re.compile(
     GIT_C + r"(checkout|switch|reset|restore|pull|merge|rebase|commit|cherry-pick|stash)\b")
 REBUILD = re.compile(GIT_C + r"checkout\s+--detach\s+origin/integration$")
 CD = re.compile(r"^\s*(?:cd|pushd)(?:\s+(\S+))?\s*$")
-# One shell command between unquoted, unescaped separators (&& || ; | newline): tmux runs
-# `tmux ls \; kill-server` as one invocation, so its escaped `;` must not split it.
-PIECE = re.compile(r"""(?:\\.|'[^']*'|"(?:\\.|[^"\\])*"|[^\\'";&|\n]|(?<!&)&(?!&)|['"\\])+""",
+# One shell command between unquoted, unescaped separators (&& || ; | & newline): tmux runs
+# `tmux ls \; kill-server` as one invocation, so its escaped `;` must not split it. The `&`
+# of a redirection (`2>&1`, `&>`) stays inside; a background `&` ends the command.
+PIECE = re.compile(r"""(?:\\.|'[^']*'|"(?:\\.|[^"\\])*"|[^\\'";&|\n]|(?<=[<>])&|&(?=>)|['"\\])+""",
                    re.DOTALL)
 QUOTED_OR_ESC = re.compile(r"""'[^']*'|"(?:\\.|[^"\\])*"|\\.""", re.DOTALL)
 ESC = re.compile(r"\\.", re.DOTALL)
