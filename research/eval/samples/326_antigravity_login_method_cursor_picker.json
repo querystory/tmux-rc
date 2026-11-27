@@ -1,0 +1,23 @@
+{
+  "description": "Invented Antigravity CLI first-run sign-in picker: numbered rows under a > highlight and a \"↑/↓ Navigate · enter Select\" footer. In agy a digit neither picks nor moves the highlight (it is silently dropped), so a menu answer does nothing; the tap must walk it with Down/Up and commit with Enter.",
+  "current_command": "agy",
+  "capture": "\n     ▄▀▀▄\n    ▀▀▀▀▀▀\n   ▀▀▀▀▀▀▀▀\n  ▄▀▀    ▀▀▄\n ▄▀▀      ▀▀▄\n\n Welcome to the Antigravity CLI. You are currently not signed in.\n\n Select login method:\n\n > 1. Google OAuth\n   2. Use a Google Cloud project\n\n   ↑/↓ Navigate · enter Select\n\n\n\n",
+  "expected": {
+    "tool": "antigravity",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "present": true,
+      "answer_style": "cursor",
+      "options": ["Google OAuth", "Use a Google Cloud project"],
+      "selected": 0,
+      "keymap": {
+        "next": "Down",
+        "prev": "Up",
+        "select": "Enter",
+        "search": false
+      }
+    },
+    "headline": "Choosing a sign-in method for Antigravity CLI"
+  }
+}
