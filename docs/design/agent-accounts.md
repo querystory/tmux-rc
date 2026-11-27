@@ -14,6 +14,13 @@ A pane's account is fixed by the environment its agent started with, so nothing 
 transcripts and Expunge followed it. What was missing was naming the accounts, choosing
 one for a new pane, and adding a second one without leaving the phone.
 
+Other agents stay out of this model when they do not support per-dir isolation. In
+particular, Antigravity CLI (`agy`) has no config-dir override, stores one Google OAuth
+login in a single OS keyring slot, and shares a local daemon under
+`~/.gemini/antigravity-cli/daemon/`. To launch `agy` with personal OAuth alongside `gcloud`
+Application Default Credentials (`AGY_ADC_AUTH=true`), configure two `TMUXRC_LAUNCHERS`
+entries instead; see [agent setup](../agent-setup.md#antigravity-agy-accounts-and-gcloud-adc).
+
 ## The model: a profile is a provider plus a config dir
 
 Profiles are discovered, not configured: `~/.claude`, every `~/.claude-<name>`,

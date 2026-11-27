@@ -198,6 +198,36 @@ restricts watching to a *single* pane, so it is a blunt instrument: today it is 
 right answer when you have one agent you care about, and the wrong one when you have a
 fleet plus a stray `top`. Closing the `top` pane is often the better fix.
 
+## Antigravity (`agy`): accounts and gcloud ADC
+
+Unlike Claude Code (`CLAUDE_CONFIG_DIR`) and Codex (`CODEX_HOME`), Antigravity CLI does not
+offer a config-dir environment variable or profile flag to isolate logins per pane: its
+settings live at `~/.gemini/antigravity-cli/settings.json`, its Google OAuth login lives in
+a single OS keyring slot (Secret Service / D-Bus on Linux, Keychain on macOS), and panes
+share a local daemon under `~/.gemini/antigravity-cli/daemon/`. Because there is no way to
+pin two separate Google OAuth logins to two panes at once (overriding `HOME` still hits the
+same keyring and breaks `git`/`ssh` in the pane), Antigravity does not participate in
+tmux-rc's [account picker](design/agent-accounts.md).
+
+You *can*, however, launch Antigravity with either your personal Google OAuth login or
+`gcloud` Application Default Credentials (`gcloud auth application-default login`, requires
+`agy` 1.4.7+) by adding a second entry to `TMUXRC_LAUNCHERS` in `.env` with
+`AGY_ADC_AUTH=true`:
+
+```json
+[
+  {"label": "Antigravity", "command": "agy", "icon": "antigravity"},
+  {"label": "Antigravity (gcloud)", "command": "AGY_ADC_AUTH=true agy", "icon": "antigravity"}
+]
+```
+
+Prefix `GOOGLE_CLOUD_PROJECT=<project>` or `GOOGLE_APPLICATION_CREDENTIALS=<path>` on the
+`gcloud` command if you want it pinned to a specific GCP project or credential file, then
+restart the daemon (`systemctl --user restart tmux-rc`). Leading `VAR=value` assignments are
+accepted by the launcher preflight check as-is. Because `agy` still runs a shared local
+daemon under `~/.gemini/antigravity-cli/daemon/`, test both entries side by side if you plan
+to keep personal OAuth and ADC panes open simultaneously.
+
 ## What this all adds up to
 
 Let your agent put its title on screen (and name the window yourself when it can't) so the
