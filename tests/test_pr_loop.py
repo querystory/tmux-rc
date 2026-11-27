@@ -1,5 +1,6 @@
 """pr_loop's decision graph and its LLM-answer parsing, with gh, git and the LLM stubbed."""
 import json
+import re
 
 import pytest
 
@@ -149,12 +150,157 @@ def test_finish_pushes_then_replies_and_resolves_once(monkeypatch):
     assert not any(c[0] == "gh" for c in calls)
 
 
-def test_summary_lists_threads():
-    s = st(threads={"T1": {"action": "reply", "path": "a.py", "step": "replied",
-                           "rationale": "a question"}})
-    md = P.summary_md("example-org/widget", 7, s, obs(), "ready")
-    assert "**reply** `a.py`" in md
-    assert "never merges" in md
+SHA1, SHA2 = "1" * 40, "2" * 40
+
+
+def gh_thread(tid, resolved=True, replied=True):
+    nodes = [{"author": {"login": P.COPILOT}, "url": f"https://gh.test/{tid}#c1",
+              "body": "A `;` inside quotes splits the command. The guard then misses it."}]
+    if replied:
+        nodes.append({"author": {"login": "someone"}, "url": f"https://gh.test/{tid}#c2",
+                      "body": f"Fixed.\n{P.MARKER}"})
+    return {"id": tid, "isResolved": resolved, "path": "src/guard.py", "line": None,
+            "comments": {"nodes": nodes}}
+
+
+def raw_facts(**kw):
+    pr = {"title": "Guard: block <kill> in one call", "url": "https://gh.test/pr/7",
+          "body": "## Why\n\nThe guard let a **quoted** `;` through.\n\n## What\n\n- x",
+          "state": "OPEN", "isDraft": False, "mergeable": "MERGEABLE", "additions": 40,
+          "deletions": 2, "baseRefName": "main", "headRefOid": HEAD,
+          "commits": {"nodes": [{"commit": {"oid": o}} for o in (SHA1, SHA2, HEAD)]},
+          "reviews": {"nodes": [{"author": {"login": P.COPILOT}, "commit": {"oid": HEAD}}]},
+          "reviewThreads": {"nodes": [gh_thread("T1"), gh_thread("T2")]}}
+    pr.update(kw.pop("pr", {}))
+    files = [{"name": "src/guard.py", "add": 5, "del": 1}]
+    return {"pr": pr, "checks": [{"name": "test", "bucket": "pass", "link": "https://gh.test/c"},
+                                 {"name": "deploy", "bucket": "skipping", "link": None}],
+            "commits": {SHA1: {"subject": "Review: Split only where the shell would", "url": "u1",
+                               "files": [*files, {"name": "tests/test_guard.py", "add": 3,
+                                                  "del": 0}]},
+                        SHA2: {"subject": "Review: " + "x" * 50 + " yyyyyyyyyy",
+                               "url": "u2", "files": files}},
+            "recipe": ["uv run pytest -q tests/", "node --test tests/*.mjs"],
+            "workflows": "- run: uv run pytest -q tests/\n- run: node --test tests/*.mjs",
+            **kw}
+
+
+def loop_state():
+    """A finished run whose triage rationale says the opposite of what happened."""
+    lie = "The edits were denied permission in this session, so they are not applied yet."
+    return st(rounds=[{"n": 1, "head": "c" * 40, "action": "triage", "triage": ["T1"]},
+                      {"n": 2, "head": SHA1, "action": "triage", "triage": ["T2"]}],
+              threads={t: {"action": "fix", "reply_text": "Fixed.", "rationale": lie,
+                           "path": "src/guard.py", "comment_id": 1, "last_comment": 1,
+                           "step": "resolved", "sha": sha}
+                       for t, sha in (("T1", SHA1), ("T2", SHA2))})
+
+
+def test_decision_comes_from_observed_facts_not_llm_prose():
+    m = P.decide("example-org/widget", 7, loop_state(), raw_facts(), ["uv run pytest -q tests/"],
+                 "ready")
+    page = P.render_page(m)
+    for text in (page, P.summary_text(m), P.meta_description(m)):
+        assert "denied" not in text
+    assert m["verdict"] == "Merge"
+    assert m["confidence"] == "medium"  # SHA2 adds no test
+    assert [c["resolved"] for c in m["cards"]] == [True, True]
+    assert m["cards"][0]["subject"] == "Split only where the shell would"
+    assert m["cards"][1]["subject"].endswith("…")  # an old run's subject cut mid-word
+    assert m["cards"][0]["risk"] == "A `;` inside quotes splits the command."
+    assert m["cards"][0]["reply_url"] == "https://gh.test/T1#c2"
+    assert [p["n"] for p in m["series"]] == [1, 1, 0]
+    s = m["stats"]
+    assert (s["fixed"], s["commits"], s["tests"], s["adds"], s["dels"]) == (2, 2, 3, 13, 2)
+    assert "The guard let a <strong>quoted</strong> <code>;</code> through." in page
+    assert "&lt;kill&gt;" in page  # GitHub text is escaped
+    assert "gh pr merge 7 --squash -R example-org/widget" in page
+
+
+def test_caveats_name_only_what_the_run_skipped():
+    verify = ["make lint", "uv run pytest -q tests/ --deselect tests/test_slow.py"]
+    raw = raw_facts(stash=["stash@{0}: On b: pr-loop rejected: x"])
+    cav = " | ".join(P.decide("example-org/widget", 7, loop_state(), raw, verify, "ok")["caveats"])
+    assert "`node --test tests/*.mjs` (part of `make test`) was not run locally" in cav
+    assert "CI runs it, and CI passed" in cav
+    assert "Skipped locally: `tests/test_slow.py`; CI's full test run includes it" in cav
+    assert f"`{SHA2[:8]}` (src/guard.py) adds no test" in cav
+    assert f"`{SHA1[:8]}`" not in cav
+    assert "still stashed" in cav
+    assert "CI skipped: deploy." in cav
+    every = P.decide("example-org/widget", 7, loop_state(), raw_facts(), ["make test"], "ok")
+    assert not any("not run locally" in c for c in every["caveats"])
+    unknown = P.decide("example-org/widget", 7, loop_state(), raw_facts(), None, "ok")
+    assert any("did not record" in c for c in unknown["caveats"])
+
+
+@pytest.mark.parametrize(("raw", "outcome", "blocker"), [
+    (raw_facts(pr={"reviewThreads": {"nodes": [gh_thread("T1", resolved=False)]}}), "ok",
+     "0/1 review threads resolved"),
+    (raw_facts(checks=[{"name": "test", "bucket": "fail"}]), "ok", "CI is fail"),
+    (raw_facts(pr={"reviews": {"nodes": []}}), "ok", "Copilot has not reviewed"),
+    (raw_facts(pr={"mergeable": "CONFLICTING"}), "ok", "Mergeable: CONFLICTING"),
+    (raw_facts(pr={"commits": {"nodes": []}}), "ok", "Not on the PR: 2 fix commits"),
+    (raw_facts(), "BLOCKED: tests failed", "BLOCKED: tests failed"),
+    ({}, "BLOCKED: gh auth", "BLOCKED: gh auth"),
+])
+def test_decision_holds_when_a_gate_fails(raw, outcome, blocker):
+    m = P.decide("example-org/widget", 7, loop_state(), raw, ["make test"], outcome)
+    assert m["verdict"] == "Hold"
+    assert any(blocker in b for b in m["blockers"])
+    page = P.render_page(m)
+    assert "rerun pr-loop 7" in page
+    assert "gh pr merge" not in page
+
+
+def test_page_is_self_contained():
+    page = P.render_page(P.decide("example-org/widget", 7, loop_state(), raw_facts(),
+                                  ["make test"], "ok"))
+    assert "<script" not in page
+    assert not re.search(r"(src=|url\(|@import)\s*[\"']?https?:", page)
+    assert page.count("<svg") == 2
+    assert "<details>" in page
+
+
+def test_short_subject_and_why_text():
+    assert P.short_subject("Fix it") == "Fix it"
+    cut = P.short_subject("word " * 30)
+    assert cut.endswith("…")
+    assert len(cut) <= P.SUBJECT_MAX + 1
+    assert P.why_text("Intro para.\n\n## Why\n\nBecause [docs](http://x) lied.") == (
+        "Because docs lied.")
+    assert P.why_text("# Title\n\nFirst para\nwraps.\n\nSecond.") == "First para wraps."
+    assert P.plural(1, "fix") == "1 fix"
+    assert P.plural(2, "fix") == "2 fixes"
+
+
+def test_summary_only_rebuilds_the_page_and_changes_nothing_else(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("TMUXRC_SCRATCH_DIR", str(tmp_path / "scratch"))
+    monkeypatch.setenv("TMUXRC_SCRATCH_URL", "https://scratch.test")
+    monkeypatch.setenv("PR_LOOP_BRAND_DIR", str(tmp_path / "no-brand"))
+    path = P.state_path("example-org/widget", 7)
+    P.save_state(path, {**loop_state(), "status": "CI green"})
+    before = path.read_text()
+    folder = tmp_path / "scratch" / "pr-loop-example-org-widget-7"
+    folder.mkdir(parents=True)
+    (folder / "index.md").write_text("old page")
+    (folder / "meta.json").write_text('{"updating": "x"}')
+    monkeypatch.setattr(P, "observe", lambda *a: obs(branch="b"))
+    monkeypatch.setattr(P, "worktrees", lambda cwd: ({}, cwd))
+    monkeypatch.setattr(P, "gather", lambda *a: raw_facts())
+
+    def fake_run(cmd, **kw):
+        assert cmd[0] == "date", cmd  # no gh, git, push or LLM call
+        return "2026-01-01T00:00:00+00:00\n"
+    monkeypatch.setattr(P, "run", fake_run)
+    assert P.main(["7", "--repo", "example-org/widget", "--summary-only"]) == 0
+    assert path.read_text() == before
+    assert not (folder / "index.md").exists()
+    assert "Merge <em>#7</em>?" in (folder / "index.html").read_text()
+    meta = json.loads((folder / "meta.json").read_text())
+    assert "updating" not in meta
+    assert meta["description"].startswith("pr-loop recommends merging widget #7")
 
 
 def test_parse_llm_json_prefers_the_outer_object():
