@@ -57,7 +57,17 @@ flowchart TD
 | push, reply, resolve | code | push once, then reply on each thread; resolve only the ones we fixed |
 | request review | code | re-request Copilot on the new head |
 | wait | code | poll CI or Copilot, bounded by `--timeout` |
-| human gate | human | summary to stdout and a scratch page; "ready for your merge decision" |
+| human gate | human | a decision page on scratch ("Merge #N?") and a short stdout summary |
+
+The gate's page is built only from facts the run can observe: each fix's commit, diff and
+test lines, CI on the head, our reply and the thread's state on GitHub, and the reviewer's own
+first sentence as the risk. It never shows a model's prose. A triage rationale is a plan
+written before the fix ran (on the first live run it said the edits were "denied", because
+the read-only call had tried to apply them itself), so showing it would report the opposite
+of what happened. The page recommends merge or hold from the gates it lists, with a caveats
+box for what the run skipped (part of `make test` not run locally, deselected tests, a fix
+with no test, a stashed attempt). `--summary-only` rebuilds the page for a finished run
+without touching its state or GitHub.
 
 `next_action` is the whole policy, in order: a closed, draft or conflicting PR blocks; a
 failing CI is fixed before threads are triaged, since a fix for a thread on a red tree can't
