@@ -149,7 +149,7 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
   "tables": [{"title": "optional caption", "headers": ["col", ...], "rows": [["cell", ...], ...]}],
   "question": {"prompt": "...", "options": ["..."], "answer_style": "text"|"menu"|"cursor"|"key",
                "selected": <int|null>,   // cursor style: index of the ❯-highlighted option
-               "keys": ["r"],   // key style: each option's one key or chord ("C-k"), in order
+               "keys": ["r"],   // key style: each option's one key, in order
                "free_text": <int>,   // index of an option that only opens the agent's own free-text field
                "items": ["1. ..."],   // when it names rows of a list above it ("do 1 and 2?", "A or B?"): exactly the rows it names
                "subject": "...",   // with "items": the heading or lead-in line just above that list
@@ -381,8 +381,7 @@ survey at most as a minor event.
   /resume session picker and its model/theme pickers are this shape.
 - "key": a notice that a single letter key answers, named on screen for each action
   (Codex's "r retry   f fork"). Name each action as an option and its key in "keys"; the
-  phone sends that key alone. A chord is named in tmux's form, never as its letter:
-  ctrl+k ⇒ "C-k", alt+j ⇒ "M-j". Its prompt quotes the one row of the notice that says what
+  phone sends that key alone. Its prompt quotes the one row of the notice that says what
   to do ("Close it there and press R to continue here.").
 DIGITS WIN. Many widgets show a ❯ cursor AND numbered rows (Claude Code's permission
 box: "❯ 1. Yes / 2. Yes, and don't ask again / 3. No"). That is "menu", NOT "cursor" —
