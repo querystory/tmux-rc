@@ -128,6 +128,11 @@ const html = (node, value) => { if (node._html !== value) { node.innerHTML = val
 const show = (id, visible) => { $(id).hidden = !visible; };
 const icon = (id, name) => html($(id), licon(name));
 const paneUrl = (id, path) => `/api/panes/${encodeURIComponent(id)}/${path}`;
+// Another machine's panes and sessions arrive named "<machine>:<id>" (openbus/peers.py), and
+// the hub sends a call that names one to its machine. A call that names neither, like the
+// launchers, says which with ?machine=; "" is the hub's own.
+const machineOf = (session) => { const [m, rest] = String(session || "").split(":"); return rest !== undefined && machines.some((x, i) => i && x.name === m) ? m : ""; };
+const onMachine = (url, machine) => machine ? `${url}?machine=${encodeURIComponent(machine)}` : url;
 const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.svg", antigravity: "/antigravity.svg", opencode: "/opencode.svg", omp: "/omp.svg", shell: "/bash.png" };
 const NO_TMUX = "tmux is not running on this host (it does not survive a reboot).";
 // What an empty list says was filtered: "No Personal panes are working."
@@ -189,6 +194,7 @@ const ofAgent = (p) => !scope.tools.length || scope.tools.includes(p.tool || "ot
 try { pinNeeds = localStorage.getItem("tmuxrc-pin-needs") !== "off"; } catch {}
 const setPinNeeds = (v) => { pinNeeds = v === "on"; try { localStorage.setItem("tmuxrc-pin-needs", v); } catch {} renderList(); paintSettings(); };
 const setSort = (v) => { sort = v; try { localStorage.setItem("tmuxrc-sort", v); } catch {} renderList(); paintSettings(); };
+let machines = [], offline = ""; // the fleet's machines, this one first ([] alone), and those not answering
 let sending = false, prefix = "C-b", host = "", stateController, detailController, detailId = null, fitCols = 0, fitAlt; // see fitTo; fitAlt: is the streamed app full screen
 let streamedLayout = null;
 let eventsKey = null, latestCapture = "", fontSize = 13;
@@ -890,7 +896,7 @@ addEventListener("message", (e) => {
   if (typeof e.data?.scrolled === "number" && e.source === viewer.querySelector("iframe")?.contentWindow) viewer.querySelector("iframe").scrolled = e.data.scrolled; // where a reload puts it
   if (typeof e.data?.selected === "string" && e.source === shown?.contentWindow) { quotable = quoteOf(e.data.selected); paintViewerForm(); } // its Quote chip
   if (intent) return e.source === viewer.querySelector("iframe")?.contentWindow && e.origin === "null" && !$("send-dialog").open && askSend(sendIntent(e.data, panes));
-  if (/^%\d+$/.test(pane) && [scratchFrame, viewer.querySelector("iframe")].some((f) => f?.contentWindow === e.source)) navigate(pane, "summary", { draft: offered });
+  if (/^([\w-]+:)?%\d+$/.test(pane) && [scratchFrame, viewer.querySelector("iframe")].some((f) => f?.contentWindow === e.source)) navigate(pane, "summary", { draft: offered });
   if (e.source !== scratchFrame.contentWindow) return;
   if (["grid", "list"].includes(view)) { scratchView = view; try { localStorage.setItem("tmuxrc-scratch-view", view); } catch {} }
   if (href) viewScratch(href, title);
@@ -1900,7 +1906,10 @@ async function pollState(signal) {
       const ids = (data.panes || []).map((p) => `${p.pane_id}:${p.birth}:${p.tool}`).join(); // birth: a recycled id is a new pane
       if (ids !== paneIds || Date.now() - accountsAt > 20000) { paneIds = ids; accountsAt = Date.now(); accounts.refresh(); }
       const wasRunning = loaded ? tmuxRunning : null; // null: the first answer always asks
-      scratchNews(data.scratch); statePanes = data.panes || []; showPanes(); loaded = true; booted = data.booted !== false; tmuxRunning = data.tmux_running !== false; prefix = data.prefix || "C-b"; host = data.host || "";
+      scratchNews(data.scratch); statePanes = data.panes || []; showPanes(); loaded = true; booted = data.booted !== false; tmuxRunning = data.tmux_running !== false; prefix = data.prefix || "C-b"; host = data.host || ""; machines = data.machines || [];
+      const gone = machines.filter((m) => !m.online).map((m) => m.name).join(", ");
+      if (gone && gone !== offline) notice(`Can't reach ${gone}: its panes are back when it answers.`);
+      offline = gone;
       if (wasRunning !== tmuxRunning || restore.due()) restore.refresh(); // a server came or went: the offer changes
       $("ctrl-b").hidden = data.prefix === "C-b"; // absent prefix: can't know it's C-b, so show it
       if (!document.hidden) { refreshHistory(); refreshCached(); }
@@ -1908,7 +1917,7 @@ async function pollState(signal) {
       text($("connection"), data.stale ? "Stalled" : "Live");
       $("connection").classList.toggle("online", !data.stale);
       const u = data.usage; // LLM spend this run: parser + voice, the debug readout the old UI kept under its status dot
-      $("connection").title = (data.stale ? "Watcher stalled; pane summaries may be out of date" : "Connected")
+      $("connection").title = (data.stale ? "Watcher stalled; pane summaries may be out of date" : "Connected") + (offline ? ` | Unreachable: ${offline}` : "")
         + (u ? ` | LLM $${u.cost.toFixed(3)}, ${Math.round((u.in_tokens + u.out_tokens + (u.live?.in_tokens || 0) + (u.live?.out_tokens || 0)) / 1000)}k tokens` : "");
       render();
       // A push's focus is spent on the first fresh, classified state of its pane: its ask, or none.
@@ -2731,7 +2740,13 @@ const launchMode = () => {
   show("launch-new", fresh); text($("launch-title"), "New session");
   show("launch-teleport", !fresh); // a teleport opens a window in a session that exists
 };
-$("launch-session").onchange = launchMode;
+// The launchers and folders are the machine's the new window opens on: another session's, or
+// for a new session the Machine picked (shown with more than one).
+const launchMachine = () => $("launch-session").value ? machineOf($("launch-session").value) : $("launch-machine").value;
+let launchOn = null; // the machine the sheet's launchers came from
+const relaunch = () => { if (launchMachine() !== launchOn) loadLaunch(++launchLoad); };
+$("launch-session").onchange = () => { launchMode(); relaunch(); };
+$("launch-machine").onchange = relaunch;
 // The name defaults to the directory's basename, shown as the placeholder so typing a
 // name of your own simply overrides it.
 const sessionName = (dir) => (dir.replace(/\/+$/, "").split("/").pop() || "").replace(/^~$/, "home").replace(/[^\w-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64) || "main"; // the API's limit
@@ -2765,11 +2780,20 @@ async function openLaunch(fresh, opener, kind) {
   kinds.forEach((b) => { b.dataset.why = live.why(b.dataset.start === "chat"); });
   show("launch-kind", kinds.some((b) => !b.dataset.why)); text($("launch-sub"), "Start an agent or shell in a new tmux window.");
   if (kind) kindRow.querySelector(`[data-start=${kind}]`).click(); // the top bar's Chat or Voice
+  const online = machines.filter((m) => m.online);
+  $("launch-machine").replaceChildren(...online.map((m, i) => new Option(m.name, i ? m.name : "")));
+  show("launch-machine-row", online.length > 1);
+  return loadLaunch(load);
+}
+async function loadLaunch(load) {
+  launchPick?.remove(); launchPick = null;
+  text($("launch-error"), "Loading agents..."); $("launch-choices").replaceChildren();
+  const machine = launchOn = launchMachine();
   // Suggestions only (open panes' and past agent sessions' directories); any path works.
-  request("/api/sessions/dirs").then((d) => $("launch-dirs").replaceChildren(...d.dirs.map((dir) => new Option(dir))), () => {});
+  request(onMachine("/api/sessions/dirs", machine)).then((d) => $("launch-dirs").replaceChildren(...d.dirs.map((dir) => new Option(dir))), () => {});
   try {
     // The accounts too: the picker below draws from them, and on a first load they may not be in yet.
-    const [data, loaded] = await Promise.all([request("/api/launchers"), accounts.refresh()]);
+    const [data, loaded] = await Promise.all([request(onMachine("/api/launchers", machine)), accounts.refresh()]);
     if (load !== launchLoad || !$("launch-dialog").open) return;
     launchAccounts = loaded !== false;
     text($("launch-error"), "");
@@ -2795,10 +2819,11 @@ async function openLaunch(fresh, opener, kind) {
       if (!launcher.unavailable) button.insertAdjacentHTML("beforeend", licon("plus"));
       button.disabled = !!launcher.unavailable;
       button.dataset.provider = launcher.provider || "";
-      button.onclick = () => launchPick.pick(launcher.provider, () => launchWindow(launcher.label, button));
+      // Accounts are this machine's (accounts.js): another machine's agents start on its default.
+      button.onclick = () => machine ? launchWindow(launcher.label, button) : launchPick.pick(launcher.provider, () => launchWindow(launcher.label, button));
       return button;
     }));
-    launchPick = accounts.picker($("launch-choices"), $("launch-session"));
+    if (!machine) launchPick = accounts.picker($("launch-choices"), $("launch-session"));
   } catch { if (load === launchLoad) text($("launch-error"), "Could not load launchers. Close and try again."); }
 }
 $("close-launch").onclick = () => $("launch-dialog").close();
@@ -2851,7 +2876,7 @@ async function launchWindow(launcher, button) {
   try {
     const account = launchPick?.account(button?.dataset.provider);
     const data = await (session ? post("/api/windows", { session, launcher, account })
-      : post("/api/sessions", { name, cwd: $("launch-dir").value.trim() || "~", launcher, account }));
+      : post(onMachine("/api/sessions", $("launch-machine").value), { name, cwd: $("launch-dir").value.trim() || "~", launcher, account }));
     if (!session) try { localStorage.setItem(LAST_DIR, $("launch-dir").value.trim()); } catch {}
     $("launch-dialog").close(); openLaunched(data.pane_id);
   } catch (error) {
@@ -2877,7 +2902,7 @@ async function teleport() {
   try {
     // No timeout: the daemon asks claude.ai first, and a request given up on here could
     // still open its window, which a retry would then open twice.
-    const data = await post("/api/teleport", { cloud, session: $("launch-session").value, account: launchPick.account("claude") }, NO_TIMEOUT);
+    const data = await post("/api/teleport", { cloud, session: $("launch-session").value, account: launchPick?.account("claude") }, NO_TIMEOUT);
     $("teleport-id").value = ""; syncTeleportButton();
     $("launch-dialog").close(); openLaunched(data.pane_id);
     if (data.also?.length) notice(`Only ${data.repo} is checked out for this session. It also worked in ${data.also.join(", ")}.`, 10000);

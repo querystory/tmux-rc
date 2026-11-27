@@ -108,6 +108,7 @@ from .classify import picker_digest, picker_read, prompt_gone  # noqa: E402
 from .history import History, default_path, pane_key  # noqa: E402
 from .host_security import TrustedHostMiddleware  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
+from .peers import Fleet, PeerProxy  # noqa: E402
 from .plan_usage import ENV, PlanUsage, canonical  # noqa: E402
 from .push import ONE_KEY, PushManager, claim_question, contract, pane_input  # noqa: E402
 from .watcher import Watcher, _fingerprint  # noqa: E402
@@ -545,6 +546,7 @@ async def lifespan(app: FastAPI):
     app.state.push.start()
     app.state.usage = PlanUsage(app.state.history, profiles=accounts.metered)
     app.state.worktrees = Worktrees()
+    app.state.fleet = Fleet.from_env()  # other machines' daemons, shown beside this one's panes
     tasks = [asyncio.create_task(app.state.usage.run(app.state.watcher)),
              asyncio.create_task(app.state.worktrees.run(app.state.watcher))]
     # Opt-in, and not in single-pane mode, which could not show the windows it opens.
@@ -552,6 +554,8 @@ async def lifespan(app: FastAPI):
         store = accounts.store_path().with_name("mentions.json")
         tasks.append(asyncio.create_task(
             mentions.Mentions(folder, store, _launchers).run(app.state.watcher)))
+    if app.state.fleet:
+        tasks.append(asyncio.create_task(app.state.fleet.run()))
     try:
         yield
     finally:
@@ -561,6 +565,8 @@ async def lifespan(app: FastAPI):
                 await task
         await app.state.push.stop()
         await app.state.watcher.stop()
+        if app.state.fleet:
+            await app.state.fleet.close()
 
 
 # FastAPI's interactive docs load third-party JavaScript on the terminal-control
@@ -582,6 +588,9 @@ app = FastAPI(
 # busy pane's ~100KB/s into ~22KB/s. minimum_size skips tiny replies (no-change frames).
 from starlette.middleware import gzip  # noqa: E402
 
+# Innermost, so a request for another machine (peers.py) passes the hub's Host and Origin
+# checks first, and its reply still gets the hub's compression and cache headers.
+app.add_middleware(PeerProxy)
 app.add_middleware(gzip.GZipMiddleware, minimum_size=512)
 app.add_middleware(BrowserOriginMiddleware)
 # Video and audio come compressed already, and gzip over a 206 garbles its Content-Range.
@@ -888,12 +897,16 @@ async def get_state(v: int | None = None):
     immediately (unchanged legacy behavior)."""
     w = app.state.watcher
     push = getattr(app.state, "push", None)
+    # With other machines (peers.py) the version adds their changes to this watcher's, so
+    # either one ends the hold. Both only grow, and so does the sum.
+    fleet = getattr(app.state, "fleet", None)
     version = w.state_version()
     # Only long-poll once the watcher has produced an initial state (version > 0).
     # A client that sends ?v=0 before the deck has ever ticked (daemon startup, or the
     # legacy first-load behavior) must get the current state now, not hold for ~25s.
-    if v is not None and v == version and version > 0:
-        version = await w.wait_for_state_change(v, STATE_HOLD_SECONDS)
+    if v is not None and v == version + (fleet.seq if fleet else 0) and version > 0:
+        wait = w.wait_for_state_change(version, STATE_HOLD_SECONDS)
+        await (fleet.hold(wait) if fleet else wait)
     # Snapshot version and panes together, AFTER any wait: re-read the version so the echo
     # matches what we're about to serialize, and shallow-copy each pane dict so the worker
     # thread's in-place updates (the fast tmux_active flip) can't mutate objects mid-encode.
@@ -914,8 +927,14 @@ async def get_state(v: int | None = None):
             fp = ":".join((contract(s, s.get("birth"))[0],
                            str(s.get("input_generation", 0)), s.get("frame", "")))
             s["question"] = {**s["question"], "fp": fp}
+    # The machine's name for the app's tab titles (docs/design/tab-icons.md): zero setup.
+    host = os.environ.get("TMUXRC_HOST_NAME") or socket.gethostname().split(".")[0]
+    if fleet:  # every pane says whose it is; a peer's arrive prefixed, fp and all
+        panes = [{**s, "machine": host} for s in panes] + fleet.panes()
     return {
-        "version": version,  # echo so the client re-holds on the next value
+        "version": version + (fleet.seq if fleet else 0),  # echo: the client re-holds on it
+        # This machine first, then each peer and whether it answers; one machine: none.
+        "machines": fleet.machines(host) if fleet else [],
         "stale": w.is_stale(),
         # False until the first tick finishes: an empty `panes` then means "still loading
         # the initial parses," not "no panes" — the UI shows a spinner vs. the empty message.
@@ -926,8 +945,7 @@ async def get_state(v: int | None = None):
         "usage": usage_totals(),  # running tokens/cost/calls/errors for the top-bar readout
         "prefix": tmux.prefix_key(),  # auto-detected tmux prefix, so the phone button matches
         "tmux_running": w.tmux_running,  # False = no server at all (e.g. after a reboot)
-        # The machine's name for the app's tab titles (docs/design/tab-icons.md): zero setup.
-        "host": os.environ.get("TMUXRC_HOST_NAME") or socket.gethostname().split(".")[0],
+        "host": host,
         "scratch": list(push.news) if push else [],  # the pages that landed last (push.py)
         "panes": panes,
     }
