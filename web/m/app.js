@@ -817,7 +817,7 @@ const refreshHistory = (force) => refreshAtlasHistory(request, () => { if (dashb
 // The wide sidebar keeps them all unless the same setting is Off, the one choice Settings
 // offers there: someone paying per token has no plan limits to watch.
 const USAGE_MODES = { auto: "Auto", on: "On", off: "Off" };
-let usage = [], cachedAt = 0, usageMode = "auto", usagePast = 0, cachedSeq = 0;
+let usage = [], noDigest = false, cachedAt = 0, usageMode = "auto", usagePast = 0, cachedSeq = 0;
 try { const saved = localStorage.getItem("tmuxrc-usage"); if (Object.hasOwn(USAGE_MODES, saved)) usageMode = saved; } catch {}
 // A strip's last card: the quiet meters' "+N" and, when a reading was kept through failed
 // reads, how old, once rather than on every card. Redrawn only when changed or wiped.
@@ -1144,16 +1144,18 @@ function cardView(title, node) {
   return node;
 }
 // Plan usage is cached by the server; a minute is fresh enough. As it is for the Digest's card,
-// there once its writer has run (its summary and the weekly page are 404s until then).
+// there once its writer has run. Until then its summary is a 404, which the console logs
+// however it is caught: so one that came back is asked for again only by a reload.
 async function refreshCached(force) {
   if (!force && Date.now() - cachedAt < 60000) return;
   cachedAt = Date.now(); usagePast = page === "usage" && usageDays();
   const seq = ++cachedSeq;
   // The accounts with the meters, not after: drawn before them, several accounts' meters
   // stand as one tall grid for a moment before folding into their strip.
-  const [d, w, u] = await Promise.allSettled([request("/scratch/digest-daily/summary.json").then(digestHtml), fetch($("digest-weekly").href, { method: "HEAD", signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }),
+  const [d, w, u] = await Promise.allSettled([noDigest ? null : request("/scratch/digest-daily/summary.json").then(digestHtml), noDigest ? null : fetch($("digest-weekly").href, { method: "HEAD", signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }),
     request(usagePast ? `/api/usage?past=${usagePast}` : "/api/usage"), accounts.refresh()]);
   if (seq !== cachedSeq) return; // a forced fetch overlapped this one: only the latest answers land
+  noDigest ||= d.reason?.status === 404;
   if (d.value) html($("digest-body"), d.value); // unread or unreadable: no card
   show("digest-card", d.value); show("digest-weekly", w.value?.ok);
   if (u.status === "fulfilled") usage = u.value.accounts || [];
