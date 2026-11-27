@@ -71,6 +71,8 @@ def test_pending_threads_skips_resolved_ours_and_already_triaged():
     (obs(ci="pending", threads=[thread("T")]), st(), "triage"),
     (obs(threads=[thread("T")]), st(rounds=[{}, {}, {}]), "done"),
     (obs(ci="pending"), st(), "wait"),
+    (obs(ci="pending", reviewed=False), st(), "request_review"),
+    (obs(ci="pending", reviewed=False), st(review_requested=HEAD), "wait"),
     (obs(reviewed=False), st(), "request_review"),
     (obs(reviewed=False), st(review_requested=HEAD), "wait"),
     (obs(reviewed=False), st(review_requested="b" * 40), "request_review"),

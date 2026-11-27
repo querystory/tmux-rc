@@ -62,7 +62,8 @@ flowchart TD
 `next_action` is the whole policy, in order: a closed, draft or conflicting PR blocks; a
 failing CI is fixed before threads are triaged, since a fix for a thread on a red tree can't
 be verified; threads are triaged while CI is still pending, since nothing waits on that;
-then CI must go green; then Copilot must have reviewed the head commit; then the human.
+then Copilot is asked to review the head (while CI runs, since neither waits on the other);
+then CI must go green and Copilot must have reviewed the head commit; then the human.
 Keeping it a pure function is what lets the tests walk every edge without a network.
 
 ### Why the Copilot check reads GraphQL

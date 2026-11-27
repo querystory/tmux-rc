@@ -90,11 +90,11 @@ def next_action(obs, st, max_rounds, max_ci_attempts):
                 return "blocked", f"CI still failing after {max_ci_attempts} fix attempts"
             return "fix_ci", "CI is failing"
         return "triage", f"{len(obs['threads'])} unresolved review thread(s)"
+    if not obs["reviewed"] and st.get("review_requested") != obs["head"]:
+        return "request_review", "Copilot has not reviewed the head commit"  # alongside CI
     if obs["ci"] == "pending":
         return "wait", "CI pending"
     if not obs["reviewed"]:
-        if st.get("review_requested") != obs["head"]:
-            return "request_review", "Copilot has not reviewed the head commit"
         return "wait", "waiting for Copilot to review the head commit"
     return "done", "CI green, Copilot reviewed the head, no threads left to triage"
 
