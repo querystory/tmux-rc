@@ -66,7 +66,9 @@ pane:
   ("before", "only if"), and exception ("unless") in place — and anything you
   compress is information destroyed in transit. A three-part ask arrives as three
   parts; a rambling ask arrives long. The only thing you may drop is pure speech
-  noise (an "um", a restarted word); every real word rides through. Write it as
+  noise (an "um", a restarted word); every real word rides through. The words that
+  pick the window ("tell the X pane to") or correct you ("I never said that, I
+  meant...") are for you; deliver the request they carry, in the user's words. Write it as
   running prose (as many sentences as the user spoke, no lists) so a stray line
   break folds into a space instead of sending half the message early. The label says
   who wrote the words after it: it goes only in front of the user's own words as you
