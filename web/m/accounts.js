@@ -145,13 +145,19 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
   // ---- usage: named by profile, filtered, and with several, one strip (usage.js byUrgency) ----
   // A meter's account is the profile of its first listed dir; one no longer listed (removed)
   // drops out. Before the first answer the meters stand as they come.
+  // Antigravity and Gemini CLI logins have no profile (one keyring slot each, openbus/google_quota.py):
+  // the server names them by email, shown only when a provider has several, as a profile's name is.
   function usage(list) {
-    if (!profiles.length) return list;
+    const bare = list.filter((a) => !(a.provider in ENV)), count = (p) => bare.filter((a) => a.provider === p).length;
+    const named = bare.map((a) => ({ ...a, label: count(a.provider) > 1 ? a.name : null }));
+    list = list.filter((a) => a.provider in ENV);
+    if (!profiles.length) return [...list, ...named];
     const on = active();
     // A row's dirs can be several profiles of one login: the filtered one, if it is among them.
     return list.map((a) => { const mine = (a.dirs || []).map(byDir).filter((p) => p?.signed_in); return { ...a, acct: mine.find((p) => on.includes(p)) || mine[0] }; })
       .filter((a) => a.acct && (!on.length || on.includes(a.acct)))
-      .map((a) => several(a.provider) ? { ...a, label: a.acct.name, chip: badge(a.acct) } : { ...a, label: null });
+      .map((a) => several(a.provider) ? { ...a, label: a.acct.name, chip: badge(a.acct) } : { ...a, label: null })
+      .concat(on.length ? [] : named); // a pick of profiles is a pick away from these
   }
   // One swipeable row: the edge fades only while there is more that way, rechecked on a
   // resize too (a wider strip fits more meters: style.css).
@@ -450,7 +456,7 @@ export function setupAccounts({ request, post, licon, notice, repaint, navigate,
     rows: () => profiles.map((p) => `<div class="set-row">${p.signed_in ? dot(p) : '<i class="acct-dot none"></i>'}<span><b>${esc(p.name)}</b><small>${who(p)}</small></span></div>`).join(""),
     // The URL's accounts in, and out for the next URL; follow says whether they changed.
     key: () => filter, follow: (k) => { if (JSON.stringify(k) === JSON.stringify(filter)) return false; filter = k; paintFilter(); return true; },
-    matches,
+    matches, profiled: (provider) => provider in ENV,
     badge: (paneId) => { const p = ofPane(paneId); return p ? badge(p) : ""; },
     // A session's own default, per provider with several: where its dir differs from the
     // global environment's (under "", which the server folds into every session).

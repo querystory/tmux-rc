@@ -3,8 +3,8 @@
 // window (renderStrip); the dashboard's card draws a meter per window, each wide one swapping
 // its bar for the window's trend, dashed on to the reset at the fitted pace (renderUsage).
 // See docs/design/plan-usage.md.
-const NAMES = { claude: 'Claude', codex: 'Codex' };
-const LOGOS = { claude: '/claude.png', codex: '/openai.svg' };
+const NAMES = { claude: 'Claude', codex: 'Codex', antigravity: 'Antigravity', gemini: 'Gemini CLI' };
+const LOGOS = { claude: '/claude.png', codex: '/openai.svg', antigravity: '/antigravity.svg', gemini: '/gemini.svg' };
 import { esc } from './pane-model.js';
 
 export function countdown(ms) {
@@ -76,6 +76,8 @@ export function renderUsage(el, accounts, options = {}) {
 // account by the rows' chip, or with one account the provider by its logo, and the window.
 // Nothing in it truncates; the strip swipes, and the next card peeks in at its edge.
 const logo = provider => `<img src="${LOGOS[provider]}" alt="" width="12" height="12">`;
+// A chip for an account no profile names (an Antigravity or Gemini CLI login): its tool, its email on hover.
+export const bareChip = a => `<span class="acct-badge" title="${esc(a.name || '')}">${logo(a.provider)}<span>${esc(who(a))}</span></span>`;
 function card(w, a, now) {
   const { used, level, when, full, title } = reading(w, a, now);
   const note = full ? ` <small class="out">· ${full}</small>` : when ? ` <small>· resets ${when}</small>` : '';

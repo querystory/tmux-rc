@@ -12,8 +12,9 @@ import { esc } from './pane-model.js';
 const H = 3600e3, D = 24 * H, NARROW = 700;
 const RANGES = { '1d': D, '7d': 7 * D, '30d': 30 * D, All: Infinity };
 const SPAN = { '1d': 'last 24 hours', '7d': 'last 7 days', '30d': 'last 30 days', All: 'all history' };
-const NAMES = { claude: 'Claude', codex: 'Codex' };
-const title = name => name === '5h' ? '5-hour' : name.replace(/^7d\b/, 'Weekly');
+const NAMES = { claude: 'Claude', codex: 'Codex', antigravity: 'Antigravity', gemini: 'Gemini CLI' };
+// Window types: 5h, 7d, then per-model ones ("7d Fable", Antigravity's "5h Gemini", Gemini CLI's "1d Pro").
+const title = name => name.replace(/^5h\b/, '5-hour').replace(/^1d\b/, 'Daily').replace(/^7d\b/, 'Weekly');
 const order = name => name === '5h' ? 0 : name === '7d' ? 1 : 2;
 const day = t => new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric' });
 const stamp = t => new Date(t).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });

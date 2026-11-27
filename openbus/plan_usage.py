@@ -5,7 +5,7 @@ HOME) from its environment, so two panes may draw on two plans. Codex writes its
 into its own session logs, so reading them needs no credential. Claude publishes them
 only through an undocumented OAuth endpoint, polled at most every CLAUDE_TTL per account.
 An omp pane counts toward the Claude accounts its omp profile is signed in to, as omp's own
-usage report names them.
+usage report names them. Antigravity CLI and Gemini CLI logins come from google_quota.
 See docs/design/plan-usage.md.
 """
 from __future__ import annotations
@@ -36,6 +36,9 @@ STALE_OK = 3 * CLAUDE_TTL
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 CLAUDE_WINDOWS = {"five_hour": ("5h", 5 * 3600), "seven_day": ("7d", 7 * 86400)}
 ENV = {"claude": "CLAUDE_CONFIG_DIR", "codex": "CODEX_HOME"}
+# The Google CLIs' processes, and the variables that pick their login (google_quota).
+GOOGLE_ENV = {"antigravity": ("agy", ("HOME", "AGY_ADC_AUTH")),
+              "gemini": ("gemini", ("HOME", "GEMINI_CLI_HOME", "GOOGLE_CLOUD_PROJECT"))}
 OMP = ["usage", "--json", "--provider", "anthropic"]  # ~1s; every provider takes ~15s
 TAIL = 1 << 20  # Codex session logs reach hundreds of MB; the newest limits sit at the end
 CODEX_FILES = 20  # bounds the scan when recent logs hold no limits event at all
@@ -82,6 +85,13 @@ def _environ(pid: str, keys: tuple[str, ...]) -> dict:
 def pane_env(pid: str, tool: str) -> dict:
     """HOME and the tool's config override, from the agent process under the pane."""
     return _environ(_agent(pid, tool), ("HOME", ENV[tool]))
+
+
+def google_envs(panes: list[dict], birth) -> list[tuple[str, dict, str]]:
+    """(tool, the variables picking its login, pane id) for each live agy or Gemini CLI pane."""
+    return [(p["tool"], _environ(_agent(pid, GOOGLE_ENV[p["tool"]][0]), GOOGLE_ENV[p["tool"]][1]),
+             p["pane_id"])
+            for p in panes if p.get("tool") in GOOGLE_ENV and (pid := birth(p["pane_id"]))]
 
 
 def omp_launch(pid: str) -> tuple[list[str], tuple]:
@@ -327,8 +337,8 @@ def ended(name: str, seconds: int, rows: list[tuple], now: float) -> list[dict]:
 class PlanUsage:
     """Discovers accounts from the panes, samples them into History, reports for the UI."""
 
-    def __init__(self, history, fetch=fetch_claude, read=read_codex, profiles=None):
-        self.history, self.fetch, self.read = history, fetch, read
+    def __init__(self, history, fetch=fetch_claude, read=read_codex, profiles=None, google=None):
+        self.history, self.fetch, self.read, self.google = history, fetch, read, google
         # The config dirs worth metering with no pane on them: the daemon passes the listed
         # accounts; alone, each provider's default dir.
         self.profiles = profiles or (lambda: [(t, Path.home() / f".{t}") for t in ENV])
@@ -354,6 +364,8 @@ class PlanUsage:
                                                                   "panes": []})
                 account["homes"] += [config] if config not in account["homes"] else []
                 account["panes"] += [pane_id] if pane_id not in (None, *account["panes"]) else []
+        if self.google:  # off unless the daemon passes it: a test must not read the keyring
+            found |= self.google.accounts(google_envs(panes, birth))
         return found
 
     def _fetch_any(self, homes: list[Path], now: float) -> list[dict]:
@@ -374,6 +386,12 @@ class PlanUsage:
             try:
                 if tool == "codex":
                     samples, account["error"] = self.read(account["homes"][0]), None
+                elif tool not in ENV:  # a Google login: at most every CLAUDE_TTL too
+                    samples = []
+                    if now - self._fetched.get(f"{tool} {key}", 0) >= CLAUDE_TTL:
+                        self._fetched[f"{tool} {key}"] = now
+                        samples = self.google.fetch(tool, account, now, self._prior(tool, key, now))
+                        account["error"] = None
                 elif now - self._fetched.get(key, 0) >= CLAUDE_TTL:
                     self._fetched[key] = now
                     samples, account["error"] = self._fetch_any(account["homes"], now), None
@@ -389,6 +407,11 @@ class PlanUsage:
         self.accounts = accounts  # first: a failed write (logged by run()) loses only samples
         if rows and self.history:
             self.history.record_usage(rows)
+
+    def _prior(self, tool: str, key: str, now: float) -> dict:
+        """The length each window still open was read as (google_quota.span)."""
+        rows = self.history.latest_usage(tool, key) if self.history else []
+        return {name: seconds for name, seconds, _, _, resets in rows if resets and resets > now}
 
     async def run(self, watcher) -> None:
         while True:
@@ -437,6 +460,8 @@ class PlanUsage:
                 "no data yet" if self.history else "unavailable")  # not "no limits": unknown
             # Named by the UI, from the profile its dirs belong to (accounts.py).
             out.append({"provider": tool, "dirs": [str(h) for h in account.get("homes", [])],
+                        # A Google login's email: no profile names it (google_quota).
+                        **({"name": account["name"]} if account.get("name") else {}),
                         "panes": account["panes"], "error": error,
                         "as_of": newest * 1000 if rows and account["error"] else None,
                         "windows": [self._window(tool, key, row, now, past) for row in rows]})

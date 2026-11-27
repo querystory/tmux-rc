@@ -14,7 +14,7 @@ import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.j
 import { dragToDismiss } from "/m/drag-dismiss.js";
 import { tmuxKey, inputQueue } from "/m/keys.js";
 import { setupSidebar, SHOW, SORTS } from "/m/sidebar.js";
-import { renderUsage, renderStrip, byUrgency, shownUsage, moreUsage, staleUsage } from "/m/usage.js";
+import { renderUsage, renderStrip, byUrgency, shownUsage, moreUsage, staleUsage, bareChip } from "/m/usage.js";
 import { renderUsageView, usageDays } from "/m/usage-view.js";
 import { setupAccounts } from "/m/accounts.js";
 import { setupRestore } from "/m/restore.js";
@@ -860,8 +860,8 @@ const paintUsage = steady(() => {
   // Named and chipped as the list names them.
   const list = usage.map((a) => {
     const p = (a.dirs || []).map(accounts.profile).find((p) => p?.signed_in);
-    return { ...a, acct: p, chip: p ? accounts.chip(p) : "" };
-  }).filter((a) => a.acct || !accounts.list().length); // a removed account drops out, as in accounts.usage()
+    return { ...a, acct: p, chip: p ? accounts.chip(p) : accounts.profiled(a.provider) ? "" : bareChip(a) };
+  }).filter((a) => a.acct || !accounts.profiled(a.provider) || !accounts.list().length); // a removed account drops out, as in accounts.usage()
   renderUsageView(cardView("Plan usage", usageView), list, { refetch: () => refreshCached(true), icon: licon("filter", 16) });
 });
 const usageView = document.createElement("section");
