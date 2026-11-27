@@ -49,7 +49,11 @@ def live_root() -> Path | None:
         m = re.search(r"^WorkingDirectory=(.+)$", UNIT.read_text(), re.MULTILINE)
     except OSError:
         return None
-    return Path(m.group(1).strip()).resolve() if m else None
+    if not m:
+        return None
+    # systemd specifiers: `%h` is the home directory (the shipped unit uses it), `%%` a `%`
+    spec = re.sub(r"%[%h]", lambda s: "%" if s[0] == "%%" else str(Path.home()), m[1].strip())
+    return Path(spec).resolve()
 
 
 def inside(path: Path, root: Path) -> bool:
