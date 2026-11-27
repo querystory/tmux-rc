@@ -14,6 +14,8 @@ import json
 import math
 import os
 import random
+import sqlite3
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
@@ -486,6 +488,10 @@ def seed_history(history: History) -> History:
     panes, rng, walk = fleet(), random.Random(11), 0.0
     n = HISTORY_DAYS * 86400 // STEP
     gaps = {n - 1 - k for a, b in GAPS for k in range(a, b)}
+    # One transaction: ~28k rows committed (and fsynced) one by one take minutes, long past
+    # the demo server's start-up wait. The class's durable connect comes back after.
+    db = sqlite3.connect(history.path)
+    history.connect = lambda: nullcontext(db)
     for i in range(n):
         alive, run, need, walk = _counts(i, n, rng, walk)
         if i in gaps:
@@ -503,6 +509,9 @@ def seed_history(history: History) -> History:
         t0 = int(NOW) - (n - 1 - i) * STEP
         for t in range(t0, min(t0 + STEP, int(NOW) + 1), COVERAGE):
             history.record(states, "demo", now=t)
+    db.commit()
+    db.close()
+    del history.connect
     with history.connect() as db:  # the shared goal line; inert on builds without one
         db.execute("INSERT OR REPLACE INTO metadata VALUES ('running_goal', ?)", (str(GOAL),))
     return history
