@@ -334,6 +334,20 @@ def ended(name: str, seconds: int, rows: list[tuple], now: float) -> list[dict]:
             for resets, samples in windows if resets <= now]
 
 
+def by_family(entry: dict) -> list[dict]:
+    """A Google login's report, one row per model family: its pools are stored as windows
+    named "5h Gemini" (google_quota), but each is a series of its own on the plain "5h"
+    window, beside Claude's and Codex's, so the family names the row, not the window."""
+    rows: dict[str, list[dict]] = {}
+    for window in entry["windows"]:
+        span, _, fam = window["window"].partition(" ")
+        w = {**window, "window": span}
+        if "past" in w:
+            w["past"] = [{**p, "window": span} for p in w["past"]]
+        rows.setdefault(fam, []).append(w)
+    return [{**entry, "family": fam, "windows": ws} for fam, ws in rows.items()] or [entry]
+
+
 class PlanUsage:
     """Discovers accounts from the panes, samples them into History, reports for the UI."""
 
@@ -459,10 +473,11 @@ class PlanUsage:
             error = None if rows else account["error"] or (
                 "no data yet" if self.history else "unavailable")  # not "no limits": unknown
             # Named by the UI, from the profile its dirs belong to (accounts.py).
-            out.append({"provider": tool, "dirs": [str(h) for h in account.get("homes", [])],
-                        # A Google login's email: no profile names it (google_quota).
-                        **({"name": account["name"]} if account.get("name") else {}),
-                        "panes": account["panes"], "error": error,
-                        "as_of": newest * 1000 if rows and account["error"] else None,
-                        "windows": [self._window(tool, key, row, now, past) for row in rows]})
-        return sorted(out, key=lambda a: (a["provider"], a["dirs"]))
+            entry = {"provider": tool, "dirs": [str(h) for h in account.get("homes", [])],
+                     # A Google login's email: no profile names it (google_quota).
+                     **({"name": account["name"]} if account.get("name") else {}),
+                     "panes": account["panes"], "error": error,
+                     "as_of": newest * 1000 if rows and account["error"] else None,
+                     "windows": [self._window(tool, key, row, now, past) for row in rows]}
+            out += [entry] if tool in ENV else by_family(entry)
+        return sorted(out, key=lambda a: (a["provider"], a["dirs"], a.get("family", "")))

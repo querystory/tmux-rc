@@ -91,3 +91,9 @@ test("a kept reading's age is said once for the strip, by the oldest", () => {
   assert.equal(staleUsage([{ as_of: now - 6 * 60e3 }, {}, { as_of: now - 20 * 60e3 }], now), '<small class="usage-stale">as of 20m ago</small>');
   assert.equal(staleUsage([{}], now), "");
 });
+
+test("a Google login's model pool is a series named by its family, on the plain window", () => {
+  const quiet = [{ provider: "antigravity", family: "Gemini", windows: [w("5h", 30)] },
+    { provider: "antigravity", family: "Claude", windows: [w("5h", 5)] }];
+  assert.match(moreUsage(quiet), /title="Quiet: Antigravity · Gemini 5h 30%, Antigravity · Claude 5h 5%">\+2</);
+});

@@ -123,11 +123,14 @@ def test_plan_usage_polls_google_at_ttl_and_names_the_login(monkeypatch, tmp_pat
     usage.poll([], lambda _: None, NOW + 60)  # inside the TTL: no second request
     assert [(c[0], c[1], c[3]) for c in calls] == [
         ("fetchAvailableModels", "tok-a", "tmux-rc antigravity")]
-    [account] = usage.report(NOW)
-    assert account["provider"] == "antigravity" and account["name"] == "pat@example.com"
-    assert account["error"] is None
-    assert [(w["window"], w["pct"]) for w in account["windows"]] == [
-        ("5h Claude", 0.0), ("5h Gemini", 60.0)]
+    # Stored per pool ("5h Gemini"), reported as one series per family on the plain window,
+    # so they chart beside Claude's and Codex's 5h, the past windows too.
+    rows = usage.report(NOW, past=30)
+    assert [(a["provider"], a["family"], a["name"], a["error"]) for a in rows] == [
+        ("antigravity", "Claude", "pat@example.com", None),
+        ("antigravity", "Gemini", "pat@example.com", None)]
+    assert [[(w["window"], w["pct"]) for w in a["windows"]] for a in rows] == [
+        [("5h", 0.0)], [("5h", 60.0)]]
 
 
 def test_gemini_cli_finds_its_project_once(monkeypatch, tmp_path):

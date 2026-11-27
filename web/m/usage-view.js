@@ -6,14 +6,13 @@
 import { load } from './atlas-charts.js';
 import { segmented } from './atlas.js';
 import { dismissable } from './header-picker.js';
-import { countdown } from './usage.js';
+import { countdown, series } from './usage.js';
 import { esc } from './pane-model.js';
 
 const H = 3600e3, D = 24 * H, NARROW = 700;
 const RANGES = { '1d': D, '7d': 7 * D, '30d': 30 * D, All: Infinity };
 const SPAN = { '1d': 'last 24 hours', '7d': 'last 7 days', '30d': 'last 30 days', All: 'all history' };
-const NAMES = { claude: 'Claude', codex: 'Codex', antigravity: 'Antigravity', gemini: 'Gemini CLI' };
-// Window types: 5h, 7d, then per-model ones ("7d Fable", Antigravity's "5h Gemini", Gemini CLI's "1d Pro").
+// Window types: 5h, 7d, then per-model ones ("7d Fable"); Gemini CLI's quotas are daily (1d).
 const title = name => name.replace(/^5h\b/, '5-hour').replace(/^1d\b/, 'Daily').replace(/^7d\b/, 'Weekly');
 const order = name => name === '5h' ? 0 : name === '7d' ? 1 : 2;
 const day = t => new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric' });
@@ -28,7 +27,7 @@ let picked = null, zoom = null, view = null;
 const focusBy = {};
 // The accounts this view shows, by id (provider and dirs); none is all. Its own, per browser:
 // the list's account filter scopes the list, and narrowing the charts should not hide panes.
-const KEY = 'tmuxrc-usage-accounts', idOf = a => `${a.provider} ${a.dirs}`;
+const KEY = 'tmuxrc-usage-accounts', idOf = a => `${a.provider} ${a.dirs}${a.family ? ` ${a.family}` : ''}`;
 let chosen = [];
 try { chosen = JSON.parse(localStorage.getItem(KEY)) || []; } catch {}
 const rangeOf = () => picked || '7d';
@@ -190,7 +189,7 @@ export function renderUsageView(root, all, options) {
   const menu = '<div role="group" aria-label="Account"><div class="menu-sec">Account</div>'
     + '<button type="button" class="acct-opt" data-id=""><i class="acct-dot none"></i><span>All accounts</span></button>'
     + ids.map(k => { const a = all.find(x => idOf(x) === k);
-      return `<button type="button" class="acct-opt" data-id="${esc(k)}"><i class="acct-dot" style="--a:var(--acct-${a.acct?.color ?? 0})"></i><span>${esc(a.acct?.name || NAMES[a.provider] || a.provider)}</span></button>`; }).join('') + '</div>';
+      return `<button type="button" class="acct-opt" data-id="${esc(k)}"><i class="acct-dot" style="--a:var(--acct-${a.acct?.color ?? 0})"></i><span>${esc(a.acct?.name || series(a) || a.provider)}</span></button>`; }).join('') + '</div>';
   // Redrawn only when the accounts change, and the picks marked in place: a click on a redrawn
   // button would read as outside the menu, and close it.
   if (view.menuHtml !== menu) view.menu.innerHTML = view.menuHtml = menu;
@@ -202,7 +201,7 @@ export function renderUsageView(root, all, options) {
   // A meter per account and window, grouped by window type: Codex's week sits in Weekly.
   const byType = {};
   accounts.forEach((a, i) => (a.windows || []).forEach(w => (byType[w.window] ||= []).push({
-    w, as_of: a.as_of, chip: a.chip, id: idOf(a), dirs: (a.dirs || []).join(', '), name: a.acct?.name || NAMES[a.provider] || a.provider,
+    w, as_of: a.as_of, chip: a.chip, id: idOf(a), dirs: (a.dirs || []).join(', '), name: a.acct?.name || series(a) || a.provider,
     color: css.getPropertyValue(`--acct-${a.acct?.color ?? i}`).trim(), ...teeth(w, now) })));
   // Every window type of every account, picked or not, so a chart the pick empties says so.
   const types = [...new Set([...all.flatMap(a => (a.windows || []).map(w => w.window)), ...Object.keys(byType)])].sort((a, b) => order(a) - order(b) || a.localeCompare(b));
@@ -213,7 +212,7 @@ export function renderUsageView(root, all, options) {
   view.extent = { min: Math.min(now - (usageDays() === Infinity ? D : usageDays() * D), ...times), max: Math.max(now + 6 * H, ...times) + H };
   if (zoom) zoomTo(zoom.startValue, zoom.endValue - zoom.startValue); // within the new extent: a filter can narrow it
   // An account that cannot be read has no windows to draw; it says so rather than vanish.
-  view.errs.innerHTML = accounts.filter(a => a.error).map(a => `<span class="uv-read">${a.chip || esc(NAMES[a.provider] || a.provider)}<span>${esc(a.error)}</span></span>`).join('');
+  view.errs.innerHTML = accounts.filter(a => a.error).map(a => `<span class="uv-read">${a.chip || esc(series(a) || a.provider)}<span>${esc(a.error)}</span></span>`).join('');
   for (const card of view.cards) {
     card.meters = byType[card.type] || []; // none: the account filter hides every account with this window
     card.el.classList.toggle('empty', !card.meters.length);
