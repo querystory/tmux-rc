@@ -1,0 +1,20 @@
+{
+  "description": "Claude Code's AskUserQuestion with two questions, both tabs answered (☒), ends on its \"Review your answers\" screen: each question and its chosen answer above a two-row menu. The model quoted the menu's rows as question.items with no options, so the card listed them as text and drew no buttons. They are the widget's own rows: options, one tap each, nothing in items. Fictional screen (tmux-rc, 2026-11-25).",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n\n● The order form for the bakery app is sketched\n  in order_form.py. Two choices decide how the\n  checkout step works.\n\n❯ add online ordering to the bakery app\n──────────────────────────────────────────────────\n←  ☒ Pickup  ☒ Payment  ✔ Submit  →\n\nReview your answers\n\n │ ● When can customers collect a pre-order?\n │   (The shop opens at 7am and bakes in two\n │   batches.)\n   → After the second batch, 11am (Recommended)\n ● How should customers pay for an order?\n   → Card at checkout (Recommended)\n\n❯ 1. Submit answers\n  2. Cancel\n",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "present": true,
+      "answer_style": "menu",
+      "options": [
+        "Submit answers",
+        "Cancel"
+      ],
+      "items": null
+    },
+    "headline": "Asking to submit the pickup-time and payment answers"
+  }
+}

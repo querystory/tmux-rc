@@ -241,6 +241,7 @@ actually hit:
 | `265_claude_ok_to_merge_after_a_review_in_a_waiting_list` | synthetic: a "Still waiting on:" list with another person's approval, then the user's OK to merge and a question, under an unsent draft → user-wait |
 | `318_antigravity_wrapped_permission_menu` | synthetic: an Antigravity CLI permission picker at phone width whose rows 2 and 3 wrap onto unindented lines → a menu with all four rows whole in `options`, none in `question.items` |
 | `326_antigravity_login_method_cursor_picker` | synthetic: Antigravity CLI's sign-in picker, digits on its rows under a `>` highlight; agy drops a typed digit → a cursor question selected on row 0 with the arrow keymap |
+| `325_claude_review_your_answers_menu` | synthetic: Claude Code's multi-question "Review your answers" screen under its tab row → a menu with "Submit answers" and "Cancel" in `options`, none in `question.items` |
 
 Sample 16 originally exposed a table-extraction failure: the prompt said to carry a
 question's supporting list but also to omit tables unless an actual table was shown.

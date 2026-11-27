@@ -364,6 +364,16 @@ input, or waiting/external when it says it is waiting for real coding agents). O
 include actual spawned-agent contexts.
 """
 
+# The review tab of Claude Code's multi-question picker lists the answers above two
+# numbered rows, which the shared prompt reads as a list to quote (items) rather than
+# the widget's own replies: no buttons. Every shared-prompt wording tried that fixed it
+# flipped unrelated Claude samples, so it rides only on the screen that shows it.
+_REVIEW_ANSWERS_HINT = """
+Claude Code's "Review your answers" screen, the last tab of its multi-question picker,
+is a menu: its numbered rows ("1. Submit answers", "2. Cancel") are the question's
+"options", each the row's words after its digit. It has no "items": omit that field.
+"""
+
 # The production parser prompt lives in parser_prompt.txt (a load-bearing ~120-line
 # artifact — kept as its own file so it can be edited/diffed as prose, not wrangled
 # inside a Python string). Stable between edits ⇒ hits Gemini's context cache.
@@ -1398,6 +1408,8 @@ def classify(
             r"(?im)^\s*(?:Background terminals\s*:|\d+ background terminals? running\b)", text,
         ):
             prompt += _BACKGROUND_TERMINALS_HINT
+        if "Review your answers" in visible:
+            prompt += _REVIEW_ANSWERS_HINT
         result = llm_fn(prompt, payload)
     if not isinstance(result, dict):
         # A failed parse knows nothing about the screen, so it must not INVENT a state.
