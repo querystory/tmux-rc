@@ -318,8 +318,8 @@ def thread_prompt(t, wt):
 def do_triage(ctx, obs, rnd):
     for t in obs["threads"]:
         ans = llm(ctx.engine, ctx.wt, thread_prompt(t, ctx.wt) + (
-            "\n\nDecide: `fix` if the comment is right and a code change addresses it, "
-            "`reply` to answer a question or explain, `decline` if it is wrong or out of "
+            "\n\nDo not edit anything: only decide. `fix` if the comment is right and a "
+            "code change addresses it, `reply` to answer a question or explain, `decline` if it is wrong or out of "
             "scope. reply_text is what we post on the thread (one short paragraph)."),
             TRIAGE_SCHEMA, edit=False)
         entry = {**ans, "path": t["path"], "comment_id": t["comments"]["nodes"][0]["databaseId"],
