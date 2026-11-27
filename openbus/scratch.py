@@ -676,7 +676,9 @@ def resolve(listed: list[dict], states: list[dict], profiles: list[dict],
         # process scan failed (`running_unknown`). A pending card follows its writer; one
         # found but gone from every pane has stopped, however recent the folder; one alive
         # that no pane shows (Codex without `session-id` in its status bar) works on by time.
-        at = i["pane"] if s.get("running_unknown") else open_in.get(s.get("session_id"), i["pane"])
+        # A daemon's pane never stands for a writer found: it names whoever started Codex.
+        stand = None if s and i["pane"] in daemons else i["pane"]
+        at = stand if s.get("running_unknown") else open_in.get(s.get("session_id"), stand)
         i["sure"] = i["pane"] in sure or (bool(at) and at == open_in.get(s.get("session_id")))
         if moved := bound.get(i["name"]):
             at, i["sure"] = moved, True
