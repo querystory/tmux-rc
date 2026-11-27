@@ -14,6 +14,7 @@ from openbus import agent_history, scratch
 from openbus.server import WEB_DIR
 
 STYLE = WEB_DIR / "m" / "style.css"
+DAEMON_PANES = scratch.daemon_panes  # the real one: the fixture stubs it for every test
 
 
 @pytest.fixture(autouse=True)
@@ -21,6 +22,7 @@ def _fresh_cache(monkeypatch):
     monkeypatch.setattr(scratch, "_missed", {})
     monkeypatch.setattr(agent_history, "get_many", lambda _ids: {})
     monkeypatch.setattr(agent_history, "reconcile", lambda: None)  # never this machine's index
+    monkeypatch.setattr(scratch, "daemon_panes", set)  # nor this machine's Codex daemons
 
 
 def _folder(root, name, at, meta=None, page="<title>Its own title</title>"):
@@ -545,6 +547,47 @@ def test_a_codex_page_goes_to_its_writer_never_to_the_pane_codex_stamped(tmp_pat
     assert scratch.maker(tmp_path, "plan", states, lambda _e: "%44") == (states[1], "t2")
     # in no pane: the conversation it could resume instead
     assert scratch.maker(tmp_path, "plan", states, lambda _e: None) == (None, "t2")
+
+
+def test_the_codex_daemons_pane_is_distrusted_whatever_it_runs_now(tmp_path, monkeypatch):
+    # The daemon was forked from %3 by a Codex long since quit there; %3 runs Claude now. A
+    # page a Codex session wrote names %3 all the same: the transcript's writer wins, while
+    # a page %5's Claude wrote stays its own, never searched for.
+    monkeypatch.setattr(scratch, "daemon_panes", lambda: {"%3"})
+    searched = []
+    monkeypatch.setattr(agent_history, "writers", lambda _p, due: searched.append(set(due))
+                        or {"atlas": {"session_id": "t2"}})
+    monkeypatch.setattr(agent_history, "get_many", lambda _ids: {
+        "t2": {"session_id": "t2", "harness": "codex", "running": {"thread": "t2"}}})
+    monkeypatch.setattr(scratch, "made_in", lambda *_: True)
+    _folder(tmp_path, "atlas", 1000, {"pane": "%3"})
+    _folder(tmp_path, "notes", 2000, {"pane": "%5"})
+    states = [{"pane_id": "%3", "tool": "claude", "session": "s", "window_name": "idle"},
+              {"pane_id": "%5", "tool": "claude", "session": "s", "window_name": "notes"},
+              {"pane_id": "%44", "tool": "codex", "session": "s", "window_name": "Codex",
+               "title": "Tide tables"}]
+    items, _ = _resolved(tmp_path, states, pane_of=lambda _e: "%44")
+    assert (items["atlas"]["pane"], items["atlas"]["who"]) == ("%44", "codex")
+    assert items["atlas"]["where"] == "s:Tide tables" and items["atlas"]["sure"]
+    assert (items["notes"]["pane"], items["notes"]["sure"]) == ("%5", True)
+    assert searched == [{"atlas"}]
+    assert scratch.maker(tmp_path, "atlas", states, lambda _e: "%44")[0]["pane_id"] == "%44"
+    assert scratch.maker(tmp_path, "atlas", states, lambda _e: None) == (None, "t2")  # in no pane
+
+
+def test_daemon_panes_are_what_codex_app_servers_inherited(monkeypatch):
+    procs = {"11": ("codex", "/opt/codex\0app-server\0daemon\0", "HOME=/h\0TMUX_PANE=%3\0"),
+             "12": ("codex", "/opt/codex\0resume\0", "TMUX_PANE=%9\0"),  # a client
+             "13": ("bash", "bash\0-c\0codex app-server\0", "TMUX_PANE=%7\0"),
+             "14": ("codex", "/opt/codex\0app-server\0", "HOME=/h\0")}  # outside tmux
+    fields = ("comm", "cmdline", "environ")
+    monkeypatch.setattr(scratch.os, "listdir", lambda _d: [*procs, "self"])
+    monkeypatch.setattr(scratch.tmux, "proc_read",
+                        lambda pid, name: procs[pid][fields.index(name)])
+    monkeypatch.setattr(scratch, "_daemons", [float("-inf"), set()])
+    assert DAEMON_PANES() == {"%3"}
+    procs["15"] = ("codex", "/opt/codex\0app-server\0", "TMUX_PANE=%8\0")
+    assert DAEMON_PANES() == {"%3"}  # read again only after DAEMONS seconds
 
 
 def test_a_page_moved_to_a_pane_goes_there_while_that_pane_lives(tmp_path, monkeypatch):
