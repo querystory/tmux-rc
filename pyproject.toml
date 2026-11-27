@@ -23,6 +23,7 @@ dependencies = [
     "markdown>=3.11",
     "pymdown-extensions>=12.1",
     "pygments>=2.20",
+    "jeepney>=0.9.0",
 ]
 
 [project.scripts]
