@@ -208,7 +208,10 @@ class Session:
         self.caption_end = {}
         self.replies = {}  # delegation id -> the backend's text so far, for the recording
         self.ended = set()  # response ids already completed: a repeat ends nothing again
-        self.pane_hints = {}
+        # The panes as they stand at the start are not news, so they are never hinted: a
+        # hint per pane (125 on a big fleet) froze the voice's captions for 14 s, and with
+        # that pile in its context it chatted instead of delegating a request it misheard.
+        self.pane_hints = self._hints()
         self.last_context = {}
         self.context_lock = asyncio.Lock()
 
@@ -272,15 +275,8 @@ class Session:
                              "item": live_providers.openai_message("user", text)})
             self.last_context[snapshot] = text
         # Changed digests keep every pane represented without feeding full screens
-        # into the voice model's small context window or repeating unchanged panes. An idle
-        # pane's age is left out: it ticks with nothing new, and re-sent every pane idle
-        # under an hour each minute, a stream of hints carrying no news.
-        digest = self.watcher.digest()
-        block = live._pane_block  # noqa: SLF001 - shared Live adapter internals
-        hints = {
-            d["pane_id"]: "[tmux update] " + block({**d, "idle_seconds": None}, None, digest)
-            for d in digest
-        }
+        # into the voice model's small context window or repeating unchanged panes.
+        hints = self._hints()
         for pane, hint in hints.items():
             if self.pane_hints.get(pane) != hint:
                 await self._hint(hint.encode()[:480].decode("utf-8", errors="ignore"))
@@ -294,6 +290,17 @@ class Session:
         self.meter.rec.event("hint", text=content)
         await self.send({"type": "session.thinking.append", "delegation_id": None,
                          "content": content})
+
+    def _hints(self):
+        """Each pane's digest line. An idle pane's age is left out: it ticks with nothing
+        new, and re-sent every pane idle under an hour each minute, a stream of hints
+        carrying no news."""
+        digest = self.watcher.digest()
+        block = live._pane_block  # noqa: SLF001 - shared Live adapter internals
+        return {
+            d["pane_id"]: "[tmux update] " + block({**d, "idle_seconds": None}, None, digest)
+            for d in digest
+        }
 
     async def send_tool_result(self, call, payload: dict) -> None:
         """The seam's tool-result verb. live._handle_tool_call is shared with the seam's

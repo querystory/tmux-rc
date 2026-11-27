@@ -338,6 +338,22 @@ def test_an_idle_panes_age_ticking_sends_no_hint_and_each_hint_is_recorded():
     assert [f["text"] for k, f in events if k == "hint"] == hints
 
 
+def test_panes_as_they_stand_at_the_start_are_never_hinted():
+    # A hint per pane on a big fleet froze GPT-Live's captions and buried its instructions.
+    async def run():
+        s = session()
+        await s.send_context("[tmux update] current pane state: a")
+        quiet = list(s.ws.sent)
+        s.watcher.digest = lambda: [*Watcher().digest(), {"pane_id": "%2", "label": "orchard"}]
+        await s.send_context("[tmux update] current pane state: b")
+        return quiet, s.ws.sent[len(quiet):]
+
+    quiet, later = asyncio.run(run())
+    assert not any(e["type"] == "session.thinking.append" for e in quiet)
+    assert [e["content"] for e in later if e["type"] == "session.thinking.append"] == [
+        '[tmux update] ## "orchard" (id=%2) — unknown']
+
+
 def test_continuous_transcripts_keep_roles_and_gaps_without_triggering_tools():
     s = session(
         [
@@ -621,7 +637,7 @@ def test_concurrent_snapshot_dedup_survives_post_action_context():
         await s.send_context(snapshot)
         updates = [e for e in s.ws.sent if e["type"] == "response.item.create"]
         assert len(updates) == 2
-        assert len([e for e in s.ws.sent if e["type"] == "session.thinking.append"]) == 1
+        assert not [e for e in s.ws.sent if e["type"] == "session.thinking.append"]
 
     asyncio.run(run())
 
