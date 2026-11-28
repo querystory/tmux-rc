@@ -264,30 +264,28 @@ class Session:
                              "item": live_providers.openai_message("user", text)})
             self.last_context[snapshot] = text
         # Changed digests keep every pane represented without feeding full screens
-        # into the voice model's small context window or repeating unchanged panes.
+        # into the voice model's small context window or repeating unchanged panes. An idle
+        # pane's age is left out: it ticks with nothing new, and re-sent every pane idle
+        # under an hour each minute, a stream of hints carrying no news.
         digest = self.watcher.digest()
+        block = live._pane_block  # noqa: SLF001 - shared Live adapter internals
         hints = {
-            d["pane_id"]: "[tmux update] " + live._pane_block(d, None, digest)  # noqa: SLF001 - shared Live adapter internals
+            d["pane_id"]: "[tmux update] " + block({**d, "idle_seconds": None}, None, digest)
             for d in digest
         }
         for pane, hint in hints.items():
             if self.pane_hints.get(pane) != hint:
-                await self.send(
-                    {
-                        "type": "session.thinking.append",
-                        "delegation_id": None,
-                        "content": hint.encode()[:480].decode("utf-8", errors="ignore"),
-                    }
-                )
+                await self._hint(hint.encode()[:480].decode("utf-8", errors="ignore"))
         for pane in self.pane_hints.keys() - hints.keys():
-            await self.send(
-                {
-                    "type": "session.thinking.append",
-                    "delegation_id": None,
-                    "content": f"[tmux update] Pane {pane} is no longer present.",
-                }
-            )
+            await self._hint(f"[tmux update] Pane {pane} is no longer present.")
         self.pane_hints = hints
+
+    async def _hint(self, content):
+        """One quiet hint to the voice, recorded: GPT-Live has surfaced a hint's text as the
+        user's own transcript, and only the recording can show which hint it was."""
+        self.meter.rec.event("hint", text=content)
+        await self.send({"type": "session.thinking.append", "delegation_id": None,
+                         "content": content})
 
     async def send_tool_result(self, call, payload: dict) -> None:
         """The seam's tool-result verb. live._handle_tool_call is shared with the seam's
