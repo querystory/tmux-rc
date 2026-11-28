@@ -123,13 +123,21 @@ def test_pane_block_names_window_prefers_title_hides_id_role():
     # the window number the phone doesn't show, and the %id only as the tool-call handle.
     titled = L._pane_block(
         {"pane_id": "%16", "window_index": "9", "title": "Resolve PR 78", "session": "qs",
-         "label": "work", "tool": "claude", "activity": "idle"}, None)
+         "label": "work", "window_name": "release:9", "tool": "claude", "activity": "idle"},
+        None)
     assert '## "Resolve PR 78 · claude in qs" (id=%16)' in titled
+    # The window name the user gave still reaches the model, under the title it lost to.
+    assert 'window name: "release:9"' in titled
     # No self-published title ⇒ fall back to the window label.
     untitled = L._pane_block(
         {"pane_id": "%2", "window_index": "2", "title": None, "label": "shell",
          "tool": "shell", "activity": "running"}, None)
     assert '## "shell · shell" (id=%2)' in untitled
+    assert "window name" not in untitled  # the heading already is the label
+    refined = L._pane_block(
+        {"pane_id": "%3", "window_index": "3", "title": None, "label": "Receipt OCR tuning",
+         "window_name": "tax-return", "tool": "claude", "activity": "idle"}, None)
+    assert 'window name: "tax-return"' in refined  # a parse refined the label away from it
 
 
 def test_pane_name_adds_the_window_only_to_tell_twins_apart():
