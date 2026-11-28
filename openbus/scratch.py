@@ -270,15 +270,20 @@ def _save(store: Path, data: list | dict) -> None:
     tmp.replace(store)
 
 
-def bind(root: Path, name: str, pane: str, birth: str, states: list[dict]) -> None:
+def bind(root: Path, name: str, pane: str, birth: str, states: list[dict],
+         inode: int = 0) -> None:
     """Send what the scratch viewer says of folder `name` to this open pane, the one with
     this birth (not another under a recycled id), whoever made it: the user moved it. Kept in
-    tmux-rc's state, not meta.json, which the page's agents rewrite."""
+    tmux-rc's state, not meta.json, which the page's agents rewrite. With `inode` (a resume
+    landing after its wait), only if the folder is still that one and nobody moved it since:
+    checked under the lock the save is made under."""
     if not (folder_name(name) and read(root, root / name)):
         raise ValueError("a page is one folder of scratch")
     if not (birth and any(s.get("pane_id") == pane and s.get("birth") == birth for s in states)):
         raise ValueError("that pane has closed")
     with _BIND:
+        if inode and (name in _bound(states) or (root / name).stat().st_ino != inode):
+            raise ValueError("this page was moved or replaced meanwhile")
         kept = {n: b for n, b in _load(BINDINGS, {}).items() if (root / n).is_dir()}
         _save(BINDINGS, {**kept, name: {"pane": pane, "birth": birth}})
 
@@ -438,14 +443,16 @@ def named(root: Path, name: str) -> dict | None:
 
 
 def maker(root: Path, name: str, states: list[dict],
-          pane_of=lambda _entry: None) -> dict | None:
+          pane_of=lambda _entry: None) -> tuple[dict | None, str | None]:
     """The open pane (its state) where the scratch viewer's composer sends for folder `name`:
     the one it was moved to, else its maker as the gallery finds it (resolve), only where
-    that is sure, never a Codex meta.json's pane that no transcript confirms."""
+    that is sure, never a Codex meta.json's pane that no transcript confirms. And the
+    session that made it, if known: with no pane, the viewer offers to resume it."""
     if not (item := named(root, name)):
-        return None
+        return None, None
     panes = resolve([item], states, [], pane_of)
-    return panes.get(item["pane"]) if item["sure"] else None
+    pane = panes.get(item["pane"]) if item["sure"] else None
+    return pane, item["session_id"]
 
 
 def about(root: Path, name: str) -> str | None:

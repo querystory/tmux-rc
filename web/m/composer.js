@@ -191,6 +191,15 @@ export function bindAttach(button, input, target) {
   input.onchange = () => { if (picking && picking === target()) picking.attachMany([...input.files]); input.value = ""; };
 }
 
+// A scratch page's selected text as the one line a message quotes it by, "" for none. The page
+// is anyone's words on their way to a terminal: no control or invisible character goes, runs of
+// space are one, and a long selection is cut (first of all, so a huge one is never copied whole).
+export function quoteOf(selected, max = 280) {
+  const raw = typeof selected === "string" ? selected.slice(0, 8 * max) : "";
+  const line = [...raw.replace(/[\s\p{C}]+/gu, " ").trim()], cut = line.length > max || raw.length < selected?.length;
+  return line.length ? `"${cut ? `${line.slice(0, max).join("").trimEnd()}…` : line.join("")}" ` : "";
+}
+
 // Why a Send can't go now, or "" when it can: one answer for both the greyed look and what
 // a tap on it says. A greyed Send with no reason left the user relaunching the app to learn
 // it was waiting on a send that would never finish.

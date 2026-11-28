@@ -113,6 +113,15 @@ def test_a_claude_resume_runs_on_the_account_its_transcript_is_under(history, mo
         assert opened[0][2] == ["env", *pin, "claude", "--resume", "live-1"]
 
 
+def test_a_resume_with_no_chat_opens_the_window_and_tells_nobody(history):
+    # The scratch viewer's Resume: the same checks and launch, with no socket to show it on.
+    sessions, opened = history
+    sessions["live-1"] = LIVE
+    assert _run(L.resume("live-1", _Watcher(), {}))["status"] == "opened"
+    assert _run(L.resume("live-1", _Watcher(), {}))["status"] == "already_running"
+    assert len(opened) == 1
+
+
 @pytest.mark.parametrize("consent", ["approved", None])
 def test_resume_jumps_to_the_window_only_when_the_user_tapped_send(history, monkeypatch, consent):
     # A tapped Send asked to go there: the client gets open_pane with auto, which also

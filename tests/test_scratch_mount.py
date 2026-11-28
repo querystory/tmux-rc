@@ -1,6 +1,7 @@
 """/scratch/ serves TMUXRC_SCRATCH_DIR read-only, and nothing at all unless it is set.
 The mount is decided at import, so each case runs in a fresh interpreter."""
 
+import json
 import os
 import subprocess
 import sys
@@ -140,12 +141,79 @@ if server._scratch_dir:
 """
 
 
-def _probe(env, tmp_path):
+RESUME = """
+import sys
+from fastapi.testclient import TestClient
+from types import SimpleNamespace
+from openbus import server
+watcher = server.app.state.watcher = SimpleNamespace(states=[])
+server.tmux.pane_pid = lambda _pane: "77"  # the incarnation resumed, read before the wait
+server.agent_history.reconcile = lambda: None
+server.app.state.history = server.History(server.Path(sys.argv[1]))
+asked, loading = [], []
+async def resume(sid, _watcher, _rec):  # Live Mode's, which opens the window
+    asked.append(sid)
+    if sid == "s2":
+        return {"status": "rejected", "reason": "session directory is gone"}
+    watcher.states = [{"pane_id": "%40", "birth": "77", "session": "s"}]
+    return {"status": "opened", "pane_id": "%40"}
+async def ready(_watcher, pane):
+    asked.append(pane)
+    if asked[-2] == "s1":  # a page that finds the pane meanwhile (moved to it): no box yet
+        server.scratch.bind(server.Path(server._scratch_dir), "also", pane, "77", watcher.states)
+        loading.append(to("also")["pane"])
+    if asked[-2] == "s3":  # its folder deleted and made again by someone else, during the wait
+        (server.Path(server._scratch_dir) / "swap" / "meta.json").write_text('{"pane": "%7"}')
+    if asked[-2] == "s4":  # replaced outright, and the new one sent to a live pane
+        again = server.Path(server._scratch_dir) / "redone"  # made before the old goes: a new inode
+        (new := again.with_name("new")).mkdir(); (new / "index.html").write_text("new")
+        server.shutil.rmtree(again); new.rename(again)
+        server.scratch.bind(again.parent, "redone", pane, "77", watcher.states)
+server.live.resume, server.restore.ready = resume, ready
+c = TestClient(server.app)
+to = lambda name: c.get(f"/api/scratch/{name}/pane").json()
+print(int((to("made")["pane"], to("made")["session"], to("anon")["session"]) == (None, "s1", None)))
+r = c.post("/api/scratch/made/resume")
+now = to("made")
+print(r.status_code, int(asked == ["s1", "%40"] and (loading, to("also")["pane"]) == ([None], "%40")
+                         and (now["pane"], now["birth"], now["session"]) == ("%40", "77", None)))
+print(c.post("/api/scratch/made/resume").json()["pane"], len(asked))  # a second device: as it is
+for name in ("lost", "anon", "swap", "redone"):
+    r = c.post(f"/api/scratch/{name}/resume")
+    print(r.status_code, r.json()["detail"].replace(" ", "-"))
+"""
+
+
+def test_resume_reopens_the_makers_conversation_and_sends_the_page_there(tmp_path):
+    # The maker's pane has closed: Resume reopens the conversation meta.json records, waits
+    # for its prompt and moves the page to that pane. A conversation that can't come back
+    # says why, a page with none recorded is not offered one, and a folder replaced while
+    # its conversation resumed is not bound to it, nor sent to a pane the new one has.
+    scratch = tmp_path / "scratch"
+    for name, session in (("made", "s1"), ("lost", "s2"), ("anon", None), ("swap", "s3"),
+                          ("also", None), ("redone", "s4")):
+        (scratch / name).mkdir(parents=True)
+        (scratch / name / "index.html").write_text("page")
+        (scratch / name / "meta.json").write_text(json.dumps(
+            {"pane": "%7", **({"agent_session": session} if session else {})}))
+    env = {"TMUXRC_SCRATCH_DIR": str(scratch), "XDG_STATE_HOME": str(tmp_path / "state")}
+    # Single-pane mode shows no new window: Resume is neither offered nor run.
+    asks = 'print(c.post("/api/scratch/made/resume").status_code)'
+    target = RESUME.partition("r = c.post")[0] + asks
+    assert _probe({**env, "TMUXRC_TARGET": "%1"}, tmp_path, target, str) == ["0", "409"]
+    assert _probe(env, tmp_path, RESUME, str) == [
+        "1", "200", "1", "%40", "2", "409", "session-directory-is-gone",
+        "409", "no-conversation-was-recorded-for-this-page",
+        "409", "this-page-was-replaced-while-its-conversation-resumed",
+        "409", "this-page-was-replaced-while-its-conversation-resumed"]
+
+
+def _probe(env, tmp_path, probe=PROBE, read=int):
     env = {**os.environ, "AGENT_HISTORY_DIR": "/nonexistent", **env}  # no real transcripts
-    out = subprocess.run([sys.executable, "-c", PROBE, str(tmp_path / "state" / "h.db")],
+    out = subprocess.run([sys.executable, "-c", probe, str(tmp_path / "state" / "h.db")],
                          stdout=subprocess.PIPE, text=True, check=True, env=env,
                          timeout=60).stdout
-    return [int(code) for code in out.split()]
+    return [read(code) for code in out.split()]
 
 
 def test_scratch_serves_only_inside_the_configured_dir(tmp_path):
