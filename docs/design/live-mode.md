@@ -386,6 +386,17 @@ diagnose, or be the thing that ends a session. "Forwarded" in `frames.jsonl` mea
 to the provider adapter; a send that fails ends the connection, which `events.jsonl` records.
 Text sessions are not recorded: there is no audio to debug.
 
+The model's side gets the same treatment as the mic's: `model_frames.jsonl` stamps each
+frame of the model's voice on arrival, because a stall in what the user hears was
+otherwise only visible as transcripts arriving late, with no way to tell a quiet model
+from a stuck stream. GPT-Live's handoffs are in `events.jsonl` too: a `handoff` event
+when the voice model delegates, and a `backend` event with the text the backend handed
+back and how its response ended. The protocol never sends the task wording the voice
+model passes to the backend (the delegation event is metadata), so the user's transcript
+just before a `handoff` is the best record of what was asked. Its turns are backend
+responses that leave no tool call to continue, since Live has no spoken turn boundary to
+count and the audit otherwise said turns=0 for every session.
+
 ## Model providers (side-by-side)
 
 The 2.5 voice sounded dated next to current consumer assistants, and the only honest way

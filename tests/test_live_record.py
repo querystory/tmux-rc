@@ -90,6 +90,8 @@ def test_a_session_records_what_the_phone_sent_and_each_frame(state):
         assert w.readframes(640) == frame
     with wave.open(str(folder / "model.wav")) as w:
         assert (w.getframerate(), w.getnframes()) == (24000, 2400)
+    [model] = lines(folder / "model_frames.jsonl")  # its arrival, as a mic frame's
+    assert model["bytes"] == 4800 and model["t_ms"] >= 0
     frames = lines(folder / "frames.jsonl")
     assert len(frames) == 26 and frames[0]["bytes"] == 1280 and frames[0]["forwarded"]
     assert frames[24] == {**frames[24], "forwarded": False, "dropped": "undecodable"}

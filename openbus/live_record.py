@@ -3,7 +3,8 @@
 A debugging aid for voice quality. Each voice session gets a folder under the state dir
 holding mic.wav (the PCM the phone sent, exactly as received), model.wav (the provider's
 voice), frames.jsonl (one line per mic frame: arrival, size, forwarded or why dropped,
-and audio the phone itself dropped) and events.jsonl (transcripts, errors, start/end).
+and audio the phone itself dropped), model_frames.jsonl (each model audio frame's arrival
+and size) and events.jsonl (transcripts, handoffs, errors, start/end).
 Local only and private to the user: it holds their voice, so it never goes near the repo,
 scratch or telemetry. TMUXRC_LIVE_RECORD=0 turns it off.
 
@@ -130,7 +131,10 @@ class Recorder:
                    **({"client_lost_ms": client_lost_ms} if client_lost_ms else {}))
 
     def model(self, pcm: bytes, rate: int) -> None:
+        """One frame of the model's voice, and when it arrived: a stall in it shows up as
+        plainly as one in the mic's."""
         self._put(lambda: self._open("model.wav", rate).writeframesraw(pcm[:len(pcm) & ~1]))
+        self._line("model_frames.jsonl", bytes=len(pcm))
 
     def close(self) -> None:
         """Finish the files once the queued writes are done, without waiting for them."""

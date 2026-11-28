@@ -200,6 +200,8 @@ class Session:
         # responses to end with no call; which turn a response belongs to never matters.
         self.composing = 0
         self.caption_end = {}
+        self.replies = {}  # delegation id -> the backend's text so far, for the recording
+        self.ended = set()  # response ids already completed: a repeat ends nothing again
         self.pane_hints = {}
         self.last_context = {}
         self.context_lock = asyncio.Lock()
@@ -344,12 +346,19 @@ class Session:
                 await live._transcript(  # noqa: SLF001 - shared Live adapter internals
                     self.browser, self.meter, role, event["delta"], new_segment=new,
                     start_ms=start, end_ms=self.caption_end[role])
+            elif kind == "session.delegation.created":
+                # The handoff: when, and its ids. GPT-Live never sends the task text it
+                # hands the backend, so the transcript before this is what was asked.
+                self.meter.rec.event("handoff", provider_event=event)
             elif kind == "response.event":
                 nested = event.get("event", {})
                 delegation = event.get("delegation_id")
                 nk = nested.get("type")
                 if nk == "response.created":
                     self.calls[delegation] = []
+                elif nk == "response.output_text.delta":
+                    self.replies[delegation] = self.replies.get(delegation, "") + nested.get(
+                        "delta", "")
                 elif nk == "response.output_item.done":
                     item = nested.get("item", {})
                     if item.get("type") == "function_call":
@@ -359,7 +368,13 @@ class Session:
                     "response.failed",
                     "response.incomplete",
                 ):
+                    rid = nested.get("response", {}).get("id")
+                    if rid and rid in self.ended:
+                        continue
+                    self.ended.add(rid)
                     calls = self.calls.pop(delegation, [])
+                    self.meter.rec.event("backend", delegation_id=delegation, outcome=nk,
+                                         text=self.replies.pop(delegation, ""))
                     if nk == "response.completed" and calls:
                         try:
                             self.work.put_nowait((delegation, calls))
@@ -377,8 +392,13 @@ class Session:
                                             "no pending terminal actions were run."),
                             }
                         )
-                    # These are backend completions, not spoken turn boundaries.
-                    self.meter._emit(final=False)  # noqa: SLF001 - shared Live adapter internals
+                    # Live has no spoken turn boundary, so a backend response that leaves no
+                    # tool call to continue ends the turn (otherwise every session audits
+                    # turns=0); one that does is the same turn, carried on by execute().
+                    if nk == "response.completed" and calls:
+                        self.meter._emit(final=False)  # noqa: SLF001 - shared Live adapter internals
+                    else:
+                        self.meter.end_turn()
 
         # Normal WebSocket EOF is a dropped Live session too. Never silently report a stop.
         raise ProviderError({"code": "connection_closed_without_session_closed"})
