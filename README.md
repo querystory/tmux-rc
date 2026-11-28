@@ -301,6 +301,7 @@ Loaded from `.env` at startup (real shell env vars still override). See `.env.ex
 | `TMUXRC_SCRATCH_ADVERTISE` | unset (off) | `1` exports the scratch dir and URLs to tmux's global environment, so agents in new panes find it |
 | `TMUXRC_SCRATCH_URL` | unset | the URL you open tmux-rc at, plus `/scratch`, advertised with the dir |
 | `TMUXRC_THUMB_BROWSER` | Playwright's bundled headless Chromium | the browser that renders scratch thumbnails; never your own profile |
+| `TMUXRC_MENTIONS_DIR` | unset (off) | a folder of Markdown notes: a line starting `@claude <request>` (or `@codex`, `@gemini`, `@omp`) in one of its `.md` files opens a window with that agent started on the request, once — [docs/design/mention-trigger.md](docs/design/mention-trigger.md) |
 | `TMUXRC_HISTORY_DB` | `~/.local/state/tmux-rc/history.sqlite3` | the history database (pane history, usage, layouts for restore) |
 | `TMUXRC_AGENT_HISTORY` / `AGENT_HISTORY_DIR` | on `PATH` or `~/.local/bin` / `~/agent-history` | the `agent-history` binary Chat uses to find past conversations, and its index |
 | `TMUXRC_PREFER_IPV4` | `1` | outbound connections prefer IPv4; `0` if your v6 works and v4 does not |
