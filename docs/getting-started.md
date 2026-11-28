@@ -70,7 +70,8 @@ does. On the new machine, clone the checkout, then:
 2. `uv run tmux-rc import tmux-rc-export-<host>-<date>.tgz`. Whatever it replaces is kept
    beside it as `*.pre-import-<time>`, and paths under the old `$HOME` are rewritten. If it
    fails part way, it puts back everything it had replaced.
-3. `make install-units`, and `make docs` if you serve the docs.
+3. `make install-units`, and `make docs` if you serve the docs. Then `make doctor`, and
+   `make install-agent-hooks` for any Claude Code hook it reports missing.
 
 Import only an archive you made yourself: it holds agents' hooks and settings, which run
 code on the machine that imports them.
