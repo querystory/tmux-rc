@@ -74,6 +74,11 @@ stop speaking alone does not authorize a keypress or cancel terminal work.
 """
 
 
+def backend_instructions(watcher):
+    """The backend's whole prompt, fleet state included. Blocking: run it off the loop."""
+    return live._system_prompt(watcher, spoken=False) + "\n\n" + BACKEND_PROMPT  # noqa: SLF001 - shared Live adapter internals
+
+
 class ProviderError(RuntimeError):
     """A diagnostic safe to display without provider messages or terminal context."""
 
@@ -252,16 +257,21 @@ class Session:
                 await self._send_context(text)
 
     async def _send_context(self, text):
-        # The shared updater coalesces changes (2.5s) and caps active screen tails
-        # at 4,000 chars; skip repeated snapshots too. Live manages long-session
-        # context automatically. Keep current screens so pane answers aren't stale.
-        # Full state reaches the reasoning backend. Frontend appends are limited to
-        # 500 tokens: a 480-byte UTF-8 prefix is conservatively within that bound even
-        # for terminal noise/non-English text. It is only a hint; pane answers delegate.
+        # The shared updater coalesces changes (2.5s); skip repeats too. A fleet snapshot
+        # replaces the backend's instructions instead of joining its conversation, where
+        # every request re-read every past one: the prompt is rebuilt with the panes (all
+        # screens, scratch pages) as they stand now, and compared whole. Frontend appends
+        # are limited to 500 tokens: a 480-byte UTF-8 prefix is conservatively within that
+        # bound even for terminal noise/non-English text. It is only a hint; pane answers
+        # delegate.
         snapshot = text.startswith("[tmux update] current pane state:")
+        if snapshot:
+            text = await asyncio.to_thread(backend_instructions, self.watcher)
         if text != self.last_context.get(snapshot):
-            await self.send({"type": "response.item.create",
-                             "item": live_providers.openai_message("user", text)})
+            await self.send({"type": "session.update", "session": {"delegation": {
+                "type": "responses", "responses": {"instructions": text}}}} if snapshot
+                else {"type": "response.item.create",
+                      "item": live_providers.openai_message("user", text)})
             self.last_context[snapshot] = text
         # Changed digests keep every pane represented without feeding full screens
         # into the voice model's small context window or repeating unchanged panes.
@@ -444,7 +454,7 @@ async def run_session(browser, watcher, meter):
     meter.details = {"backend_model": backend, "voice_seconds": 0.0, "usage_final": False}
     meter.usage = Usage(backend)
     await browser.send_json({"type": "status", "status": "connecting"})
-    instructions = await asyncio.to_thread(live._system_prompt, watcher, spoken=False)  # noqa: SLF001 - shared Live adapter internals
+    instructions = await asyncio.to_thread(backend_instructions, watcher)
     async with _connect(key) as ws:
         session = Session(ws, browser, watcher, meter)
         await session.send(
@@ -463,7 +473,7 @@ async def run_session(browser, watcher, meter):
                         "type": "responses",
                         "responses": {
                             "model": backend,
-                            "instructions": instructions + "\n\n" + BACKEND_PROMPT,
+                            "instructions": instructions,
                             "tools": tool_definitions(),
                             "tool_choice": "auto",
                             "parallel_tool_calls": False,
