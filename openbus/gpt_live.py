@@ -200,7 +200,10 @@ class Session:
         # responses to end with no call; which turn a response belongs to never matters.
         self.composing = 0
         self.caption_end = {}
-        self.pane_hints = {}
+        # The panes as they stand at the start are not news, so they are never hinted: a
+        # hint per pane (125 on a big fleet) froze the voice's captions for 14 s, and with
+        # that pile in its context it chatted instead of delegating a request it misheard.
+        self.pane_hints = self._hints()
         self.last_context = {}
         self.context_lock = asyncio.Lock()
 
@@ -265,11 +268,7 @@ class Session:
             self.last_context[snapshot] = text
         # Changed digests keep every pane represented without feeding full screens
         # into the voice model's small context window or repeating unchanged panes.
-        digest = self.watcher.digest()
-        hints = {
-            d["pane_id"]: "[tmux update] " + live._pane_block(d, None, digest)  # noqa: SLF001 - shared Live adapter internals
-            for d in digest
-        }
+        hints = self._hints()
         for pane, hint in hints.items():
             if self.pane_hints.get(pane) != hint:
                 await self.send(
@@ -288,6 +287,13 @@ class Session:
                 }
             )
         self.pane_hints = hints
+
+    def _hints(self):
+        digest = self.watcher.digest()
+        return {
+            d["pane_id"]: "[tmux update] " + live._pane_block(d, None, digest)  # noqa: SLF001 - shared Live adapter internals
+            for d in digest
+        }
 
     async def send_tool_result(self, call, payload: dict) -> None:
         """The seam's tool-result verb. live._handle_tool_call is shared with the seam's
