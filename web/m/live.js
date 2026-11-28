@@ -186,12 +186,17 @@ export function setupLiveMode({ request, session, licon, wide, open, onLink = ()
     if (lastRow()?.dataset.role !== "note") add("note", "Reconnected: the assistant has the conversation above");
   }
   const lastRow = () => typing.isConnected ? typing.previousElementSibling : log.lastElementChild;
+  // The open bubble a voice's next words join: its own latest, past any rows of the other
+  // voice. Speech is full duplex (a backchannel under the user, both captions streaming at
+  // once), so growing only the last row made a new bubble at every switch, a word in each.
+  function voiceRow(role) {
+    for (let row = lastRow(); ["user", "model"].includes(row?.dataset.role) && !row.dataset.done; row = row.previousElementSibling)
+      if (row.dataset.role === role) return row;
+  }
   function add(role, message, newSegment = false, images = []) {
-    const previous = lastRow();
     const follow = following();
-    const grow = !newSegment && (role === "user" || role === "model") && previous?.dataset.role === role && !previous.dataset.done;
-    let row = previous;
-    if (!grow) {
+    let row = !newSegment && voiceRow(role);
+    if (!row) {
       row = document.createElement("div"); row.className = "voice-entry";
       row.dataset.role = role;
       row.classList.add(["user", "model", "typed", "error", "propose", "note"].includes(role) ? role : "model");
