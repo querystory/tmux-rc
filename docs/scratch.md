@@ -150,6 +150,19 @@ rendered to its `.html` as the daemon renders it, with the icon and Mermaid copi
 are, so a link to another `.md` shows its source there (link the `.html`), and the host
 must send the sandbox header itself.
 
+`tmux-rc scratch publish <folder>` does that for you: it copies the export to
+`TMUXRC_SCRATCH_PUBLISH` (a `gs://bucket/prefix`, served at `TMUXRC_SCRATCH_PUBLISH_URL`)
+as the service account whose key file `TMUXRC_SCRATCH_PUBLISH_KEY` names, and records the published URL in the folder's `meta.json` as `publish`. From then on the
+daemon copies it again whenever its page is ready, as it sends Ready or Updated (and once more when its new
+thumbnail is made), and never
+while it is marked `updating`; only changed files are sent. A failed copy is logged and
+pushed as **Publish failed**, and its card says so until a copy succeeds.
+`tmux-rc scratch unpublish <folder>`, or deleting the folder from the archive, removes the
+copy. The gallery does the same from the phone: select cards, then **Publish** or
+**Unpublish** (offered only where publishing is set up), and a published card links its
+copy. An `index.html` at the prefix lists what is published, so the prefix's own URL shows
+it; it goes when the last folder does.
+
 ## Scratch and Claude's Artifacts
 
 Claude can also publish a page as an [Artifact](https://claude.ai) on claude.ai. Both show

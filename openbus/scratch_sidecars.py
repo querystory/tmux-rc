@@ -73,10 +73,11 @@ def stale(item: dict) -> bool:
     return item["page"].suffix in _SHOOTABLE and (not shot or shot < item["updated"])
 
 
-def queue(root: Path, web: Path, listed: list[dict], describe: bool = True) -> None:
+def queue(root: Path, web: Path, listed: list[dict], describe: bool = True,
+          then=lambda _item: None) -> None:
     """Hand the listed folders that lack a fresh thumbnail or (with `describe`) a
-    description to the worker; `web` is the app's static dir, which a Markdown page's
-    styles and mermaid.js come from."""
+    description to the worker, which calls `then(item)` once it has made them; `web` is the
+    app's static dir, which a Markdown page's styles and mermaid.js come from."""
     global _worker  # noqa: PLW0603 - the one worker
     can_shoot = browser() is not None
     with _lock:
@@ -84,7 +85,7 @@ def queue(root: Path, web: Path, listed: list[dict], describe: bool = True) -> N
             key = _version(i)
             if key not in _tried and (stale(i) or (describe and not i["description"])):
                 _tried.add(key)
-                _pending.append(i | {"describe": describe})
+                _pending.append(i | {"describe": describe, "then": then})
             # What a card without a fresh thumbnail shows meanwhile.
             i["shot"] = stale(i) and ("failed" if key in _done or not can_shoot else "pending")
         if _pending and _worker is None:
@@ -115,7 +116,7 @@ def _work(root: Path, web: Path) -> None:
                         return
                     item = _pending.pop(0)
                     moves = _moves[item["name"]]
-                for step in (_thumbnail, _description):
+                for step in (_thumbnail, _description, _then):
                     try:  # each on its own: one failing must stop neither the other nor the queue
                         step(root, f"{base}/{item['href']}", item)
                     except Exception:
@@ -202,6 +203,10 @@ def _thumbnail(root: Path, url: str, item: dict) -> None:
     if stale(item) and _version(item) not in _done:  # once per version, even
         # when the description is asked again
         shoot(url, root / item["name"] / "thumb.webp", root, item["updated"], item["inode"])
+
+
+def _then(_root: Path, _url: str, item: dict) -> None:
+    item["then"](item)
 
 
 def _description(root: Path, _url: str, item: dict) -> None:

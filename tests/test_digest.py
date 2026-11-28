@@ -109,7 +109,7 @@ def test_theme_identity_is_stable():
     assert again["daily"] == digest.FALLBACK and again["themes"] == d["themes"]
 
 
-def test_pages_keep_change_numbers_behind_a_tap(tmp_path):
+def test_pages_keep_change_numbers_behind_a_tap(tmp_path, monkeypatch):
     d = base()
     assert [t["state"] for t in d["themes"]] == ["held", "open", "open", "open"]
     landed = {"themes": {"s": {**BASELINE["themes"]["search"], "members": [
@@ -124,7 +124,18 @@ def test_pages_keep_change_numbers_behind_a_tap(tmp_path):
     assert [a["text"] for a in d["actions"]] == [
         "Offline reading needs a rebase", "Reminders can merge", "Search ranking",
         "A teammate asks for your review"]
+    (tmp_path / "digest-daily").mkdir()  # published (scratch_publish): it stays opted in
+    (tmp_path / "digest-daily/meta.json").write_text(
+        '{"publish": "https://x.example/d/", "updating": "Today\'s digest"}')
+    seen = []  # the mark stays while its page is written, and goes once all of it is
+    write = Path.write_text
+    monkeypatch.setattr(Path, "write_text", lambda p, t: (seen.append(
+        (p.name, "updating" in json.loads((tmp_path / "digest-daily/meta.json").read_text()))),
+        write(p, t)))
     digest.publish(d, tmp_path)
+    assert ("index.html", True) in seen and ("summary.json", True) in seen
+    meta = json.loads((tmp_path / "digest-daily/meta.json").read_text())
+    assert meta["publish"] and "updating" not in meta
     for name in ("digest-daily", "digest-weekly"):
         page = (tmp_path / name / "index.html").read_text()
         body = page[page.index("<main>"):]

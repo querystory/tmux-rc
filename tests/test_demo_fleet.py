@@ -18,8 +18,8 @@ PRIVATE = re.compile(rf"/home/|querystory|tmux-rc|{IDENTITY}", re.IGNORECASE)
 def _everything() -> str:
     fleet = demo.fleet()
     return json.dumps([fleet, demo.events_log(), [demo.capture(p) for p in fleet],
-                       demo.restore_snapshot(), demo.SCRATCH, demo.SCRATCH_WRITERS, demo.PAGES,
-                       demo.DIGEST])
+                       demo.restore_snapshot(), demo.SCRATCH, demo.SCRATCH_WRITERS,
+                       demo.SCRATCH_PUBLISHED, demo.PAGES, demo.DIGEST])
 
 
 def test_fleet_contains_nothing_private():
@@ -29,7 +29,8 @@ def test_fleet_contains_nothing_private():
 def test_links_point_only_at_example_org():
     urls = re.findall(r"https?://[^\s\"\\]+", _everything())
     assert urls
-    assert all(u.startswith("https://github.com/example-org/") for u in urls)
+    assert all(u.startswith(("https://github.com/example-org/", "https://example-org.github.io/"))
+               for u in urls)
 
 
 def test_fleet_covers_every_state_the_ui_draws():

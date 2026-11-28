@@ -49,6 +49,7 @@ def source(home):
         db.execute("INSERT INTO plan_usage VALUES ('codex', ?, '5h', 18000, 0, 1, NULL)",
                    (f"{old}/.codex",))
     write(old / ".local/state/tmux-rc/accounts.json", json.dumps({f"{old}/.claude": {}}))
+    write(old / ".local/state/tmux-rc/published.json", '{"gs://b/tea": {"a.txt": ""}}')
     write(old / ".local/state/tmux-rc/push.json", "{}")
     write(old / ".local/share/tmux-rc/mocks/a/index.html")
     write(old / ".local/share/tmux-rc/docs/index.html")
@@ -72,7 +73,7 @@ def test_round_trip(home, monkeypatch, tmp_path):
     with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as tar:
         names = tar.getnames()
     assert names[:2] == ["manifest.json", "history.sqlite3"]
-    assert {"accounts.json", "data/mocks/a/index.html", "scratch/demo/index.html",
+    assert {"accounts.json", "published.json", "data/mocks/a/index.html", "scratch/demo/index.html",
             "agents/.claude/projects/-demo/s1.jsonl"} <= set(names)
     assert not [n for n in names if n.endswith(("push.json", "credentials.json", "statsig"))
                 or n.startswith(("data/docs", "data/scratch"))]
@@ -94,6 +95,7 @@ def test_round_trip(home, monkeypatch, tmp_path):
         assert db.execute("SELECT account FROM plan_usage").fetchone()[0] == f"{new}/.codex"
     assert json.loads((new / ".local/state/tmux-rc/accounts.json").read_text()) == {
         f"{new}/.claude": {}}
+    assert (new / ".local/state/tmux-rc/published.json").exists()  # unpublish finds the copy
     assert (new / ".claude/projects/-demo/s1.jsonl").exists()
     assert (new / ".claude-work/settings.json").readlink() == new / ".claude/projects"
     assert (new / ".claude/.credentials.json").read_text() == "this host's"  # kept, not imported

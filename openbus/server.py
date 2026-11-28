@@ -10,7 +10,6 @@ Endpoints:
 
 from __future__ import annotations
 
-import argparse
 import asyncio
 import hashlib
 import io
@@ -97,6 +96,7 @@ from . import (  # noqa: E402
     restore,
     scratch,
     scratch_markdown,
+    scratch_publish,
     scratch_sidecars,
     telemetry,
     teleport,
@@ -539,8 +539,7 @@ async def lifespan(app: FastAPI):
     app.state.watcher.start()
     _advertise_scratch()
     app.state.push = PushManager(app.state.watcher, scratch=_scratch_dir and Path(_scratch_dir),
-                                 shoot=lambda item: scratch_sidecars.queue(
-                                     Path(_scratch_dir), WEB_DIR, [item], use_llm))
+                                 shoot=lambda item: (_sidecars([item]), _republish(item)))
     app.state.push.start()
     app.state.usage = PlanUsage(app.state.history, profiles=accounts.metered)
     app.state.worktrees = Worktrees()
@@ -2431,6 +2430,15 @@ if _scratch_dir:
         return (states, accounts.report(states, watcher.pane_birth)["profiles"],
                 WEB_DIR / "m" / "style.css", lambda entry: live.running_pane(entry, watcher))
 
+    def _republish(item: dict) -> None:
+        scratch_publish.ready(Path(_scratch_dir), item["name"], WEB_DIR, app.state.push.sender.send)
+
+    def _sidecars(listed: list[dict]) -> None:
+        """Queue the listed folders' missing thumbnails and descriptions; a published one is
+        copied again once they are made, so its copy has the new thumbnail."""
+        scratch_sidecars.queue(Path(_scratch_dir), WEB_DIR, listed,
+                               getattr(app.state.watcher, "use_llm", False), then=_republish)
+
     @app.get("/api/panes/{pane_id}/scratch")
     def pane_scratch(pane_id: str) -> list[dict]:
         """The scratch pages this pane's session made, for its overview's Links."""
@@ -2450,25 +2458,39 @@ if _scratch_dir:
                 Path(_scratch_dir), archived=archived is not None), list(app.state.watcher.states)))
             return Response(None, 204) if seen == now else Response(
                 _PIXEL, media_type="image/gif")
-        use_llm = getattr(app.state.watcher, "use_llm", False)
         return HTMLResponse(await asyncio.to_thread(lambda: scratch.page(
-            Path(_scratch_dir), *_who(),
-            lambda listed: scratch_sidecars.queue(Path(_scratch_dir), WEB_DIR, listed, use_llm),
+            Path(_scratch_dir), *_who(), _sidecars,
             "/docs/scratch/" if DOCS_MOUNTED else scratch.DOCS,
-            archived=archived is not None)))
+            archived=archived is not None, publishing=scratch_publish.configured())))
 
     _PIXEL = bytes.fromhex("47494638396101000100000000002c00000000010001000002024401003b")
 
     class ScratchBody(BaseModel):
-        action: Literal["archive", "unarchive", "delete"]
+        action: Literal["archive", "unarchive", "delete", "publish", "unpublish"]
         names: list[str]
 
     @app.post("/api/scratch")
     def scratch_act(body: ScratchBody, request: Request) -> dict:
-        """Archive, unarchive or delete (from the archive) the gallery's selected folders."""
+        """Archive, unarchive, delete (from the archive), publish or unpublish the gallery's
+        selected folders."""
+        publishing = body.action.endswith("publish")
+        if publishing and not scratch_publish.configured():
+            raise HTTPException(400, "publishing is not set up: TMUXRC_SCRATCH_PUBLISH")
         try:
-            done = scratch.act(Path(_scratch_dir), body.action, body.names)
+            root = Path(_scratch_dir)
+            if publishing:
+                done = scratch_publish.act(root, body.action, body.names, WEB_DIR,
+                                           app.state.push.sender.send)
+                _audit(request, f"scratch_{body.action}", "-", ",".join(done))
+                return {"done": done}
+            # deleted, a published folder's copy goes too, unless a live one of its name has it
+            gone = {n for n in body.names if body.action == "delete" and scratch_publish.hosted(
+                n) and not (scratch.named(root, n) or {}).get("publish")}
+            done = scratch.act(root, body.action, body.names)
             scratch_sidecars.forget(done)
+            for name in gone.intersection(done):
+                scratch_publish.later(lambda n=name: scratch_publish.unpublish(root, n), name,
+                                      app.state.push.sender.send)
         except (ValueError, PermissionError) as e:
             raise HTTPException(400, str(e)) from e
         _audit(request, f"scratch_{body.action}", "-", ",".join(done))
@@ -2636,12 +2658,8 @@ def main() -> None:
     if sys.argv[1:2] in (["export"], ["import"]):
         export.cli(sys.argv[1:])
         return
-    if sys.argv[1:3] == ["scratch", "export"]:
-        cli = argparse.ArgumentParser(prog="tmux-rc scratch export", description=(
-            "Write a scratch folder as static HTML any file host can serve."))
-        cli.add_argument("folder", type=Path)
-        cli.add_argument("out", type=Path)
-        scratch.export(**vars(cli.parse_args(sys.argv[3:])), web=WEB_DIR)
+    if sys.argv[1:2] == ["scratch"]:
+        scratch_publish.cli(sys.argv[2:], WEB_DIR)
         return
     import uvicorn  # noqa: PLC0415 - entrypoint-only; keeps `import openbus.server` cheap
 
