@@ -27,7 +27,7 @@ from pathlib import Path
 
 from dotenv import dotenv_values
 
-from . import accounts, config, history, live_record, push
+from . import accounts, config, history, live_record, push, scratch_publish
 
 FORMAT = 2
 DONE = "complete"  # the archive's last member
@@ -43,6 +43,7 @@ PARTS = {
                                 "every sign-in and key: keep it private."),
                 False),
 }
+STORES = ("accounts.json", "published.json")  # tmux-rc's records, in the state dir
 SECRETS = ("push.json", "config", ".env")  # the VAPID key and push endpoints; credentials
 LOGINS = (".credentials.json", "auth.json")  # an agent dir's sign-in: Claude's, Codex's
 IDENTITY = (*LOGINS, ".claude.json")  # the sign-in and who it is: they stay together
@@ -60,6 +61,7 @@ def places() -> dict[str, Path]:
     """Archive name -> where it lives on this host, by the same helpers the daemon uses."""
     scratch = os.environ.get("TMUXRC_SCRATCH_DIR")
     return {"history.sqlite3": history.default_path(), "accounts.json": accounts.store_path(),
+            "published.json": scratch_publish.store(),  # what unpublish removes
             "push.json": push.default_path(), "config": Path.home() / ".config/tmux-rc",
             ".env": config.dotenv_path(),
             "scratch": Path(scratch) if scratch else _data() / "scratch"}
@@ -78,7 +80,7 @@ def _roots():
     """(part, archive name, path) of each root an archive can hold, but the DB, which is
     snapshotted. docs/ is left out: `make docs` builds it."""
     where, home = places(), Path.home()
-    yield "state", "accounts.json", where["accounts.json"]
+    yield from (("state", n, where[n]) for n in STORES)
     yield "scratch", "scratch", where["scratch"]
     yield from (("secrets", n, where[n]) for n in SECRETS)
     yield from (("state", f"data/{c.name}", c) for c in sorted(_data().glob("*"))
@@ -128,7 +130,7 @@ def _entries(parts=PARTS):
     chosen is not walked."""
     where, home, db = places(), Path.home(), history.default_path()
     logins = [home / ".claude.json", *(d / n for d in _agent_dirs() for n in IDENTITY)]
-    owner = _owners([(where[n], n) for n in ("scratch", "accounts.json", *SECRETS)] + [
+    owner = _owners([(where[n], n) for n in ("scratch", *STORES, *SECRETS)] + [
         (d, f"agents/{d.name}" if d.parent == home else None) for d in _agent_dirs()] + [
         (logins[0], "agents/.claude.json")] + [  # a login, and a file one links to
         (p.resolve(), str(p)) for p in logins[1:] if p.is_symlink()  # not another login

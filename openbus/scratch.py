@@ -213,6 +213,7 @@ def _item(root: Path, folder: Path, files: list[tuple[float, str]]) -> dict | No
             "inode": folder.stat().st_ino,  # the folder until replaced, however rewritten
             "page": page, "pending": pending, "files": len(files),
             "revising": bool(meta.get("updating")),  # its mark, pending a moment or not
+            "publish": meta.get("publish"),  # its published copy's URL (scratch_publish)
             "read": read,  # meta.json read whole, or none: one half-written says nothing yet
             "thumb": inside(thumb, folder) and thumb.is_file() and thumb.stat().st_mtime}
 
@@ -239,7 +240,7 @@ def folder_name(name: object) -> bool:
 def pinned(root: Path, store: Path) -> list[dict]:
     """The folders pinned to the app's menu, in order, while still in scratch: one deleted
     or archived (moved out) drops out here, and from `store` at the next pin or unpin."""
-    found = (read(root, root / n) for n in _load(store, []) if folder_name(n))
+    found = (read(root, root / n) for n in load(store, []) if folder_name(n))
     return [{k: i[k] for k in ("name", "title", "icon", "href")} for i in found if i]
 
 
@@ -250,11 +251,11 @@ def pin(root: Path, store: Path, names: list[str]) -> list[dict]:
         raise ValueError(f"at most {PINS} pins, each once")
     if not all(folder_name(n) and read(root, root / n) for n in names):
         raise ValueError("a pin is one folder of scratch")
-    _save(store, names)
+    save(store, names)
     return pinned(root, store)
 
 
-def _load(store: Path | None, empty: list | dict) -> list | dict:
+def load(store: Path | None, empty: list | dict) -> list | dict:
     """What a store of tmux-rc's state holds, `empty` for none, or one unreadable or mistyped."""
     try:
         data = json.loads(store.read_text()) if store else empty
@@ -263,7 +264,7 @@ def _load(store: Path | None, empty: list | dict) -> list | dict:
     return data if isinstance(data, type(empty)) else empty
 
 
-def _save(store: Path, data: list | dict) -> None:
+def save(store: Path, data: list | dict) -> None:
     store.parent.mkdir(parents=True, exist_ok=True)
     tmp = store.with_suffix(f".{threading.get_ident()}.tmp")  # each request its own
     tmp.write_text(json.dumps(data))
@@ -279,14 +280,14 @@ def bind(root: Path, name: str, pane: str, birth: str, states: list[dict]) -> No
     if not (birth and any(s.get("pane_id") == pane and s.get("birth") == birth for s in states)):
         raise ValueError("that pane has closed")
     with _BIND:
-        kept = {n: b for n, b in _load(BINDINGS, {}).items() if (root / n).is_dir()}
-        _save(BINDINGS, {**kept, name: {"pane": pane, "birth": birth}})
+        kept = {n: b for n, b in load(BINDINGS, {}).items() if (root / n).is_dir()}
+        save(BINDINGS, {**kept, name: {"pane": pane, "birth": birth}})
 
 
 def _bound(states: list[dict]) -> dict:
     """{folder: pane} of the folders bind() moved to a pane that is still that one."""
     live = {(s.get("pane_id"), s.get("birth")) for s in states if s.get("birth")}
-    return {n: b["pane"] for n, b in _load(BINDINGS, {}).items()
+    return {n: b["pane"] for n, b in load(BINDINGS, {}).items()
             if isinstance(b, dict) and (b.get("pane"), b.get("birth")) in live}
 
 
@@ -398,7 +399,7 @@ def tag(listed: list[dict], states: list[dict] = ()) -> str:
                         i["since"]) == "stopped"
     return str(hash((*sorted((i["name"], i["href"], i["updated"], i["pending"], i["thumb"],
                               i["title"], i["description"], i["updating"]) for i in listed),
-                     json.dumps(_load(BINDINGS, {}), sort_keys=True),
+                     json.dumps(load(BINDINGS, {}), sort_keys=True),
                      # and its meta.json rewritten (another agent took it over) or its pane back
                      *sorted((i["name"], i["named"], stopped(i), bool(_open(i, panes)))
                              for i in listed if i["pending"] or i["updating"]))))
@@ -505,9 +506,21 @@ def replace(path: Path, root: Path, write, *, exclusive: bool = False) -> None:
 
 
 def annotate(meta: Path, root: Path, field: str, value: str, inode: int = 0) -> bool:
-    """Add a field tmux-rc worked out to meta.json, listed in its "generated", keeping the
-    file's time. Never over one already there, nor into a meta.json that is unreadable or
-    a symlink: those are the agent's to fix. With `inode`, only while its folder is still
+    """Add a field tmux-rc worked out to meta.json, listed in its "generated". Never over
+    one already there."""
+    def add(current: dict) -> dict | None:
+        if str(current.get(field) or "").strip():
+            return None
+        made = current.get("generated")
+        made = [g for g in made if isinstance(g, str)] if isinstance(made, list) else []
+        return {**current, field: value, "generated": [*dict.fromkeys([*made, field])]}
+    return rewrite(meta, root, add, inode)
+
+
+def rewrite(meta: Path, root: Path, change, inode: int = 0) -> bool:
+    """Replace meta.json with `change` of what it holds ({} for none; None changes
+    nothing), keeping the file's time. Never into a meta.json that is unreadable or a
+    symlink: those are the agent's to fix. With `inode`, only while its folder is still
     that one."""
     try:
         with _META:
@@ -517,11 +530,8 @@ def annotate(meta: Path, root: Path, field: str, value: str, inode: int = 0) -> 
             was = None if fresh else meta.stat(follow_symlinks=False)
             current = {} if fresh else None if meta.is_symlink() else json.loads(
                 meta.read_text())
-            if not isinstance(current, dict) or str(current.get(field) or "").strip():
+            if not isinstance(current, dict) or (data := change(current)) is None:
                 return False
-            made = current.get("generated")
-            made = [g for g in made if isinstance(g, str)] if isinstance(made, list) else []
-            data = {**current, field: value, "generated": [*dict.fromkeys([*made, field])]}
             text = json.dumps(data, indent=1) + "\n"
 
             def write(tmp: Path) -> None:  # keeping the agent's time: when it named its pane
