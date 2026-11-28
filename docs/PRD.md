@@ -66,7 +66,7 @@ monitor and unblock them from a phone without SSH-ing into a shell on a touchscr
 - Push notifications instead of polling — shipped, see
   [push notifications](design/push-notifications.md).
 - Rendered PNG snapshots (vs. raw captured text) for the timeline.
-- Multi-host / multiple tmux servers.
+- Multiple tmux servers on one host. (Several machines: [done](design/multi-machine.md).)
 - Auth beyond network isolation.
 - tmux control-mode (`-CC`) for push-based updates instead of polling.
 

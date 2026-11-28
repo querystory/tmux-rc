@@ -28,6 +28,15 @@ pass the daemon's `Cache-Control` headers through untouched: everything is `no-s
 except the immutable assets under `/v/<version>/`, so a proxy with caching rules of its own
 serves stale JS after an upgrade.
 
+## More than one machine
+
+Run the daemon on every machine, then list the others in one machine's `.env` and
+point the phone at that one, the hub:
+`TMUXRC_PEERS=lab=http://localhost:18031`, with `ssh -N -L 18031:localhost:18030 lab`
+keeping a peer on its own loopback. Their panes join the hub's list as `lab:main`, and
+everything you do to one goes to its machine. See
+[Several machines, one fleet](../design/multi-machine.md).
+
 {{< cards >}}
   {{< card link="other-tunnels/" title="Other tunnels" subtitle="Tailscale (prefer this) and ngrok — what to know before you pick one." >}}
   {{< card link="cloudflare-tunnel/" title="Cloudflare Tunnel + Access" subtitle="A public hostname with a real login in front of it. Step order is the security control." >}}
