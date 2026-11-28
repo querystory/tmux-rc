@@ -67,7 +67,7 @@ shaped for the phone and carries only the events new since the last parse.
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /scratch/`, `POST /api/scratch`, `GET`/`PUT /api/pins`, `GET /api/panes/{id}/scratch`, `GET /api/scratch/{name}/pane` | The [scratch gallery](scratch.md): listing, archive/delete, pins, and which pane made a page |
-| `GET /api/push/config`, `POST /api/push/subscribe`, `/unsubscribe`, `/revoke-all`, `/answer` | Web push ([design](design/push-notifications.md)) |
+| `GET /api/push/config`, `POST /api/push/subscribe`, `/unsubscribe`, `/revoke-all`, `/answer` | Push notifications ([design](design/push-notifications.md)). `config` returns the Web Push `public_key` and `native`, the native transports this daemon has credentials for (`["apns"]` or `[]`). `subscribe` and `unsubscribe` take a browser's Web Push subscription (by `endpoint`) or a native device as `{"kind": "apns", "token", "env": "development" \| "production"}`; a kind not listed in `native` is refused with 400 |
 | `WS /api/live-mode` | Live Mode's voice and chat socket ([design](design/live-mode.md)) |
 | `POST /api/client-error` | Browser-side failure reports, forwarded to telemetry |
 

@@ -1,14 +1,17 @@
-"""Web Push delivery for panes that are blocked on the user.
+"""Push delivery for panes that are blocked on the user.
 
 The watcher remains the source of truth.  This module only routes stable, actionable
-waits to subscribed browsers and validates notification action replies against the
-still-live answer contract before typing anything into tmux.
+waits to subscribed devices and validates notification action replies against the
+still-live answer contract before typing anything into tmux. What to send is decided
+once (PushManager); how it reaches a device is its subscription's transport: Web Push
+for a browser, APNs for the native iOS shell.
 """
 
 from __future__ import annotations
 
 import asyncio
 import base64
+import copy
 import hashlib
 import itertools
 import json
@@ -16,6 +19,7 @@ import logging
 import os
 import queue
 import secrets
+import string
 import subprocess
 import tempfile
 import threading
@@ -26,8 +30,10 @@ from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlencode, urlparse
 
-from cryptography.hazmat.primitives import serialization
+import httpx
+from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 from pywebpush import WebPushException, webpush
 
 from . import scratch, tmux
@@ -48,6 +54,9 @@ DEFAULT_PUSH_HOSTS = (
     "updates.push.services.mozilla.com",
     ".notify.windows.com",
 )
+APNS_HOSTS = {"development": "api.sandbox.push.apple.com", "production": "api.push.apple.com"}
+APNS_TOKEN_SECONDS = 30 * 60.0  # Apple refuses one over an hour old, or renewed within 20 min
+CONFIG_DIR = Path.home() / ".config" / "tmux-rc"  # provider credentials, outside every checkout
 
 
 def _valid_key(value, size: int) -> bool:
@@ -67,9 +76,19 @@ def _allowed_hosts() -> tuple[str, ...]:
     ) or DEFAULT_PUSH_HOSTS
 
 
+def _ident(subscription: dict) -> tuple:
+    """What names one device's subscription: its transport, and that transport's address."""
+    return subscription.get("kind", "web"), subscription.get("endpoint") or subscription.get(
+        "token")
+
+
 def _valid_subscription(subscription) -> bool:
     if not isinstance(subscription, dict):
         return False
+    if subscription.get("kind") == "apns":  # a device token: hex, 32 bytes today
+        token = subscription.get("token")
+        return (isinstance(token, str) and 64 <= len(token) <= 200
+                and set(token) <= set(string.hexdigits) and subscription.get("env") in APNS_HOSTS)
     endpoint = subscription.get("endpoint")
     if not isinstance(endpoint, str) or len(endpoint) > 4096:
         return False
@@ -129,7 +148,8 @@ def _new_keys() -> tuple[str, str]:
 
 
 class PushStore:
-    """Owner-only, atomic persistence for VAPID keys and browser credentials."""
+    """Owner-only, atomic persistence for VAPID keys and device credentials: a browser's
+    Web Push subscription as the browser gave it, a native app's as its kind and token."""
 
     def __init__(self, path: Path | None = None):
         self.path = path or default_path()
@@ -191,27 +211,22 @@ class PushStore:
 
     def subscriptions(self) -> list[dict]:
         with self._lock:
-            return [
-                {"endpoint": item["endpoint"], "keys": dict(item["keys"])}
-                | ({"origin": item["origin"]} if item.get("origin") else {})
-                for item in self._load()["subscriptions"]
-            ]
+            return copy.deepcopy(self._load()["subscriptions"])
 
     def upsert(self, subscription: dict) -> None:
         with self._lock:
             data = self._load()
             subscriptions = [
-                item for item in data["subscriptions"]
-                if item.get("endpoint") != subscription["endpoint"]
+                item for item in data["subscriptions"] if _ident(item) != _ident(subscription)
             ] + [subscription]
             data["subscriptions"] = subscriptions[-MAX_SUBSCRIPTIONS:]
             self._save()
 
-    def remove(self, endpoint: str) -> bool:
+    def remove(self, subscription: dict) -> bool:
         with self._lock:
             data = self._load()
             old = data["subscriptions"]
-            data["subscriptions"] = [item for item in old if item.get("endpoint") != endpoint]
+            data["subscriptions"] = [item for item in old if _ident(item) != _ident(subscription)]
             changed = len(old) != len(data["subscriptions"])
             if changed:
                 self._save()
@@ -249,11 +264,102 @@ class PushStore:
             return count
 
 
+class GoneError(Exception):
+    """The push service says this device's subscription is dead: forget it."""
+
+
+def _web(store: PushStore):
+    def deliver(subscription: dict, payload: dict) -> None:
+        try:
+            webpush(
+                subscription_info=subscription,
+                data=json.dumps(_declarative(payload, subscription), separators=(",", ":")),
+                vapid_private_key=store.keys()[0],
+                # pywebpush mutates this dict with endpoint-specific aud/exp claims.
+                vapid_claims={"sub": os.environ.get(
+                    "TMUXRC_PUSH_SUBJECT", "mailto:tmux-rc@openbus.io")},
+                timeout=(3, 7),
+                ttl=600,
+                headers={"Urgency": "high"},
+            )
+        except WebPushException as exc:
+            if getattr(getattr(exc, "response", None), "status_code", None) in {404, 410}:
+                raise GoneError from exc
+            raise
+    return deliver
+
+
+def _apns(config: Path, transport: httpx.BaseTransport | None = None):
+    """Delivery to the native iOS shell, straight to Apple; None unless its credentials are
+    configured: the app's signing key at `config`/apns.p8 and, in the environment (from
+    openai.env, like every provider key), TMUXRC_APNS_KEY_ID, TMUXRC_APNS_TEAM_ID and
+    TMUXRC_APNS_TOPIC (the app's bundle id). `transport` stands in for Apple in tests."""
+    key_id, team, topic = (os.environ.get(f"TMUXRC_APNS_{name}")
+                           for name in ("KEY_ID", "TEAM_ID", "TOPIC"))
+    try:
+        key = serialization.load_pem_private_key((config / "apns.p8").read_bytes(), None)
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError, TypeError) as exc:  # unreadable, malformed, or encrypted:
+        # a broken key must not take the daemon down with it
+        logger.warning("apns.p8 is not a usable private key (%s); native push is off",
+                       type(exc).__name__)
+        return None
+    if not (key_id and team and topic):
+        logger.warning("apns.p8 needs TMUXRC_APNS_KEY_ID, _TEAM_ID and _TOPIC; native push is off")
+        return None
+    client = httpx.Client(http2=True, transport=transport, timeout=httpx.Timeout(7, connect=3))
+    lock = threading.Lock()
+    minted = [float("-inf"), ""]
+
+    def bearer() -> str:
+        with lock:
+            if time.time() - minted[0] > APNS_TOKEN_SECONDS:
+                signed = ".".join(_b64(json.dumps(part).encode()) for part in (
+                    {"alg": "ES256", "kid": key_id}, {"iss": team, "iat": int(time.time())}))
+                # JWS wants the bare r and s, not the DER the signer returns.
+                pair = decode_dss_signature(key.sign(signed.encode(), ec.ECDSA(hashes.SHA256())))
+                signature = _b64(b"".join(n.to_bytes(32, "big") for n in pair))
+                minted[:] = time.time(), f"{signed}.{signature}"
+            return minted[1]
+
+    def deliver(subscription: dict, payload: dict) -> None:
+        # Answer buttons are a category the shell registers; their titles and the nonce ride
+        # along as custom keys, like the address a tap opens (`url`).
+        aps = {"alert": {"title": payload["title"], "body": payload["body"]}, "sound": "default"}
+        if payload.get("actions"):
+            aps |= {"category": "answer", "mutable-content": 1}
+        response = client.post(
+            f"https://{APNS_HOSTS[subscription['env']]}/3/device/{subscription['token']}",
+            json={"aps": aps} | {k: v for k, v in payload.items()
+                                 if k not in ("title", "body") and v},
+            headers={"authorization": f"bearer {bearer()}", "apns-topic": topic,
+                     "apns-push-type": "alert", "apns-priority": "10",
+                     "apns-expiration": str(int(time.time()) + 600),
+                     # Like a Web Push tag: a pane's newer ask replaces its older one. Hashed
+                     # because Apple caps the id at 64 bytes.
+                     "apns-collapse-id": hashlib.sha256(payload["tag"].encode()).hexdigest()})
+        if response.status_code == 200:
+            return
+        reason = response.json().get("reason") if response.content else None
+        if response.status_code == 410 or reason in ("BadDeviceToken", "Unregistered"):
+            raise GoneError
+        raise RuntimeError(f"APNs {response.status_code} {reason}")
+    return deliver
+
+
+def _transports(store: PushStore, config: Path = CONFIG_DIR) -> dict:
+    """How a payload reaches a device, by its subscription's kind. Only the transports this
+    daemon is configured for: a kind missing here is refused at subscribe and skipped at send."""
+    return {"web": _web(store)} | ({"apns": apns} if (apns := _apns(config)) else {})
+
+
 class PushSender:
     """Small, lossy worker queue: push relay trouble must never stall the watcher."""
 
-    def __init__(self, store: PushStore):
+    def __init__(self, store: PushStore, transports: dict | None = None):
         self.store = store
+        self.transports = _transports(store) if transports is None else transports
         self._queue: queue.Queue[dict | None] = queue.Queue(maxsize=16)
         self._state_lock = threading.Lock()
         self._closed = False
@@ -293,49 +399,34 @@ class PushSender:
 
     def _run(self) -> None:
         while (payload := self._queue.get()) is not None:
-            private, _ = self.store.keys()
             subscriptions = self.store.subscriptions()
             if not subscriptions:
                 continue
             # One slow relay/device must not serially delay every other subscribed device.
             with ThreadPoolExecutor(
-                max_workers=len(subscriptions), thread_name_prefix="tmux-rc-webpush"
+                max_workers=len(subscriptions), thread_name_prefix="tmux-rc-push"
             ) as pool:
-                futures = [pool.submit(self._deliver, subscription, payload, private)
+                futures = [pool.submit(self._deliver, subscription, payload)
                            for subscription in subscriptions]
-                # _deliver contains and logs endpoint-specific errors; never log an endpoint.
+                # _deliver contains and logs device-specific errors; never log an endpoint.
                 sent = sum(future.result() for future in futures)
             if sent:
                 logger.info("push sent to %d of %d devices: %s %r", sent, len(subscriptions),
                             payload.get("tag"), payload.get("title"))
 
-    def _deliver(self, subscription: dict, payload: dict, private: str) -> bool:
+    def _deliver(self, subscription: dict, payload: dict) -> bool:
+        kind = _ident(subscription)[0]
         try:
-            # pywebpush mutates this dict with endpoint-specific aud/exp claims,
-            # so every endpoint receives the independent copy returned by the store.
-            claims = {"sub": os.environ.get(
-                "TMUXRC_PUSH_SUBJECT", "mailto:tmux-rc@openbus.io"
-            )}
-            webpush(
-                subscription_info=subscription,
-                data=json.dumps(_declarative(payload, subscription), separators=(",", ":")),
-                vapid_private_key=private,
-                vapid_claims=claims,
-                timeout=(3, 7),
-                ttl=600,
-                headers={"Urgency": "high"},
-            )
+            if kind not in self.transports:  # its credentials were taken away since
+                return False
+            self.transports[kind](subscription, payload)
             return True
-        except WebPushException as exc:
-            status = getattr(getattr(exc, "response", None), "status_code", None)
-            if status in {404, 410}:
-                self.store.remove(subscription.get("endpoint", ""))
-            else:
-                # Intentionally no retry: an answer prompt delayed by a relay
-                # outage is stale, and draining old alerts later is worse.
-                logger.warning("push delivery failed: %s", exc)
-        except Exception:
-            logger.warning("push delivery failed", exc_info=True)
+        except GoneError:
+            self.store.remove(subscription)
+        except Exception as exc:  # noqa: BLE001 - whatever a relay does, the worker lives
+            # Intentionally no retry: an answer prompt delayed by a relay
+            # outage is stale, and draining old alerts later is worse.
+            logger.warning("%s push delivery failed: %s", kind, exc)
         return False
 
 
@@ -529,8 +620,14 @@ class PushManager:
     def subscribe(self, subscription: dict, origin: str | None = None) -> None:
         """`origin`: the app's, as the subscribing page sent it, for a declarative push's
         absolute address (_declarative); the page re-subscribes on every boot (push.js)."""
+        kind = _ident(subscription)[0]
+        if kind not in self.sender.transports:
+            raise ValueError(f"{kind} push is not configured on this daemon")
         if not _valid_subscription(subscription):
             raise ValueError("invalid push subscription")
+        if kind != "web":
+            self.store.upsert({key: subscription[key] for key in ("kind", "token", "env")})
+            return
         endpoint = subscription["endpoint"]
         keys = subscription["keys"]
         self.store.upsert({"endpoint": endpoint, "keys": {

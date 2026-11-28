@@ -231,6 +231,16 @@ class PushUnsubscribeBody(BaseModel):
     endpoint: str = Field(min_length=1, max_length=4096)
 
 
+class NativePushBody(BaseModel):
+    """A native shell's device, to subscribe or unsubscribe. `fcm` is the contract's name
+    for Android, which no transport serves yet: subscribing it is refused as unconfigured."""
+
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["apns", "fcm"]
+    token: str = Field(min_length=1, max_length=4096)
+    env: Literal["development", "production"] | None = None
+
+
 class PushAnswerBody(BaseModel):
     nonce: str = Field(min_length=16, max_length=200)
     option_index: int = Field(ge=0)
@@ -929,13 +939,15 @@ async def get_state(v: int | None = None):
 
 @app.get("/api/push/config")
 def push_config():
-    """Return the stable VAPID public key needed by PushManager.subscribe()."""
+    """Return the stable VAPID public key needed by PushManager.subscribe(), and the native
+    transports a shell can subscribe to (none without their credentials)."""
     _, public = app.state.push.store.keys()
-    return {"public_key": public}
+    return {"public_key": public,
+            "native": sorted(set(app.state.push.sender.transports) - {"web"})}
 
 
 @app.post("/api/push/subscribe")
-def push_subscribe(body: PushSubscriptionBody, request: Request):
+def push_subscribe(body: PushSubscriptionBody | NativePushBody, request: Request):
     try:
         app.state.push.subscribe(body.model_dump(), request.headers.get("origin"))
     except ValueError as exc:
@@ -946,8 +958,8 @@ def push_subscribe(body: PushSubscriptionBody, request: Request):
 
 
 @app.post("/api/push/unsubscribe")
-def push_unsubscribe(body: PushUnsubscribeBody, request: Request):
-    removed = app.state.push.store.remove(body.endpoint)
+def push_unsubscribe(body: PushUnsubscribeBody | NativePushBody, request: Request):
+    removed = app.state.push.store.remove(body.model_dump())
     _audit(request, "push_unsubscribe", "push", detail=f"removed={removed}")
     return {"ok": True, "removed": removed}
 

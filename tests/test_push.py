@@ -4,10 +4,15 @@ import queue
 import shutil
 import subprocess
 import threading
+from base64 import urlsafe_b64decode
 from datetime import UTC, datetime
 from pathlib import Path
 
+import httpx
 import pytest
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 from py_vapid import Vapid
 from pydantic import ValidationError
 
@@ -76,6 +81,8 @@ class Watcher:
 
 
 class Sender:
+    transports = ("web", "apns")
+
     def __init__(self, available=True):
         self.payloads = []
         self.available = available
@@ -194,10 +201,6 @@ def test_sender_delivers_to_devices_in_parallel(monkeypatch):
         def keys():
             return push._new_keys()[0], "unused"
 
-        @staticmethod
-        def remove(_endpoint):
-            return False
-
     barrier = threading.Barrier(2)
     delivered = []
     done = threading.Event()
@@ -217,14 +220,13 @@ def test_sender_delivers_to_devices_in_parallel(monkeypatch):
 
 
 @pytest.mark.parametrize("override", [None, "mailto:operator@example.com"])
-def test_sender_vapid_contact_default_and_override(monkeypatch, override):
+def test_sender_vapid_contact_default_and_override(tmp_path, monkeypatch, override):
     monkeypatch.delenv("TMUXRC_PUSH_SUBJECT", raising=False)
     if override is not None:
         monkeypatch.setenv("TMUXRC_PUSH_SUBJECT", override)
     sent = []
     monkeypatch.setattr(push, "webpush", lambda **kwargs: sent.append(kwargs))
-    sender = object.__new__(push.PushSender)
-    sender._deliver(subscription(), {"title": "Question"}, "test-key")
+    push._web(push.PushStore(tmp_path / "push.json"))(subscription(), {"title": "Question"})
     assert len(sent) == 1
     assert sent[0]["vapid_claims"]["sub"] == (override or "mailto:tmux-rc@openbus.io")
 
@@ -233,17 +235,16 @@ def test_apple_devices_get_a_declarative_push_that_ios_opens_itself(tmp_path, mo
     sent = []
     monkeypatch.setattr(push, "webpush", lambda **kwargs: sent.append(
         (kwargs["subscription_info"]["endpoint"], json.loads(kwargs["data"]))))
-    manager = push.PushManager.__new__(push.PushManager)
-    manager.store = push.PushStore(tmp_path / "push.json")
+    manager, _ = globals()["manager"](tmp_path, Watcher(), [0.0])
     manager.subscribe(subscription(), "https://app.example.org")
     manager.subscribe(subscription("https://fcm.googleapis.com/fcm/send/x"), "https://app.example.org")
     manager.subscribe(subscription("https://web.push.apple.com/Q2/no-origin"))
     payload = {"title": "Question", "body": "Ship it?", "tag": "block:%7", "url": "/m#pane=%257",
                "actions": [{"action": "answer:0", "title": "Yes"}], "nonce": "n"}
-    sender = object.__new__(push.PushSender)
+    deliver = push._web(manager.store)
     for item in manager.store.subscriptions():
-        sender._deliver(item, payload, "test-key")
-        sender._deliver(item, {**payload, "chat": "card"}, "test-key")
+        deliver(item, payload)
+        deliver(item, {**payload, "chat": "card"})
     declarative = {"web_push": 8030, "notification": {
         "title": "Question", "body": "Ship it?", "tag": "block:%7",
         "navigate": "https://app.example.org/m#pane=%257"}}
@@ -1211,3 +1212,165 @@ def test_a_screen_s_turn_is_the_same_under_any_card_version_or_width(monkeypatch
     assert _turn(None, box("sleep 10s")) != _turn(None, box("sleep 20s"))
     assert _turn(None, box("ls a b")) != _turn(None, box("ls ab"))
     assert _turn("t1", box("ls")) == "t1"  # the transcript, when there is one
+
+
+APNS_TOKEN = "ab12" * 16
+
+
+def apns(tmp_path, monkeypatch, answer=lambda _request: httpx.Response(200)):
+    """A sender whose APNs transport talks to `answer` in Apple's place, with invented
+    credentials; the requests it got, and the key their bearer must verify against."""
+    key = ec.generate_private_key(ec.SECP256R1())
+    (tmp_path / "apns.p8").write_bytes(key.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption()))
+    for name, value in (("KEY_ID", "KEY1234567"), ("TEAM_ID", "TEAM123456"),
+                        ("TOPIC", "org.example.shell")):
+        monkeypatch.setenv(f"TMUXRC_APNS_{name}", value)
+    requests = []
+    store = push.PushStore(tmp_path / "push.json")
+    sender = push.PushSender(store, {"apns": push._apns(tmp_path, httpx.MockTransport(
+        lambda request: requests.append(request) or answer(request)))})
+    return sender, requests, key.public_key()
+
+
+def unb64(part):
+    return urlsafe_b64decode(part + "=" * (-len(part) % 4))
+
+
+def test_apns_is_absent_without_its_credentials(tmp_path, monkeypatch):
+    assert set(push._transports(push.PushStore(tmp_path / "push.json"), tmp_path)) == {"web"}
+    sender, _, _ = apns(tmp_path, monkeypatch)
+    sender.close()
+    assert set(push._transports(sender.store, tmp_path)) == {"web", "apns"}
+    monkeypatch.delenv("TMUXRC_APNS_TOPIC")
+    assert set(push._transports(sender.store, tmp_path)) == {"web"}
+    monkeypatch.setenv("TMUXRC_APNS_TOPIC", "org.example.shell")
+    (tmp_path / "apns.p8").write_text("not a key")
+    assert set(push._transports(sender.store, tmp_path)) == {"web"}
+    (tmp_path / "apns.p8").unlink()
+    (tmp_path / "apns.p8").mkdir()  # unreadable: still no reason to stop the daemon
+    assert set(push._transports(sender.store, tmp_path)) == {"web"}
+    service = push.PushManager(Watcher(), sender.store, sender=push.PushSender(sender.store, {}))
+    with pytest.raises(ValueError, match="apns push is not configured"):
+        service.subscribe({"kind": "apns", "token": APNS_TOKEN, "env": "production"})
+    service.sender.close()
+
+
+def test_a_native_device_is_notified_once_through_apple_s_host_for_its_env(tmp_path, monkeypatch):
+    """The whole path: one decision, sent as an APNs alert whose tap address and answer
+    buttons the shell reads, signed as Apple asks; and a restart does not send it again."""
+    clock, watcher = [100.0], Watcher()
+    watcher.states = [waiting(held())]
+
+    def run(env):
+        sender, requests, public = apns(tmp_path, monkeypatch)
+        service = push.PushManager(watcher, sender.store, clock=lambda: clock[0], sender=sender)
+        service.subscribe({"kind": "apns", "token": APNS_TOKEN, "env": env})
+        for _ in range(2):
+            service.evaluate()
+            clock[0] += push.SETTLE_SECONDS
+        sender.close()
+        return service, requests, public
+
+    service, (request,), public = run("development")
+    assert request.url == f"https://api.sandbox.push.apple.com/3/device/{APNS_TOKEN}"
+    body = json.loads(request.content)
+    nonce = body.pop("nonce")
+    assert body == {
+        "aps": {"alert": {"title": "Build", "body": "List the files?"}, "sound": "default",
+                "category": "answer", "mutable-content": 1},
+        "url": "/m#pane=%251&from=push", "tag": "block:%1",
+        "actions": [{"action": "answer:0", "title": "Yes"}, {"action": "answer:1", "title": "No"}]}
+    monkeypatch.setattr(push.tmux, "send_keys", lambda *_a, **_kw: None)
+    assert service.answer(nonce, 0) == ("%1", "1")  # the shell's button: /api/push/answer
+    assert request.headers["apns-topic"] == "org.example.shell"
+    assert request.headers["apns-push-type"] == "alert"
+    assert len(request.headers["apns-collapse-id"]) == 64
+    scheme, _, token = request.headers["authorization"].partition(" ")
+    header, claims, signature = token.split(".")
+    assert scheme == "bearer" and json.loads(unb64(header)) == {"alg": "ES256", "kid": "KEY1234567"}
+    assert json.loads(unb64(claims)).keys() == {"iss", "iat"}
+    assert json.loads(unb64(claims))["iss"] == "TEAM123456"
+    raw = unb64(signature)
+    public.verify(encode_dss_signature(int.from_bytes(raw[:32], "big"),
+                                       int.from_bytes(raw[32:], "big")),
+                  f"{header}.{claims}".encode(), ec.ECDSA(hashes.SHA256()))
+
+    service, requests, _ = run("production")  # a restart, the same turn: its env moved, no news
+    assert requests == []
+    assert service.store.subscriptions() == [
+        {"kind": "apns", "token": APNS_TOKEN, "env": "production"}]
+    watcher.states = [{**waiting(), "turn": "next"}]  # an ask with no options: no category
+    _, (request,), _ = run("production")
+    assert request.url.host == "api.push.apple.com"
+    assert json.loads(request.content) == {
+        "aps": {"alert": {"title": "Build", "body": "Approval needed"}, "sound": "default"},
+        "url": "/m#pane=%251&from=push", "tag": "block:%1"}
+
+
+def test_apns_reuses_its_token_and_forgets_a_dead_device(tmp_path, monkeypatch):
+    answers = {"a" * 64: httpx.Response(410, json={"reason": "Unregistered"}),
+               "b" * 64: httpx.Response(400, json={"reason": "BadDeviceToken"}),
+               "c" * 64: httpx.Response(429, json={"reason": "TooManyRequests"}),
+               "d" * 64: httpx.Response(200)}
+    sender, requests, _ = apns(
+        tmp_path, monkeypatch, lambda request: answers[request.url.path.rpartition("/")[2]])
+    web = subscription()
+    for item in (web, *({"kind": "apns", "token": token, "env": "production"}
+                        for token in answers)):
+        sender.store.upsert(item)
+    payload = {"title": "Build", "body": "Done", "tag": "block:%1", "url": "/m", "actions": []}
+    assert sender.send(payload) and sender.send(payload)
+    sender.close()
+    assert len(requests) == 4 + 2  # the dead two are not tried again
+    assert len({request.headers["authorization"] for request in requests}) == 1
+    assert [item.get("token") for item in sender.store.subscriptions()] == [
+        None, "c" * 64, "d" * 64]  # the browser has no transport here, and is left alone
+
+
+def test_a_store_from_before_native_push_keeps_its_browsers(tmp_path):
+    store = push.PushStore(tmp_path / "push.json")
+    private, public = store.keys()
+    old = {**subscription(), "origin": "https://app.example.org"}
+    store.path.write_text(json.dumps({"private_key": private, "public_key": public,
+                                      "subscriptions": [old], "turns": {"%1:123": "t0"}}))
+    service, _ = manager(tmp_path, Watcher(), [0.0])
+    device = {"kind": "apns", "token": APNS_TOKEN, "env": "development"}
+    for value in ({**device, "token": "not hex"}, {**device, "env": "staging"},
+                  {"kind": "fcm", "token": "invented"}):
+        with pytest.raises(ValueError, match=r"invalid|not configured"):
+            service.subscribe(value)
+    service.subscribe(device)
+    service.subscribe(device)
+    reloaded = push.PushStore(store.path)
+    assert reloaded.subscriptions() == [old, device]
+    assert reloaded.keys() == (private, public) and reloaded.told("%1:123", "t0")
+    assert reloaded.remove({"kind": "apns", "token": APNS_TOKEN})
+    assert not reloaded.remove({"kind": "apns", "token": old["endpoint"]})
+    assert reloaded.subscriptions() == [old]
+
+
+def test_native_subscribe_schema_and_config(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from openbus import server
+
+    sender, _, _ = apns(tmp_path, monkeypatch)
+    sender.transports["web"] = push._web(sender.store)
+    service = push.PushManager(Watcher(), sender.store, sender=sender)
+    monkeypatch.setattr(server.app.state, "push", service, raising=False)
+    monkeypatch.setattr(server, "_audit", lambda *a, **kw: None)
+    client = TestClient(server.app)
+    assert client.get("/api/push/config").json()["native"] == ["apns"]
+    device = {"kind": "apns", "token": APNS_TOKEN, "env": "production"}
+    assert client.post("/api/push/subscribe", json=device).json() == {"ok": True}
+    assert client.post("/api/push/subscribe", json=subscription()).json() == {"ok": True}
+    assert client.post("/api/push/subscribe", json={"kind": "fcm", "token": "x"}).status_code == 400
+    assert client.post("/api/push/subscribe", json={**device, "junk": 1}).status_code == 422
+    assert len(sender.store.subscriptions()) == 2
+    gone = client.post("/api/push/unsubscribe", json={"kind": "apns", "token": APNS_TOKEN})
+    assert gone.json() == {"ok": True, "removed": True}
+    gone = client.post("/api/push/unsubscribe", json={"endpoint": subscription()["endpoint"]})
+    assert gone.json() == {"ok": True, "removed": True}
+    sender.close()
