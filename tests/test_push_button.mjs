@@ -115,3 +115,83 @@ test("a browser that fails to unsubscribe after the daemon dropped it reads Reco
   const { labels } = await bell({ stuck: true });
   assert.deepEqual(labels, [ON, REPAIR]);
 });
+
+// The same bell inside the native shell: the push plugin as the shell's bridge exposes it,
+// answering register() with a token as its AppDelegate words it. No service worker exists.
+async function shellBell({ on = false, receive = "granted", taps = 1, tapped, apns = true, status = 200, returns = 0, token = true, leave = false }) {
+  const sent = [], opened = [], said = [], seen = {}, listeners = {}, kept = new Map(on ? [["tmuxrc-native-push", "1"]] : []);
+  const plugin = {
+    addListener: (name, fn) => { listeners[name] = fn; },
+    register: async () => { queueMicrotask(() => token ? listeners.registration({ value: "development:ab12" }) : listeners.registrationError({ error: "no APNs" })); },
+    checkPermissions: async () => ({ receive }), requestPermissions: async () => ({ receive: receive = "granted" }),
+  };
+  const store = { getItem: (k) => kept.get(k) ?? null, setItem: (k, v) => kept.set(k, v), removeItem: (k) => kept.delete(k) };
+  const button = { classList: { toggle() {} }, setAttribute() {} };
+  const ctx = {
+    window: {}, navigator: { userAgent: "iPhone" }, matchMedia: () => ({ matches: false }), URL,
+    location: { origin: "https://tmux.example.com" }, document: { hidden: false, addEventListener: (type, fn) => { seen[type] = fn; } },
+    fetch: async (url, { body } = {}) => {
+      if (url.endsWith("config")) return { ok: true, json: async () => ({ public_key: "AAAA", native: apns ? ["apns"] : [] }) };
+      sent.push([url.replace("/api/push/", ""), JSON.parse(body)]); return { ok: status === 200, status };
+    },
+  };
+  vm.runInNewContext(`${source}; globalThis.setupPush = setupPush; globalThis.nativePush = nativePush; globalThis.leavePush = leavePush;`, ctx);
+  const shell = ctx.nativePush(plugin, store, (...link) => opened.push(link));
+  await ctx.setupPush(button, (text) => said.push(text), "", shell);
+  const labels = [button.title];
+  for (let i = 0; i < taps; i++) { await button.onclick(); labels.push(button.title); }
+  for (let i = 0; i < returns; i++) { await seen.visibilitychange(); labels.push(button.title); }
+  if (tapped) listeners.pushNotificationActionPerformed(tapped);
+  if (leave) { await ctx.leavePush(shell); await seen.visibilitychange(); labels.push(button.title); }
+  return { labels, sent, opened, said };
+}
+
+test("native shell: turning on posts the device token, and turning off names the same device", async () => {
+  const { labels, sent } = await shellBell({ receive: "prompt", taps: 2 });
+  assert.deepEqual(labels, [OFF, ON, OFF]);
+  assert.deepEqual(sent, [["subscribe", { kind: "apns", token: "ab12", env: "development" }], ["unsubscribe", { kind: "apns", token: "ab12" }]]);
+});
+
+test("native shell: a device left on re-posts its token at boot, and one never turned on posts nothing", async () => {
+  assert.deepEqual((await shellBell({ on: true, taps: 0 })).sent, [["subscribe", { kind: "apns", token: "ab12", env: "development" }]]);
+  assert.deepEqual((await shellBell({ taps: 0 })).sent, []);
+});
+
+test("native shell: a tapped notification opens its link on the daemon's origin only", async () => {
+  const tap = (url, actionId = "tap") => shellBell({ taps: 0, tapped: { actionId, notification: { data: { url } } } });
+  assert.deepEqual((await tap("/m#pane=%251")).opened, [["https://tmux.example.com/m#pane=%251", undefined]]);
+  const chat = await shellBell({ taps: 0, tapped: { actionId: "tap", notification: { data: { url: "/m", chat: "card" } } } });
+  assert.deepEqual(chat.opened, [["https://tmux.example.com/m", "card"]]); // the page brings that chat card back
+  assert.deepEqual((await tap("https://elsewhere.example.com/m")).opened, []);
+  assert.deepEqual((await tap("/m#pane=%251", "answer:0")).opened, []); // answered natively, nothing to open
+});
+
+test("native shell: a daemon with no APNs key says so, and the device is left off", async () => {
+  const { labels, sent, said } = await shellBell({ receive: "prompt", apns: false });
+  assert.deepEqual(labels, [OFF, OFF]);
+  assert.deepEqual([sent, said], [[], ["This daemon is not set up to notify the app"]]);
+});
+
+test("native shell: a daemon that refuses the token is asked once, and the device reads Off from then on", async () => {
+  const { labels, sent } = await shellBell({ on: true, status: 400, taps: 0, returns: 2 });
+  assert.deepEqual(labels, [OFF, OFF, OFF]);
+  assert.deepEqual(sent.map(([what]) => what), ["subscribe"]); // no retry on return, and none on the next boot: it is off
+});
+
+test("native shell: a daemon that fails otherwise keeps the device for the next boot to re-post", async () => {
+  const { labels, sent } = await shellBell({ on: true, status: 502, taps: 0, returns: 1 });
+  assert.deepEqual(labels, [REPAIR, REPAIR]);
+  assert.deepEqual(sent.map(([what]) => what), ["subscribe"]);
+});
+
+test("native shell: a device whose token cannot be had reads Off with a working switch, not a dead one", async () => {
+  const { labels, said } = await shellBell({ on: true, token: false });
+  assert.deepEqual(labels, [OFF, OFF]); // the boot did not hang, and the tap ran
+  assert.deepEqual(said, ["no APNs"]);
+});
+
+test("native shell: changing server takes the device off the daemon being left", async () => {
+  const { labels, sent } = await shellBell({ on: true, taps: 0, leave: true });
+  assert.deepEqual(labels, [ON, OFF]);
+  assert.deepEqual(sent.at(-1), ["unsubscribe", { kind: "apns", token: "ab12" }]);
+});

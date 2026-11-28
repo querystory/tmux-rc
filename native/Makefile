@@ -1,0 +1,37 @@
+# The native shell (docs/design/native-app.md). The Xcode project is generated, never
+# committed: `cap add` writes them from the Capacitor templates package-lock.json pins,
+# and overlay/ holds the few files that are ours. TMUXRC_APP_ID sets the bundle id.
+.PHONY: ios sim archive
+
+node_modules: package-lock.json
+	npm ci --ignore-scripts
+	touch $@
+
+# extension.js adds the notification extension and the push entitlement to the project, the
+# scene shows AppDelegate.swift's own view controller in place of Capacitor's, and the
+# Info.plist key answers App Store Connect's export question (HTTPS only) for every build.
+ios: node_modules
+	rm -rf ios && npx cap add ios
+	cp -R overlay/ios/. ios/
+	node extension.js
+	perl -pi -e 's/CAPBridgeViewController\(\)/ShellViewController()/' ios/App/App/SceneDelegate.swift
+	grep -q 'ShellViewController()' ios/App/App/SceneDelegate.swift
+	perl -0pi -e 's|<dict>|<dict>\n\t<key>ITSAppUsesNonExemptEncryption</key>\n\t<false/>|' ios/App/App/Info.plist
+	grep -q ITSAppUsesNonExemptEncryption ios/App/App/Info.plist
+
+XCODEBUILD = xcodebuild -project ios/App/App.xcodeproj -scheme App
+
+# Unsigned, for the simulator: proves the project and our Swift compile.
+sim: ios
+	$(XCODEBUILD) -configuration Debug -sdk iphonesimulator -derivedDataPath build/ios CODE_SIGNING_ALLOWED=NO build
+
+# Signed by Xcode's automatic signing with an App Store Connect API key, then uploaded
+# (export.plist's destination). BUILD is the build number, which each upload must raise.
+ifneq ($(filter archive,$(MAKECMDGOALS)),)
+$(foreach v,TMUXRC_APP_ID APPLE_TEAM_ID ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8 BUILD,$(if $($v),,$(error $v is not set)))
+endif
+ASC = -allowProvisioningUpdates -authenticationKeyPath $(ASC_KEY_PATH) -authenticationKeyID $(ASC_KEY_ID) -authenticationKeyIssuerID $(ASC_ISSUER_ID)
+archive: ios
+	$(XCODEBUILD) -configuration Release -destination generic/platform=iOS -archivePath build/App.xcarchive \
+		DEVELOPMENT_TEAM=$(APPLE_TEAM_ID) CURRENT_PROJECT_VERSION=$(BUILD) $(ASC) archive
+	xcodebuild -exportArchive -archivePath build/App.xcarchive -exportOptionsPlist export.plist -exportPath build/export $(ASC)

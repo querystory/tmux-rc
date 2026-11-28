@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<title>tmux-rc</title>
+<style>
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #fff; color: #1a1a1a; font: 17px/1.4 system-ui, sans-serif; }
+  form { display: grid; gap: 12px; width: min(100% - 48px, 420px); }
+  h1 { margin: 0; font-size: 22px; }
+  p { margin: 0; color: #666; font-size: 15px; }
+  input, button { font: inherit; padding: 12px; border-radius: 10px; border: 1px solid #c8c8c8; }
+  button { border: 0; background: #1a1a1a; color: #fff; font-weight: 600; }
+</style>
+<form id="form">
+  <h1>tmux-rc</h1>
+  <label for="url">Your daemon's address</label>
+  <input id="url" type="url" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="https://tmux.example.com" pattern="https://.+" title="An https:// address" required>
+  <p>The https address you open tmux-rc at in a browser. It is kept on this device only.</p>
+  <button>Connect</button>
+</form>
+<script>
+  // Connects by itself once per launch. Any later arrival is a load that failed
+  // (capacitor.config.js errorPath) or the app's "Change server", and both want the form.
+  const url = document.getElementById("url"), saved = localStorage.getItem("daemon");
+  const connect = (origin) => { sessionStorage.setItem("tried", "1"); location.replace(`${origin}/m`); };
+  url.value = saved || "";
+  if (saved && !sessionStorage.getItem("tried")) connect(saved);
+  document.getElementById("form").onsubmit = (event) => {
+    event.preventDefault();
+    const { origin } = new URL(url.value);
+    localStorage.setItem("daemon", origin);
+    connect(origin);
+  };
+</script>

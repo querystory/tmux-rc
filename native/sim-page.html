@@ -1,0 +1,22 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stand-in daemon</title>
+<body style="font: 17px/1.5 system-ui; padding: 80px 24px">
+<h1>Stand-in daemon</h1>
+<p id="where"></p>
+<p id="bridge"></p>
+<p id="push"></p>
+<p id="cookies"></p>
+<script>
+  // What sim-shots.sh's screenshots are for: the shell reached this origin and answers it as
+  // its daemon, and stops answering once the same page is somewhere else.
+  const say = (id, text) => { document.getElementById(id).textContent = text; };
+  const push = window.Capacitor?.Plugins?.PushNotifications;
+  say("where", `Loaded from ${location.href}`);
+  say("bridge", `Capacitor bridge on this origin: ${push ? "yes" : "no"}`);
+  const unanswered = new Promise((resolve) => setTimeout(resolve, 3000, "nothing"));
+  Promise.race([push?.checkPermissions().then(JSON.stringify), unanswered]).then((answer) => say("push", `Push plugin answered: ${answer}`));
+  say("cookies", `Cookie prompt answered: ${JSON.stringify(prompt(JSON.stringify({ type: "CapacitorCookies.get" })))}`);
+  if (location.hostname === "localhost") setTimeout(() => location.assign("https://127.0.0.1:8443/elsewhere"), 13000);
+</script>
